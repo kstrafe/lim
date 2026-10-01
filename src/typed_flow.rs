@@ -1250,6 +1250,52 @@ impl FlowGraph {
         }
     }
 
+    /// Map consumed-entry restoration postconditions without transferring
+    /// state or proving the callee's write-entry preconditions.
+    #[cfg(test)]
+    pub fn map_referent_call_restorations(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        callee_body: &Body,
+        restored: &[Place],
+    ) -> (Vec<Place>, bool) {
+        let summary = ReferentFunctionEffects {
+            has_normal_return: true,
+            effects: restored
+                .iter()
+                .map(|place| {
+                    let (input_storage, referent_projection) =
+                        split_referent_effect_place(callee_body, place);
+                    ReferentExitEffect {
+                        place: place.clone(),
+                        input_storage,
+                        referent_projection,
+                        definitely_consumed: true,
+                        consumption_spans: Vec::new(),
+                    }
+                })
+                .collect(),
+            unresolved: Vec::new(),
+            reads: Vec::new(),
+            unresolved_reads: Vec::new(),
+            entry_reads: Vec::new(),
+            restored_from_consumed_entry: Vec::new(),
+        };
+        // The definite flag here requests exact destination substitution,
+        // not a consumption effect. Never pass this adapter to move flow.
+        let (mapped, unknown) = self.map_referent_call_effects(body, event, call, &summary);
+        (
+            mapped
+                .into_iter()
+                .filter(|effect| effect.definitely_consumed)
+                .map(|effect| effect.place)
+                .collect(),
+            unknown,
+        )
+    }
+
     /// Staged call mapping only; does not yet mutate caller ownership state.
     /// Map read identities without transferring ownership or treating these
     /// facts as complete entry requirements.

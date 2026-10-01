@@ -10143,6 +10143,77 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_restoration_mapping_requires_one_caller_destination() {
+        for ambiguous in [false, true] {
+            let reference = if ambiguous {
+                "(#if choice (#borrow-mut left) (#borrow-mut right))"
+            } else {
+                "(#borrow-mut left)"
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource))) ()
+                (#deref-set value (#struct-literal Resource ((number 3u64)))) (#return ()))
+              (#fn caller ((choice bool)) ()
+                (#let-mut left Resource (#struct-literal Resource ((number 1u64))))
+                (#let-mut right Resource (#struct-literal Resource ((number 2u64))))
+                (#let target (#ref-mut Resource) {reference})
+                (#call initialize (: value target)) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let callee = &declarations.bodies["initialize"];
+            let restored = declarations.flows["initialize"].referent_restoration_guarantees(
+                callee,
+                &types,
+                &[],
+            );
+            assert_eq!(restored.len(), 1);
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let (event, call) = flow
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                        return None;
+                    };
+                    if matches!(
+                        body.nodes[value.0].kind,
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(_),
+                            ..
+                        }
+                    ) {
+                        Some((crate::typed_flow::FlowNodeId(index), value))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let (mapped, unknown) =
+                flow.map_referent_call_restorations(body, event, call, callee, &restored);
+            assert!(!unknown);
+            assert_eq!(mapped.is_empty(), ambiguous);
+            if !ambiguous {
+                assert_eq!(mapped.len(), 1);
+                let left = crate::typed_body::BindingId(
+                    body.bindings
+                        .iter()
+                        .position(|binding| binding.name == "left")
+                        .unwrap(),
+                );
+                assert_eq!(
+                    mapped[0],
+                    crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(left))
+                );
+            }
+        }
+    }
+
+    #[test]
     fn staged_restoration_postconditions_preserve_parameter_reference_slots() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
