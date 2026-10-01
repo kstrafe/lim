@@ -10143,6 +10143,41 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_reference_field_reads_preserve_parameter_slot_identity() {
+        for (slot, accepted) in [("left", false), ("right", true)] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+              (#fn inspect ((pair Pair)) ()
+                (#let consumed (#ref-mut Resource) (#get pair left))
+                (#let selected (#ref-mut Resource) (#get pair {slot}))
+                (#forget (#deref consumed))
+                (#let number u64 (#get selected number)) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_validate_referent_uses_and_replacements(&types);
+            assert_eq!(result.is_ok(), accepted, "{slot}");
+            if !accepted {
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } =
+                    result.unwrap_err()
+                else {
+                    panic!("expected use conflict")
+                };
+                assert_eq!(function, "inspect");
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#get selected number)");
+                let origin = conflict.labels[0].0;
+                assert_eq!(
+                    &source[origin.start..origin.end],
+                    "(#forget (#deref consumed))"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn staged_reference_field_read_detects_consumed_owner() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn inspect ((value (#ref-mut Resource))) ()
