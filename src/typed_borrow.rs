@@ -107,7 +107,15 @@ pub(crate) fn check_live_direct_loans_cached(
                 } else {
                     projected
                 };
-                Some((value, (places, mutable, node.span)))
+                // This property is invariant across accesses to the scope.
+                // Inspect the node once without cloning its owned syntax.
+                let is_temporary_reference = matches!(
+                    &body.nodes[value.0].kind,
+                    NodeKind::Form { head, children, .. }
+                        if matches!(head.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut")
+                            && children.len() == 2
+                );
+                Some((value, (places, mutable, node.span, is_temporary_reference)))
             }
             _ => None,
         })
@@ -330,7 +338,9 @@ pub(crate) fn check_live_direct_loans_cached(
         let mut active_scopes = scoped_before[index].iter().copied().collect::<Vec<_>>();
         active_scopes.sort_by_key(|scope| scope.0);
         for scope in active_scopes {
-            let Some((held_places, held_mutable, held_span)) = scoped_places.get(&scope) else {
+            let Some((held_places, held_mutable, held_span, is_temporary_reference)) =
+                scoped_places.get(&scope)
+            else {
                 continue;
             };
             // A temporary borrow normally ends with its expression scope.
@@ -340,24 +350,16 @@ pub(crate) fn check_live_direct_loans_cached(
             // returned frame, while Ready can consume it and release the
             // captured external borrow before the lexical block ends.
             let carried_by_live_value = held_span.is_some_and(|span| {
-                let scoped_node = body.nodes[scope.0].kind.clone();
-                let is_temporary_reference = matches!(
-                    scoped_node,
-                    NodeKind::Form { ref head, ref children, .. }
-                        if matches!(head.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut")
-                            && children.len() == 2
-                );
-                if !is_temporary_reference {
+                if !*is_temporary_reference {
                     return true;
                 }
                 live.before(event).iter().any(|binding| {
-                    !consumptions.definitely_consumed_before(
-                        event,
-                        &Place::root(PlaceRoot::Local(*binding)),
-                    ) && origins
-                        .before(event, *binding)
-                        .iter()
-                        .any(|origin| origin.span == Some(span))
+                    !consumptions
+                        .definitely_consumed_before(event, &Place::root(PlaceRoot::Local(*binding)))
+                        && origins
+                            .before(event, *binding)
+                            .iter()
+                            .any(|origin| origin.span == Some(span))
                 })
             });
             if !carried_by_live_value {

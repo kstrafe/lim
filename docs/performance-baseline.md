@@ -19,6 +19,30 @@ not a per-phase memory profile.
 
 ## Shared typed ownership facts (2026-09-30)
 
+### Classify scoped borrow syntax once (2026-10-01)
+
+Scoped-loan conflict checking now classifies temporary reference expressions
+once when constructing its scope table. Previously every access with a live
+scope cloned the node's owned syntax and repeated this classification. The
+classification and diagnostic traversal order are unchanged.
+
+Sequential warm release measurements, baseline first, include native linking:
+
+| Warm median (ms) | Before | After | Samples |
+| --- | ---: | ---: | ---: |
+| `async_fn.lim` | 41.37 | 41.27 | 100 |
+| 64 functions with 24 reference aliases each | 39.28 | 40.11 | 60 |
+
+Executable bytes were identical. These mixed results do not establish a
+wall-clock speedup (0.2% lower async median; 2.1% higher reference median).
+The deterministic improvement is removal of repeated syntax cloning and
+classification. Both compilers included identical unrelated, uncommitted
+local-reference-store changes. All 62 typed-borrow tests and the full enabled
+integration suite passed; 743 library tests passed with the known pending
+exclusive-holder restoration regression explicitly excluded. Four existing
+integration tests remain ignored. That failing regression is not changed or
+committed by this optimization.
+
 ### Empty scoped-borrow fast path
 
 The scoped-borrow solver now returns empty event facts immediately when no
