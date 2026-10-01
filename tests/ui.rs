@@ -11,6 +11,18 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "shared-linear-referent-consumption",
+            diagnostic_code: "E4200",
+            offending_line: "  (#forget (#deref reference))",
+            line_number: 4,
+        },
+        Case {
+            name: "pinned-linear-referent-move",
+            diagnostic_code: "E4200",
+            offending_line: "  (#let moved Resource (#deref reference))",
+            line_number: 4,
+        },
+        Case {
             name: "lex",
             diagnostic_code: "E1000",
             offending_line: "  (#return \"unterminated)",
@@ -948,6 +960,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "out-of-range-match-range" => Some("(#range 2 300)"),
             "reversed-match-range" => Some("2"),
             "non-reference-deref-set" => Some("value"),
+            "shared-linear-referent-consumption" => Some("(#forget (#deref reference))"),
+            "pinned-linear-referent-move" => Some("(#deref reference)"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-ffi" => Some("(#thread-task Work work)"),
             "thread-send" => Some("(#ptr u64)"),

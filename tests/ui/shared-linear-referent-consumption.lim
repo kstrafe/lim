@@ -1,0 +1,5 @@
+(#struct Resource ((number u64)))
+(#linear Resource)
+(#fn inspect ((reference (#ref Resource))) ()
+  (#forget (#deref reference))
+  (#return ()))
