@@ -1046,6 +1046,9 @@ pub(crate) struct ParameterLoanSummary {
     pub pinned: bool,
     pub lifetime_only: bool,
     pub referent_projection: Vec<crate::typed_place::Segment>,
+    /// Slot supplying the returned loan. Dereference segments cross from a
+    /// reference value to reference-bearing storage inside its referent;
+    /// these are loads, not projections of the container's physical address.
     pub input_storage: Vec<crate::typed_place::Segment>,
     pub storage: Vec<crate::typed_place::Segment>,
 }

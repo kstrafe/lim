@@ -4630,30 +4630,77 @@ fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -
 }
 
 fn apply_parameter_loan_summary(
-    mut origin: LoanOrigin,
+    origin: LoanOrigin,
     summary: &crate::typed_body::ParameterLoanSummary,
-) -> Option<LoanOrigin> {
-    if origin.storage.len() < summary.input_storage.len()
-        || !summary
-            .input_storage
-            .iter()
-            .zip(&origin.storage)
-            .all(|(expected, actual)| storage_slot_matches(expected, actual))
-    {
-        return None;
+    state: &LoanState,
+) -> Vec<LoanOrigin> {
+    select_summary_inputs(origin, &summary.input_storage, state)
+        .into_iter()
+        .map(|mut origin| {
+            let mut storage = summary.storage.clone();
+            storage.extend(origin.storage);
+            origin.storage = storage;
+            origin.mutable = summary.mutable;
+            origin.pinned = summary.pinned;
+            origin.lifetime_only |= summary.lifetime_only;
+            origin
+                .place
+                .segments
+                .extend(summary.referent_projection.iter().cloned());
+            origin
+        })
+        .collect()
+}
+
+fn select_summary_inputs(
+    origin: LoanOrigin,
+    path: &[Segment],
+    state: &LoanState,
+) -> Vec<LoanOrigin> {
+    let Some((head, tail)) = path.split_first() else {
+        return vec![origin];
+    };
+    if *head == Segment::Dereference && origin.storage.is_empty() && !origin.lifetime_only {
+        if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
+            let mut loaded = origin;
+            loaded
+                .parameter_storage
+                .get_or_insert_with(Vec::new)
+                .extend_from_slice(path);
+            return vec![loaded];
+        }
+        if let PlaceRoot::Local(binding) = origin.place.root {
+            let mut result = Vec::new();
+            for held in &state[binding.0] {
+                let prefix = &origin.place.segments;
+                if held.storage.len() < prefix.len()
+                    || !prefix
+                        .iter()
+                        .zip(&held.storage)
+                        .all(|(expected, actual)| storage_slot_matches(expected, actual))
+                {
+                    continue;
+                }
+                let mut loaded = held.clone();
+                loaded.storage.drain(..prefix.len());
+                loaded.mutable &= origin.mutable;
+                merge_loan_origins(&mut result, &select_summary_inputs(loaded, tail, state));
+            }
+            return result;
+        }
+        return Vec::new();
     }
-    origin.storage.drain(..summary.input_storage.len());
-    let mut storage = summary.storage.clone();
-    storage.extend(origin.storage);
-    origin.storage = storage;
-    origin.mutable = summary.mutable;
-    origin.pinned = summary.pinned;
-    origin.lifetime_only |= summary.lifetime_only;
-    origin
-        .place
-        .segments
-        .extend(summary.referent_projection.iter().cloned());
-    Some(origin)
+    let mut selected = origin;
+    if selected
+        .storage
+        .first()
+        .is_some_and(|actual| storage_slot_matches(head, actual))
+    {
+        selected.storage.remove(0);
+        select_summary_inputs(selected, tail, state)
+    } else {
+        Vec::new()
+    }
 }
 
 fn global_summary_origin(summary: &crate::typed_body::ParameterLoanSummary) -> Option<LoanOrigin> {
@@ -4723,6 +4770,7 @@ fn reference_binding(body: &Body, id: NodeId) -> Option<BindingId> {
 fn projected_value_origins(
     body: &Body,
     base: NodeId,
+    value: NodeId,
     slot: &Segment,
     incoming: Vec<LoanOrigin>,
     state: &LoanState,
@@ -4741,6 +4789,31 @@ fn projected_value_origins(
             continue;
         }
         if !borrowed_container || origin.lifetime_only {
+            continue;
+        }
+        if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
+            if let Some(Type::Reference { mutable, .. } | Type::PinnedReference { mutable, .. }) =
+                &body.nodes[value.0].ty
+            {
+                origin
+                    .parameter_storage
+                    .get_or_insert_with(Vec::new)
+                    .push(Segment::Dereference);
+                origin
+                    .parameter_storage
+                    .as_mut()
+                    .unwrap()
+                    .extend(origin.place.segments.drain(..));
+                origin
+                    .parameter_storage
+                    .as_mut()
+                    .unwrap()
+                    .push(slot.clone());
+                origin.mutable &= *mutable;
+                origin.pinned =
+                    matches!(body.nodes[value.0].ty, Some(Type::PinnedReference { .. }));
+                merge_loan_origins(&mut result, &[origin]);
+            }
             continue;
         }
         let PlaceRoot::Local(binding) = origin.place.root else {
@@ -4845,9 +4918,10 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                         continue;
                     };
                     for origin in value_loan_origins(body, *argument, state) {
-                        if let Some(origin) = apply_parameter_loan_summary(origin, source) {
-                            merge_loan_origins(&mut result, &[origin]);
-                        }
+                        merge_loan_origins(
+                            &mut result,
+                            &apply_parameter_loan_summary(origin, source, state),
+                        );
                     }
                 }
                 result
@@ -4951,6 +5025,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             projected_value_origins(
                 body,
                 *base,
+                id,
                 &slot,
                 value_loan_origins(body, *base, state),
                 state,
@@ -5266,6 +5341,7 @@ fn value_loan_origins_at_events(
             return projected_value_origins(
                 body,
                 *base,
+                value,
                 &slot,
                 value_loan_origins_at_events(body, flow, before, *base, state),
                 state,
@@ -5284,9 +5360,10 @@ fn value_loan_origins_at_events(
                     };
                     for origin in value_loan_origins_at_events(body, flow, before, *argument, state)
                     {
-                        if let Some(origin) = apply_parameter_loan_summary(origin, source) {
-                            merge_loan_origins(&mut result, &[origin]);
-                        }
+                        merge_loan_origins(
+                            &mut result,
+                            &apply_parameter_loan_summary(origin, source, state),
+                        );
                     }
                 }
                 return result;
@@ -7899,6 +7976,49 @@ mod tests {
         );
         assert!(uncertain.contains(&origin(1, vec![Segment::Index(0)])));
         assert!(uncertain.contains(&origin(3, vec![Segment::DynamicIndex])));
+    }
+
+    #[test]
+    fn summary_dereference_slots_load_actual_local_loans() {
+        let origin = |root, storage| LoanOrigin {
+            place: Place::root(root),
+            mutable: true,
+            pinned: false,
+            lifetime_only: false,
+            span: None,
+            borrowed_from: None,
+            storage,
+            parameter_storage: None,
+        };
+        let state = vec![
+            vec![
+                origin(PlaceRoot::Local(BindingId(1)), vec![Segment::Tuple(0)]),
+                origin(PlaceRoot::Local(BindingId(2)), vec![Segment::Tuple(1)]),
+            ],
+            vec![],
+            vec![],
+        ];
+        let container = origin(PlaceRoot::Local(BindingId(0)), vec![]);
+        let path = [Segment::Dereference, Segment::Tuple(1)];
+        let loaded = super::select_summary_inputs(container.clone(), &path, &state);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].place.root, PlaceRoot::Local(BindingId(2)));
+        assert!(loaded[0].storage.is_empty());
+        assert!(loaded[0].mutable);
+        let mut shared = container.clone();
+        shared.mutable = false;
+        assert!(!super::select_summary_inputs(shared, &path, &state)[0].mutable);
+        let mut anchor = container;
+        anchor.lifetime_only = true;
+        assert!(super::select_summary_inputs(anchor, &path, &state).is_empty());
+        let external = origin(PlaceRoot::Parameter(BindingId(0)), vec![]);
+        let symbolic = super::select_summary_inputs(external, &path, &state);
+        assert_eq!(
+            symbolic[0].parameter_storage.as_deref(),
+            Some(path.as_slice())
+        );
+        assert!(symbolic[0].place.segments.is_empty());
+        assert_eq!(symbolic[0].place.root, PlaceRoot::Parameter(BindingId(0)));
     }
 
     #[test]

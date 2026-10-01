@@ -13418,6 +13418,7 @@ mod typed_ownership_tests {
             "ref_field_mutation",
             "pinned_self_reference",
             "aggregate_reborrow",
+            "async_fn",
         ] {
             let path = root.join("examples").join(format!("{name}.lim"));
             let source = std::fs::read_to_string(&path).unwrap();
@@ -13440,7 +13441,6 @@ mod typed_ownership_tests {
     fn staged_async_migration_gaps_are_explicit() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         for (name, expected_function, expected_message) in [
-            ("async_fn", "local-waker-clone", "missing slot provenance"),
             (
                 "async_fn_local_self_reference",
                 "local-self-ref-poll",
@@ -13480,21 +13480,29 @@ mod typed_ownership_tests {
 
     #[test]
     fn borrowed_local_reference_fields_retain_the_loaded_pointee_identity() {
-        for consumed in [false, true] {
+        for (consumed, through_call) in [(false, false), (true, false), (false, true), (true, true)]
+        {
             let destruction = if consumed {
                 "(#forget (#get owner item))"
             } else {
                 ""
             };
+            let load = if through_call {
+                "(#call load (: view outer-view))"
+            } else {
+                "(#get outer-view target)"
+            };
             let source = format!(
                 "(#struct Resource ((number u64))) (#linear Resource)
               (#struct Container ((item Resource)))
               (#struct Holder ((target (#ref Resource))))
+              (#fn load ((view (#ref Holder))) (#ref Resource)
+                (#return (#get view target)))
               (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
                 (#let holder Holder (#struct-literal Holder
                   ((target (#borrow (#get owner item))))))
                 (#let outer-view (#ref Holder) (#borrow holder))
-                (#let inner-view (#ref Resource) (#get outer-view target))
+                (#let inner-view (#ref Resource) {load})
                 (#drop outer-view) (#forget holder) {destruction}
                 (#return inner-view))"
             );
