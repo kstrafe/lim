@@ -1549,6 +1549,86 @@ impl FlowGraph {
     /// Staging gate; call effects and escaping initialization are not yet
     /// sufficient to use this as the production ownership boundary.
     #[cfg(test)]
+    pub fn check_referent_consumption_permissions(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+    ) -> Result<(), ReleaseConflict> {
+        let origins = self.loan_origins(body);
+        let moves = self.consumptions(body, types);
+        for (index, node) in self.nodes.iter().enumerate() {
+            let event = FlowNodeId(index);
+            let value = match &node.action {
+                FlowAction::Release { value, .. } => *value,
+                FlowAction::Read { value, place, .. } if moves.consumes_at(event, place) => *value,
+                _ => continue,
+            };
+            let value = match &body.nodes[value.0].kind {
+                NodeKind::Form { head, children, .. }
+                    if matches!(head.as_str(), "forget" | "drop") && children.len() == 2 =>
+                {
+                    children[1]
+                }
+                _ => value,
+            };
+            if !body.nodes[value.0]
+                .ty
+                .as_ref()
+                .is_some_and(|ty| types.is_linear(ty))
+                || !reads_through_reference(body, value)
+            {
+                continue;
+            }
+            let mut operand = value;
+            let mut reference = None;
+            for _ in 0..128 {
+                let NodeKind::Form { children, .. } = &body.nodes[operand.0].kind else {
+                    break;
+                };
+                let Some(source) = children.get(1) else {
+                    break;
+                };
+                if body.nodes[source.0].ty.as_ref().is_some_and(|ty| {
+                    matches!(
+                        ty,
+                        Type::Reference { .. }
+                            | Type::PinnedReference { .. }
+                            | Type::Slice(_)
+                            | Type::MutableSlice(_)
+                    )
+                }) {
+                    reference = Some(*source);
+                    break;
+                }
+                operand = *source;
+            }
+            let loans = reference.map_or_else(Vec::new, |reference| {
+                origins.value_before(body, self, event, reference)
+            });
+            if loans.is_empty()
+                || loans.iter().any(|loan| {
+                    !loan.mutable || loan.pinned || loan.lifetime_only || !loan.storage.is_empty()
+                })
+            {
+                return Err(ReleaseConflict {
+                    message:
+                        "consuming a linear referent requires a resolved mutable unpinned reference"
+                            .into(),
+                    span: node.span,
+                    labels: loans
+                        .iter()
+                        .filter_map(|loan| {
+                            loan.span
+                                .map(|span| (span, "reference originates here".into()))
+                        })
+                        .collect(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
     pub fn check_referent_replacements(
         &self,
         body: &Body,
