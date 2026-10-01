@@ -10143,6 +10143,41 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_symbolic_entry_consumption_tracks_initialization_before_reads() {
+        for initialized in [false, true] {
+            let write = if initialized {
+                "(#deref-set value (#struct-literal Resource ((number 2u64))))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn inspect ((value (#ref-mut Resource))) u64
+                {write} (#return (#get value number)))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
+            let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+                crate::typed_body::BindingId(0),
+            ));
+            let moves = flow.referent_consumptions_from_entry(body, &types, &[place.clone()]);
+            assert!(moves.before(flow.entry, &place).is_some());
+            assert!(moves.definitely_consumed_before(flow.entry, &place));
+            let (reads, unknown) = flow.referent_reads(body);
+            assert!(unknown.is_empty());
+            assert_eq!(reads.len(), 1);
+            assert_eq!(moves.before(reads[0].event, &place).is_none(), initialized);
+            assert_eq!(
+                moves.definitely_consumed_before(reads[0].event, &place),
+                !initialized
+            );
+        }
+    }
+
+    #[test]
     fn staged_read_only_callee_reads_map_to_caller_storage() {
         let source = "(#struct Resource ((number u64)))
           (#fn inspect ((value (#ref Resource))) u64 (#return (#get value number)))

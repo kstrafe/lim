@@ -1430,7 +1430,7 @@ impl FlowGraph {
             })
             .collect();
         let origins = self.loan_origins(body);
-        self.consumptions_with_origins_and_calls(body, types, Some(&origins), Some(&calls))
+        self.consumptions_with_origins_and_calls(body, types, Some(&origins), Some(&calls), &[])
     }
 
     fn consumptions_with_origins(
@@ -1439,7 +1439,20 @@ impl FlowGraph {
         types: &LinearTypes,
         origins: Option<&FlowLoanOrigins>,
     ) -> FlowConsumptions {
-        self.consumptions_with_origins_and_calls(body, types, origins, None)
+        self.consumptions_with_origins_and_calls(body, types, origins, None, &[])
+    }
+
+    /// Symbolic entry state for deriving initialization contracts. Seeded
+    /// storage has no source consumption span because it is an assumption.
+    #[cfg(test)]
+    pub fn referent_consumptions_from_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        consumed: &[Place],
+    ) -> FlowConsumptions {
+        let origins = self.loan_origins(body);
+        self.consumptions_with_origins_and_calls(body, types, Some(&origins), None, consumed)
     }
 
     fn consumptions_with_origins_and_calls(
@@ -1448,6 +1461,7 @@ impl FlowGraph {
         types: &LinearTypes,
         origins: Option<&FlowLoanOrigins>,
         calls: Option<&HashMap<FlowNodeId, CallConsumptionFacts>>,
+        entry_consumed: &[Place],
     ) -> FlowConsumptions {
         let resolve = |id: FlowNodeId, place: &Place, value: NodeId| {
             let value = match &body.nodes[value.0].kind {
@@ -1698,7 +1712,12 @@ impl FlowGraph {
         };
         let mut queued = vec![false; self.nodes.len()];
         let mut pending = VecDeque::from([self.entry]);
-        before[self.entry.0] = Some(HashMap::<Place, Vec<Option<Span>>>::new());
+        before[self.entry.0] = Some(
+            entry_consumed
+                .iter()
+                .map(|place| (place.clone(), vec![None]))
+                .collect::<HashMap<Place, Vec<Option<Span>>>>(),
+        );
         queued[self.entry.0] = true;
         while let Some(id) = pending.pop_front() {
             queued[id.0] = false;
@@ -1833,7 +1852,8 @@ impl FlowGraph {
         let definite_consumed_at = definite_consumed_at.as_ref().unwrap_or(&consumed_at);
         let mut queued = vec![false; self.nodes.len()];
         let mut pending = VecDeque::from([self.entry]);
-        definitely_before[self.entry.0] = Some(HashSet::new());
+        definitely_before[self.entry.0] =
+            Some(entry_consumed.iter().cloned().collect::<HashSet<Place>>());
         queued[self.entry.0] = true;
         while let Some(id) = pending.pop_front() {
             queued[id.0] = false;
