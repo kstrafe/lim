@@ -177,6 +177,7 @@ pub(crate) struct ReferentFunctionEffects {
     pub reads: Vec<ReferentRead>,
     pub unresolved_reads: Vec<FlowNodeId>,
     pub entry_reads: Vec<ReferentRead>,
+    pub restored_from_consumed_entry: Vec<Place>,
 }
 
 /// Independent read facts, not outgoing consumption or complete entry
@@ -1245,6 +1246,7 @@ impl FlowGraph {
             reads,
             unresolved_reads,
             entry_reads: Vec::new(),
+            restored_from_consumed_entry: Vec::new(),
         }
     }
 
@@ -1298,6 +1300,7 @@ impl FlowGraph {
             reads: Vec::new(),
             unresolved_reads: Vec::new(),
             entry_reads: Vec::new(),
+            restored_from_consumed_entry: Vec::new(),
         };
         let (mapped, unknown) =
             self.map_referent_call_effects_with_origins(body, event, call, &summary, origins);

@@ -10143,9 +10143,36 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_restoration_postconditions_preserve_parameter_reference_slots() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+          (#fn initialize ((pair Pair)) ()
+            (#let selected (#ref-mut Resource) (#get pair left))
+            (#deref-set selected (#struct-literal Resource ((number 2u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("initialize").unwrap()];
+        assert_eq!(summary.restored_from_consumed_entry.len(), 1);
+        let restored = &summary.restored_from_consumed_entry[0];
+        assert_eq!(
+            restored.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert!(matches!(restored.segments.as_slice(),
+            [crate::typed_place::Segment::Field(field)] if field.index == 0));
+    }
+
+    #[test]
     fn staged_restoration_guarantees_intersect_normal_returns() {
         for (write, guaranteed) in [
             ("", false),
+            ("(#unreachable)", false),
+            ("(#if choice (#unreachable) (#deref-set value (#struct-literal Resource ((number 2u64)))))", true),
             ("(#deref-set value (#struct-literal Resource ((number 2u64))))", true),
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", false),
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true),

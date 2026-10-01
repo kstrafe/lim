@@ -930,6 +930,8 @@ impl Declarations {
                 entry_reads.extend(call_entry_reads);
                 summary.entry_reads =
                     flow.filter_referent_entry_reads_with_calls(body, types, entry_reads, &calls);
+                summary.restored_from_consumed_entry =
+                    flow.referent_restoration_guarantees(body, types, &calls);
                 summary.reads.extend(call_reads);
                 summary.unresolved_reads.extend(unresolved_reads);
                 summaries.insert(self.function_id(name).unwrap(), summary);
