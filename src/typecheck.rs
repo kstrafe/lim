@@ -9527,24 +9527,36 @@ mod typed_ownership_tests {
 
     #[test]
     fn referent_replacement_staging_requires_explicit_consumption() {
-        for (cleanup, allowed) in [("", false), ("(#forget (#deref reference))", true)] {
-            let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((reference (#ref-mut Resource))) ()
+        for target in ["reference", "(#call identity (: value reference))"] {
+            for (cleanup, allowed) in [
+                ("", false),
+                ("(#forget (#deref reference))", true),
+                ("(#if choice (#forget (#deref reference)) ())", false),
+                (
+                    "(#if choice (#forget (#deref reference)) (#forget (#deref reference)))",
+                    true,
+                ),
+            ] {
+                let source = format!(
+                    "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource) (#return value))
+              (#fn inspect ((reference (#ref-mut Resource)) (choice bool)) ()
                 {cleanup}
-                (#deref-set reference (#struct-literal Resource ((number 2u64))))
+                (#deref-set {target} (#struct-literal Resource ((number 2u64))))
                 (#return ()))"
-            );
-            let program = crate::parse_program(&source).unwrap();
-            let declarations = resolve_program_for_analysis(&program, false).unwrap();
-            let result = declarations.flows["inspect"].check_referent_replacements(
-                &declarations.bodies["inspect"],
-                &crate::linearcheck::LinearTypes::from_program(&program),
-                &declarations,
-            );
-            assert_eq!(result.is_ok(), allowed, "{result:?}");
-            if let Err(error) = result {
-                assert!(error.span.is_some());
+                );
+                let program = crate::parse_program(&source).unwrap();
+                let declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let result = declarations.flows["inspect"].check_referent_replacements(
+                    &declarations.bodies["inspect"],
+                    &crate::linearcheck::LinearTypes::from_program(&program),
+                    &declarations,
+                );
+                assert_eq!(result.is_ok(), allowed, "{result:?}");
+                if let Err(error) = result {
+                    let span = error.span.unwrap();
+                    assert!(source[span.start..span.end].starts_with("(#deref-set"));
+                }
             }
         }
     }
