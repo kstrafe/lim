@@ -18,7 +18,7 @@ use crate::{Span, Type};
 pub(crate) struct FlowNodeId(pub usize);
 
 #[cfg(test)]
-type CallResultRefinement = (FlowNodeId, NodeId, VariantId, Vec<FlowNodeId>);
+type CallResultRefinement = (Vec<(FlowNodeId, NodeId)>, VariantId, Vec<FlowNodeId>);
 
 #[derive(Clone, Debug)]
 pub(crate) enum FlowAction {
@@ -1064,30 +1064,54 @@ impl FlowGraph {
                     return None;
                 };
                 let variant = constructor_variant_at_storage(body, pattern, &[])?;
-                let call =
-                    self.call_result_source(body, value, FlowNodeId(index), &predecessors)?;
-                let NodeKind::Form {
-                    callee: Some(callee),
-                    ..
-                } = &body.nodes[call.0].kind
-                else {
-                    return None;
-                };
-                body.call_store_variants.get(callee)?.get(&variant)?;
-                let mut evaluations = self.nodes.iter().enumerate().filter_map(|(index, node)| {
-                    matches!(node.action, FlowAction::Evaluate(found) if found == call)
-                        .then_some(FlowNodeId(index))
-                });
-                let call_event = evaluations.next()?;
-                if evaluations.next().is_some() {
-                    return None;
+                let sources =
+                    self.call_result_sources(body, value, FlowNodeId(index), &predecessors)?;
+                let mut calls = Vec::new();
+                for call in sources {
+                    let NodeKind::Form {
+                        callee: Some(callee),
+                        ..
+                    } = &body.nodes[call.0].kind
+                    else {
+                        return None;
+                    };
+                    body.call_store_variants.get(callee)?.get(&variant)?;
+                    let mut evaluations =
+                        self.nodes.iter().enumerate().filter_map(|(index, node)| {
+                            matches!(node.action, FlowAction::Evaluate(found) if found == call)
+                                .then_some(FlowNodeId(index))
+                        });
+                    let call_event = evaluations.next()?;
+                    if evaluations.next().is_some() {
+                        return None;
+                    }
+                    calls.push((call_event, call));
+                }
+                // Different alternatives must be mutually exclusive. A later
+                // call's variant is not determined by matching an earlier one.
+                if calls.len() > 1 {
+                    for (event, _) in &calls {
+                        let mut pending = self.nodes[event.0].successors.clone();
+                        let mut visited = HashSet::new();
+                        while let Some(next) = pending.pop() {
+                            if next == FlowNodeId(index) {
+                                continue;
+                            }
+                            if calls.iter().any(|(event, _)| *event == next) {
+                                return None;
+                            }
+                            if visited.insert(next) {
+                                pending.extend(self.nodes[next.0].successors.iter().copied());
+                            }
+                        }
+                    }
                 }
                 let mut pending = predecessors[index].clone();
                 let mut visited = HashSet::new();
                 let mut region = Vec::new();
                 let mut reached_call = false;
                 while let Some(event) = pending.pop() {
-                    if event == call_event {
+                    if calls.iter().any(|(call_event, _)| event == *call_event) {
                         reached_call = true;
                         continue;
                     }
@@ -1118,21 +1142,42 @@ impl FlowGraph {
                     region.push(event);
                     pending.extend(predecessors[event.0].iter().copied());
                 }
-                reached_call.then_some((call_event, call, variant, region))
+                reached_call.then_some((calls, variant, region))
             })
             .collect()
     }
 
     #[cfg(test)]
-    fn call_result_source(
+    fn call_result_sources(
         &self,
         body: &Body,
-        mut value: NodeId,
-        mut use_event: FlowNodeId,
+        value: NodeId,
+        use_event: FlowNodeId,
         predecessors: &[Vec<FlowNodeId>],
-    ) -> Option<NodeId> {
-        let mut bindings = Vec::new();
-        loop {
+    ) -> Option<Vec<NodeId>> {
+        let mut pending_values = vec![(value, use_event, Vec::new())];
+        let mut calls = Vec::new();
+        while let Some((value, use_event, mut bindings)) = pending_values.pop() {
+            let mut alternatives = Vec::new();
+            collect_result_alternatives(body, value, &mut alternatives);
+            if alternatives.is_empty() {
+                return None;
+            }
+            if alternatives != [value] {
+                for alternative in alternatives {
+                    let mut evaluations =
+                        self.nodes.iter().enumerate().filter_map(|(index, node)| {
+                            flow_action_has_value(&node.action, alternative)
+                                .then_some(FlowNodeId(index))
+                        });
+                    let event = evaluations.next()?;
+                    if evaluations.next().is_some() {
+                        return None;
+                    }
+                    pending_values.push((alternative, event, bindings.clone()));
+                }
+                continue;
+            }
             if matches!(
                 body.nodes[value.0].kind,
                 NodeKind::Form {
@@ -1140,7 +1185,10 @@ impl FlowGraph {
                     ..
                 }
             ) {
-                return Some(value);
+                if !calls.contains(&value) {
+                    calls.push(value);
+                }
+                continue;
             }
             let place = Place::from_expression(body, value)?;
             let PlaceRoot::Local(binding) = place.root else {
@@ -1191,9 +1239,9 @@ impl FlowGraph {
             if !reached_definition {
                 return None;
             }
-            value = source;
-            use_event = definition;
+            pending_values.push((source, definition, bindings));
         }
+        (!calls.is_empty()).then_some(calls)
     }
 
     /// Final reference contents on normal returns. Missing paths retain the
@@ -1518,8 +1566,10 @@ impl FlowGraph {
         };
         #[cfg(test)]
         for (event, refinement) in refinements.iter().enumerate() {
-            if let Some((call_event, _, _, _)) = refinement {
-                snapshot_users[call_event.0].push(FlowNodeId(event));
+            if let Some((calls, _, _)) = refinement {
+                for (call_event, _) in calls {
+                    snapshot_users[call_event.0].push(FlowNodeId(event));
+                }
             }
         }
         let mut empty = vec![Vec::new(); body.bindings.len()];
@@ -1559,51 +1609,35 @@ impl FlowGraph {
                 }
                 FlowAction::Pattern { pattern, value } => {
                     #[cfg(test)]
-                    if let Some((call_event, call, variant, region)) = &refinements[id.0] {
-                        if let Some(entry) = &before[call_event.0] {
-                            let NodeKind::Form {
-                                callee: Some(callee),
-                                ..
-                            } = &body.nodes[call.0].kind
-                            else {
-                                unreachable!()
+                    if let Some((calls, variant, region)) = &refinements[id.0] {
+                        for store in
+                            joined_call_variant_stores(body, self, &before, calls, *variant)
+                        {
+                            let PlaceRoot::Local(target) = store.destination.place.root else {
+                                continue;
                             };
-                            if let Some(summaries) = body
-                                .call_store_variants
-                                .get(callee)
-                                .and_then(|groups| groups.get(variant))
+                            if !store.definitely_written
+                                || store.destination.lifetime_only
+                                || region
+                                    .iter()
+                                    .any(|event| match &self.nodes[event.0].action {
+                                        FlowAction::Assign { place, .. }
+                                        | FlowAction::Release { place, .. } => {
+                                            place.root == PlaceRoot::Local(target)
+                                        }
+                                        FlowAction::ScopeExit(bindings) => {
+                                            bindings.contains(&target)
+                                        }
+                                        _ => false,
+                                    })
                             {
-                                for store in substitute_call_stores(
-                                    body, self, &before, *call, entry, summaries,
-                                ) {
-                                    let PlaceRoot::Local(target) = store.destination.place.root
-                                    else {
-                                        continue;
-                                    };
-                                    if !store.definitely_written
-                                        || store.destination.lifetime_only
-                                        || region.iter().any(|event| {
-                                            match &self.nodes[event.0].action {
-                                                FlowAction::Assign { place, .. }
-                                                | FlowAction::Release { place, .. } => {
-                                                    place.root == PlaceRoot::Local(target)
-                                                }
-                                                FlowAction::ScopeExit(bindings) => {
-                                                    bindings.contains(&target)
-                                                }
-                                                _ => false,
-                                            }
-                                        })
-                                    {
-                                        continue;
-                                    }
-                                    replace_projected_origins(
-                                        &mut state[target.0],
-                                        &store.destination.place.segments,
-                                        store.incoming,
-                                    );
-                                }
+                                continue;
                             }
+                            replace_projected_origins(
+                                &mut state[target.0],
+                                &store.destination.place.segments,
+                                store.incoming,
+                            );
                         }
                     }
                     let origins = value_loan_origins_at_events(body, self, &before, *value, &state);
@@ -6003,6 +6037,64 @@ fn apply_parameter_loan_summary(
             origin
         })
         .collect()
+}
+
+#[cfg(test)]
+fn joined_call_variant_stores(
+    body: &Body,
+    flow: &FlowGraph,
+    before: &[Option<LoanState>],
+    calls: &[(FlowNodeId, NodeId)],
+    variant: VariantId,
+) -> Vec<LoanStore> {
+    let mut result: Option<Vec<LoanStore>> = None;
+    for (event, call) in calls {
+        let Some(entry) = &before[event.0] else {
+            return Vec::new();
+        };
+        let NodeKind::Form {
+            callee: Some(callee),
+            ..
+        } = &body.nodes[call.0].kind
+        else {
+            return Vec::new();
+        };
+        let Some(summaries) = body
+            .call_store_variants
+            .get(callee)
+            .and_then(|groups| groups.get(&variant))
+        else {
+            return Vec::new();
+        };
+        let stores = substitute_call_stores(body, flow, before, *call, entry, summaries);
+        if let Some(common) = &mut result {
+            common.retain_mut(|held| {
+                let mut found = false;
+                for incoming in &stores {
+                    if incoming.definitely_written
+                        && !incoming.destination.lifetime_only
+                        && incoming.destination.place == held.destination.place
+                    {
+                        found = true;
+                        merge_loan_origins(&mut held.incoming, &incoming.incoming);
+                    }
+                }
+                found
+            });
+        } else {
+            result = Some(
+                stores
+                    .into_iter()
+                    .filter(|store| {
+                        store.definitely_written
+                            && !store.destination.lifetime_only
+                            && matches!(store.destination.place.root, PlaceRoot::Local(_))
+                    })
+                    .collect(),
+            );
+        }
+    }
+    result.unwrap_or_default()
 }
 
 #[cfg(test)]

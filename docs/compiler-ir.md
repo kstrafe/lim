@@ -373,8 +373,17 @@ destinations can be replaced. Unknown builtin effects are not assumed pure.
 `examples/callee_variant_clear.lim` now passes this staged caller solver, while
 Pending mutation, intervening writes/calls, and reassigned results still fail
 with the original mutation span. `examples/callee_variant_alias_clear.lim`
-exercises two explicit result moves and exits 42. Branch-valued result lineages,
-projected/aggregate scrutinees, parameter contents, and ownership restoration
+exercises two explicit result moves and exits 42. The staged solver also joins
+`#if`, `#match`, and block-valued results, including branch-local moves and
+different callees. Each normal result path must identify a call, and multiple
+calls must be mutually exclusive before the selected pattern. Only destinations
+definitely written by every alternative are replaced; incoming loans are unioned
+using each call's original snapshot. Unknown results, different destinations,
+missing writes, and sequential call selection cannot fabricate clearing.
+Returned old values retain their separate loans. Snapshot dependencies include
+every call alternative. `examples/callee_variant_branch_clear.lim` exercises
+both branches and exits 84. Loop/projected/aggregate scrutinees, parameter
+contents, and ownership restoration
 still need integration; this is not enabled
 in production.
 Return-variant-conditioned clearing, storage contents after parameter writes,

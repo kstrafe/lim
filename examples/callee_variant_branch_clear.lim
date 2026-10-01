@@ -1,0 +1,42 @@
+; Either result path clears the same holder. Exercise both branches at runtime.
+(#enum Choice ((Empty) (Full (#ref u64))))
+(#enum Outcome ((Ready) (Pending)))
+
+(#fn step-choice (: target (#ref-mut Choice) : value (#ref u64) : complete bool) Outcome
+  (#return
+    (#if complete
+      (#block (#deref-set target (Empty)) (Ready))
+      (#block (#deref-set target (Full value)) (Pending)))))
+
+(#fn branch-run (: selected bool) u64
+  (#let old u64 7u64)
+  (#let-mut value u64 42u64)
+  (#let-mut holder Choice (Full (#borrow old)))
+  (#let target (#ref-mut Choice) (#borrow-mut holder))
+  (#let first Outcome
+    (#call step-choice (: target target : value (#borrow value) : complete false)))
+  (#drop target)
+  (#let result u64
+    (#match first
+      (#case (Ready) 0u64)
+      (#case (Pending)
+        (#match holder
+          (#case (Empty) 0u64)
+          (#case (Full view) (#deref view))))))
+  (#let next-target (#ref-mut Choice) (#borrow-mut holder))
+  (#let second Outcome
+    (#if selected
+      (#call step-choice (: target next-target : value (#borrow value) : complete true))
+      (#call step-choice (: target next-target : value (#borrow value) : complete true))))
+  (#drop next-target)
+  (#let output u64
+    (#match second
+      (#case (Ready) (#block (#set value 1u64) result))
+      (#case (Pending) (#unreachable))))
+  (#forget holder)
+  (#return output))
+
+(#fn main () u64
+  (#let left u64 (#call branch-run (: selected true)))
+  (#let right u64 (#call branch-run (: selected false)))
+  (#return (#u64.+.wrap left right)))

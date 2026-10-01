@@ -12416,6 +12416,176 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_branch_call_results_join_only_common_guaranteed_stores() {
+        let native =
+            crate::parse_program(include_str!("../examples/callee_variant_branch_clear.lim"))
+                .unwrap();
+        let declarations = resolve_program_for_analysis(&native, false).unwrap();
+        let body = &declarations.bodies["branch-run"];
+        let flow = &declarations.flows["branch-run"];
+        let types = crate::linearcheck::LinearTypes::from_program(&native);
+        let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+        crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache).unwrap();
+        let original = include_str!("../examples/callee_variant_clear.lim");
+        let call =
+            "(#call step-choice (: target next-target : value (#borrow value) : complete true))";
+        for mode in [
+            "if",
+            "nested",
+            "match",
+            "local-moves",
+            "distinct-callees",
+            "unknown",
+            "different-destinations",
+            "unwritten",
+            "sequential",
+        ] {
+            let other =
+                "(#call other-step (: target next-target : value (#borrow value) : complete true))";
+            let replacement = match mode {
+                "if" => format!("(#if true {call} {call})"),
+                "nested" => format!("(#if true (#block {call}) (#if false {call} {call}))"),
+                "match" => format!("(#match true (#case true {call}) (#case false {call}))"),
+                "local-moves" => format!("(#if true (#block (#let saved Outcome {call}) saved) (#block (#let alternate Outcome {call}) alternate))"),
+                "distinct-callees" | "unwritten" => format!("(#if true {call} {other})"),
+                "unknown" => format!("(#if true {call} (Ready))"),
+                "different-destinations" => format!("(#if true {call} (#call step-choice (: target (#borrow-mut other-holder) : value (#borrow value) : complete true)))"),
+                "sequential" => format!("(#block (#let earlier Outcome {call}) (#let later Outcome {}) (#if true (#block (#forget later) earlier) (#block (#forget earlier) later)))", call.replace("complete true", "complete false")),
+                _ => unreachable!(),
+            };
+            let mut source = original.replace(call, &replacement);
+            if mode == "different-destinations" {
+                source = source
+                    .replace(
+                        "(#let next-target",
+                        "(#let-mut other-holder Choice (Empty)) (#let next-target",
+                    )
+                    .replace(
+                        "(#forget holder)",
+                        "(#forget holder) (#forget other-holder)",
+                    );
+            }
+            if matches!(mode, "distinct-callees" | "unwritten") {
+                let writes = if mode == "unwritten" {
+                    ""
+                } else {
+                    "(#deref-set target (Empty))"
+                };
+                source.push_str(&format!("\n(#fn other-step (: target (#ref-mut Choice) : value (#ref u64) : complete bool) Outcome {writes} (#return (Ready)))"));
+            }
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if matches!(
+                mode,
+                "unknown" | "different-destinations" | "unwritten" | "sequential"
+            ) {
+                let conflict = checked.expect_err(mode);
+                assert!(
+                    conflict.message.contains("value") && conflict.message.contains("borrow"),
+                    "{mode}: {conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#set value 1u64)", "{mode}");
+            } else {
+                checked.unwrap();
+                crate::check_types(&program).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn staged_branch_call_results_retain_sources_from_every_alternative() {
+        for mutation in [None, Some("left"), Some("right")] {
+            let change = mutation
+                .map(|name| format!("(#set {name} 1u64)"))
+                .unwrap_or_default();
+            let source = format!(
+                "(#enum Holder ((Empty) (Full (#ref u64))))
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn store (: target (#ref-mut Holder) : value (#ref u64)) Outcome
+                  (#deref-set target (Full value)) (#return (Ready)))
+                (#fn main () u64
+                  (#let-mut left u64 7u64) (#let-mut right u64 42u64)
+                  (#let-mut holder Holder (Empty))
+                  (#let result Outcome (#if true
+                    (#call store (: target (#borrow-mut holder) : value (#borrow left)))
+                    (#call store (: target (#borrow-mut holder) : value (#borrow right)))))
+                  (#let output u64 (#match result
+                    (#case (Ready) (#block {change} 0u64)) (#case (Pending) 0u64)))
+                  (#forget holder) (#set left 9u64) (#set right 9u64) (#return output))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if let Some(name) = mutation {
+                let conflict = checked.unwrap_err();
+                assert!(
+                    conflict.message.contains(name) && conflict.message.contains("borrow"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], change);
+            } else {
+                checked.unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn staged_branch_clearing_keeps_loans_carried_by_the_returned_value() {
+        for premature in [false, true] {
+            let mutation = if premature { "(#set old 9u64)" } else { "" };
+            let source = format!("(#enum Choice ((Empty) (Full (#ref u64))))
+                (#enum Outcome ((Ready Choice) (Pending)))
+                (#fn take (: target (#ref-mut Choice) : replacement (#ref u64) : selected bool) Outcome
+                  (#return (#if selected
+                    (#block (#let previous Choice (#deref target))
+                      (#deref-set target (Empty)) (Ready previous))
+                    (#block (#deref-set target (Full replacement)) (Pending)))))
+                (#fn main () u64
+                  (#let-mut old u64 7u64) (#let replacement u64 42u64)
+                  (#let-mut holder Choice (Full (#borrow old)))
+                  (#let result Outcome (#if true
+                    (#call take (: target (#borrow-mut holder) : replacement (#borrow replacement) : selected true))
+                    (#call take (: target (#borrow-mut holder) : replacement (#borrow replacement) : selected true))))
+                  (#let output u64 (#match result
+                    (#case (Ready previous) (#block {mutation} (#forget previous) 0u64))
+                    (#case (Pending) 0u64)))
+                  (#forget holder) (#set old 9u64) (#return output))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if premature {
+                let conflict = checked.unwrap_err();
+                assert!(
+                    conflict.message.contains("old") && conflict.message.contains("borrow"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], mutation);
+            } else {
+                checked.unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn staged_variant_store_refinement_tracks_result_moves_and_direct_calls() {
         let native =
             crate::parse_program(include_str!("../examples/callee_variant_alias_clear.lim"))
