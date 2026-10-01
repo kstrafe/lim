@@ -5310,7 +5310,8 @@ impl FlowGraph {
     /// lifetime-only anchors carried by unsafe pointer-derived references.
     /// Mandatory static slots require provenance in every result alternative;
     /// Constructor trees and definite discriminant facts identify active enum
-    /// payloads; unknown stored variants still need completeness facts.
+    /// payloads. Unknown variants require origins for every possible payload;
+    /// lack of a definite discriminant cannot prove a payload inactive.
     #[cfg(test)]
     fn check_returned_referents_initialized(
         &self,
@@ -5394,7 +5395,7 @@ impl FlowGraph {
                             .or_else(|| stored_variants.as_ref()?.get(&Place {
                                 root: PlaceRoot::Local(BindingId(0)),
                                 segments: slot.storage[..index].to_vec(),
-                            }).copied()) != Some(*variant))
+                            }).copied()).is_some_and(|selected| selected != *variant))
                 }) {
                     continue;
                 }

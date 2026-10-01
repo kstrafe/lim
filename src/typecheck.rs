@@ -16620,6 +16620,37 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_unknown_enum_returns_cannot_hide_missing_payload_provenance() {
+        let source = "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
+          (#fn echo ((value Choice)) Choice (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        declarations
+            .bodies
+            .get_mut("echo")
+            .unwrap()
+            .parameter_loan_slots[0]
+            .remove(0);
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert!(
+            conflict.message.contains("missing slot provenance"),
+            "{conflict:?}"
+        );
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#return value)");
+    }
+
+    #[test]
     fn staged_matched_enum_returns_require_active_stored_payload_provenance() {
         for nested in [false, true] {
             let ty = if nested { "Envelope" } else { "Choice" };

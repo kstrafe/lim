@@ -1414,11 +1414,7 @@ impl Declarations {
                 Vec::new()
             };
             #[cfg(test)]
-            let returned_variants = if include_parameter_contents {
-                flow.returned_variant_summaries(body, &store_origins)
-            } else {
-                HashMap::new()
-            };
+            let returned_variants = flow.returned_variant_summaries(body, &store_origins);
             #[cfg(test)]
             let conditional_clears = if include_parameter_contents {
                 flow.parameter_clear_variant_summaries(body, &store_origins)
