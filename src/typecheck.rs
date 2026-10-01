@@ -10143,6 +10143,41 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_entry_read_inference_accounts_for_callee_consumption() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn consume ((value (#ref-mut Resource))) ()
+            (#forget (#deref value)) (#return ()))
+          (#fn caller ((value (#ref-mut Resource))) u64
+            (#forget (#deref value))
+            (#deref-set value (#struct-literal Resource ((number 2u64))))
+            (#call consume (: value value))
+            (#return (#get value number)))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let (direct, _) = declarations.flows["caller"]
+            .direct_referent_entry_reads(&declarations.bodies["caller"], &types);
+        assert!(
+            direct.is_empty(),
+            "intraprocedural filtering sees the preceding write"
+        );
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        let caller = &summaries[&declarations.function_id("caller").unwrap()];
+        assert!(
+            !caller.entry_reads.is_empty(),
+            "call consumption must invalidate the write proof"
+        );
+        assert!(
+            declarations
+                .staged_validate_referent_uses_and_replacements(&types)
+                .is_err(),
+            "entry requirements do not make an internally invalid body valid"
+        );
+    }
+
+    #[test]
     fn staged_read_only_call_entry_requires_restoration_on_every_path() {
         for (restoration, accepted) in [
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", false),

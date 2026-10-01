@@ -1412,6 +1412,17 @@ impl FlowGraph {
         types: &LinearTypes,
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
     ) -> FlowConsumptions {
+        self.referent_consumptions_with_calls_from_entry(body, types, calls, &[])
+    }
+
+    #[cfg(test)]
+    pub fn referent_consumptions_with_calls_from_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        entry_consumed: &[Place],
+    ) -> FlowConsumptions {
         let calls = calls
             .iter()
             .map(|(event, effects, unresolved)| {
@@ -1433,7 +1444,13 @@ impl FlowGraph {
             })
             .collect();
         let origins = self.loan_origins(body);
-        self.consumptions_with_origins_and_calls(body, types, Some(&origins), Some(&calls), &[])
+        self.consumptions_with_origins_and_calls(
+            body,
+            types,
+            Some(&origins),
+            Some(&calls),
+            entry_consumed,
+        )
     }
 
     fn consumptions_with_origins(
@@ -1481,6 +1498,17 @@ impl FlowGraph {
         types: &LinearTypes,
         reads: Vec<ReferentRead>,
     ) -> Vec<ReferentRead> {
+        self.filter_referent_entry_reads_with_calls(body, types, reads, &[])
+    }
+
+    #[cfg(test)]
+    pub fn filter_referent_entry_reads_with_calls(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        reads: Vec<ReferentRead>,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+    ) -> Vec<ReferentRead> {
         let mut candidates = Vec::new();
         for read in &reads {
             if matches!(
@@ -1491,11 +1519,15 @@ impl FlowGraph {
                 candidates.push(read.place.clone());
             }
         }
-        let moves = self.referent_consumptions_from_entry(body, types, &candidates);
+        let moves =
+            self.referent_consumptions_with_calls_from_entry(body, types, calls, &candidates);
         let requirements = reads
             .into_iter()
             .filter(|read| {
-                candidates.contains(&read.place) && moves.before(read.event, &read.place).is_some()
+                candidates.contains(&read.place)
+                    && moves.before[read.event.0]
+                        .as_ref()
+                        .is_some_and(|state| state.keys().any(|place| place.overlaps(&read.place)))
             })
             .collect();
         requirements

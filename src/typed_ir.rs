@@ -928,7 +928,8 @@ impl Declarations {
                 let mut summary = flow.referent_function_effects_with_calls(body, types, &calls);
                 let (mut entry_reads, _) = flow.referent_reads(body);
                 entry_reads.extend(call_entry_reads);
-                summary.entry_reads = flow.filter_referent_entry_reads(body, types, entry_reads);
+                summary.entry_reads =
+                    flow.filter_referent_entry_reads_with_calls(body, types, entry_reads, &calls);
                 summary.reads.extend(call_reads);
                 summary.unresolved_reads.extend(unresolved_reads);
                 summaries.insert(self.function_id(name).unwrap(), summary);
