@@ -1242,6 +1242,55 @@ impl FlowGraph {
     }
 
     /// Staged call mapping only; does not yet mutate caller ownership state.
+    /// Map read identities without transferring ownership or treating these
+    /// facts as complete entry requirements.
+    #[cfg(test)]
+    pub fn map_referent_call_reads(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        reads: &[ReferentRead],
+    ) -> (Vec<ReferentRead>, bool) {
+        // Reuse storage/slot substitution, not consumption transfer. The
+        // adapter is private and its result is converted back to read facts.
+        let summary = ReferentFunctionEffects {
+            has_normal_return: true,
+            effects: reads
+                .iter()
+                // Callee-local storage is not an input requirement and must
+                // never be substituted with a caller binding of the same ID.
+                .filter(|read| {
+                    matches!(
+                        read.place.root,
+                        PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
+                    )
+                })
+                .map(|read| ReferentExitEffect {
+                    place: read.place.clone(),
+                    input_storage: read.input_storage.clone(),
+                    referent_projection: read.referent_projection.clone(),
+                    definitely_consumed: false,
+                    consumption_spans: vec![read.span],
+                })
+                .collect(),
+            unresolved: Vec::new(),
+        };
+        let (mapped, unknown) = self.map_referent_call_effects(body, event, call, &summary);
+        let reads = mapped
+            .into_iter()
+            .map(|mapped| ReferentRead {
+                event,
+                place: mapped.place,
+                input_storage: mapped.input_storage,
+                referent_projection: mapped.referent_projection,
+                span: mapped.consumption_spans.into_iter().next().flatten(),
+            })
+            .collect();
+        (reads, unknown)
+    }
+
+    /// Staged outgoing consumption mapping; no state transfer on its own.
     #[cfg(test)]
     pub fn map_referent_call_effects(
         &self,

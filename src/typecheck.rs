@@ -10143,6 +10143,61 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_read_only_callee_reads_map_to_caller_storage() {
+        let source = "(#struct Resource ((number u64)))
+          (#fn inspect ((value (#ref Resource))) u64 (#return (#get value number)))
+          (#fn caller () u64
+            (#let owner Resource (#struct-literal Resource ((number 1u64))))
+            (#return (#call inspect (: value (#borrow owner)))))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let (reads, unknown) =
+            declarations.flows["inspect"].referent_reads(&declarations.bodies["inspect"]);
+        assert!(unknown.is_empty());
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                    return None;
+                };
+                if matches!(
+                    body.nodes[value.0].kind,
+                    crate::typed_body::NodeKind::Form {
+                        callee: Some(_),
+                        ..
+                    }
+                ) {
+                    Some((crate::typed_flow::FlowNodeId(index), value))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let (mapped, unknown) = flow.map_referent_call_reads(body, event, call, &reads);
+        assert!(!unknown);
+        assert_eq!(mapped.len(), 1);
+        let owner = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "owner")
+                .unwrap(),
+        );
+        assert_eq!(
+            mapped[0].place.root,
+            crate::typed_body::PlaceRoot::Local(owner)
+        );
+        assert!(matches!(mapped[0].place.segments.as_slice(),
+            [crate::typed_place::Segment::Field(field)] if field.index == 0));
+        assert_eq!(mapped[0].event, event);
+        assert_eq!(mapped[0].span, reads[0].span);
+        assert!(mapped[0].input_storage.is_none());
+    }
+
+    #[test]
     fn staged_read_facts_separate_input_slots_from_referent_fields() {
         for (slot, index) in [("left", 0), ("right", 1)] {
             let source = format!(
