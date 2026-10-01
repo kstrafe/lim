@@ -13543,11 +13543,7 @@ mod typed_ownership_tests {
                 );
             } else {
                 result.unwrap();
-                // The legacy borrow checker still rejects this aggregate
-                // initializer's projected reborrow. This regression tests
-                // staged identity preservation, not production acceptance.
-                let error = crate::check_types(&program).unwrap_err();
-                assert!(error.contains("already borrowed"), "{error}");
+                crate::check_types(&program).unwrap();
             }
         }
     }

@@ -293,6 +293,63 @@ fn block_local_reference_cannot_be_stored_in_a_field() {
 
 const PLACE_SEPARATOR: char = '\u{1f}';
 
+#[cfg(test)]
+#[test]
+fn aggregate_reborrows_suspend_every_parent_until_release() {
+    for (access, accepted) in [
+        ("(#deref-set left (#struct-literal Owner ((x 2u64)))) (#let value u64 (#deref (#get held left))) (#forget held)", false),
+        ("(#deref-set right (#struct-literal Owner ((x 2u64)))) (#let value u64 (#deref (#get held right))) (#forget held)", false),
+        ("(#forget held) (#let value u64 (#get left x))", true),
+    ] {
+        let source = format!(
+            "(#struct Owner ((x u64)))
+             (#struct Views ((left (#ref u64)) (right (#ref u64))))
+             (#fn inspect ((left (#ref-mut Owner)) (right (#ref-mut Owner))) u64
+               (#let held Views (#struct-literal Views
+                 ((left (#borrow (#get left x))) (right (#borrow (#get right x))))))
+               {access} (#return value))"
+        );
+        let program = crate::parse_program(&source).unwrap();
+        let result = crate::check_types(&program);
+        if accepted {
+            result.unwrap();
+        } else {
+            let error = result.unwrap_err();
+            assert!(error.contains("while it is immutably borrowed"), "{error}");
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn releasing_one_aggregate_does_not_resume_a_shared_parent() {
+    let source = "(#struct Owner ((x u64) (y u64)))
+        (#struct View ((item (#ref u64))))
+        (#fn inspect ((parent (#ref-mut Owner))) u64
+          (#let first View (#struct-literal View ((item (#borrow (#get parent x))))))
+          (#let second View (#struct-literal View ((item (#borrow (#get parent y))))))
+          (#forget first)
+          (#deref-set parent (#struct-literal Owner ((x 2u64) (y 3u64))))
+          (#let value u64 (#get parent x))
+          (#let observed u64 (#deref (#get second item)))
+          (#forget second) (#return value))";
+    let program = crate::parse_program(source).unwrap();
+    let error = crate::check_types(&program).unwrap_err();
+    assert!(error.contains("while it is immutably borrowed"), "{error}");
+}
+
+#[cfg(test)]
+#[test]
+fn array_constructors_retain_projected_reborrow_parents() {
+    let source = "(#struct Owner ((x u64)))
+        (#fn inspect ((parent (#ref-mut Owner))) u64
+          (#let views (#array (#ref u64) 1)
+            (#array-of (#array (#ref u64) 1) (#borrow (#get parent x))))
+          (#let result u64 (#deref (#index views 0usize)))
+          (#forget views) (#return result))";
+    crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoanKind {
     Shared(usize),
@@ -321,7 +378,7 @@ struct Context {
     reference_loans: HashMap<String, Vec<(String, String)>>,
     reference_fields:
         HashMap<String, HashMap<Vec<usize>, (HashSet<String>, Vec<(String, String)>)>>,
-    reference_parents: HashMap<String, String>,
+    reference_parents: HashMap<String, HashSet<String>>,
     allow_local_reference: bool,
     reference_types: Arc<HashSet<String>>,
     reference_variants: Arc<HashSet<String>>,
@@ -969,7 +1026,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             if !context.typed_scope_escapes {
                 ensure_origins_in_scope(&origins, context)?;
             }
-            let derived_parent = context_reborrow_parent(value, context);
+            let derived_parents = aggregate_reborrow_parents(value, context);
             let contains_mutable_references = contains_mutable_reference(
                 ty,
                 &context.reference_types,
@@ -1026,7 +1083,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                 );
                 context.thread_task_loans.insert(name.clone(), task_loans);
             } else if !moves_thread_task {
-                if let Some(parent) = derived_parent.as_ref() {
+                for parent in &derived_parents {
                     if context.mutable_references.contains(parent) {
                         context.suspended_references.insert(parent.clone());
                     }
@@ -1087,10 +1144,13 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                     {
                         continue;
                     }
-                    if derived_parent
-                        .as_ref()
-                        .is_some_and(|parent| context.mutable_references.contains(parent))
-                    {
+                    if derived_parents.iter().any(|parent| {
+                        context.mutable_references.contains(parent)
+                            && context
+                                .reference_origins
+                                .get(parent)
+                                .is_some_and(|origins| origins.contains(owner))
+                    }) {
                         if loan != owner {
                             context.loans.active.remove(owner);
                         }
@@ -1111,8 +1171,10 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                 if !loans.is_empty() {
                     context.reference_loans.insert(name.clone(), loans);
                 }
-                if let Some(parent) = derived_parent {
-                    context.reference_parents.insert(name.clone(), parent);
+                if !derived_parents.is_empty() {
+                    context
+                        .reference_parents
+                        .insert(name.clone(), derived_parents);
                 }
             }
             if *mutable {
@@ -2218,7 +2280,8 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
                 merged
                     .reference_parents
                     .entry(name.clone())
-                    .or_insert_with(|| parent.clone());
+                    .or_default()
+                    .extend(parent.iter().cloned());
             }
         }
         merged
@@ -2247,8 +2310,16 @@ fn release_dropped_value(expression: &Expr, context: &mut Context) {
         return;
     };
     let name = name.clone();
-    if let Some(parent) = context.reference_parents.remove(&name) {
-        context.suspended_references.remove(&parent);
+    if let Some(parents) = context.reference_parents.remove(&name) {
+        for parent in parents {
+            if !context
+                .reference_parents
+                .values()
+                .any(|other| other.contains(&parent))
+            {
+                context.suspended_references.remove(&parent);
+            }
+        }
     }
     let origins = context.reference_origins.remove(&name).unwrap_or_default();
     context.reference_fields.remove(&name);
@@ -2686,6 +2757,31 @@ fn context_reborrow_parent(expression: &Expr, context: &Context) -> Option<Strin
     borrowed_field_parent(expression)
 }
 
+// Only constructors retain their operands structurally. Do not interpret
+// borrows passed into arbitrary calls as loans retained by the call result.
+fn aggregate_reborrow_parents(expression: &Expr, context: &Context) -> HashSet<String> {
+    if let Some(parent) = context_reborrow_parent(expression, context) {
+        return HashSet::from([parent]);
+    }
+    let Expr::List(items) = expression else {
+        return HashSet::new();
+    };
+    let Some(Expr::Symbol(head)) = items.first() else {
+        return HashSet::new();
+    };
+    if !context.reference_types.contains(head)
+        && !context.reference_variants.contains(head)
+        && !matches!(head.as_str(), "tuple" | "array" | "array-repeat")
+    {
+        return HashSet::new();
+    }
+    items
+        .iter()
+        .skip(1)
+        .flat_map(|child| aggregate_reborrow_parents(child, context))
+        .collect()
+}
+
 fn typed_reborrow_parents(
     function: &Function,
     body: &crate::typed_body::Body,
@@ -2721,8 +2817,10 @@ fn typed_reborrow_parents(
                 continue;
             }
         }
-        let crate::typed_body::PlaceRoot::Local(binding) = place.root else {
-            continue;
+        let binding = match place.root {
+            crate::typed_body::PlaceRoot::Local(binding)
+            | crate::typed_body::PlaceRoot::Parameter(binding) => binding,
+            _ => continue,
         };
         let Some(binding_info) = body.bindings.get(binding.0) else {
             continue;

@@ -1,0 +1,21 @@
+(#struct Owner ((value u64)))
+(#struct Views ((left (#ref u64)) (right (#ref u64))))
+
+(#fn sum-views ((left (#ref-mut Owner)) (right (#ref-mut Owner))) u64
+  (#let views Views
+    (#struct-literal Views
+      (: left (#borrow (#get left value))
+       : right (#borrow (#get right value)))))
+  (#let result u64
+    (#u64.+.wrap (#deref (#get views left)) (#deref (#get views right))))
+  (#forget views)
+  (#return result))
+
+(#fn main () u64
+  (#let-mut left Owner (#struct-literal Owner (: value 19u64)))
+  (#let-mut right Owner (#struct-literal Owner (: value 23u64)))
+  (#let result u64
+    (#call sum-views (: left (#borrow-mut left) : right (#borrow-mut right))))
+  (#forget left)
+  (#forget right)
+  (#return result))

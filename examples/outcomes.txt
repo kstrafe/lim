@@ -363,3 +363,4 @@ exit 9 projected_reference_release.lim - -
 exit 49 async_conditional_return.lim - -
 exit 42 async_while_let_return.lim - -
 exit 42 linear_field_replacement.lim - -
+exit 42 aggregate_reborrow.lim - -
