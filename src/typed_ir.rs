@@ -728,6 +728,17 @@ impl Declarations {
                 _ => None,
             })
             .collect();
+        #[cfg(test)]
+        {
+            let linear = crate::linearcheck::LinearTypes::from_program(program);
+            for body in self.bodies.values_mut() {
+                body.consuming_pin_reads = body.nodes.iter().enumerate().filter_map(|(index, node)| {
+                    (matches!(&node.kind, crate::typed_body::NodeKind::Form { head, .. } if head == "pin-read")
+                        && node.ty.as_ref().is_some_and(|ty| linear.is_linear(ty)))
+                        .then_some(crate::typed_body::NodeId(index))
+                }).collect();
+            }
+        }
         self.flows = self
             .bodies
             .iter()

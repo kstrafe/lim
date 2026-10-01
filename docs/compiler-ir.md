@@ -423,6 +423,20 @@ its original input. A staged caller regression permits mutation of the released
 old input and rejects mutation of the retained replacement, with the exact
 offending statement span. This is test-only contract integration, not production
 promotion: initialized/moved contents and restoration remain unproved.
+The staged contents solver also distinguishes consuming pinned reads using
+the shared linear-type classification recorded during typed lowering. A
+proven exact mutable parameter destination loses its stored reference facts
+after a consuming `#pin-read`; later binding/return transfer uses that read's
+pre-move event snapshot. A following pinned write restores replacement source
+facts without changing the already-moved value's source. Copy-valued pinned
+reads leave contents intact. Regression checks retain the handle, transferred
+and restored sources, and exact consumption spans; the native
+`parameter_pin_restore.lim` example explicitly consumes, forgets, and restores
+parameter storage and exits 42. Empty facts still do not establish ownership
+initialization, and ambiguous destinations are not strongly cleared. The legacy
+checker still rejects restoration while a moved reference-bearing value is
+live; general consumption, conditional restoration, and production promotion
+remain open.
 Return-variant-conditioned clearing, storage contents after parameter writes,
 and definite restoration must be integrated before replacing production checking.
 

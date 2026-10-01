@@ -12448,6 +12448,87 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_copy_valued_pin_reads_keep_parameter_contents() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#fn peek (: target (#pin-ref-mut Holder)) (#ref u64)
+              (#let copied Holder (#unsafe (#pin-read target))) (#forget copied)
+              (#return (#get target view)))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let body = &declarations.bodies["peek"];
+        assert!(body.consuming_pin_reads.is_empty());
+        let id = declarations.function_id("peek").unwrap();
+        let summaries = &body.call_return_origins[&id];
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].parameter, 0);
+        assert!(!summaries[0].input_storage.is_empty());
+    }
+
+    #[test]
+    fn staged_parameter_pin_moves_preserve_transferred_and_restored_sources() {
+        for restored in [false, true] {
+            let returned = if restored {
+                "(#forget moved) (#return (#unsafe (#pin-read target)))"
+            } else {
+                "(#return moved)"
+            };
+            let source = format!(
+                "(#struct Holder (: view (#ref u64))) (#linear Holder)
+                 (#fn transfer (: target (#pin-ref-mut Holder) : replacement (#ref u64)) Holder
+                   (#let moved Holder (#unsafe (#pin-read target)))
+                   (#unsafe (#pin-write target (#struct-literal Holder (: view replacement))))
+                   {returned})"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let body = &declarations.bodies["transfer"];
+            let flow = &declarations.flows["transfer"];
+            let origins = flow.staged_parameter_store_loan_origins(body);
+            let id = declarations.function_id("transfer").unwrap();
+            let summaries = &body.call_return_origins[&id];
+            assert_eq!(summaries.len(), 1, "{restored}: {summaries:?}");
+            assert_eq!(summaries[0].parameter, usize::from(restored));
+            assert_eq!(summaries[0].storage.len(), 1);
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let moves = flow.referent_consumptions(body, &types);
+            let target = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+                crate::typed_body::BindingId(0),
+            ));
+            let write = flow.nodes.iter().position(|node| matches!(node.action, crate::typed_flow::FlowAction::Write { value, .. }
+                if matches!(&body.nodes[value.0].kind, crate::typed_body::NodeKind::Form { head, .. } if head == "pin-write"))).unwrap();
+            assert!(moves.definitely_consumed_before(crate::typed_flow::FlowNodeId(write), &target));
+            let span = moves
+                .before(crate::typed_flow::FlowNodeId(write), &target)
+                .unwrap()[0]
+                .unwrap();
+            assert_eq!(&source[span.start..span.end], "(#pin-read target)");
+            let returned = flow
+                .nodes
+                .iter()
+                .position(|node| matches!(node.action, crate::typed_flow::FlowAction::Return(_)))
+                .unwrap();
+            assert_eq!(
+                moves
+                    .before(crate::typed_flow::FlowNodeId(returned), &target)
+                    .is_some(),
+                restored
+            );
+            // The handle remains an address loan even when its contents moved.
+            assert_eq!(
+                origins
+                    .before(
+                        crate::typed_flow::FlowNodeId(returned),
+                        crate::typed_body::BindingId(0)
+                    )
+                    .len(),
+                1
+            );
+        }
+    }
+
+    #[test]
     fn staged_updated_return_contracts_retain_only_the_actual_returned_loan() {
         for premature in [false, true] {
             let mutation = if premature {

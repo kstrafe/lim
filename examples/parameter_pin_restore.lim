@@ -1,0 +1,20 @@
+; Explicitly consume reference-bearing parameter storage, then restore it.
+(#struct Holder (: view (#ref u64)))
+(#linear Holder)
+
+(#fn replace (: target (#pin-ref-mut Holder) : replacement (#ref u64)) ()
+  (#let moved Holder (#unsafe (#pin-read target)))
+  (#forget moved)
+  (#unsafe (#pin-write target (#struct-literal Holder (: view replacement))))
+  (#return ()))
+
+(#fn main () u64
+  (#let old u64 7u64)
+  (#let replacement u64 42u64)
+  (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
+  (#let target (#pin-ref-mut Holder) (#pin-borrow-mut holder))
+  (#call replace (: target target : replacement (#borrow replacement)))
+  (#drop target)
+  (#let result u64 (#deref (#get holder view)))
+  (#forget holder)
+  (#return result))

@@ -1099,6 +1099,9 @@ pub(crate) struct Body {
     /// Keeping this boundary in typed IR lets ownership analyses distinguish
     /// externally supplied reference roots from references to local owners.
     pub parameter_count: usize,
+    /// Staged move classification; Copy-valued pinned reads do not consume.
+    #[cfg(test)]
+    pub consuming_pin_reads: std::collections::HashSet<NodeId>,
     /// Interprocedural return-origin summaries shared by all checked bodies.
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     #[cfg(test)]

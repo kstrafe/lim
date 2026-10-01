@@ -1894,6 +1894,25 @@ impl FlowGraph {
                         }
                     }
                 }
+                #[cfg(test)]
+                FlowAction::Evaluate(value)
+                    if include_parameter_contents
+                        && body.consuming_pin_reads.contains(value)
+                        && matches!(&body.nodes[value.0].kind,
+                            NodeKind::Form { head, children, .. }
+                            if head == "pin-read" && children.len() == 2) =>
+                {
+                    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                        unreachable!()
+                    };
+                    let destinations =
+                        value_loan_origins_at_events(body, self, &before, children[1], &state);
+                    if one_concrete_store_destination(&destinations) {
+                        for destination in destinations {
+                            store_parameter_contents(&mut state, &destination, Vec::new(), true);
+                        }
+                    }
+                }
                 FlowAction::Release {
                     place:
                         Place {
@@ -7262,6 +7281,25 @@ fn value_loan_origins_at_events(
             return value_loan_origins_at_events(body, flow, before, children[1], state);
         }
         if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2 {
+            // Moving from a parameter consumes its contents at Evaluate. A
+            // later Bind must transfer the value from the pre-move snapshot,
+            // not reload either empty storage or a subsequent replacement.
+            #[cfg(test)]
+            let state = if body.consuming_pin_reads.contains(&value)
+                && state.parameter_contents.is_some()
+            {
+                flow.nodes
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, event)| {
+                        matches!(event.action, FlowAction::Evaluate(id) if id == value)
+                            .then(|| before[index].as_ref())
+                            .flatten()
+                    })
+                    .unwrap_or(state)
+            } else {
+                state
+            };
             let incoming = value_loan_origins_at_events(body, flow, before, children[1], state);
             return dereference_value_origins(body, incoming, state);
         }
@@ -11047,6 +11085,39 @@ mod tests {
                 graph.loan_origins(body).before(return_node, view).len(),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn staged_parameter_pin_move_empties_only_contents_until_restored() {
+        let source = include_str!("../examples/parameter_pin_restore.lim");
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["replace"];
+        let flow = &checked.declarations().flows["replace"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        for (index, event) in flow.nodes.iter().enumerate() {
+            let value = match event.action {
+                FlowAction::Evaluate(value) if body.consuming_pin_reads.contains(&value) => value,
+                FlowAction::Write { value, .. }
+                    if matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, .. } if head == "pin-write") =>
+                {
+                    value
+                }
+                _ => continue,
+            };
+            let state = origins.after[index].as_ref().unwrap();
+            let address = &state[0][0];
+            let held = loaded_parameter_value_origins(address, state);
+            if body.consuming_pin_reads.contains(&value) {
+                assert!(held.is_empty(), "moved contents survived: {held:?}");
+            } else {
+                assert_eq!(held.len(), 1);
+                assert_eq!(held[0].parameter_summary().unwrap().parameter, 1);
+            }
+            assert_eq!(state[0].len(), 1);
+            assert_eq!(address.place.root, PlaceRoot::Parameter(BindingId(0)));
         }
     }
 
