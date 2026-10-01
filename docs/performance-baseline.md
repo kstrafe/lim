@@ -709,3 +709,32 @@ outliers (up to 2.7 seconds) indicate host scheduling noise, so no universal
 speedup is claimed. Removing one complete context copy per branch merge is
 deterministic. All 835 library tests, 183 async tests, and enabled integrations
 pass; four preexisting integrations remain ignored.
+
+## Index thread worker signatures lazily
+
+The borrow checker now builds one borrowed function index on the first task
+declaration, replacing one whole-program scan per task. Programs without tasks
+do not build the index. Forward declarations and first-match lookup behavior
+are unchanged.
+
+Baseline: fe37783 with the same pending staged ownership changes in both builds.
+Warm release CLI, 256 task declarations, 30 samples per compiler, two warmups,
+no concurrent builds or tests:
+
+| Measurement order | Before median | After median |
+| --- | ---: | ---: |
+| Baseline first | 185.72 ms | 183.35 ms |
+| Optimized first | 179.21 ms | 184.86 ms |
+
+These mixed results (1.3% faster, then 3.2% slower) do not establish an
+end-to-end speedup. Lookup complexity changes from O(tasks × declarations)
+to O(declarations + tasks), excluding the unchanged parameter copying.
+Executable bytes match. All 847 library tests, 183 async tests, and enabled
+integrations pass; four preexisting integrations remain ignored.
+
+The new `--thread-heavy` benchmark also uncovered an order bias: generator
+cache maintenance scans every artifact on every lookup. Sharing one synthetic
+source directory across different compiler fingerprints grows that directory
+for the second compiler (roughly 28–32% slower in the initial measurements).
+Synthetic comparison workloads now use separate source/cache directories with
+identical contents. Real-file comparisons still share the project's cache.

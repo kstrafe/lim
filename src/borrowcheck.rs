@@ -752,21 +752,29 @@ fn check_program_impl(
         .collect::<HashSet<_>>();
     let mut thread_spawn_functions = HashMap::new();
     let mut thread_join_functions = HashSet::new();
+    // Task declarations can precede their workers. Index borrowed signatures
+    // once rather than scanning all imported declarations for every task.
+    // Keep the first declaration, matching the standalone checker's old lookup.
+    let mut workers = None;
     for item in &program.items {
         let Item::ThreadTask { name, worker, .. } = item else {
             continue;
         };
-        let parameters = program.items.iter().find_map(|item| match item {
-            Item::Function(function) if function.name == *worker => Some(
-                function
-                    .parameters
-                    .iter()
-                    .map(|parameter| parameter.ty.clone())
-                    .collect::<Vec<_>>(),
-            ),
-            _ => None,
+        let workers = workers.get_or_insert_with(|| {
+            let mut index = HashMap::new();
+            for item in &program.items {
+                if let Item::Function(function) = item {
+                    index.entry(function.name.as_str()).or_insert(function);
+                }
+            }
+            index
         });
-        if let Some(parameters) = parameters {
+        if let Some(function) = workers.get(worker.as_str()) {
+            let parameters = function
+                .parameters
+                .iter()
+                .map(|parameter| parameter.ty.clone())
+                .collect::<Vec<_>>();
             thread_spawn_functions.insert(format!("{name}-spawn"), parameters);
         }
         thread_join_functions.insert(format!("{name}-join"));

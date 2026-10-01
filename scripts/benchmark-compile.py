@@ -80,6 +80,17 @@ def scoped_heavy_source():
     return "\n".join(lines) + "\n"
 
 
+def thread_heavy_source():
+    """Exercise task/worker lookup with forward-declared worker signatures."""
+    lines = []
+    for task in range(256):
+        lines.append(f"(@thread-spawn (: task Task-{task} : worker worker-{task}))")
+    for task in range(256):
+        lines.append(f"(#fn worker-{task} ((value u64)) u64 (#return value))")
+    lines.append("(#fn main () u64 (#return 42u64))")
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, nargs="?")
@@ -89,6 +100,8 @@ def main():
                         help="benchmark 64 functions with 24 nested scoped borrows each")
     parser.add_argument("--snapshot-heavy", action="store_true",
                         help="benchmark 64 functions with 24 lexical branch-result aliases each")
+    parser.add_argument("--thread-heavy", action="store_true",
+                        help="benchmark 256 tasks with forward-declared worker signatures")
     parser.add_argument("--compiler", type=Path, default=Path("target/release/lim"))
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--repetitions", type=int, default=20)
@@ -96,8 +109,8 @@ def main():
                         help="compare exit status/stdout/stderr instead of identical binary bytes (no stdin)")
     args = parser.parse_args()
     if sum((args.source is not None, args.reference_heavy, args.scoped_heavy,
-            args.snapshot_heavy)) != 1:
-        parser.error("provide a source file, --reference-heavy, --scoped-heavy, or --snapshot-heavy")
+            args.snapshot_heavy, args.thread_heavy)) != 1:
+        parser.error("provide a source file or exactly one heavy-workload flag")
     if args.repetitions < 1:
         parser.error("--repetitions must be positive")
     with tempfile.TemporaryDirectory(prefix="lim-compile-benchmark-") as directory:
@@ -111,9 +124,21 @@ def main():
         if args.snapshot_heavy:
             args.source = Path(directory) / "snapshot-heavy.lim"
             args.source.write_text(snapshot_heavy_source())
+        if args.thread_heavy:
+            args.source = Path(directory) / "thread-heavy.lim"
+            args.source.write_text(thread_heavy_source())
         baseline = None
         if args.baseline:
             baseline = measure(args.baseline, args.source, output, args.repetitions, args.compare_runtime)
+            if args.reference_heavy or args.scoped_heavy or args.snapshot_heavy or args.thread_heavy:
+                # Each synthetic workload needs an equally sized warm cache.
+                # Compiler fingerprints otherwise leave both artifact sets in
+                # one directory and bias whichever compiler runs second.
+                isolated = Path(directory) / "current"
+                isolated.mkdir()
+                isolated_source = isolated / args.source.name
+                isolated_source.write_text(args.source.read_text())
+                args.source = isolated_source
         current = measure(args.compiler, args.source, output, args.repetitions, args.compare_runtime)
         if baseline:
             if args.compare_runtime and baseline[2] != current[2]:
