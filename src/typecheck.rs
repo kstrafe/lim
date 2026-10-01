@@ -10143,6 +10143,39 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_read_only_referent_access_is_independent_of_consumption() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn inspect ((value (#ref Resource))) u64
+            (#return (#get value number)))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        assert!(flow
+            .referent_function_effects(body, &types)
+            .effects
+            .is_empty());
+        let (reads, unresolved) = flow.referent_reads(body);
+        assert!(unresolved.is_empty());
+        assert_eq!(reads.len(), 1);
+        let read = &reads[0];
+        assert_eq!(
+            read.place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert_eq!(read.input_storage.as_deref(), Some([].as_slice()));
+        assert!(matches!(read.referent_projection.as_slice(),
+            [crate::typed_place::Segment::Field(field)] if field.index == 0));
+        assert!(matches!(
+            flow.nodes[read.event.0].action,
+            crate::typed_flow::FlowAction::Read { .. }
+        ));
+        let span = read.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#get value number)");
+    }
+
+    #[test]
     fn staged_consuming_call_entry_rejects_possible_prior_consumption() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) ()

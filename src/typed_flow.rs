@@ -176,6 +176,18 @@ pub(crate) struct ReferentFunctionEffects {
     pub unresolved: Vec<FlowNodeId>,
 }
 
+/// Independent read facts, not outgoing consumption or complete entry
+/// requirements. Prior initialization writes must be considered separately.
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct ReferentRead {
+    pub event: FlowNodeId,
+    pub place: Place,
+    pub input_storage: Option<Vec<Segment>>,
+    pub referent_projection: Vec<Segment>,
+    pub span: Option<Span>,
+}
+
 struct CallConsumptionFacts {
     possible: Vec<(Place, Vec<Option<Span>>)>,
     definite: Vec<Place>,
@@ -1022,6 +1034,57 @@ impl FlowGraph {
     pub fn referent_consumptions(&self, body: &Body, types: &LinearTypes) -> FlowConsumptions {
         let origins = self.loan_origins(body);
         self.consumptions_with_origins(body, types, Some(&origins))
+    }
+
+    #[cfg(test)]
+    pub fn referent_reads(&self, body: &Body) -> (Vec<ReferentRead>, Vec<FlowNodeId>) {
+        let origins = self.loan_origins(body);
+        let reachable = self.reachable();
+        let mut reads = Vec::new();
+        let mut unresolved = Vec::new();
+        for (index, node) in self.nodes.iter().enumerate() {
+            let event = FlowNodeId(index);
+            if !reachable.contains(&event) {
+                continue;
+            }
+            let FlowAction::Read {
+                value,
+                place,
+                place_base: false,
+            } = &node.action
+            else {
+                continue;
+            };
+            if !reads_through_reference(body, *value) {
+                continue;
+            }
+            let places = match &place.root {
+                PlaceRoot::Local(binding)
+                    if !origins
+                        .before(event, *binding)
+                        .iter()
+                        .any(|origin| origin.lifetime_only) =>
+                {
+                    origins.projected_referents_with_slots(event, *binding, &place.segments, true)
+                }
+                _ => Vec::new(),
+            };
+            if places.is_empty() {
+                unresolved.push(event);
+            }
+            for place in places {
+                let (input_storage, referent_projection) =
+                    split_referent_effect_place(body, &place);
+                reads.push(ReferentRead {
+                    event,
+                    place,
+                    input_storage,
+                    referent_projection,
+                    span: node.span,
+                });
+            }
+        }
+        (reads, unresolved)
     }
 
     /// Staged exit facts plus unresolved accesses that can reach each exit.
