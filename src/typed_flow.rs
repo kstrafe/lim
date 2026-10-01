@@ -567,11 +567,18 @@ impl FlowLoanOrigins {
         for origin in self.before(node, binding) {
             if segments.len() < origin.storage.len()
                 || (!through_deref && segments.len() == origin.storage.len())
-                || !segments.starts_with(&origin.storage)
+                || !segments
+                    .iter()
+                    .zip(&origin.storage)
+                    .all(|(selected, stored)| storage_slot_matches(selected, stored))
             {
                 continue;
             }
-            let mut place = origin_place(origin);
+            let mut selected = origin.clone();
+            for segment in &segments[..origin.storage.len()] {
+                selected.project_storage(segment);
+            }
+            let mut place = origin_place(&selected);
             place
                 .segments
                 .extend_from_slice(&segments[origin.storage.len()..]);
@@ -1685,6 +1692,10 @@ impl FlowGraph {
                         let mut alternatives = Vec::new();
                         collect_call_input_components(body, *argument, slot, &mut alternatives);
                         for (alternative, selected_slot) in alternatives {
+                            let Some(alternative) = alternative else {
+                                incomplete = true;
+                                continue;
+                            };
                             let sources = origins.value_before(body, self, event, alternative);
                             let mut selected_alternative = false;
                             for source in sources {
@@ -5969,7 +5980,7 @@ fn collect_call_input_components(
     body: &Body,
     value: NodeId,
     path: &[Segment],
-    output: &mut Vec<(NodeId, Vec<Segment>)>,
+    output: &mut Vec<(Option<NodeId>, Vec<Segment>)>,
 ) {
     let mut alternatives = Vec::new();
     collect_result_alternatives(body, value, &mut alternatives);
@@ -5982,12 +5993,16 @@ fn collect_call_input_components(
             if let Some((selected, tail)) = path.split_first() {
                 if head == "array-repeat"
                     && matches!(selected, Segment::Index(_) | Segment::DynamicIndex)
-                    && matches!(body.nodes[alternative.0].ty.as_ref(), Some(Type::Array(_, length))
+                {
+                    let valid = matches!(body.nodes[alternative.0].ty.as_ref(), Some(Type::Array(_, length))
                     if *length > 0 && match selected {
                         Segment::Index(index) => *index < *length as u128,
                         _ => true,
-                    })
-                {
+                    });
+                    if !valid {
+                        output.push((None, path.to_vec()));
+                        continue;
+                    }
                     if let Some(element) = children.get(if children.len() == 3 { 2 } else { 1 }) {
                         collect_call_input_components(body, *element, tail, output);
                         continue;
@@ -6014,10 +6029,12 @@ fn collect_call_input_components(
                     if found {
                         continue;
                     }
+                    output.push((None, path.to_vec()));
+                    continue;
                 }
             }
         }
-        output.push((alternative, path.to_vec()));
+        output.push((Some(alternative), path.to_vec()));
     }
 }
 

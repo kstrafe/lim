@@ -12017,6 +12017,109 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn repeated_array_call_slots_retain_alternatives_and_reject_missing_elements() {
+        let source = "(#fn read ((values (#array (#ref u64) 2))) u64
+              (#return (#deref (#index values 1usize))))
+            (#fn caller ((left (#ref u64)) (right (#ref u64)) (selected bool)) u64
+              (#return (#call read (: values (#array-repeat (#if selected left right))))))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        crate::check_types(&program).unwrap();
+        let (mut reads, unresolved) =
+            declarations.flows["read"].referent_reads(&declarations.bodies["read"]);
+        assert!(unresolved.is_empty());
+        assert_eq!(reads.len(), 1);
+        let read = declarations.function_id("read").unwrap();
+        let flow = &declarations.flows["caller"];
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(call) = node.action else {
+                    return None;
+                };
+                matches!(&declarations.bodies["caller"].nodes[call.0].kind,
+                crate::typed_body::NodeKind::Form { callee: Some(found), .. } if *found == read)
+                .then_some((crate::typed_flow::FlowNodeId(index), call))
+            })
+            .unwrap();
+        let (known, unknown) =
+            flow.map_referent_call_reads(&declarations.bodies["caller"], event, call, &reads);
+        assert!(!unknown);
+        assert_eq!(known.len(), 2);
+        declarations
+            .bodies
+            .get_mut("caller")
+            .unwrap()
+            .parameter_loan_slots[1]
+            .clear();
+        let (partial, unknown) =
+            flow.map_referent_call_reads(&declarations.bodies["caller"], event, call, &reads);
+        assert!(unknown);
+        assert_eq!(partial.len(), 1);
+        // Query an invalid slot explicitly: a repeat constructor must not
+        // supply arbitrary indexes merely because its stored slot is compact.
+        reads[0].input_storage = Some(vec![crate::typed_place::Segment::Index(2)]);
+        let (outside, unknown) =
+            flow.map_referent_call_reads(&declarations.bodies["caller"], event, call, &reads);
+        assert!(unknown);
+        assert!(outside.is_empty());
+        let body = declarations.bodies.get_mut("caller").unwrap();
+        let crate::typed_body::NodeKind::Form { children, .. } = &body.nodes[call.0].kind else {
+            unreachable!();
+        };
+        let argument = children[1];
+        // A zero-length repeat has no element even though its initializer
+        // has provenance. This is a structural negative, not a source fixture.
+        body.nodes[argument.0].ty = Some(crate::Type::Array(
+            Box::new(crate::Type::Reference {
+                mutable: false,
+                target: Box::new(crate::Type::U64),
+            }),
+            0,
+        ));
+        reads[0].input_storage = Some(vec![crate::typed_place::Segment::Index(0)]);
+        let (empty, unknown) = flow.map_referent_call_reads(body, event, call, &reads);
+        assert!(unknown);
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn array_held_reference_field_reads_preserve_the_concrete_input_slot() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#fn read ((values (#array (#ref Resource) 2))) u64
+              (#return (#get (#index values 1usize) number)))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        crate::check_types(&program).unwrap();
+        let (reads, unresolved) =
+            declarations.flows["read"].referent_reads(&declarations.bodies["read"]);
+        assert!(unresolved.is_empty());
+        let [read] = reads.as_slice() else {
+            panic!("expected one selected pointee field");
+        };
+        let field = crate::typed_place::Segment::Field(
+            declarations
+                .field_id(&crate::Type::Named("Resource".into()), "number")
+                .unwrap(),
+        );
+        assert_eq!(
+            read.input_storage,
+            Some(vec![crate::typed_place::Segment::Index(1)])
+        );
+        assert_eq!(read.referent_projection, vec![field.clone()]);
+        assert_eq!(
+            read.place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert_eq!(
+            read.place.segments,
+            vec![crate::typed_place::Segment::Index(1), field]
+        );
+    }
+
+    #[test]
     fn staged_whole_program_replacement_preserves_ambiguous_call_targets() {
         for (consumption, accepted) in [
             ("(#let target (#ref-mut Resource) (#if choice (#borrow-mut left) (#borrow-mut right))) (#call consume (: value target))", false),
