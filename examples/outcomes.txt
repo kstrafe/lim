@@ -31,6 +31,7 @@ exit 42 aio_owned.lim - -
 exit 42 async_fn.lim tests/fixtures/async_fn.stdout -
 exit 42 async_fn_cancel_dispatch.lim - -
 exit 42 async_for_computed_step.lim - -
+exit 42 async_for_effect_step.lim - -
 exit 42 async_early_continue.lim - -
 exit 42 async_for_unit_step.lim - -
 exit 42 async_while_let_body.lim - -

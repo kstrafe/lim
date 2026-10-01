@@ -1838,8 +1838,27 @@ order and are not reevaluated when a child reports Pending. Changes to
 captured mutable values, including writes through explicitly borrowed places,
 are returned by the generated iteration task. Terminal `#continue` runs the
 step; terminal `#break` and `#return` skip it. See
-`examples/async_for_computed_step.lim` for a runnable example. This does not
-yet imply support for arbitrary control transfers in async bodies.
+`examples/async_for_computed_step.lim` for a runnable example.
+
+A synchronous condition can also use an effect-only computed step, including
+a `#call` with an awaited argument. For example:
+
+```lisp syntax
+(#for () (#u64.< index 2u64)
+  (#call advance
+    (: next (#await u64 StepTask StepPending StepReady step-poll step-task)
+     : counter (#borrow-mut index)))
+  ())
+```
+
+Operands before the await execute once, including their side effects. An
+exclusive reference captured by the iteration is transferred into its child,
+not duplicated in the parent's Pending state. The source owner remains
+borrowed until Ready or explicit cancellation consumes the task. Conditional
+and matched `#continue` execute the step; `#break` and `#return` skip it.
+`examples/async_for_effect_step.lim` demonstrates Pending, Ready, an initially
+false condition, and a break. These forms do not yet imply support for
+arbitrary control transfers in async bodies.
 
 Conditional early `#continue`, `#break`, and `#return` can precede later awaits
 inside an iteration. The compiler keeps the remaining statements only on

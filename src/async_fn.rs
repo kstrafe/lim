@@ -1443,6 +1443,18 @@ fn conditional_value_expression_task(
         lower_async_terminal_return_markers(&mut returned_expression)?;
         if enclosing_return_type.is_some() {
             function.push(returned_expression);
+            if !function
+                .last()
+                .is_some_and(|last| form(last, "#return").is_some())
+            {
+                // Conditional terminal returns still need the ordinary
+                // function grammar's explicit final return. Every reachable
+                // branch already returns; this tail must never execute.
+                function.push(Expr::List(vec![
+                    Expr::Symbol("#return".into()),
+                    Expr::List(vec![Expr::Symbol("#unreachable".into())]),
+                ]));
+            }
         } else {
             function.push(Expr::List(vec![
                 Expr::Symbol("#return".into()),
@@ -3530,7 +3542,10 @@ fn async_while_body_child(
         }
         if let Some(items) = form(expression, "#if") {
             if items.len() == 4
-                && (has_outer_loop_control(&items[2]) || has_outer_loop_control(&items[3]))
+                && (has_outer_loop_control(&items[2])
+                    || has_outer_loop_control(&items[3])
+                    || contains_return(&items[2])
+                    || contains_return(&items[3]))
             {
                 if has_outer_loop_control(&items[1]) {
                     return Err(
@@ -3547,7 +3562,11 @@ fn async_while_body_child(
             }
         }
         if let Some(items) = form(expression, "#match") {
-            if items.len() >= 3 && items[2..].iter().any(has_outer_loop_control) {
+            if items.len() >= 3
+                && items[2..]
+                    .iter()
+                    .any(|arm| has_outer_loop_control(arm) || contains_return(arm))
+            {
                 if has_outer_loop_control(&items[1]) {
                     return Err(
                         "@async-fn composed awaited while match value cannot transfer loop control"
@@ -3670,11 +3689,17 @@ fn async_while_body_child(
         }
     }
     let mut mutable_outputs = Vec::new();
-    for capture in captures
-        .iter()
-        .filter(|capture| capture.mutable && mutated.contains(&capture.name))
-    {
-        mutable_outputs.push(capture.clone());
+    for capture in &captures {
+        let ty = parse_type(Some(&normalize_keywords(
+            crate::parse(&capture.ty)?[0].expr.clone(),
+        )))?;
+        if (capture.mutable && mutated.contains(&capture.name))
+            || async_task_capture_is_mutable_reference(&ty)
+        {
+            // The child must return exclusive handles, even if it never
+            // reassigns them. Its parent cannot retain a duplicate in Pending.
+            mutable_outputs.push(capture.clone());
+        }
     }
 
     let base = fresh_async_name(source, next_name);
@@ -5867,14 +5892,14 @@ fn lower_async_while_with_transfers(
                     .first()
                     .ok_or_else(|| "@async-fn mutable body output type is empty".to_owned())?;
                 let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
-                if !async_task_capture_is_copy(&ty) && !async_task_capture_is_mutable_reference(&ty)
+                if !async_task_capture_is_copy(&ty) || async_task_capture_is_mutable_reference(&ty)
                 {
                     transfers.push(LoopReferenceTransfer {
                         name: output.name.clone(),
                         ty: output.ty.clone(),
                         result_index: output_index + 1,
                         resumed_name: fresh_async_name(source, next_name),
-                        owned: true,
+                        owned: !async_task_capture_is_mutable_reference(&ty),
                     });
                 }
             }
@@ -6479,17 +6504,18 @@ fn lower_async_while_with_transfers(
         await_form.len() == 6 && !has_await(&await_form[5])
     });
     if body.iter().map(await_count).sum::<usize>() > 2 || !body_awaits_are_direct_bindings {
-        let (body_binding, mut body_form, body_helper, body_outputs, _) = async_while_body_child(
-            body,
-            known,
-            known_order,
-            source,
-            next_name,
-            waker,
-            false,
-            None,
-            return_type,
-        )?;
+        let (body_binding, mut body_form, body_helper, body_outputs, body_return) =
+            async_while_body_child(
+                body,
+                known,
+                known_order,
+                source,
+                next_name,
+                waker,
+                false,
+                None,
+                return_type,
+            )?;
         let binding_type = parse_type(Some(&normalize_keywords(body_form[2].clone())))?;
         let Expr::List(await_form) = &mut body_form[3] else {
             unreachable!("generated body await initializer is a list")
@@ -6517,8 +6543,47 @@ fn lower_async_while_with_transfers(
         ]);
         let mut rewritten = vec![Expr::Symbol("#while".into()), loop_condition];
         rewritten.push(Expr::List(body_form));
+        let mut body_value = Expr::Symbol(body_binding.name.clone());
+        if let Some((_, continued, returned, payload_type)) = body_return {
+            let payload_name = fresh_async_name(source, next_name);
+            let result_name = fresh_async_name(source, next_name);
+            let data_name = fresh_async_name(source, next_name);
+            rewritten.push(Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(data_name.clone()),
+                payload_type,
+                Expr::List(vec![
+                    Expr::Symbol("#match".into()),
+                    body_value,
+                    Expr::List(vec![
+                        Expr::Symbol("#case".into()),
+                        Expr::List(vec![
+                            Expr::Symbol(continued),
+                            Expr::Symbol(payload_name.clone()),
+                        ]),
+                        Expr::Symbol(payload_name),
+                    ]),
+                    Expr::List(vec![
+                        Expr::Symbol("#case".into()),
+                        Expr::List(vec![
+                            Expr::Symbol(returned),
+                            Expr::Symbol(result_name.clone()),
+                        ]),
+                        Expr::List(vec![
+                            Expr::Symbol("#block".into()),
+                            Expr::List(vec![
+                                Expr::Symbol("#return".into()),
+                                Expr::Symbol(result_name),
+                            ]),
+                        ]),
+                    ]),
+                ]),
+            ]));
+            body_value = Expr::Symbol(data_name);
+        }
+        let mut child_transfers = transfers.to_vec();
         let stopped = if body_outputs.is_empty() {
-            Expr::Symbol(body_binding.name.clone())
+            body_value
         } else {
             let stopped_name = fresh_async_name(source, next_name);
             let mut pattern = vec![
@@ -6527,11 +6592,27 @@ fn lower_async_while_with_transfers(
             ];
             let mut fields = vec![Expr::Symbol("bool".into())];
             let mut output_names = Vec::with_capacity(body_outputs.len());
-            for capture in &body_outputs {
+            for (index, capture) in body_outputs.iter().enumerate() {
                 let output_name = fresh_async_name(source, next_name);
                 output_names.push(output_name.clone());
-                pattern.push(Expr::Symbol(output_name));
+                pattern.push(Expr::Symbol(output_name.clone()));
                 fields.push(crate::parse(&capture.ty)?[0].expr.clone());
+                let ty = parse_type(Some(&normalize_keywords(
+                    crate::parse(&capture.ty)?[0].expr.clone(),
+                )))?;
+                if async_task_capture_is_mutable_reference(&ty)
+                    && !child_transfers
+                        .iter()
+                        .any(|transfer| transfer.name == capture.name)
+                {
+                    child_transfers.push(LoopReferenceTransfer {
+                        name: capture.name.clone(),
+                        ty: capture.ty.clone(),
+                        result_index: index + 1,
+                        resumed_name: output_name,
+                        owned: false,
+                    });
+                }
             }
             rewritten.push(Expr::List(vec![
                 Expr::Symbol("#let".into()),
@@ -6541,9 +6622,15 @@ fn lower_async_while_with_transfers(
                         .chain(fields)
                         .collect(),
                 ),
-                Expr::Symbol(body_binding.name.clone()),
+                body_value,
             ]));
             for (capture, output_name) in body_outputs.iter().zip(output_names) {
+                if child_transfers
+                    .iter()
+                    .any(|transfer| transfer.name == capture.name)
+                {
+                    continue;
+                }
                 rewritten.push(Expr::List(vec![
                     Expr::Symbol("#set".into()),
                     Expr::Symbol(capture.name.clone()),
@@ -6572,7 +6659,7 @@ fn lower_async_while_with_transfers(
             &Expr::List(rewritten),
             &child_known,
             &child_order,
-            transfers,
+            &child_transfers,
             &[],
             following,
             return_value,
@@ -7079,6 +7166,7 @@ fn lower_async_while_with_transfers(
         None
     };
     let task_run = format!("{base}-run");
+    let task_iteration = format!("{base}-iteration");
     let task_resume = format!("{base}-resume");
     let task_poll = format!("{base}-poll");
     let child_type = expression_source(&await_form[1])?;
@@ -7095,11 +7183,21 @@ fn lower_async_while_with_transfers(
     let active_pattern_names = captures
         .iter()
         .enumerate()
-        .map(|(index, _)| format!("{base}-active-{index}"))
-        .collect::<Vec<_>>();
+        .map(|(index, binding)| {
+            let ty = parse_type(Some(&normalize_keywords(
+                crate::parse(&binding.ty)?[0].expr.clone(),
+            )))?;
+            Ok(if async_task_capture_is_mutable_reference(&ty) {
+                binding.name.clone()
+            } else {
+                format!("{base}-active-{index}")
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     let active_local_bindings = captures
         .iter()
         .zip(&active_pattern_names)
+        .filter(|(binding, name)| binding.name != **name)
         .map(|(binding, name)| {
             format!(
                 "({} {} {} {name})",
@@ -7136,24 +7234,11 @@ fn lower_async_while_with_transfers(
     } else {
         format!("({task_wait} {wait_capture_names} {base}-child-state)")
     };
-    let run_parameter_names = captures
-        .iter()
-        .enumerate()
-        .map(|(index, _)| format!("{base}-input-{index}"))
-        .collect::<Vec<_>>();
-    let mut run_parameters = captures
-        .iter()
-        .zip(&run_parameter_names)
-        .map(|(binding, name)| {
-            format!(
-                "({}{name} {})",
-                if binding.mutable { "#mut " } else { "" },
-                binding.ty
-            )
-        })
-        .collect::<Vec<_>>();
-    run_parameters.push(format!("(waker (#ref {waker}))"));
-    let run_parameters = run_parameters.join(" ");
+    // Transfer one owned aggregate into the runner. Keeping separate raw
+    // reference parameters alive while cycling the same handles through a
+    // local enum would leave an additional parent loan in scope.
+    let run_state = format!("{base}-run-state");
+    let run_parameters = format!("({base}-input-state {run_state}) (waker (#ref {waker}))");
     let mut resume_parameters = wait_captures.iter().map(parameter).collect::<Vec<_>>();
     let result_parameter = if await_binding.mutable {
         format!("(#mut {base}-result {})", await_binding.ty)
@@ -7163,30 +7248,20 @@ fn lower_async_while_with_transfers(
     resume_parameters.push(result_parameter);
     resume_parameters.push(format!("(waker (#ref {waker}))"));
     let resume_parameters = resume_parameters.join(" ");
-    let call_run = run_parameter_names
+    let call_run = format!("(: {base}-input-state ({base}-active {capture_names}) : waker waker)");
+    let resumed_capture_names = captures
         .iter()
-        .zip(captures.iter())
-        .map(|(parameter, binding)| format!(": {parameter} {}", binding.name))
-        .chain(std::iter::once(": waker waker".to_owned()))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let call_run = format!("({call_run})");
-    let call_resumed_run = run_parameter_names
-        .iter()
-        .zip(captures.iter())
-        .map(|(parameter, binding)| {
-            let value = transfer_bindings
+        .map(|binding| {
+            transfer_bindings
                 .get(&binding.name)
                 .map_or(binding.name.as_str(), |transfer| {
                     transfer.resumed_name.as_str()
-                });
-            format!(": {parameter} {value}")
+                })
         })
-        .chain(std::iter::once(": waker waker".to_owned()))
         .collect::<Vec<_>>()
         .join(" ");
-    let call_resumed_run = format!("({call_resumed_run})");
-    let initial_active_values = run_parameter_names.join(" ");
+    let call_resumed_run =
+        format!("(: {base}-input-state ({base}-active {resumed_capture_names}) : waker waker)");
     let active_variant = if capture_types.is_empty() {
         format!("{base}-active")
     } else {
@@ -7197,11 +7272,7 @@ fn lower_async_while_with_transfers(
     } else {
         format!("({base}-active {})", active_pattern_names.join(" "))
     };
-    let active_value = if initial_active_values.is_empty() {
-        format!("{base}-active")
-    } else {
-        format!("({base}-active {initial_active_values})")
-    };
+    let active_value = format!("{base}-input-state");
     let active_value_from_captures = if capture_names.is_empty() {
         format!("{base}-active")
     } else {
@@ -7218,7 +7289,6 @@ fn lower_async_while_with_transfers(
                 .join(" ")
         )
     };
-    let run_state = format!("{base}-run-state");
     let run_state_pending = format!("{base}-run-pending");
     let run_state_ready = format!("{base}-run-ready");
     let run_state_pending_pattern = format!("({run_state_pending} {base}-pending-task)");
@@ -7237,25 +7307,40 @@ fn lower_async_while_with_transfers(
         .map(expression_source)
         .collect::<Result<Vec<_>, _>>()?
         .join(" ");
+    let mut iteration_suffix_body = suffix_body.to_vec();
     let mut suffix_body = suffix_body.to_vec();
     if let Some((_, _, returned, _)) = &loop_return {
         for expression in &mut suffix_body {
             rewrite_async_child_returns(expression, returned)?;
             rewrite_async_non_loop_returns(expression, &task_ready)?;
         }
+        for expression in &mut iteration_suffix_body {
+            rewrite_async_child_returns(expression, returned)?;
+            rewrite_async_non_loop_returns(expression, &run_state_ready)?;
+        }
     }
+    let iteration_suffix_source = iteration_suffix_body
+        .iter()
+        .map(expression_source)
+        .collect::<Result<Vec<_>, _>>()?
+        .join(" ");
     let suffix_source = suffix_body
         .iter()
         .map(expression_source)
         .collect::<Result<Vec<_>, _>>()?
         .join(" ");
+    let mut resumed_ready = crate::parse(&ready_value)?[0].expr.clone();
+    for transfer in transfers {
+        rename_async_value(&mut resumed_ready, &transfer.name, &transfer.resumed_name);
+    }
+    let resumed_ready_value = expression_source(&resumed_ready)?;
     let loop_ready_continuation = if terminal_loop_transfer == Some("#break") {
-        format!("(#block (#set {base}-stopped true) ({run_state_ready} {ready_value}))")
+        format!("({run_state_ready} {resumed_ready_value})")
     } else {
         active_value_from_captures.clone()
     };
     let resumed_loop_return = if terminal_loop_transfer == Some("#break") {
-        format!("(#return ({task_ready} {ready_value}))")
+        format!("(#return ({task_ready} {resumed_ready_value}))")
     } else {
         format!("(#return (#call {task_run} {call_resumed_run}))")
     };
@@ -7280,6 +7365,23 @@ fn lower_async_while_with_transfers(
              (#set {base}-outcome
                (#match {base}-outcome
                  (#case {active_pattern}
+                   (#call {task_iteration} (: {base}-iteration-state ({base}-active {}) : waker waker)))
+                 (#case {run_state_pending_pattern} (#unreachable))
+                 (#case {run_state_ready_pattern} (#unreachable))))
+             (#set {base}-outcome
+               (#match {base}-outcome
+                 (#case {active_pattern} ({base}-active {}))
+                 (#case {run_state_pending_pattern}
+                   (#block (#set {base}-stopped true) ({run_state_pending} {base}-pending-task)))
+                 (#case {run_state_ready_pattern}
+                   (#block (#set {base}-stopped true) ({run_state_ready} {base}-ready-value))))))
+           (#return (#match {base}-outcome
+             (#case {run_state_pending_pattern} ({task_pending} {base}-pending-task))
+             (#case {run_state_ready_pattern} ({task_ready} {base}-ready-value))
+             (#case {active_pattern} (#unreachable)))))
+         (#fn {task_iteration} (({base}-iteration-state {run_state}) (waker (#ref {waker}))) {run_state}
+           (#return (#match {base}-iteration-state
+                 (#case {active_pattern}
                    (#block
                      {active_local_bindings}
                      (#if {loop_condition}
@@ -7288,23 +7390,15 @@ fn lower_async_while_with_transfers(
                          (#let {base}-child {child_type} {child_task})
                          (#match {child_poll_call}
                            (#case ({child_pending} {base}-child-state)
-                             (#block
-                               (#set {base}-stopped true)
-                               ({run_state_pending} {task_wait_with_child})))
+                             ({run_state_pending} {task_wait_with_child}))
                            (#case ({child_ready} {base}-result)
                              (#block
                                ({await_let} {await_name} {await_type} {base}-result)
-                               {suffix_source}
+                               {iteration_suffix_source}
                                {loop_ready_continuation}))))
-                       (#block
-                         (#set {base}-stopped true)
-                         ({run_state_ready} {ready_value})))))
+                       ({run_state_ready} {ready_value}))))
                  (#case {run_state_pending_pattern} (#unreachable))
                  (#case {run_state_ready_pattern} (#unreachable)))))
-           (#return (#match {base}-outcome
-             (#case {run_state_pending_pattern} ({task_pending} {base}-pending-task))
-             (#case {run_state_ready_pattern} ({task_ready} {base}-ready-value))
-             (#case {active_pattern} (#unreachable)))))
          (#fn {task_resume} ({resume_parameters}) {task_poll_result}
            ({await_let} {await_name} {await_type} {base}-result)
            {suffix_source}
@@ -7318,6 +7412,8 @@ fn lower_async_while_with_transfers(
                    ({task_pending} {task_wait_with_child}))
                  (#case ({child_ready} {base}-result)
                    (#call {task_resume} {call_resume})))))))",
+        active_pattern_names.join(" "),
+        active_pattern_names.join(" "),
     );
     let task_variable = format!("{base}-value");
     let result_variable = format!("{base}-result");
@@ -8027,10 +8123,11 @@ fn lower_async_for(
     let direct_step_await = form(&items[3], "#await").is_some()
         || form(&items[3], "#set")
             .is_some_and(|set| set.len() == 3 && form(&set[2], "#await").is_some());
-    if has_await(&items[2]) && has_await(&items[3]) && !direct_step_await {
+    if has_await(&items[3]) && !direct_step_await {
         // A computed step belongs to the iteration's body, not to a separate
         // direct-await adapter. Let body lowering sequence its arbitrary
-        // expressions and return every mutated capture to the outer loop.
+        // expressions and return every mutated capture to the outer loop,
+        // whether the condition itself suspends or is synchronous.
         let step = items[3].clone();
         let mut body = items[4..].to_vec();
         if body
@@ -8744,7 +8841,7 @@ fn lower_async_for(
                 loop_body.push(step.clone());
             }
         }
-    } else {
+    } else if !matches!(&step, Expr::List(items) if items.is_empty()) {
         loop_body.extend(step_prefix);
         loop_body.push(step.clone());
         loop_body.extend(post_step);
@@ -10558,7 +10655,11 @@ fn named_arguments(bindings: &[Binding]) -> String {
 }
 
 pub(crate) fn generated_source(invocation: &Expr) -> Result<String, String> {
-    let environment = AsyncTypeEnvironment::default();
+    // Nested iteration/branch tasks still call ordinary declared functions.
+    // Retain their explicit signature metadata while sequencing arguments;
+    // only standalone invocations start with an empty environment.
+    let environment =
+        ASYNC_TYPE_ENVIRONMENTS.with(|stack| stack.borrow().last().cloned().unwrap_or_default());
     with_async_type_environment(&environment, || {
         generated_source_with_capture_selection(invocation, CaptureSelection::Syntax, &environment)
     })

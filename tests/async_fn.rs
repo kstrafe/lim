@@ -7775,6 +7775,81 @@ fn terminalized_async_branches_preserve_lexical_scope_and_shadowing_rules() {
 }
 
 #[test]
+fn async_for_effect_step_awaits_with_a_synchronous_condition() {
+    let source = include_str!("../examples/async_for_effect_step.lim");
+    build_and_run(source, 42);
+    let returned = source.replace("(#break)", "(#return (#u64.+.wrap index 40u64))");
+    build_and_run(&returned, 42);
+    let matched = source.replace(
+        "(#if (#u64.== index 0u64)\n        (#continue)\n        (#if stop (#break) ()))",
+        "(#match index (#case 0u64 (#continue)) (#case _ (#if stop (#break) ())))",
+    );
+    assert_ne!(matched, source);
+    build_and_run(&matched, 42);
+    let effects = source
+        .replace("(#fn advance", "(#fn touch (: counter (#ref-mut u64)) u64\n  (#deref-set counter (#u64.+.wrap (#deref counter) 1u64))\n  (#return 1u64))\n\n(#fn advance")
+        .replace("(#let-mut index u64 0u64)", "(#let-mut index u64 0u64) (#let-mut touches u64 0u64)")
+        .replace("(: next (#await", "(: next (#u64.+.wrap (#call touch (: counter (#borrow-mut touches))) (#await")
+        .replace("(Start (#u64.+.wrap index 1u64)))", "(Start index)))")
+        .replace("(#return (#u64.+.wrap index 40u64))", "(#assert (#u64.== touches index)) (#return (#u64.+.wrap index 40u64))");
+    assert_ne!(effects, source);
+    build_and_run(&effects, 42);
+}
+
+#[test]
+fn async_for_effect_step_keeps_external_loans_until_ready_or_cancel() {
+    let definitions = include_str!("../examples/async_for_effect_step.lim")
+        .split("(@async-fn")
+        .next()
+        .unwrap();
+    let source = format!(
+        r#"{definitions}
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work (: counter (#ref-mut u64)) u64
+          (#for () (#u64.< (#deref counter) 2u64)
+            (#call advance (: next (#await u64 StepTask StepPending StepReady step-poll
+                                      (Start (#u64.+.wrap (#deref counter) 1u64)))
+                            : counter counter)) ())
+          (#return (#u64.+.wrap (#deref counter) 40u64)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let-mut owner u64 0u64)
+        (#let first Poll (#call poll
+          (: task (#call work (: counter (#borrow-mut owner))) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+        (#let-else (Pending last-task) Poll second (#unreachable))
+        (#let third Poll (#call poll (: task last-task : waker (#borrow waker))))
+        (#let-else (Ready result) Poll third (#unreachable))
+        (#assert (#u64.== owner 2u64))
+        (#return result))"#
+    );
+    build_and_run(&source, 42);
+    let continuation = source.find("(#let second Poll").unwrap();
+    let cancelled = format!(
+        "{} (#forget pending) (#set owner 42u64) (#return owner))",
+        &source[..continuation]
+    );
+    build_and_run(&cancelled, 42);
+    let invalid = source.replace("(#let second Poll", "(#set owner 9u64) (#let second Poll");
+    let scratch = support::Scratch::new("async-effect-step-live-loan");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("the suspended step retains its exclusive external loan");
+    assert!(error.message.contains("borrow"), "{error:?}");
+    let span = error.span.unwrap();
+    let mutation = invalid.find("(#set owner 9u64)").unwrap();
+    assert_eq!(span.start, mutation + 1);
+    assert_eq!(&invalid[span.start..span.end], "#set");
+}
+
+#[test]
 fn async_for_computed_step_composes_with_awaited_condition() {
     let source = include_str!("../examples/async_for_computed_step.lim");
     build_and_run(source, 42);
