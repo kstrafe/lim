@@ -9364,33 +9364,47 @@ mod typed_ownership_tests {
             (#let target (#ref-mut Holder) (#if choice (#borrow-mut left) (#borrow-mut right)))
             (#deref-set target (#struct-literal Holder ((value (#borrow c)))))
             (#forget target) (#forget left) (#forget right) (#return ()))";
-        let program = crate::parse_program(source).unwrap();
-        let declarations = resolve_program_for_analysis(&program, false).unwrap();
-        let body = &declarations.bodies["inspect"];
-        let flow = &declarations.flows["inspect"];
-        let id = |name: &str| {
-            crate::typed_body::BindingId(
-                body.bindings
-                    .iter()
-                    .position(|binding| binding.name == name)
-                    .unwrap(),
-            )
-        };
-        let write = flow
-            .nodes
-            .iter()
-            .position(|node| matches!(node.action, crate::typed_flow::FlowAction::Write { .. }))
-            .unwrap();
-        let next = flow.nodes[write].successors[0];
-        let origins = flow.loan_origins(body);
-        for (holder, original) in [("left", "a"), ("right", "b")] {
-            let held = origins.before(next, id(holder));
-            assert_eq!(held.len(), 2);
-            for owner in [original, "c"] {
-                assert!(held
-                    .iter()
-                    .any(|origin| origin.place.root
+        let computed = format!(
+            "(#fn identity ((value (#ref-mut Holder))) (#ref-mut Holder) (#return value)) {source}"
+        )
+        .replace(
+            "(#deref-set target",
+            "(#deref-set (#call identity (: value target))",
+        );
+        for source in [source, computed.as_str()] {
+            let program = crate::parse_program(source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
+            let id = |name: &str| {
+                crate::typed_body::BindingId(
+                    body.bindings
+                        .iter()
+                        .position(|binding| binding.name == name)
+                        .unwrap(),
+                )
+            };
+            let write = flow
+                .nodes
+                .iter()
+                .position(|node| match node.action {
+                    crate::typed_flow::FlowAction::Write { .. } => true,
+                    crate::typed_flow::FlowAction::Evaluate(value) => {
+                        matches!(&body.nodes[value.0].kind,
+                    crate::typed_body::NodeKind::Form { head, .. } if head == "deref-set")
+                    }
+                    _ => false,
+                })
+                .unwrap();
+            let next = flow.nodes[write].successors[0];
+            let origins = flow.loan_origins(body);
+            for (holder, original) in [("left", "a"), ("right", "b")] {
+                let held = origins.before(next, id(holder));
+                assert_eq!(held.len(), 2);
+                for owner in [original, "c"] {
+                    assert!(held.iter().any(|origin| origin.place.root
                         == crate::typed_body::PlaceRoot::Local(id(owner))));
+                }
             }
         }
     }
