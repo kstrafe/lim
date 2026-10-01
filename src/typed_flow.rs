@@ -2276,6 +2276,18 @@ impl FlowGraph {
         self.check_linear_consumptions_with_origins(body, moves, None)
     }
 
+    #[cfg(test)]
+    pub fn check_referent_uses_from_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        entry_consumed: &[Place],
+    ) -> Result<(), ReleaseConflict> {
+        let moves = self.referent_consumptions_from_entry(body, types, entry_consumed);
+        let origins = self.loan_origins(body);
+        self.check_linear_consumptions_with_origins(body, &moves, Some(&origins))
+    }
+
     fn check_linear_consumptions_with_origins(
         &self,
         body: &Body,
@@ -2328,15 +2340,20 @@ impl FlowGraph {
             } else {
                 &resolved
             };
+            // Source metadata only supplies labels; it must not decide
+            // whether overlapping consumed storage is a use conflict.
+            if !state
+                .keys()
+                .any(|moved| accessed.iter().any(|place| moved.overlaps(place)))
+            {
+                continue;
+            }
             let previous = state
                 .iter()
                 .filter(|(moved, _)| accessed.iter().any(|place| moved.overlaps(place)))
                 .flat_map(|(_, spans)| spans)
                 .flatten()
                 .min_by_key(|span| (span.source_id, span.start));
-            let Some(previous) = previous else {
-                continue;
-            };
             let place_name = display_linear_place(body, place);
             let message = if place.segments.is_empty() {
                 format!("linear value '{place_name}' was used more than once")
@@ -2346,7 +2363,10 @@ impl FlowGraph {
             return Err(ReleaseConflict {
                 message,
                 span: node.span,
-                labels: vec![(*previous, "value was consumed here".into())],
+                labels: previous
+                    .into_iter()
+                    .map(|span| (*span, "value was consumed here".into()))
+                    .collect(),
             });
         }
         Ok(())

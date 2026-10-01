@@ -10143,6 +10143,43 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_consumed_entry_uses_do_not_require_a_consumption_span() {
+        for initialized in [false, true] {
+            let write = if initialized {
+                "(#deref-set value (#struct-literal Resource ((number 2u64))))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn inspect ((value (#ref-mut Resource))) u64
+                {write} (#return (#get value number)))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+                crate::typed_body::BindingId(0),
+            ));
+            let result = declarations.flows["inspect"].check_referent_uses_from_entry(
+                &declarations.bodies["inspect"],
+                &types,
+                &[place],
+            );
+            assert_eq!(result.is_ok(), initialized);
+            if !initialized {
+                let conflict = result.unwrap_err();
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#get value number)");
+                assert!(
+                    conflict.labels.is_empty(),
+                    "entry assumptions have no source consumption"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn staged_callee_restoration_satisfies_later_read_requirements() {
         for definite in [false, true] {
             let initialize = if definite {
