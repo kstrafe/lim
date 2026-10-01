@@ -1008,15 +1008,21 @@ impl FlowGraph {
         self.consumptions_with_origins(body, types, Some(&origins))
     }
 
-    /// Staged exit facts, not a complete callable ownership contract: missing
-    /// provenance and entry requirements still need separate summary fields.
+    /// Staged exit facts plus unresolved accesses that can reach each exit.
+    /// Entry requirements and caller transfer are not complete contracts yet.
     #[cfg(test)]
     pub fn referent_exit_effects(
         &self,
         body: &Body,
         types: &LinearTypes,
-    ) -> Vec<(FlowNodeId, Vec<ReferentExitEffect>)> {
+    ) -> Vec<(FlowNodeId, Vec<ReferentExitEffect>, Vec<FlowNodeId>)> {
         let moves = self.referent_consumptions(body, types);
+        let mut predecessors = vec![Vec::new(); self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            for successor in &node.successors {
+                predecessors[successor.0].push(FlowNodeId(index));
+            }
+        }
         self.nodes
             .iter()
             .enumerate()
@@ -1037,7 +1043,21 @@ impl FlowGraph {
                         consumption_spans: spans.clone(),
                     })
                     .collect();
-                Some((event, effects))
+                let mut ancestors = HashSet::new();
+                let mut pending = vec![event];
+                while let Some(node) = pending.pop() {
+                    if ancestors.insert(node) {
+                        pending.extend(predecessors[node.0].iter().copied());
+                    }
+                }
+                let mut unresolved = moves
+                    .unresolved
+                    .iter()
+                    .filter(|node| ancestors.contains(node))
+                    .copied()
+                    .collect::<Vec<_>>();
+                unresolved.sort_by_key(|node| node.0);
+                Some((event, effects, unresolved))
             })
             .collect()
     }

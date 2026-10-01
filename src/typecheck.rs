@@ -9669,6 +9669,29 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_exit_effects_preserve_only_return_reachable_unknown_accesses() {
+        for (diverges, expected) in [(false, true), (true, false)] {
+            let branch = if diverges {
+                "(#if choice (#block (#deref-set target (#struct-literal Resource ((number 2u64)))) (#unreachable)) ())"
+            } else {
+                "(#deref-set target (#struct-literal Resource ((number 2u64))))"
+            };
+            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+              (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (choice bool)) ()
+                (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
+                {branch} (#return ()))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let exits = declarations.flows["inspect"].referent_exit_effects(
+                &declarations.bodies["inspect"],
+                &crate::linearcheck::LinearTypes::from_program(&program),
+            );
+            assert_eq!(exits.len(), 1);
+            assert_eq!(!exits[0].2.is_empty(), expected);
+        }
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
