@@ -5,8 +5,11 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-    time::{Duration, SystemTime},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex, OnceLock,
+    },
+    time::{Duration, Instant, SystemTime},
 };
 
 use crate::{Expr, Span, SpannedExpr};
@@ -16,6 +19,11 @@ const MAX_GENERATED_NODES: usize = 1_000_000;
 const MAX_EXPANSION_DEPTH: usize = 128;
 const MAX_CACHE_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 static CACHE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+// Housekeeping is independent of cache correctness. Bound both its frequency
+// and retained directory history for callers compiling many projects.
+const CACHE_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
+const MAX_CLEANUP_DIRECTORIES: usize = 64;
+static CACHE_CLEANUP_TIMES: OnceLock<Mutex<HashMap<PathBuf, Instant>>> = OnceLock::new();
 
 #[derive(Clone, Debug)]
 struct GeneratorParameter {
@@ -1175,9 +1183,27 @@ fn publish_cache_file(target: &Path, contents: &[u8], description: &str) -> Resu
 }
 
 fn cleanup_abandoned_staging(directory: &Path) {
+    let times = CACHE_CLEANUP_TIMES.get_or_init(|| Mutex::new(HashMap::new()));
+    let Ok(mut times) = times.lock() else {
+        return;
+    };
+    let started = Instant::now();
+    if times
+        .get(directory)
+        .is_some_and(|last| started.duration_since(*last) < CACHE_CLEANUP_INTERVAL)
+    {
+        return;
+    }
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
+    if times.len() >= MAX_CLEANUP_DIRECTORIES {
+        times.clear();
+    }
+    times.insert(directory.to_path_buf(), started);
+    // Concurrent publishers need not wait for the directory traversal. Only
+    // hour-old temporary files are eligible, as before.
+    drop(times);
     let now = SystemTime::now();
     for entry in entries.filter_map(Result::ok) {
         let path = entry.path();
@@ -1774,6 +1800,50 @@ mod tests {
             .unwrap();
         assert!(read_bounded_cache_file(&path).is_none());
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn cache_housekeeping_is_throttled_without_removing_recent_staging() {
+        let directory = std::env::temp_dir().join(format!(
+            "lim-throttled-cache-cleanup-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let stale = directory.join("abandoned.tmp");
+        let recent = directory.join("active.tmp");
+        let create_stale = || {
+            fs::write(&stale, "incomplete").unwrap();
+            OpenOptions::new()
+                .write(true)
+                .open(&stale)
+                .unwrap()
+                .set_times(
+                    fs::FileTimes::new()
+                        .set_modified(SystemTime::now() - Duration::from_secs(2 * 60 * 60)),
+                )
+                .unwrap();
+        };
+        create_stale();
+        fs::write(&recent, "active").unwrap();
+        cleanup_abandoned_staging(&directory);
+        assert!(!stale.exists());
+        assert!(recent.exists());
+        create_stale();
+        cleanup_abandoned_staging(&directory);
+        assert!(
+            stale.exists(),
+            "repeat lookup must not traverse the directory"
+        );
+        CACHE_CLEANUP_TIMES
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .insert(directory.clone(), Instant::now() - CACHE_CLEANUP_INTERVAL);
+        cleanup_abandoned_staging(&directory);
+        assert!(!stale.exists(), "cleanup resumes after its interval");
+        assert!(recent.exists());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

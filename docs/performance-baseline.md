@@ -738,3 +738,35 @@ source directory across different compiler fingerprints grows that directory
 for the second compiler (roughly 28–32% slower in the initial measurements).
 Synthetic comparison workloads now use separate source/cache directories with
 identical contents. Real-file comparisons still share the project's cache.
+
+## Throttle abandoned generator-cache staging scans
+
+Every generated-source and expansion-cache lookup previously traversed the
+entire cache directory looking for abandoned staging files. A compilation with
+G invocations and C cache artifacts therefore paid O(G × C) housekeeping work
+even on warm hits. Cleanup now runs at most once a minute per directory while
+its bounded 64-directory history is retained. Eviction permits a fresh scan;
+directory history is not retained indefinitely by long-running library users.
+Only temporary files older than an hour are removed, unchanged. Full-key,
+digest, syntax, and size validation still run on every hit. The coordination
+lock is released before traversing the directory or deleting stale files.
+
+Baseline: 9684424, warm release CLI with two warmups and no concurrent builds
+or tests. Pending staged ownership edits are identical in both builds.
+
+| Workload / measurement order | Samples | Before median | After median |
+| --- | ---: | ---: | ---: |
+| 256 tasks, baseline first | 30 | 183.26 ms | 145.11 ms |
+| 256 tasks, optimized first | 30 | 183.55 ms | 142.89 ms |
+| async_fn, baseline first | 40 | 53.80 ms | 32.53 ms |
+| async_fn, optimized first | 40 | 53.55 ms | 30.30 ms |
+| Reference-heavy, baseline first | 40 | 38.39 ms | 37.74 ms |
+
+Thread-heavy compilation is 20.8–22.2% faster; the existing async example is
+39.5–43.4% faster. Reference-heavy's 1.7% difference is small enough to be
+noise. Executable bytes match throughout. Absolute results depend on cache
+directory size; these are warm end-to-end measurements, not timing guarantees.
+All 848 library tests, 183 async tests, and enabled integrations pass; the four
+preexisting ignored integrations remain unchanged. A regression test verifies
+throttling, cleanup resumption, and protection of recent temporary files;
+the existing concurrent-publication test also passes.
