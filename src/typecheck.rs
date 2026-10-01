@@ -9830,6 +9830,49 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_ownership_summary_dependencies_fail_closed() {
+        let source = "(#fn helper () () (#return ()))
+          (#fn caller () () (#call helper ()) (#return ()))
+          (#fn wrapper () () (#call caller ()) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.bodies.remove("helper");
+        declarations.flows.remove("helper");
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        for name in ["caller", "wrapper"] {
+            let summary = &summaries[&declarations.function_id(name).unwrap()];
+            assert!(summary.has_normal_return);
+            assert!(summary.effects.is_empty());
+            assert_eq!(summary.unresolved.len(), 1, "{name}");
+        }
+
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let caller = declarations.function_id("caller").unwrap();
+        let body = declarations.bodies.get_mut("caller").unwrap();
+        let callee = body
+            .nodes
+            .iter_mut()
+            .find_map(|node| match &mut node.kind {
+                crate::typed_body::NodeKind::Form {
+                    callee: Some(callee),
+                    ..
+                } => Some(callee),
+                _ => None,
+            })
+            .unwrap();
+        *callee = caller;
+        assert_eq!(
+            declarations
+                .staged_referent_function_effects(&types)
+                .unwrap_err(),
+            "cyclic or unresolved internal ownership summary dependencies"
+        );
+    }
+
+    #[test]
     fn staged_callee_consumption_restoration_is_path_sensitive() {
         for (replacement, remaining) in [
             ("(#deref-set value (#struct-literal Resource ((number 2u64))))", false),
