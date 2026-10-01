@@ -9355,6 +9355,47 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn ambiguous_reference_writes_retain_each_possible_old_loan() {
+        let source = "(#struct Holder ((value (#ref u64))))
+          (#fn inspect ((choice bool)) ()
+            (#let a u64 1u64) (#let b u64 2u64) (#let c u64 3u64)
+            (#let-mut left Holder (#struct-literal Holder ((value (#borrow a)))))
+            (#let-mut right Holder (#struct-literal Holder ((value (#borrow b)))))
+            (#let target (#ref-mut Holder) (#if choice (#borrow-mut left) (#borrow-mut right)))
+            (#deref-set target (#struct-literal Holder ((value (#borrow c)))))
+            (#forget target) (#forget left) (#forget right) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let id = |name: &str| {
+            crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == name)
+                    .unwrap(),
+            )
+        };
+        let write = flow
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, crate::typed_flow::FlowAction::Write { .. }))
+            .unwrap();
+        let next = flow.nodes[write].successors[0];
+        let origins = flow.loan_origins(body);
+        for (holder, original) in [("left", "a"), ("right", "b")] {
+            let held = origins.before(next, id(holder));
+            assert_eq!(held.len(), 2);
+            for owner in [original, "c"] {
+                assert!(held
+                    .iter()
+                    .any(|origin| origin.place.root
+                        == crate::typed_body::PlaceRoot::Local(id(owner))));
+            }
+        }
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};

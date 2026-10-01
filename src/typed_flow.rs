@@ -802,7 +802,16 @@ impl FlowGraph {
                     };
                     let incoming =
                         value_loan_origins_at_events(body, self, &before, source, &state);
-                    for origin in reborrow_source_origins(place, &state, &mut HashSet::new()) {
+                    let destinations = reborrow_source_origins(place, &state, &mut HashSet::new());
+                    let mut known_places = Vec::new();
+                    for origin in &destinations {
+                        if !known_places.contains(&origin.place) {
+                            known_places.push(origin.place.clone());
+                        }
+                    }
+                    let strong = known_places.len() == 1
+                        && destinations.iter().all(|origin| !origin.lifetime_only);
+                    for origin in destinations {
                         // Parameter roots describe external pointees, not
                         // the local reference handles indexed by LoanState.
                         if origin.lifetime_only {
@@ -810,11 +819,19 @@ impl FlowGraph {
                         }
                         let destination = origin.place;
                         if let PlaceRoot::Local(binding) = destination.root {
-                            replace_projected_origins(
-                                &mut state[binding.0],
-                                &destination.segments,
-                                incoming.clone(),
-                            );
+                            if strong {
+                                replace_projected_origins(
+                                    &mut state[binding.0],
+                                    &destination.segments,
+                                    incoming.clone(),
+                                );
+                            } else {
+                                extend_projected_origins(
+                                    &mut state[binding.0],
+                                    &destination.segments,
+                                    incoming.clone(),
+                                );
+                            }
                         }
                     }
                 }
@@ -2719,6 +2736,14 @@ fn replace_projected_origins(
     {
         held.retain(|origin| !origin.storage.starts_with(path));
     }
+    extend_projected_origins(held, path, incoming);
+}
+
+fn extend_projected_origins(
+    held: &mut Vec<LoanOrigin>,
+    path: &[Segment],
+    incoming: Vec<LoanOrigin>,
+) {
     for mut origin in incoming {
         let mut storage = path.to_vec();
         storage.extend(origin.storage);
