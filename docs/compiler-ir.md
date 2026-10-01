@@ -508,8 +508,26 @@ replacement. Reading Ready storage before restoration still fails at the exact
 read span. The positive path passes combined replacement/use validation and
 entry-contract inference. This proves consumption only on a matched destructive
 outcome: absence of a clear is not an initialized/unconsumed guarantee on other
-outcomes. Complete conditional exit effects, initialization contracts, and
-production integration remain required before replacing existing checking.
+outcomes.
+
+The opt-in ownership summary pass now also publishes complete may/must exit
+effect summaries for each explicit returned variant, including whether any
+reachable normal return exists and any unresolved consuming accesses. Unknown
+alternatives remain in every selected group; absent groups are unknown rather
+than empty contracts. Initialized-entry effects remain separate from an
+optional profile under the actual inferred consumed-entry requirements. A
+conditional initializer therefore has no outgoing consumption on Ready but
+retains definite consumed state on Pending in its consumed-entry profile.
+These outcome tables do not weaken whole-function entry requirements, even
+when a consuming path diverges rather than returning normally. Tests cover
+explicit/nested/loop results, possible versus definite consumption, unknown
+and same-variant alternatives, consumed-and-restored storage, nested callee
+destruction, sibling destinations, unreachable returns, and raw unknown access.
+Caller-state refinement from these full tables is not integrated yet: Pending
+still cannot be assumed initialized merely because it lacks a clear. Preserving
+pre-call consumption, applying the correct entry profile, initialization
+contracts, and production integration remain requirements before replacing
+existing checking.
 
 The instruction selector still uses AST-shaped inputs. Compiler-synthesized
 expressions and internal legacy generic specializations retain the old type

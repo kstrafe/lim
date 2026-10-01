@@ -1091,6 +1091,16 @@ impl Declarations {
                         &possible_restorations,
                     );
                 }
+                if body.staged_parameter_contents {
+                    summary.variant_exits = flow.referent_variant_exit_effects(
+                        body,
+                        types,
+                        &calls,
+                        &restorations,
+                        infer_entry_contracts.then_some(consumed_entry.as_slice()),
+                        &possible_restorations,
+                    );
+                }
                 summary.consumed_entry = consumed_entry;
                 summary.reads.extend(call_reads);
                 summary.consuming_accesses.extend(consuming_accesses);

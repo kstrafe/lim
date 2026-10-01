@@ -12787,6 +12787,245 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_variant_exit_contracts_distinguish_possible_and_definite_consumption() {
+        for mode in [
+            "explicit",
+            "nested",
+            "loop",
+            "unknown",
+            "same-variant",
+            "both",
+            "restored",
+            "callee",
+        ] {
+            let clear = "(#forget (#deref target))";
+            let implementation = match mode {
+                "explicit" => format!("(#if selected (#block {clear} (#return (Ready))) (#block (#return (Pending)))) (#return unknown)"),
+                "nested" => format!("(#return (#if selected (#block {clear} (Ready)) (Pending)))"),
+                "loop" => format!("(#return (#loop (#if selected (#block {clear} (#break (Ready))) (#block (#break (Pending))))))"),
+                "unknown" => format!("(#return (#if selected (#block {clear} (Ready)) unknown))"),
+                "same-variant" => format!("(#return (#if selected (#block {clear} (Ready)) (Ready)))"),
+                "both" => format!("{clear} (#return (#if selected (Ready) (Pending)))"),
+                "restored" => format!("(#return (#if selected (#block {clear} (#deref-set target (#struct-literal Resource (: number 42u64))) (Ready)) (Pending)))"),
+                "callee" => "(#return (#if selected (#block (#call consume (: target target)) (Ready)) (Pending)))".into(),
+                _ => unreachable!(),
+            };
+            let source = format!("(#struct Resource (: number u64)) (#linear Resource)
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn consume (: target (#ref-mut Resource)) () (#forget (#deref target)) (#return ()))
+                (#fn choose (: target (#ref-mut Resource) : selected bool : unknown Outcome) Outcome {implementation})");
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let summaries = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            let id = declarations.function_id("choose").unwrap();
+            let ready = declarations
+                .variant_id(&Type::Named("Outcome".into()), "Ready")
+                .unwrap();
+            let pending = declarations
+                .variant_id(&Type::Named("Outcome".into()), "Pending")
+                .unwrap();
+            let summary = &summaries[&id];
+            let selected = &summary.variant_exits[&ready];
+            assert!(selected.has_normal_return, "{mode}");
+            assert!(selected.unresolved.is_empty(), "{mode}");
+            assert!(selected.effects_from_consumed_entry.is_some(), "{mode}");
+            assert_eq!(
+                selected.effects.len(),
+                usize::from(mode != "restored"),
+                "{mode}: {selected:?}"
+            );
+            if let Some(effect) = selected.effects.first() {
+                assert_eq!(
+                    effect.definitely_consumed,
+                    !matches!(mode, "unknown" | "same-variant"),
+                    "{mode}"
+                );
+                assert!(
+                    effect
+                        .consumption_spans
+                        .iter()
+                        .flatten()
+                        .all(|span| &source[span.start..span.end] == clear),
+                    "{mode}: {effect:?}"
+                );
+            }
+            if matches!(mode, "unknown" | "same-variant") {
+                assert!(
+                    !summary.variant_exits.contains_key(&pending),
+                    "a missing outcome is not an empty contract"
+                );
+            } else {
+                let selected = &summary.variant_exits[&pending];
+                assert!(
+                    selected.has_normal_return && selected.unresolved.is_empty(),
+                    "{mode}"
+                );
+                assert_eq!(
+                    selected.effects.len(),
+                    usize::from(mode == "both"),
+                    "{mode}: {selected:?}"
+                );
+                assert!(selected
+                    .effects
+                    .iter()
+                    .all(|effect| effect.definitely_consumed));
+            }
+        }
+    }
+
+    #[test]
+    fn staged_variant_exit_contracts_keep_consumed_entry_profiles_separate() {
+        let source = "(#struct Resource (: number u64)) (#linear Resource)
+            (#enum Outcome ((Ready) (Pending)))
+            (#fn initialize (: target (#ref-mut Resource) : selected bool) Outcome
+              (#return (#if selected
+                (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Ready))
+                (Pending))))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("initialize").unwrap()];
+        assert_eq!(summary.consumed_entry.len(), 1);
+        let ready = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .unwrap();
+        let pending = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Pending")
+            .unwrap();
+        assert!(summary.variant_exits[&ready]
+            .effects_from_consumed_entry
+            .as_ref()
+            .unwrap()
+            .is_empty());
+        let consumed = summary.variant_exits[&pending]
+            .effects_from_consumed_entry
+            .as_ref()
+            .unwrap();
+        assert_eq!(consumed.len(), 1);
+        assert!(consumed[0].definitely_consumed);
+        assert!(
+            consumed[0].consumption_spans.is_empty()
+                || consumed[0].consumption_spans.iter().all(Option::is_none)
+        );
+        assert_eq!(consumed[0].place, summary.consumed_entry[0]);
+        assert!(summary
+            .variant_exits
+            .values()
+            .all(|outcome| outcome.has_normal_return
+                && outcome.effects.is_empty()
+                && outcome.unresolved.is_empty()));
+    }
+
+    #[test]
+    fn staged_variant_exit_contracts_do_not_hide_unknown_raw_accesses() {
+        let source = "(#struct Resource (: number u64)) (#linear Resource)
+            (#enum Outcome ((Ready) (Pending)))
+            (#fn raw (: anchor (#ref-mut Resource) : pointer (#ptr-mut Resource)) Outcome
+              (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
+              (#forget (#deref target)) (#return (Ready)))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let body = &declarations.bodies["raw"];
+        let outcomes = declarations.flows["raw"].referent_variant_exit_effects(
+            body,
+            &types,
+            &[],
+            &[],
+            None,
+            &[],
+        );
+        let ready = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .unwrap();
+        assert!(outcomes[&ready].has_normal_return);
+        assert!(outcomes[&ready].effects_from_consumed_entry.is_none());
+        assert!(!outcomes[&ready].unresolved.is_empty());
+    }
+
+    #[test]
+    fn staged_variant_exit_contracts_keep_sibling_destinations_distinct() {
+        let source = "(#struct Resource (: number u64)) (#linear Resource)
+            (#struct Pair (: left Resource : right Resource))
+            (#enum Outcome ((Ready) (Pending)))
+            (#fn choose (: target (#ref-mut Pair) : selected bool) Outcome
+              (#return (#if selected (#block (#forget (#get target left)) (Ready))
+                (#block (#forget (#get target right)) (Pending)))))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("choose").unwrap()];
+        assert_eq!(summary.effects.len(), 2);
+        assert!(summary
+            .effects
+            .iter()
+            .all(|effect| !effect.definitely_consumed));
+        for (outcome, field) in [("Ready", "left"), ("Pending", "right")] {
+            let variant = declarations
+                .variant_id(&Type::Named("Outcome".into()), outcome)
+                .unwrap();
+            let selected = &summary.variant_exits[&variant];
+            let field = declarations
+                .field_id(&Type::Named("Pair".into()), field)
+                .unwrap();
+            assert!(selected.has_normal_return && selected.unresolved.is_empty());
+            assert_eq!(selected.effects.len(), 1);
+            assert!(selected.effects[0].definitely_consumed);
+            assert_eq!(
+                selected.effects[0].referent_projection,
+                vec![crate::typed_place::Segment::Field(field)]
+            );
+        }
+    }
+
+    #[test]
+    fn staged_variant_exit_contracts_require_a_reachable_normal_return() {
+        let source = "(#struct Resource (: number u64)) (#linear Resource)
+            (#enum Outcome ((Ready) (Pending)))
+            (#fn choose (: target (#ref-mut Resource) : selected bool) Outcome
+              (#if selected (#block (#forget (#deref target)) (#unreachable) (#return (Ready)))
+                (#block (#return (Pending)))) (#return (Ready)))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("choose").unwrap()];
+        assert!(summary.has_normal_return && summary.effects.is_empty());
+        assert!(!summary.consuming_accesses.is_empty());
+        assert!(
+            !summary.entry_reads.is_empty(),
+            "divergence cannot erase destruction preconditions"
+        );
+        let ready = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .unwrap();
+        if let Some(outcome) = summary.variant_exits.get(&ready) {
+            assert!(!outcome.has_normal_return);
+            assert!(outcome.effects.is_empty());
+        }
+        let pending = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Pending")
+            .unwrap();
+        assert!(summary.variant_exits[&pending].has_normal_return);
+        assert!(summary.variant_exits[&pending].effects.is_empty());
+    }
+
+    #[test]
     fn staged_return_variant_constants_intersect_paths_and_forward_calls() {
         let source = "(#enum Choice ((Empty) (Full (#ref u64))))
             (#struct Pair (: left Choice : right Choice))

@@ -337,6 +337,19 @@ pub(crate) struct ReferentFunctionEffects {
     /// Exit storage state under the inferred consumed-entry assumptions, not
     /// evidence that the function actually consumed this storage.
     pub effects_from_consumed_entry: Vec<ReferentExitEffect>,
+    /// Complete exit effects for an explicitly selected returned constructor.
+    /// A missing outcome is unknown, not evidence of initialized storage.
+    pub variant_exits: HashMap<VariantId, ReferentVariantExit>,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+pub(crate) struct ReferentVariantExit {
+    pub has_normal_return: bool,
+    pub effects: Vec<ReferentExitEffect>,
+    /// None means consumed-entry assumptions were not inferred/checked.
+    pub effects_from_consumed_entry: Option<Vec<ReferentExitEffect>>,
+    pub unresolved: Vec<FlowNodeId>,
 }
 
 #[cfg(test)]
@@ -2674,6 +2687,51 @@ impl FlowGraph {
         summary
     }
 
+    /// Summarize all paths that can normally return each explicit outcome.
+    /// Unknown alternatives participate in every group; consumed-entry states
+    /// remain distinct from the initialized-entry profile.
+    #[cfg(test)]
+    pub fn referent_variant_exit_effects(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        consumed_entry: Option<&[Place]>,
+        possible_restorations: &[(FlowNodeId, Vec<Place>)],
+    ) -> HashMap<VariantId, ReferentVariantExit> {
+        self.return_variant_graphs(body)
+            .into_iter()
+            .map(|(variant, filtered)| {
+                let summary = filtered.referent_function_effects_with_restorations(
+                    body,
+                    types,
+                    calls,
+                    restorations,
+                );
+                let effects_from_consumed_entry = consumed_entry.map(|entry| {
+                    filtered.referent_exit_state_from_entry(
+                        body,
+                        types,
+                        calls,
+                        restorations,
+                        entry,
+                        possible_restorations,
+                    )
+                });
+                (
+                    variant,
+                    ReferentVariantExit {
+                        has_normal_return: summary.has_normal_return,
+                        effects: summary.effects,
+                        effects_from_consumed_entry,
+                        unresolved: summary.unresolved,
+                    },
+                )
+            })
+            .collect()
+    }
+
     /// An access is not made safe by never reaching a normal return. Keep
     /// unknown direct and mapped call accesses independently of exit facts.
     #[cfg(test)]
@@ -2785,6 +2843,7 @@ impl FlowGraph {
             restored_from_consumed_entry: Vec::new(),
             consumed_entry: Vec::new(),
             effects_from_consumed_entry: Vec::new(),
+            variant_exits: HashMap::new(),
         }
     }
 
@@ -2823,6 +2882,7 @@ impl FlowGraph {
             restored_from_consumed_entry: Vec::new(),
             consumed_entry: Vec::new(),
             effects_from_consumed_entry: Vec::new(),
+            variant_exits: HashMap::new(),
         };
         // The definite flag here requests exact destination substitution,
         // not a consumption effect. Never pass this adapter to move flow.
@@ -2920,6 +2980,7 @@ impl FlowGraph {
             restored_from_consumed_entry: Vec::new(),
             consumed_entry: Vec::new(),
             effects_from_consumed_entry: Vec::new(),
+            variant_exits: HashMap::new(),
         };
         let (mapped, unknown) =
             self.map_referent_call_effects_with_origins(body, event, call, &summary, origins);
