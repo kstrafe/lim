@@ -27,42 +27,185 @@ pub(crate) struct PendingWorkerEffects {
 
 impl CapturedWorkerContract {
     pub fn pending_effects(&self) -> PendingWorkerEffects {
-        let mut effects = Vec::<ReferentExitEffect>::new();
-        // Exit effects miss transient consumption followed by restoration.
-        // Keep both sources, retaining their exact storage identities/spans.
-        let accesses = self
-            .facts
-            .consuming_accesses
-            .iter()
-            .map(|access| ReferentExitEffect {
-                place: access.place.clone(),
-                input_storage: access.input_storage.clone(),
-                referent_projection: access.referent_projection.clone(),
-                definitely_consumed: false,
-                consumption_spans: vec![access.span],
-            });
-        for mut incoming in self.facts.effects.iter().cloned().chain(accesses) {
-            incoming.definitely_consumed = false;
-            if let Some(existing) = effects.iter_mut().find(|effect| {
-                effect.place == incoming.place
-                    && effect.input_storage == incoming.input_storage
-                    && effect.referent_projection == incoming.referent_projection
-            }) {
-                for span in incoming.consumption_spans {
-                    if !existing.consumption_spans.contains(&span) {
-                        existing.consumption_spans.push(span);
-                    }
-                }
-            } else {
-                effects.push(incoming);
-            }
+        pending_effects(&self.facts)
+    }
+}
+
+fn pending_effects(facts: &ReferentFunctionEffects) -> PendingWorkerEffects {
+    let mut effects = Vec::<ReferentExitEffect>::new();
+    // Exit effects miss transient consumption followed by restoration.
+    // Keep both sources, retaining their exact storage identities/spans.
+    let accesses = facts
+        .consuming_accesses
+        .iter()
+        .map(|access| ReferentExitEffect {
+            place: access.place.clone(),
+            input_storage: access.input_storage.clone(),
+            referent_projection: access.referent_projection.clone(),
+            definitely_consumed: false,
+            consumption_spans: vec![access.span],
+        });
+    for mut incoming in facts.effects.iter().cloned().chain(accesses) {
+        if matches!(incoming.place.root, PlaceRoot::Local(_)) {
+            continue;
         }
-        PendingWorkerEffects {
-            effects,
-            unresolved: self.facts.unresolved.clone(),
-            unresolved_reads: self.facts.unresolved_reads.clone(),
+        incoming.definitely_consumed = false;
+        if let Some(existing) = effects.iter_mut().find(|effect| {
+            effect.place == incoming.place
+                && effect.input_storage == incoming.input_storage
+                && effect.referent_projection == incoming.referent_projection
+        }) {
+            for span in incoming.consumption_spans {
+                if !existing.consumption_spans.contains(&span) {
+                    existing.consumption_spans.push(span);
+                }
+            }
+        } else {
+            effects.push(incoming);
         }
     }
+    PendingWorkerEffects {
+        effects,
+        unresolved: facts.unresolved.clone(),
+        unresolved_reads: facts.unresolved_reads.clone(),
+    }
+}
+
+/// Compiler operations return independently of worker completion: spawn can
+/// fail, and join can return a retry handle. Only join-success selects final
+/// worker state. Precondition coordinates stay those of spawn's worker args.
+pub(crate) fn operation_summaries(
+    worker: FunctionId,
+    owner: AggregateId,
+    body: &crate::typed_body::Body,
+    facts: &ReferentFunctionEffects,
+    infer_entry_contracts: bool,
+    spawn_ok: crate::typed_ir::VariantId,
+    spawn_error: crate::typed_ir::VariantId,
+    join_ok: crate::typed_ir::VariantId,
+    join_error: crate::typed_ir::VariantId,
+) -> Option<(ReferentFunctionEffects, ReferentFunctionEffects)> {
+    let captured = capture_worker_contract(worker, owner, body.parameter_count, facts)?;
+    let pending = pending_effects(facts);
+    let pending_capture = captured.pending_effects();
+    let required = facts
+        .consumed_entry
+        .iter()
+        .map(|place| {
+            let (input_storage, referent_projection) =
+                crate::typed_flow::split_referent_effect_place(body, place);
+            ReferentExitEffect {
+                place: place.clone(),
+                input_storage,
+                referent_projection,
+                definitely_consumed: true,
+                consumption_spans: Vec::new(),
+            }
+        })
+        .collect::<Vec<_>>();
+    let captures = Captures {
+        owner,
+        parameters: body.parameter_count,
+    };
+    let required_capture = captures.effects(&required)?;
+    let restored = facts
+        .restored_from_consumed_entry
+        .iter()
+        .map(|place| {
+            let (input_storage, referent_projection) =
+                crate::typed_flow::split_referent_effect_place(body, place);
+            ReferentExitEffect {
+                place: place.clone(),
+                input_storage,
+                referent_projection,
+                definitely_consumed: true,
+                consumption_spans: Vec::new(),
+            }
+        })
+        .collect::<Vec<_>>();
+    let restored_capture = captures.effects(&restored)?;
+    let empty = || ReferentFunctionEffects {
+        has_normal_return: true,
+        effects: Vec::new(),
+        unresolved: Vec::new(),
+        reads: Vec::new(),
+        unresolved_reads: Vec::new(),
+        entry_reads: Vec::new(),
+        consuming_accesses: Vec::new(),
+        restored_from_consumed_entry: Vec::new(),
+        consumed_entry: Vec::new(),
+        effects_from_consumed_entry: Vec::new(),
+        variant_exits: HashMap::new(),
+    };
+    let mut spawn = empty();
+    spawn.effects = pending.effects.clone();
+    spawn.unresolved = pending.unresolved.clone();
+    spawn.unresolved_reads = pending.unresolved_reads.clone();
+    spawn.entry_reads = facts
+        .entry_reads
+        .iter()
+        .filter(|read| !matches!(read.place.root, PlaceRoot::Local(_)))
+        .cloned()
+        .collect();
+    spawn.reads = spawn.entry_reads.clone();
+    spawn.consumed_entry = facts.consumed_entry.clone();
+    spawn.effects_from_consumed_entry = pending.effects.clone();
+    spawn
+        .effects_from_consumed_entry
+        .extend(required.iter().cloned());
+    spawn.variant_exits.insert(
+        spawn_ok,
+        ReferentVariantExit {
+            restored: Vec::new(),
+            has_normal_return: true,
+            effects: pending.effects,
+            effects_from_consumed_entry: infer_entry_contracts
+                .then(|| spawn.effects_from_consumed_entry.clone()),
+            consumed_entry: required.clone(),
+            unresolved: pending.unresolved,
+        },
+    );
+    spawn.variant_exits.insert(
+        spawn_error,
+        ReferentVariantExit {
+            restored: Vec::new(),
+            has_normal_return: true,
+            effects: Vec::new(),
+            effects_from_consumed_entry: infer_entry_contracts.then_some(required),
+            consumed_entry: Vec::new(),
+            unresolved: Vec::new(),
+        },
+    );
+    // Do not install unconditional completed-worker restoration or reads in
+    // join: its error result still owns a potentially running worker.
+    let mut join = empty();
+    join.effects = pending_capture.effects.clone();
+    join.unresolved = pending_capture.unresolved.clone();
+    join.unresolved_reads = pending_capture.unresolved_reads;
+    join.variant_exits.insert(
+        join_ok,
+        ReferentVariantExit {
+            restored: restored_capture,
+            has_normal_return: captured.facts.has_normal_return,
+            effects: captured.facts.effects,
+            effects_from_consumed_entry: infer_entry_contracts
+                .then_some(captured.facts.effects_from_consumed_entry),
+            consumed_entry: required_capture,
+            unresolved: captured.facts.unresolved,
+        },
+    );
+    join.variant_exits.insert(
+        join_error,
+        ReferentVariantExit {
+            restored: Vec::new(),
+            has_normal_return: true,
+            effects: pending_capture.effects,
+            effects_from_consumed_entry: None,
+            consumed_entry: Vec::new(),
+            unresolved: pending_capture.unresolved,
+        },
+    );
+    Some((spawn, join))
 }
 
 struct Captures {
@@ -148,6 +291,7 @@ pub(crate) fn capture_worker_contract(
             Some((
                 *variant,
                 ReferentVariantExit {
+                    restored: captures.effects(&exit.restored)?,
                     has_normal_return: exit.has_normal_return,
                     effects: captures.effects(&exit.effects)?,
                     effects_from_consumed_entry: match &exit.effects_from_consumed_entry {

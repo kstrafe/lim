@@ -18186,6 +18186,184 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_native_manifest_has_worker_derived_operation_contracts() {
+        std::thread::Builder::new()
+            .stack_size(32 * 1024 * 1024)
+            .spawn(|| {
+                let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+                let mut count = 0;
+                for row in include_str!("../examples/outcomes.txt").lines() {
+                    let fields = row.split_whitespace().collect::<Vec<_>>();
+                    if fields.len() != 5 || !matches!(fields[0], "exit" | "signal" | "module") {
+                        continue;
+                    }
+                    let name = fields[2];
+                    let path = root.join("examples").join(name);
+                    let source = std::fs::read_to_string(&path).unwrap();
+                    let program = crate::parse_program_from_path(&source, &path).unwrap();
+                    crate::check_types(&program).unwrap();
+                    let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+                    let types = crate::linearcheck::LinearTypes::from_program(&program);
+                    declarations
+                        .staged_contents_referent_entry_contracts(&types)
+                        .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                    count += 1;
+                }
+                assert!(count > 0);
+                eprintln!("staged contents audit: all {count} native manifest cases passed");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn staged_thread_completion_distinguishes_consumption_from_restoration() {
+        for restores in [false, true] {
+            let restore = if restores {
+                "(#deref-set target (#struct-literal Resource ((number 42u64))))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn worker ((target (#ref-mut Resource))) ()
+                   (#forget (#deref target)) {restore} (#return ()))
+                 (@thread-spawn (: task Task : worker worker))
+                 (#fn caller ((target (#ref-mut Resource))) ()
+                   (#return (#match (#call Task-spawn (: target target))
+                     (#case (Task-spawn-ok task)
+                       (#match (#call Task-join (: task task))
+                         (#case (Task-join-ok result)
+                           (#block (#assert (#u64.== (#get target number) 42u64)) ()))
+                         (#case (Task-join-error (#tuple retry error)) (#panic))))
+                     (#case (Task-spawn-error error) (#panic)))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_contents_referent_entry_contracts(&types);
+            if restores {
+                result.unwrap();
+            } else {
+                assert!(
+                    result.is_err(),
+                    "completed consumption cannot grant initialized storage"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_thread_outcomes_keep_pending_consumption_and_spawn_failure_state() {
+        let read = "(#assert (#u64.== (#get target number) 42u64))";
+        for (before_join, retry_read, failed_spawn_read, succeeds) in [
+            (false, false, true, true),
+            (true, false, false, false),
+            (false, true, false, false),
+        ] {
+            let before = if before_join { read } else { "" };
+            let retry = if retry_read { read } else { "" };
+            let failed = if failed_spawn_read {
+                format!("(#block {read} ())")
+            } else {
+                "(#panic)".into()
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn worker ((target (#ref-mut Resource))) ()
+                   (#forget (#deref target))
+                   (#deref-set target (#struct-literal Resource ((number 42u64))))
+                   (#return ()))
+                 (@thread-spawn (: task Task : worker worker))
+                 (#fn caller ((target (#ref-mut Resource))) ()
+                   (#return (#match (#call Task-spawn (: target target))
+                     (#case (Task-spawn-ok task)
+                       (#block {before}
+                         (#match (#call Task-join (: task task))
+                           (#case (Task-join-ok result) ())
+                           (#case (Task-join-error (#tuple retry error))
+                             (#block {retry} (#panic))))))
+                     (#case (Task-spawn-error error) {failed}))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_contents_referent_entry_contracts(&types);
+            if succeeds {
+                result.unwrap();
+                declarations.bodies.remove("worker");
+                assert!(
+                    declarations
+                        .staged_contents_referent_entry_contracts(&types)
+                        .is_err(),
+                    "missing worker must invalidate operation contracts"
+                );
+            } else {
+                let error = result.unwrap_err();
+                assert!(format!("{error:?}").contains("used more than once"));
+            }
+        }
+    }
+
+    #[test]
+    fn staged_thread_initializer_requires_consumed_entry_until_completed_join() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn worker ((target (#ref-mut Resource))) ()
+            (#deref-set target (#struct-literal Resource ((number 42u64)))) (#return ()))
+          (@thread-spawn (: task Task : worker worker))
+          (#fn caller ((target (#ref-mut Resource))) ()
+            (#return (#match (#call Task-spawn (: target target))
+              (#case (Task-spawn-ok task)
+                (#match (#call Task-join (: task task))
+                  (#case (Task-join-ok result)
+                    (#block (#assert (#u64.== (#get target number) 42u64)) ()))
+                  (#case (Task-join-error (#tuple retry error)) (#panic))))
+              (#case (Task-spawn-error error) (#panic)))))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let caller = &summaries[&declarations.function_id("caller").unwrap()];
+        let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+            crate::typed_body::BindingId(0),
+        ));
+        assert_eq!(caller.consumed_entry, vec![place.clone()]);
+        assert_eq!(caller.restored_from_consumed_entry, vec![place]);
+    }
+
+    #[test]
+    fn staged_thread_reference_storage_transfer_remains_unresolved() {
+        let source = "(#struct Holder ((value (#ref u64)))) (#linear Holder)
+          (#fn worker ((target (#ref-mut Holder)) (source (#ref u64))) ()
+            (#forget (#deref target))
+            (#deref-set target (#struct-literal Holder ((value source)))) (#return ()))
+          (@thread-spawn (: task Task : worker worker))
+          (#fn caller ((target (#ref-mut Holder)) (source (#ref u64))) ()
+            (#return (#match (#call Task-spawn (: target target : source source))
+              (#case (Task-spawn-ok task)
+                (#match (#call Task-join (: task task))
+                  (#case (Task-join-ok result) ())
+                  (#case (Task-join-error (#tuple retry error)) (#panic))))
+              (#case (Task-spawn-error error) (#panic)))))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("expected unresolved operation inputs");
+        };
+        assert_eq!(function, "caller");
+        assert!(conflict.message.contains("unresolved call inputs"));
+        let span = conflict.span.unwrap();
+        assert!(source[span.start..span.end].contains("Task-join"));
+    }
+
+    #[test]
     fn staged_pending_workers_retain_transient_consumption_without_completion() {
         for (operation, exit) in [
             ("(#forget (#deref target))", "(#return ())"),
@@ -18285,6 +18463,7 @@ mod typed_ownership_tests {
             variant_exits: HashMap::from([(
                 variant,
                 ReferentVariantExit {
+                    restored: Vec::new(),
                     has_normal_return: true,
                     effects: vec![effect.clone()],
                     effects_from_consumed_entry: None,

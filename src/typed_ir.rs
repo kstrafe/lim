@@ -933,11 +933,20 @@ impl Declarations {
             .collect::<HashSet<_>>();
         let mut pending = self.bodies.keys().cloned().collect::<Vec<_>>();
         pending.sort();
-        let names_by_id = pending
+        let mut names_by_id = pending
             .iter()
             .map(|name| (self.function_id(name).unwrap(), name.clone()))
             .collect::<HashMap<_, _>>();
         let thread_workers = self.thread_operation_workers();
+        // Spawn parameters have the worker's exact signature. Reuse its
+        // checked referent schema for entry obligations, never for join.
+        for (task, captures) in &self.thread_capture_schemas {
+            if self.bodies.contains_key(&captures.worker_name) {
+                if let Some(spawn) = self.function_id(&format!("{task}-spawn")) {
+                    names_by_id.insert(spawn, captures.worker_name.clone());
+                }
+            }
+        }
         let mut summaries = HashMap::new();
         // This is a referent contract, not a purity claim about unsafe code.
         // Scalars and raw pointers carry no checked parameter referents. Raw
@@ -988,6 +997,7 @@ impl Declarations {
                 }) {
                     return true;
                 }
+                self.staged_add_thread_operation_contracts(&mut summaries, infer_entry_contracts);
                 *body.call_variant_exits.borrow_mut() = body
                     .nodes
                     .iter()
@@ -1651,6 +1661,110 @@ impl Declarations {
                 body.call_clear_variants = shared_clear_variants.clone();
                 body.call_return_variants = shared_return_variants.clone();
                 body.call_return_variant_bounds = shared_return_bounds.clone();
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn staged_add_thread_operation_contracts(
+        &self,
+        summaries: &mut HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>,
+        infer_entry_contracts: bool,
+    ) {
+        for (task, captures) in &self.thread_capture_schemas {
+            let Some(worker_body) = self.bodies.get(&captures.worker_name) else {
+                continue;
+            };
+            let Some(worker_summary) = summaries.get(&captures.worker) else {
+                continue;
+            };
+            // Stored/cleared reference contents need deferred, outcome-aware
+            // provenance transfer as well as ownership effects. Do not erase
+            // those facts by installing an incomplete operation contract.
+            let unsupported_store = |store: &crate::typed_body::ParameterStoreSummary| {
+                !store.sources.is_empty()
+                    || store.destination.global.is_some()
+                    || worker_body
+                        .parameter_referent_loan_slots
+                        .get(store.destination.parameter)
+                        .is_none_or(|slots| {
+                            slots.iter().any(|slot| {
+                                slot.storage
+                                    .contains(&crate::typed_place::Segment::Dereference)
+                            })
+                        })
+            };
+            if worker_body
+                .call_store_origins
+                .get(&captures.worker)
+                .is_some_and(|stores| stores.iter().any(unsupported_store))
+                || worker_body
+                    .call_parameter_clears
+                    .get(&captures.worker)
+                    .is_some_and(|clears| !clears.is_empty())
+                || worker_body
+                    .call_store_variants
+                    .get(&captures.worker)
+                    .is_some_and(|variants| {
+                        variants
+                            .values()
+                            .any(|stores| stores.iter().any(unsupported_store))
+                    })
+                || worker_body
+                    .call_clear_variants
+                    .get(&captures.worker)
+                    .is_some_and(|variants| variants.values().any(|clears| !clears.is_empty()))
+            {
+                continue;
+            }
+            let (
+                Some(spawn),
+                Some(join),
+                Some(owner),
+                Some(spawn_ok),
+                Some(spawn_error),
+                Some(join_ok),
+                Some(join_error),
+            ) = (
+                self.function_id(&format!("{task}-spawn")),
+                self.function_id(&format!("{task}-join")),
+                self.aggregate_id(&Type::Named(task.clone())),
+                self.variant_id(
+                    &Type::Named(format!("{task}-spawn-result")),
+                    &format!("{task}-spawn-ok"),
+                ),
+                self.variant_id(
+                    &Type::Named(format!("{task}-spawn-result")),
+                    &format!("{task}-spawn-error"),
+                ),
+                self.variant_id(
+                    &Type::Named(format!("{task}-join-result")),
+                    &format!("{task}-join-ok"),
+                ),
+                self.variant_id(
+                    &Type::Named(format!("{task}-join-result")),
+                    &format!("{task}-join-error"),
+                ),
+            )
+            else {
+                continue;
+            };
+            if summaries.contains_key(&spawn) && summaries.contains_key(&join) {
+                continue;
+            }
+            if let Some((spawn_summary, join_summary)) = crate::thread_contract::operation_summaries(
+                captures.worker,
+                owner,
+                worker_body,
+                worker_summary,
+                infer_entry_contracts,
+                spawn_ok,
+                spawn_error,
+                join_ok,
+                join_error,
+            ) {
+                summaries.insert(spawn, spawn_summary);
+                summaries.insert(join, join_summary);
             }
         }
     }

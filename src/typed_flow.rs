@@ -347,7 +347,7 @@ pub(crate) struct ReferentExitEffect {
 }
 
 #[cfg(test)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ReferentFunctionEffects {
     pub has_normal_return: bool,
     pub effects: Vec<ReferentExitEffect>,
@@ -373,6 +373,8 @@ pub(crate) struct ReferentFunctionEffects {
 pub(crate) struct ReferentVariantExit {
     pub has_normal_return: bool,
     pub effects: Vec<ReferentExitEffect>,
+    /// Exact restoration guaranteed only after selecting this result.
+    pub restored: Vec<ReferentExitEffect>,
     /// None means consumed-entry assumptions were not inferred/checked.
     pub effects_from_consumed_entry: Option<Vec<ReferentExitEffect>>,
     /// Exact input requirements selecting the consumed-entry profile.
@@ -400,7 +402,7 @@ impl ReferentFunctionEffects {
 /// Consuming-access contracts reuse this identity descriptor without treating
 /// those facts as read-entry requirements or outgoing consumption effects.
 #[cfg(test)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ReferentRead {
     pub event: FlowNodeId,
     pub place: Place,
@@ -438,6 +440,7 @@ struct CallConsumptionFacts {
 struct CallOutcomeSource {
     event: FlowNodeId,
     effects: Vec<ReferentExitEffect>,
+    restored: Vec<Place>,
     consumed_entry: Vec<Place>,
 }
 
@@ -456,6 +459,7 @@ fn outcome_candidates(
             .chain(&original.restored)
             .chain(&original.possibly_restored)
             .chain(outcome.effects.iter().map(|effect| &effect.place))
+            .chain(&outcome.restored)
             .chain(&outcome.consumed_entry)
         {
             if !candidates.contains(place) {
@@ -497,6 +501,7 @@ fn refine_outcome_may(
             !original
                 .restored
                 .iter()
+                .chain(&outcome.restored)
                 .chain(&outcome.consumed_entry)
                 .any(|restored| place_covers(restored, place))
         });
@@ -569,6 +574,7 @@ fn refine_outcome_must(
             !original
                 .restored
                 .iter()
+                .chain(&outcome.restored)
                 .chain(&original.possibly_restored)
                 .chain(&outcome.consumed_entry)
                 .any(|restored| restored.overlaps(place))
@@ -1568,7 +1574,23 @@ impl FlowGraph {
                     else {
                         return None;
                     };
-                    body.call_store_variants.get(callee)?.get(&variant)?;
+                    // A checked ownership outcome is also a valid source of
+                    // result correlation for bodyless compiler operations.
+                    // It does not manufacture reference-storage transfers.
+                    if body
+                        .call_store_variants
+                        .get(callee)
+                        .and_then(|variants| variants.get(&variant))
+                        .is_none()
+                        && body
+                            .call_variant_exits
+                            .borrow()
+                            .get(callee)
+                            .and_then(|variants| variants.get(&variant))
+                            .is_none()
+                    {
+                        return None;
+                    }
                     let mut evaluations =
                         self.nodes.iter().enumerate().filter_map(|(index, node)| {
                             matches!(node.action, FlowAction::Evaluate(found) if found == call)
@@ -3107,6 +3129,7 @@ impl FlowGraph {
                 (
                     variant,
                     ReferentVariantExit {
+                        restored: Vec::new(),
                         has_normal_return: summary.has_normal_return,
                         effects: summary.effects,
                         effects_from_consumed_entry,
@@ -3854,9 +3877,13 @@ impl FlowGraph {
                 return Vec::new();
             }
             let (required, unknown) = map(&outcome.consumed_entry);
+            let (restored, restoration_unknown) = map(&outcome.restored);
             // Conditional initialization cannot restore all possible aliases
             // when the callee actually writes only one. Require exact inputs.
             if unknown
+                || restoration_unknown
+                || restored.len() != outcome.restored.len()
+                || restored.iter().any(|effect| !effect.definitely_consumed)
                 || required.len() != outcome.consumed_entry.len()
                 || required.iter().any(|effect| !effect.definitely_consumed)
             {
@@ -3865,6 +3892,7 @@ impl FlowGraph {
             outcomes.push(CallOutcomeSource {
                 event: *event,
                 effects,
+                restored: restored.into_iter().map(|effect| effect.place).collect(),
                 consumed_entry: required.into_iter().map(|effect| effect.place).collect(),
             });
         }
@@ -7271,7 +7299,10 @@ impl FlowGraph {
 }
 
 #[cfg(test)]
-fn split_referent_effect_place(body: &Body, place: &Place) -> (Option<Vec<Segment>>, Vec<Segment>) {
+pub(crate) fn split_referent_effect_place(
+    body: &Body,
+    place: &Place,
+) -> (Option<Vec<Segment>>, Vec<Segment>) {
     let PlaceRoot::Parameter(binding) = place.root else {
         return (None, place.segments.clone());
     };
