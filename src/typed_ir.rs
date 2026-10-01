@@ -761,7 +761,7 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, &'static str> {
-        self.staged_referent_analysis(types, false, false)
+        self.staged_referent_analysis(types, false, false, false)
             .map_err(|_| "cyclic or unresolved internal ownership summary dependencies")
     }
 
@@ -770,7 +770,7 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<(), StagedReferentError> {
-        self.staged_referent_analysis(types, true, false)
+        self.staged_referent_analysis(types, true, false, false)
             .map(|_| ())
     }
 
@@ -779,7 +779,19 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<(), StagedReferentError> {
-        self.staged_referent_analysis(types, true, true).map(|_| ())
+        self.staged_referent_analysis(types, true, true, false)
+            .map(|_| ())
+    }
+
+    /// Infer initializer entry requirements bottom-up. This staging API does
+    /// not establish owned exits or initialized escaping-reference contracts.
+    #[cfg(test)]
+    pub fn staged_referent_entry_contracts(
+        &self,
+        types: &crate::linearcheck::LinearTypes,
+    ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
+    {
+        self.staged_referent_analysis(types, false, false, true)
     }
 
     #[cfg(test)]
@@ -788,6 +800,7 @@ impl Declarations {
         types: &crate::linearcheck::LinearTypes,
         validate_replacements: bool,
         validate_uses: bool,
+        infer_entry_contracts: bool,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
     {
         use crate::typed_body::NodeKind;
@@ -851,6 +864,7 @@ impl Declarations {
                 let mut call_reads = Vec::new();
                 let mut call_entry_reads = Vec::new();
                 let mut restorations = Vec::new();
+                let mut consumed_inputs = Vec::new();
                 let mut unresolved_reads = Vec::new();
                 for (index, node) in flow.nodes.iter().enumerate() {
                     let FlowAction::Evaluate(value) = node.action else {
@@ -877,6 +891,16 @@ impl Declarations {
                     match summaries.get(callee) {
                         Some(summary) => {
                             if let Some(callee_name) = names_by_id.get(callee) {
+                                if infer_entry_contracts {
+                                    let (mapped, unknown) = flow.map_referent_call_consumed_entry(
+                                        body,
+                                        event,
+                                        value,
+                                        &self.bodies[callee_name],
+                                        &summary.consumed_entry,
+                                    );
+                                    consumed_inputs.push((event, mapped, unknown));
+                                }
                                 let (mapped, unknown) = flow.map_referent_call_restorations(
                                     body,
                                     event,
@@ -912,6 +936,32 @@ impl Declarations {
                         None => unresolved_reads.push(event),
                     }
                 }
+                let consumed_entry = if infer_entry_contracts {
+                    let facts = crate::typed_flow::ReferentCallFacts {
+                        effects: calls,
+                        restorations,
+                        consumed_inputs,
+                        read_inputs: call_entry_reads,
+                        unresolved_inputs: unresolved_reads.clone(),
+                    };
+                    let result = flow
+                        .infer_referent_consumed_entry_with_call_facts(body, types, self, &facts);
+                    calls = facts.effects;
+                    restorations = facts.restorations;
+                    call_entry_reads = facts.read_inputs;
+                    match result {
+                        Ok(entry) => entry,
+                        Err(conflict) => {
+                            failure = Some(StagedReferentError::Use {
+                                function: name.clone(),
+                                conflict,
+                            });
+                            return true;
+                        }
+                    }
+                } else {
+                    Vec::new()
+                };
                 if validate_uses {
                     if let Err(conflict) = flow
                         .check_owner_consumptions_with_calls(body, types, &calls)
@@ -959,6 +1009,7 @@ impl Declarations {
                 );
                 summary.restored_from_consumed_entry = flow
                     .referent_restoration_guarantees_with_calls(body, types, &calls, &restorations);
+                summary.consumed_entry = consumed_entry;
                 summary.reads.extend(call_reads);
                 summary.unresolved_reads.extend(unresolved_reads);
                 summaries.insert(self.function_id(name).unwrap(), summary);

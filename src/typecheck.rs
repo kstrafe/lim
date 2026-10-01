@@ -12366,4 +12366,68 @@ mod typed_ownership_tests {
             }
         }
     }
+
+    #[test]
+    fn staged_initializer_entry_contracts_propagate_through_helper_chains() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize ((value (#ref-mut Resource))) ()
+            (#deref-set value (#struct-literal Resource ((number 1u64))))
+            (#return ()))
+          (#fn forward ((value (#ref-mut Resource))) ()
+            (#call initialize ((value value))) (#return ()))
+          (#fn wrapper ((value (#ref-mut Resource))) ()
+            (#call forward ((value value))) (#return ()))
+          (#fn caller ((value (#ref-mut Resource))) ()
+            (#forget (#deref value))
+            (#call wrapper ((value value))) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        for name in ["initialize", "forward", "wrapper"] {
+            let summary = &summaries[&declarations.function_id(name).unwrap()];
+            assert_eq!(summary.consumed_entry.len(), 1, "{name}");
+            assert_eq!(
+                summary.consumed_entry[0].root,
+                crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+            );
+            assert_eq!(summary.restored_from_consumed_entry.len(), 1, "{name}");
+        }
+        assert!(summaries[&declarations.function_id("caller").unwrap()]
+            .consumed_entry
+            .is_empty());
+    }
+
+    #[test]
+    fn staged_initializer_entry_contracts_reject_live_local_inputs() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize ((value (#ref-mut Resource))) ()
+            (#deref-set value (#struct-literal Resource ((number 1u64))))
+            (#return ()))
+          (#fn caller () ()
+            (#let-mut value Resource (#struct-literal Resource ((number 2u64))))
+            (#call initialize ((value (#borrow-mut value))))
+            (#forget value) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert_eq!(function, "caller");
+        assert_eq!(
+            conflict.message,
+            "cannot infer a consumed-entry contract for this initializer call"
+        );
+        let span = conflict.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#call initialize ((value (#borrow-mut value))))"
+        );
+    }
 }

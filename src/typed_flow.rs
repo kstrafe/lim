@@ -178,6 +178,7 @@ pub(crate) struct ReferentFunctionEffects {
     pub unresolved_reads: Vec<FlowNodeId>,
     pub entry_reads: Vec<ReferentRead>,
     pub restored_from_consumed_entry: Vec<Place>,
+    pub consumed_entry: Vec<Place>,
 }
 
 /// Independent read facts, not outgoing consumption or complete entry
@@ -1271,6 +1272,7 @@ impl FlowGraph {
             unresolved_reads,
             entry_reads: Vec::new(),
             restored_from_consumed_entry: Vec::new(),
+            consumed_entry: Vec::new(),
         }
     }
 
@@ -1306,6 +1308,7 @@ impl FlowGraph {
             unresolved_reads: Vec::new(),
             entry_reads: Vec::new(),
             restored_from_consumed_entry: Vec::new(),
+            consumed_entry: Vec::new(),
         };
         // The definite flag here requests exact destination substitution,
         // not a consumption effect. Never pass this adapter to move flow.
@@ -1400,6 +1403,7 @@ impl FlowGraph {
             unresolved_reads: Vec::new(),
             entry_reads: Vec::new(),
             restored_from_consumed_entry: Vec::new(),
+            consumed_entry: Vec::new(),
         };
         let (mapped, unknown) =
             self.map_referent_call_effects_with_origins(body, event, call, &summary, origins);
