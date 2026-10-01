@@ -863,6 +863,7 @@ impl Declarations {
                 let reachable = flow.reachable();
                 let mut call_reads = Vec::new();
                 let mut call_entry_reads = Vec::new();
+                let mut consuming_accesses = Vec::new();
                 let mut restorations = Vec::new();
                 let mut consumed_inputs = Vec::new();
                 let mut possible_restorations = Vec::new();
@@ -941,6 +942,18 @@ impl Declarations {
                                     &origins,
                                 );
                             call_entry_reads.extend(entry_reads);
+                            let (mapped_accesses, access_unknown) = flow
+                                .map_referent_call_reads_with_origins(
+                                    body,
+                                    event,
+                                    value,
+                                    &summary.consuming_accesses,
+                                    &origins,
+                                );
+                            consuming_accesses.extend(mapped_accesses);
+                            if access_unknown {
+                                unresolved_reads.push(event);
+                            }
                             if unknown || entry_unknown || !summary.unresolved_reads.is_empty() {
                                 unresolved_reads.push(event);
                             }
@@ -954,6 +967,7 @@ impl Declarations {
                         restorations,
                         consumed_inputs,
                         read_inputs: call_entry_reads,
+                        consuming_accesses,
                         unresolved_inputs: unresolved_reads.clone(),
                         possible_restorations: Some(possible_restorations),
                     };
@@ -964,6 +978,7 @@ impl Declarations {
                     consumed_inputs = facts.consumed_inputs;
                     possible_restorations = facts.possible_restorations.unwrap();
                     call_entry_reads = facts.read_inputs;
+                    consuming_accesses = facts.consuming_accesses;
                     match result {
                         Ok(entry) => entry,
                         Err(conflict) => {
@@ -1036,6 +1051,7 @@ impl Declarations {
                 }
                 summary.consumed_entry = consumed_entry;
                 summary.reads.extend(call_reads);
+                summary.consuming_accesses.extend(consuming_accesses);
                 summary.unresolved_reads.extend(unresolved_reads);
                 summaries.insert(self.function_id(name).unwrap(), summary);
                 false

@@ -201,6 +201,9 @@ pub(crate) struct FlowConsumptions {
     before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     at: Vec<HashSet<Place>>,
+    /// Resolved direct consuming accesses, independent of later restoration.
+    #[cfg(test)]
+    resolved_at: Vec<HashSet<Place>>,
     definitely_before: Vec<Option<HashSet<Place>>>,
     /// Indirect accesses lacking provenance; never an ownership proof.
     unresolved: HashSet<FlowNodeId>,
@@ -225,6 +228,8 @@ pub(crate) struct ReferentFunctionEffects {
     pub reads: Vec<ReferentRead>,
     pub unresolved_reads: Vec<FlowNodeId>,
     pub entry_reads: Vec<ReferentRead>,
+    /// Actual consuming accesses, even when restoration clears exit effects.
+    pub consuming_accesses: Vec<ReferentRead>,
     pub restored_from_consumed_entry: Vec<Place>,
     pub consumed_entry: Vec<Place>,
     /// Exit storage state under the inferred consumed-entry assumptions, not
@@ -249,6 +254,8 @@ impl ReferentFunctionEffects {
 
 /// Independent read facts, not outgoing consumption or complete entry
 /// requirements. Prior initialization writes must be considered separately.
+/// Consuming-access contracts reuse this identity descriptor without treating
+/// those facts as read-entry requirements or outgoing consumption effects.
 #[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct ReferentRead {
@@ -266,6 +273,8 @@ pub(crate) struct ReferentCallFacts {
     pub restorations: Vec<(FlowNodeId, Vec<Place>)>,
     pub consumed_inputs: Vec<(FlowNodeId, Vec<Place>, bool)>,
     pub read_inputs: Vec<ReferentRead>,
+    /// Mapped accesses survive callee restoration; they do not transfer state.
+    pub consuming_accesses: Vec<ReferentRead>,
     pub unresolved_inputs: Vec<FlowNodeId>,
     /// None keeps the conservative consumed-input fallback for manual facts.
     pub possible_restorations: Option<Vec<(FlowNodeId, Vec<Place>)>>,
@@ -1231,6 +1240,37 @@ impl FlowGraph {
         (reads, unresolved)
     }
 
+    #[cfg(test)]
+    fn referent_consuming_accesses_from_moves(
+        &self,
+        body: &Body,
+        moves: &FlowConsumptions,
+    ) -> Vec<ReferentRead> {
+        let reachable = self.reachable();
+        let mut accesses = Vec::new();
+        for (index, places) in moves.resolved_at.iter().enumerate() {
+            let event = FlowNodeId(index);
+            if !reachable.contains(&event) || places.is_empty() {
+                continue;
+            }
+            for place in places {
+                if !matches!(place.root, PlaceRoot::Parameter(_) | PlaceRoot::Global(_)) {
+                    continue;
+                }
+                let (input_storage, referent_projection) = split_referent_effect_place(body, place);
+                accesses.push(ReferentRead {
+                    event,
+                    place: place.clone(),
+                    input_storage,
+                    referent_projection,
+                    span: self.nodes[index].span,
+                });
+            }
+        }
+        accesses.sort_by_key(|access| (access.event.0, format!("{:?}", access.place)));
+        accesses
+    }
+
     /// Staged exit facts plus unresolved accesses that can reach each exit.
     /// Entry requirements and caller transfer are not complete contracts yet.
     #[cfg(test)]
@@ -1306,8 +1346,11 @@ impl FlowGraph {
         body: &Body,
         types: &LinearTypes,
     ) -> ReferentFunctionEffects {
-        let exits = self.referent_exit_effects(body, types);
-        self.referent_function_effects_from_exits(body, exits)
+        let moves = self.referent_consumptions(body, types);
+        let exits = self.referent_exit_effects_from_moves(body, &moves);
+        let mut summary = self.referent_function_effects_from_exits(body, exits);
+        summary.consuming_accesses = self.referent_consuming_accesses_from_moves(body, &moves);
+        summary
     }
 
     /// Include mapped callee effects when summarizing a forwarding helper.
@@ -1333,7 +1376,9 @@ impl FlowGraph {
         let moves =
             self.referent_consumptions_with_restorations(body, types, calls, restorations, &[]);
         let exits = self.referent_exit_effects_from_moves(body, &moves);
-        self.referent_function_effects_from_exits(body, exits)
+        let mut summary = self.referent_function_effects_from_exits(body, exits);
+        summary.consuming_accesses = self.referent_consuming_accesses_from_moves(body, &moves);
+        summary
     }
 
     /// Preserve residual entry assumptions separately from initialized-entry
@@ -1423,6 +1468,7 @@ impl FlowGraph {
             reads,
             unresolved_reads,
             entry_reads: Vec::new(),
+            consuming_accesses: Vec::new(),
             restored_from_consumed_entry: Vec::new(),
             consumed_entry: Vec::new(),
             effects_from_consumed_entry: Vec::new(),
@@ -1460,6 +1506,7 @@ impl FlowGraph {
             reads: Vec::new(),
             unresolved_reads: Vec::new(),
             entry_reads: Vec::new(),
+            consuming_accesses: Vec::new(),
             restored_from_consumed_entry: Vec::new(),
             consumed_entry: Vec::new(),
             effects_from_consumed_entry: Vec::new(),
@@ -1556,6 +1603,7 @@ impl FlowGraph {
             reads: Vec::new(),
             unresolved_reads: Vec::new(),
             entry_reads: Vec::new(),
+            consuming_accesses: Vec::new(),
             restored_from_consumed_entry: Vec::new(),
             consumed_entry: Vec::new(),
             effects_from_consumed_entry: Vec::new(),
@@ -2144,6 +2192,8 @@ impl FlowGraph {
         let mut before = vec![None; self.nodes.len()];
         let mut after = vec![None; self.nodes.len()];
         let mut consumed_at = vec![HashSet::new(); self.nodes.len()];
+        #[cfg(test)]
+        let mut resolved_at = vec![HashSet::new(); self.nodes.len()];
         let mut definite_consumed_at = origins.map(|_| vec![HashSet::new(); self.nodes.len()]);
         let mut unresolved = HashSet::new();
         let write_targets = origins.map(|origins| {
@@ -2226,6 +2276,8 @@ impl FlowGraph {
                     consumed_at[id.0].insert(place.clone());
                     if let Some(definite) = &mut definite_consumed_at {
                         let (referents, unknown) = resolve(id, place, *value);
+                        #[cfg(test)]
+                        resolved_at[id.0].extend(referents.iter().cloned());
                         if unknown {
                             unresolved.insert(id);
                         }
@@ -2252,6 +2304,8 @@ impl FlowGraph {
                     consumed_at[id.0].insert(place.clone());
                     if let Some(definite) = &mut definite_consumed_at {
                         let (referents, unknown) = resolve(id, place, *value);
+                        #[cfg(test)]
+                        resolved_at[id.0].extend(referents.iter().cloned());
                         if unknown {
                             unresolved.insert(id);
                         }
@@ -2295,6 +2349,8 @@ impl FlowGraph {
                             consumed_at[id.0].extend(places.iter().cloned());
                             (places, unknown)
                         };
+                    #[cfg(test)]
+                    resolved_at[id.0].extend(referents.iter().cloned());
                     if unknown {
                         unresolved.insert(id);
                     }
@@ -2462,6 +2518,8 @@ impl FlowGraph {
             before,
             after,
             at: consumed_at,
+            #[cfg(test)]
+            resolved_at,
             definitely_before,
             unresolved,
         }
@@ -3184,7 +3242,12 @@ impl FlowGraph {
             possible_restorations,
         );
         self.check_referent_call_consumed_entry_with_moves(&calls.consumed_inputs, &seeded)?;
-        self.check_guard_preview_consumptions(body, &seeded)?;
+        let consuming_accesses = calls
+            .consuming_accesses
+            .iter()
+            .map(|access| (access.event, access.place.clone()))
+            .collect::<Vec<_>>();
+        self.check_guard_preview_consumptions_with_calls(body, &seeded, &consuming_accesses)?;
         self.check_linear_consumptions_with_origins(body, &seeded, Some(&origins))?;
         self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
@@ -3755,6 +3818,15 @@ impl FlowGraph {
         body: &Body,
         moves: &FlowConsumptions,
     ) -> Result<(), ReleaseConflict> {
+        self.check_guard_preview_consumptions_with_calls(body, moves, &[])
+    }
+
+    fn check_guard_preview_consumptions_with_calls(
+        &self,
+        body: &Body,
+        moves: &FlowConsumptions,
+        consuming_accesses: &[(FlowNodeId, Place)],
+    ) -> Result<(), ReleaseConflict> {
         for (bound, decision, _, bindings) in self.guard_preview_boundaries(body) {
             let mut pending = self.nodes[bound.0].successors.clone();
             let mut seen = HashSet::new();
@@ -3762,7 +3834,8 @@ impl FlowGraph {
                 if event == decision || !seen.insert(event) || moves.before[event.0].is_none() {
                     continue;
                 }
-                if moves.at[event.0].iter().any(|place| {
+                if moves.at[event.0].iter().chain(consuming_accesses.iter()
+                    .filter(|(access_event, _)| *access_event == event).map(|(_, place)| place)).any(|place| {
                     matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
                 }) {
                     return Err(ReleaseConflict {

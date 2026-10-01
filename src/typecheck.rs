@@ -10239,6 +10239,7 @@ mod typed_ownership_tests {
             restorations,
             consumed_inputs,
             read_inputs: reads,
+            consuming_accesses: Vec::new(),
             unresolved_inputs: Vec::new(),
             possible_restorations: None,
         };
@@ -13273,6 +13274,183 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn guard_helper_access_contracts_preserve_consumption_hidden_by_restoration() {
+        for consumes in [false, true] {
+            let (reference, operation) = if consumes {
+                (
+                    "#ref-mut",
+                    "(#forget (#deref target))
+                 (#deref-set target (#struct-literal Token ((value 2u64))))",
+                )
+            } else {
+                ("#ref", "(#let number u64 (#get target value))")
+            };
+            let guard = "(#call inspect (: target (#borrow first)))";
+            let source = format!(
+                "(#struct Token ((value u64))) (#linear Token)
+                 (#enum Choice ((Owned Token) Empty))
+                 (#fn operation ((target ({reference} Token))) bool
+                   {operation} (#return #false))
+                 (#fn forward ((target ({reference} Token))) bool
+                   (#return (#call operation (: target target))))
+                 (#fn inspect ((target (#ref Token))) bool
+                   (#let number u64 (#get target value)) (#return #false))
+                 (#fn caller () ()
+                   (#let-mut choice Choice (Owned (#struct-literal Token ((value 1u64)))))
+                   (#match choice
+                     (#case (Owned first) (#when {guard}) (#forget first))
+                     (#case (Owned second) (#forget second))
+                     (#case Empty ())) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let summaries = declarations
+                .staged_referent_function_effects(&types)
+                .unwrap();
+            let forward = &summaries[&declarations.function_id("forward").unwrap()];
+            assert!(
+                forward.effects.is_empty(),
+                "restoration leaves no exit consumption"
+            );
+            assert_eq!(!forward.consuming_accesses.is_empty(), consumes);
+            if consumes {
+                let [access] = forward.consuming_accesses.as_slice() else {
+                    panic!("one forwarded consuming access must remain");
+                };
+                assert_eq!(
+                    access.place.root,
+                    crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+                );
+                assert!(access.place.segments.is_empty());
+                assert_eq!(access.input_storage, Some(Vec::new()));
+                let span = access.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#forget (#deref target))");
+                let invocation = declarations.flows["forward"].nodes[access.event.0]
+                    .span
+                    .unwrap();
+                assert_eq!(
+                    &source[invocation.start..invocation.end],
+                    "(#call operation (: target target))"
+                );
+            }
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            if !consumes {
+                crate::check_types(&program).unwrap();
+            } else {
+                // The syntax-only production fallback does not recognize
+                // ordinary referent restoration yet. Keep this migration
+                // gap explicit rather than claiming checker equivalence.
+                let error = crate::check_types(&program).unwrap_err();
+                assert!(
+                    error.contains("linear value 'target' was used more than once"),
+                    "{error}"
+                );
+            }
+            // Preview payloads cannot be mutably borrowed in source. Inject
+            // the mapped access contract into a valid read-only guard to
+            // verify the structural guard boundary independently of that
+            // earlier permission check. This is not a language fixture.
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let first = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "first")
+                    .unwrap(),
+            );
+            let event = crate::typed_flow::FlowNodeId(
+                flow.nodes
+                    .iter()
+                    .position(|node| {
+                        matches!(node.action, crate::typed_flow::FlowAction::Evaluate(_))
+                            && node
+                                .span
+                                .is_some_and(|span| &source[span.start..span.end] == guard)
+                    })
+                    .unwrap(),
+            );
+            let mut facts = crate::typed_flow::ReferentCallFacts::default();
+            if consumes {
+                facts
+                    .consuming_accesses
+                    .push(crate::typed_flow::ReferentRead {
+                        event,
+                        place: crate::typed_place::Place::root(
+                            crate::typed_body::PlaceRoot::Local(first),
+                        ),
+                        input_storage: None,
+                        referent_projection: Vec::new(),
+                        span: flow.nodes[event.0].span,
+                    });
+            }
+            let result = flow.infer_referent_consumed_entry_with_call_facts(
+                body,
+                &types,
+                &declarations,
+                &facts,
+            );
+            if consumes {
+                let conflict = result.unwrap_err();
+                assert!(conflict.message.contains("preview payload"), "{conflict:?}");
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], guard);
+            } else {
+                result.unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn consuming_access_identity_does_not_depend_on_unique_source_spans() {
+        let source = "(#struct Token ((value u64))) (#linear Token)
+            (#fn consume ((left (#ref-mut Token)) (right (#ref-mut Token))) ()
+              (#forget (#deref left)) (#forget (#deref right)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["consume"];
+        let flow = declarations.flows.get_mut("consume").unwrap();
+        let releases = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| {
+                matches!(node.action, crate::typed_flow::FlowAction::Release { .. })
+                    .then_some(crate::typed_flow::FlowNodeId(index))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(releases.len(), 2);
+        let shared_span = flow.nodes[releases[0].0].span;
+        flow.nodes[releases[1].0].span = shared_span;
+        let summary = flow.referent_function_effects(
+            body,
+            &crate::linearcheck::LinearTypes::from_program(&program),
+        );
+        assert_eq!(summary.consuming_accesses.len(), 2);
+        for event in releases {
+            let crate::typed_flow::FlowAction::Release { place, .. } = &flow.nodes[event.0].action
+            else {
+                unreachable!();
+            };
+            let crate::typed_body::PlaceRoot::Local(parameter) = place.root else {
+                panic!("expected a direct parameter operand");
+            };
+            let access = summary
+                .consuming_accesses
+                .iter()
+                .find(|access| access.event == event)
+                .unwrap();
+            assert_eq!(
+                access.place.root,
+                crate::typed_body::PlaceRoot::Parameter(parameter)
+            );
+            assert_eq!(access.span, shared_span);
+        }
+    }
+
+    #[test]
     fn staged_reference_storage_checks_missing_alternatives_before_merging() {
         let bad = "(#struct-literal View ((value (#if choice left right))))";
         for (setup, operation, returned) in [
@@ -13411,6 +13589,7 @@ mod typed_ownership_tests {
             "destructure_mutable_references",
             "large_reference_projections",
             "match_reference_payload",
+            "match_linear_guard",
             "projected_reference_release",
             "branch_borrow_release",
             "string_array",
