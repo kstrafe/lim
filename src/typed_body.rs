@@ -1089,6 +1089,10 @@ pub(crate) struct Body {
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     /// Reference-bearing slots in each parameter value, indexed by binding ID.
     pub parameter_loan_slots: Vec<Vec<ParameterLoanSeed>>,
+    /// Staged slot schema beyond reference boundaries. These describe loads;
+    /// unlike value slots, they must never seed initialized physical loans.
+    #[cfg(test)]
+    pub parameter_referent_loan_slots: Vec<Vec<ParameterLoanSeed>>,
     emission_nodes: Vec<NodeId>,
     callees: HashMap<FunctionId, String>,
     declaration_names: HashMap<DeclarationId, String>,

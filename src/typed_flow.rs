@@ -1096,17 +1096,23 @@ impl FlowGraph {
             if !reads_through_reference(body, *value) {
                 continue;
             }
-            let places = match &place.root {
-                PlaceRoot::Local(binding)
-                    if !origins
-                        .before(event, *binding)
-                        .iter()
-                        .any(|origin| origin.lifetime_only) =>
-                {
-                    origins.projected_referents_with_slots(event, *binding, &place.segments, true)
-                }
-                _ => Vec::new(),
-            };
+            let places = dereferenced_value_places(body, self, event, *value, &origins)
+                .unwrap_or_else(|| match &place.root {
+                    PlaceRoot::Local(binding)
+                        if !origins
+                            .before(event, *binding)
+                            .iter()
+                            .any(|origin| origin.lifetime_only) =>
+                    {
+                        origins.projected_referents_with_slots(
+                            event,
+                            *binding,
+                            &place.segments,
+                            true,
+                        )
+                    }
+                    _ => Vec::new(),
+                });
             if places.is_empty() {
                 unresolved.push(event);
             }
@@ -1505,33 +1511,45 @@ impl FlowGraph {
                     if let (Some(argument), Some(slot)) =
                         (children.get(parameter.0 + 1), &effect.input_storage)
                     {
-                        for origin in origins.value_before(body, self, event, *argument) {
-                            if origin.storage.len() != slot.len()
-                                || !origin
-                                    .storage
-                                    .iter()
-                                    .zip(slot)
-                                    .all(|(held, required)| storage_slot_matches(required, held))
-                            {
-                                continue;
-                            }
-                            if origin.lifetime_only {
+                        for source in origins.value_before(body, self, event, *argument) {
+                            let crosses_referent = slot
+                                .iter()
+                                .position(|segment| *segment == Segment::Dereference)
+                                .is_some_and(|boundary| {
+                                    source.storage.len() >= boundary
+                                        && slot[..boundary].iter().zip(&source.storage).all(
+                                            |(wanted, held)| storage_slot_matches(wanted, held),
+                                        )
+                                });
+                            let selected = origins.before[event.0]
+                                .as_ref()
+                                .map(|state| select_summary_inputs(source, slot, state))
+                                .unwrap_or_default();
+                            if crosses_referent && selected.is_empty() {
                                 incomplete = true;
-                                continue;
                             }
-                            let mut place = origin.place.clone();
-                            if matches!(place.root, PlaceRoot::Parameter(_)) {
-                                if let Some(storage) = origin.parameter_storage {
-                                    let mut path = storage;
-                                    path.append(&mut place.segments);
-                                    place.segments = path;
+                            for origin in selected {
+                                if !origin.storage.is_empty() {
+                                    continue;
                                 }
-                            }
-                            place
-                                .segments
-                                .extend(effect.referent_projection.iter().cloned());
-                            if !places.contains(&place) {
-                                places.push(place);
+                                if origin.lifetime_only {
+                                    incomplete = true;
+                                    continue;
+                                }
+                                let mut place = origin.place.clone();
+                                if matches!(place.root, PlaceRoot::Parameter(_)) {
+                                    if let Some(storage) = origin.parameter_storage {
+                                        let mut path = storage;
+                                        path.append(&mut place.segments);
+                                        place.segments = path;
+                                    }
+                                }
+                                place
+                                    .segments
+                                    .extend(effect.referent_projection.iter().cloned());
+                                if !places.contains(&place) {
+                                    places.push(place);
+                                }
                             }
                         }
                     } else {
@@ -1850,6 +1868,13 @@ impl FlowGraph {
             let Some(origins) = origins else {
                 return (vec![place.clone()], false);
             };
+            if let Some(places) = dereferenced_value_places(body, self, id, value, origins) {
+                return if places.is_empty() {
+                    (vec![place.clone()], true)
+                } else {
+                    (places, false)
+                };
+            }
             let PlaceRoot::Local(binding) = place.root else {
                 return (
                     vec![place.clone()],
@@ -2636,24 +2661,28 @@ impl FlowGraph {
                 }
                 _ => value,
             };
-            let resolved = match (origins, &place.root) {
-                (Some(origins), PlaceRoot::Local(binding))
-                    if (place.segments.contains(&Segment::Dereference)
-                        || reads_through_reference(body, value))
-                        && !origins
-                            .before(FlowNodeId(index), *binding)
-                            .iter()
-                            .any(|origin| origin.lifetime_only) =>
-                {
-                    origins.projected_referents_with_slots(
-                        FlowNodeId(index),
-                        *binding,
-                        &place.segments,
-                        true,
-                    )
-                }
-                _ => Vec::new(),
-            };
+            let resolved = origins
+                .and_then(|origins| {
+                    dereferenced_value_places(body, self, FlowNodeId(index), value, origins)
+                })
+                .unwrap_or_else(|| match (origins, &place.root) {
+                    (Some(origins), PlaceRoot::Local(binding))
+                        if (place.segments.contains(&Segment::Dereference)
+                            || reads_through_reference(body, value))
+                            && !origins
+                                .before(FlowNodeId(index), *binding)
+                                .iter()
+                                .any(|origin| origin.lifetime_only) =>
+                    {
+                        origins.projected_referents_with_slots(
+                            FlowNodeId(index),
+                            *binding,
+                            &place.segments,
+                            true,
+                        )
+                    }
+                    _ => Vec::new(),
+                });
             let accessed = if resolved.is_empty() {
                 std::slice::from_ref(place)
             } else {
@@ -4505,10 +4534,16 @@ fn split_referent_effect_place(body: &Body, place: &Place) -> (Option<Vec<Segmen
         return (None, place.segments.clone());
     };
     let slot = body
-        .parameter_loan_slots
+        .parameter_referent_loan_slots
         .get(binding.0)
         .into_iter()
         .flatten()
+        .chain(
+            body.parameter_loan_slots
+                .get(binding.0)
+                .into_iter()
+                .flatten(),
+        )
         .filter(|slot| place.segments.starts_with(&slot.storage))
         .max_by_key(|slot| slot.storage.len());
     match slot {
@@ -4627,6 +4662,42 @@ fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -
         }
     }
     changed
+}
+
+fn dereferenced_value_places(
+    body: &Body,
+    flow: &FlowGraph,
+    event: FlowNodeId,
+    value: NodeId,
+    origins: &FlowLoanOrigins,
+) -> Option<Vec<Place>> {
+    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+        return None;
+    };
+    if head != "deref" || children.len() != 2 {
+        return None;
+    }
+    let loans = origins.value_before(body, flow, event, children[1]);
+    if loans
+        .iter()
+        .any(|loan| loan.lifetime_only || !loan.storage.is_empty())
+    {
+        return Some(Vec::new());
+    }
+    let mut places = Vec::new();
+    for loan in loans {
+        let mut place = loan.place;
+        if matches!(place.root, PlaceRoot::Parameter(_)) {
+            if let Some(mut slot) = loan.parameter_storage {
+                slot.append(&mut place.segments);
+                place.segments = slot;
+            }
+        }
+        if !places.contains(&place) {
+            places.push(place);
+        }
+    }
+    Some(places)
 }
 
 fn apply_parameter_loan_summary(

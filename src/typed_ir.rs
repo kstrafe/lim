@@ -1068,12 +1068,32 @@ impl Declarations {
                     &mut HashSet::new(),
                     &mut slots[index],
                     false,
+                    false,
                 );
             }
             parameter_slots.insert(name.clone(), slots);
         }
         for (name, slots) in parameter_slots {
             self.bodies.get_mut(&name).unwrap().parameter_loan_slots = slots;
+        }
+        #[cfg(test)]
+        for name in &names {
+            let body = &self.bodies[name];
+            let mut schema = vec![Vec::new(); body.bindings.len()];
+            for (index, binding) in body.bindings.iter().take(body.parameter_count).enumerate() {
+                self.collect_parameter_loan_slots(
+                    &binding.ty,
+                    &mut Vec::new(),
+                    &mut HashSet::new(),
+                    &mut schema[index],
+                    false,
+                    true,
+                );
+            }
+            self.bodies
+                .get_mut(name)
+                .unwrap()
+                .parameter_referent_loan_slots = schema;
         }
 
         let names_by_id = self
@@ -1213,6 +1233,7 @@ impl Declarations {
             &mut HashSet::new(),
             &mut slots,
             true,
+            false,
         );
         slots
     }
@@ -1224,15 +1245,28 @@ impl Declarations {
         seen: &mut HashSet<String>,
         output: &mut Vec<crate::typed_body::ParameterLoanSeed>,
         expand_arrays: bool,
+        include_referents: bool,
     ) {
         use crate::typed_place::Segment;
         match ty {
-            Type::Reference { mutable, .. } | Type::PinnedReference { mutable, .. } => {
+            Type::Reference { mutable, target } | Type::PinnedReference { mutable, target } => {
                 output.push(crate::typed_body::ParameterLoanSeed {
                     mutable: *mutable,
                     pinned: matches!(ty, Type::PinnedReference { .. }),
                     storage: path.clone(),
-                })
+                });
+                if include_referents {
+                    path.push(Segment::Dereference);
+                    self.collect_parameter_loan_slots(
+                        target,
+                        path,
+                        seen,
+                        output,
+                        expand_arrays,
+                        true,
+                    );
+                    path.pop();
+                }
             }
             Type::Slice(_) | Type::MutableSlice(_) => {
                 output.push(crate::typed_body::ParameterLoanSeed {
@@ -1245,7 +1279,14 @@ impl Declarations {
                 if expand_arrays {
                     for index in 0..*length {
                         path.push(Segment::Index(index as u128));
-                        self.collect_parameter_loan_slots(element, path, seen, output, true);
+                        self.collect_parameter_loan_slots(
+                            element,
+                            path,
+                            seen,
+                            output,
+                            true,
+                            include_referents,
+                        );
                         path.pop();
                     }
                     return;
@@ -1255,13 +1296,27 @@ impl Declarations {
                 } else {
                     Segment::DynamicIndex
                 });
-                self.collect_parameter_loan_slots(element, path, seen, output, expand_arrays);
+                self.collect_parameter_loan_slots(
+                    element,
+                    path,
+                    seen,
+                    output,
+                    expand_arrays,
+                    include_referents,
+                );
                 path.pop();
             }
             Type::Tuple(elements) => {
                 for (index, element) in elements.iter().enumerate() {
                     path.push(Segment::Tuple(index));
-                    self.collect_parameter_loan_slots(element, path, seen, output, expand_arrays);
+                    self.collect_parameter_loan_slots(
+                        element,
+                        path,
+                        seen,
+                        output,
+                        expand_arrays,
+                        include_referents,
+                    );
                     path.pop();
                 }
             }
@@ -1276,6 +1331,7 @@ impl Declarations {
                                 seen,
                                 output,
                                 expand_arrays,
+                                include_referents,
                             );
                             path.pop();
                         }
@@ -1297,6 +1353,7 @@ impl Declarations {
                                 seen,
                                 output,
                                 expand_arrays,
+                                include_referents,
                             );
                             path.pop();
                         }

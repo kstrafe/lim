@@ -13556,4 +13556,103 @@ mod typed_ownership_tests {
             }
         }
     }
+
+    #[test]
+    fn borrowed_reference_field_consumption_maps_through_helper_calls() {
+        for result in [
+            "0u64",
+            "(#get (#get owner item) number)",
+            "(#call read (: holder (#borrow-mut holder)))",
+        ] {
+            let read_after = result != "0u64";
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#struct Container ((item Resource)))
+                 (#struct Holder ((target (#ref-mut Resource))))
+                 (#fn consume ((holder (#ref-mut Holder))) ()
+                   (#forget (#deref (#get holder target))) (#return ()))
+                 (#fn forward ((holder (#ref-mut Holder))) ()
+                   (#call consume (: holder holder)) (#return ()))
+                 (#fn read ((holder (#ref-mut Holder))) u64
+                   (#let target (#ref-mut Resource) (#get holder target))
+                   (#let number u64 (#get target number))
+                   (#drop target) (#return number))
+                 (#fn caller ((owner (#ref-mut Container))) u64
+                   (#let-mut holder Holder (#struct-literal Holder
+                     ((target (#borrow-mut (#get owner item))))))
+                   (#call forward (: holder (#borrow-mut holder)))
+                   (#let result u64 {result})
+                   (#forget holder) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            assert_eq!(
+                declarations.bodies["consume"].parameter_loan_slots[0].len(),
+                1
+            );
+            assert_eq!(
+                declarations.bodies["consume"].parameter_referent_loan_slots[0].len(),
+                2
+            );
+            let checked = declarations.staged_referent_entry_contracts(&types);
+            if read_after {
+                let error = checked.unwrap_err();
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                    panic!("unexpected failure: {error:?}");
+                };
+                assert_eq!(function, "caller");
+                assert!(
+                    conflict.message.contains("used more than once")
+                        || conflict.message.contains("consumed"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], result);
+                assert!(!conflict.labels.is_empty());
+            } else {
+                let summaries = checked.unwrap();
+                let caller = &summaries[&declarations.function_id("caller").unwrap()];
+                let field = declarations
+                    .field_id(&crate::Type::Named("Container".into()), "item")
+                    .unwrap();
+                assert!(caller.effects.iter().any(|effect| {
+                    effect.place.root
+                        == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+                        && effect.place.segments == vec![crate::typed_place::Segment::Field(field)]
+                        && effect.definitely_consumed
+                }));
+                assert!(caller.unresolved.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn exclusive_container_access_does_not_make_a_shared_field_exclusive() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#struct Holder ((target (#ref Resource))))
+            (#fn consume ((holder (#ref-mut Holder))) ()
+              (#forget (#deref (#get holder target))) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("unexpected failure: {error:?}");
+        };
+        assert_eq!(function, "consume");
+        assert!(
+            conflict
+                .message
+                .contains("requires a resolved mutable unpinned reference"),
+            "{conflict:?}"
+        );
+        let span = conflict.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#forget (#deref (#get holder target)))"
+        );
+    }
 }
