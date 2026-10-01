@@ -10143,6 +10143,73 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_initializer_calls_require_consumed_caller_storage() {
+        for consumed in [false, true] {
+            let forget = if consumed {
+                "(#forget (#deref value))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource))) ()
+                (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+              (#fn caller ((value (#ref-mut Resource))) ()
+                {forget} (#call initialize (: value value)) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let callee = &declarations.bodies["initialize"];
+            let required = declarations.flows["initialize"]
+                .infer_direct_referent_consumed_entry(callee, &types, &declarations)
+                .unwrap();
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let (event, call) = flow
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                        return None;
+                    };
+                    if matches!(
+                        body.nodes[value.0].kind,
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(_),
+                            ..
+                        }
+                    ) {
+                        Some((crate::typed_flow::FlowNodeId(index), value))
+                    } else {
+                        None
+                    }
+                })
+                .unwrap();
+            let (mapped, unknown) =
+                flow.map_referent_call_consumed_entry(body, event, call, callee, &required);
+            assert!(!unknown);
+            assert_eq!(mapped.len(), 1);
+            let result = flow.check_referent_call_consumed_entry(
+                body,
+                &types,
+                &[(event, Vec::new(), false)],
+                &[],
+                &[(event, mapped, unknown)],
+            );
+            assert_eq!(result.is_ok(), consumed);
+            if !consumed {
+                let span = result.unwrap_err().span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#call initialize (: value value))"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn staged_write_entry_inference_keeps_independent_parameter_slots_live() {
         for read_slot in ["left", "right"] {
             let source = format!(

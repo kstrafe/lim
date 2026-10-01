@@ -1310,6 +1310,35 @@ impl FlowGraph {
         )
     }
 
+    /// Entry obligations apply to every possible destination, unlike a
+    /// restoration guarantee which needs one exact definite destination.
+    #[cfg(test)]
+    pub fn map_referent_call_consumed_entry(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        callee_body: &Body,
+        required: &[Place],
+    ) -> (Vec<Place>, bool) {
+        let reads = required
+            .iter()
+            .map(|place| {
+                let (input_storage, referent_projection) =
+                    split_referent_effect_place(callee_body, place);
+                ReferentRead {
+                    event: self.entry,
+                    place: place.clone(),
+                    input_storage,
+                    referent_projection,
+                    span: None,
+                }
+            })
+            .collect::<Vec<_>>();
+        let (mapped, unknown) = self.map_referent_call_reads(body, event, call, &reads);
+        (mapped.into_iter().map(|read| read.place).collect(), unknown)
+    }
+
     /// Staged call mapping only; does not yet mutate caller ownership state.
     /// Map read identities without transferring ownership or treating these
     /// facts as complete entry requirements.
@@ -2234,6 +2263,40 @@ impl FlowGraph {
                     message: "call reads a linear referent that may already be consumed".into(),
                     span: self.nodes[read.event.0].span,
                     labels,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn check_referent_call_consumed_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        requirements: &[(FlowNodeId, Vec<Place>, bool)],
+    ) -> Result<(), ReleaseConflict> {
+        let moves =
+            self.referent_consumptions_with_restorations(body, types, calls, restorations, &[]);
+        for (event, places, unknown) in requirements {
+            let Some(state) = moves.definitely_before[event.0].as_ref() else {
+                continue;
+            };
+            if *unknown
+                || places.iter().any(|required| {
+                    !state
+                        .iter()
+                        .any(|consumed| place_covers(consumed, required))
+                })
+            {
+                return Err(ReleaseConflict {
+                    message:
+                        "call requires a definitely consumed linear referent before replacement"
+                            .into(),
+                    span: self.nodes[event.0].span,
+                    labels: Vec::new(),
                 });
             }
         }
