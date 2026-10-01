@@ -51,6 +51,22 @@ def reference_heavy_source():
     return "\n".join(lines) + "\n"
 
 
+def snapshot_heavy_source():
+    """Exercise nested branch-result snapshot lookup and lexical cleanup."""
+    lines = []
+    for function in range(64):
+        lines.append(f"(#fn worker-{function} ((input (#ref u64)) (choose bool)) (#ref u64)")
+        for binding in range(24):
+            previous = "input" if binding == 0 else f"value-{binding - 1}"
+            lines.append(f"  (#let value-{binding} (#ref u64) (#if choose "
+                         f"(#block (#let left-{binding} (#ref u64) {previous}) left-{binding}) "
+                         f"(#block (#let right-{binding} (#ref u64) {previous}) right-{binding})))")
+        lines.append("  (#return value-23))")
+    lines.append("(#fn main () u64 (#let owner u64 42u64) "
+                 "(#return (#deref (#call worker-0 (: input (#borrow owner) : choose true)))))")
+    return "\n".join(lines) + "\n"
+
+
 def scoped_heavy_source():
     """Exercise nested scoped-loan fixed points across 64 checked functions."""
     lines = []
@@ -71,14 +87,17 @@ def main():
                         help="benchmark 64 functions with 24 reference aliases each")
     parser.add_argument("--scoped-heavy", action="store_true",
                         help="benchmark 64 functions with 24 nested scoped borrows each")
+    parser.add_argument("--snapshot-heavy", action="store_true",
+                        help="benchmark 64 functions with 24 lexical branch-result aliases each")
     parser.add_argument("--compiler", type=Path, default=Path("target/release/lim"))
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--repetitions", type=int, default=20)
     parser.add_argument("--compare-runtime", action="store_true",
                         help="compare exit status/stdout/stderr instead of identical binary bytes (no stdin)")
     args = parser.parse_args()
-    if sum((args.source is not None, args.reference_heavy, args.scoped_heavy)) != 1:
-        parser.error("provide a source file, --reference-heavy, or --scoped-heavy")
+    if sum((args.source is not None, args.reference_heavy, args.scoped_heavy,
+            args.snapshot_heavy)) != 1:
+        parser.error("provide a source file, --reference-heavy, --scoped-heavy, or --snapshot-heavy")
     if args.repetitions < 1:
         parser.error("--repetitions must be positive")
     with tempfile.TemporaryDirectory(prefix="lim-compile-benchmark-") as directory:
@@ -89,6 +108,9 @@ def main():
         if args.scoped_heavy:
             args.source = Path(directory) / "scoped-heavy.lim"
             args.source.write_text(scoped_heavy_source())
+        if args.snapshot_heavy:
+            args.source = Path(directory) / "snapshot-heavy.lim"
+            args.source.write_text(snapshot_heavy_source())
         baseline = None
         if args.baseline:
             baseline = measure(args.baseline, args.source, output, args.repetitions, args.compare_runtime)

@@ -556,3 +556,30 @@ uncommitted async return-variant test is excluded because its fixture uses
 unsupported aggregate `#addr-of-mut` syntax. Both measured compilers include
 identical pending async-analysis changes; those changes and CHECKLIST.md are
 not included in this optimization commit.
+
+## Indexed recursive loan snapshots (2026-10-01)
+
+Recursive branch-result provenance queries now borrow the solver's existing
+source-ordered expression-event index rather than scanning the entire graph.
+Break events are also indexed by loop result, removing whole-graph scans from
+both recursive and published loop-result queries. The index retains one extra
+event number per valued break, not a second index. Original action filters,
+reachable pre-event snapshots, and result ordering remain unchanged.
+A differential regression supplies exhaustive event candidates to the same
+recursive transfer and compares complete results on branch, loop, and aggregate
+projection examples. All 813 library tests and enabled integrations pass;
+four existing integration tests remain ignored.
+
+The benchmark harness adds `--snapshot-heavy`: 64 functions containing 24
+branch-result aliases with lexical cleanup each. Warm release CLI samples,
+baseline first, two warmups per compiler, and no simultaneous builds/tests:
+
+| Workload | Before median | After median | Samples |
+| --- | ---: | ---: | ---: |
+| Snapshot-heavy | 320.97 ms | 319.59 ms | 40 |
+| async_fn | 48.13 ms | 48.09 ms | 60 |
+| vec_allocator | 37.19 ms | 37.24 ms | 60 |
+
+All executable bytes match. The differences (0.4% and 0.1% faster, and 0.1%
+slower respectively) do not establish a meaningful wall-clock improvement.
+This removes repeated full-graph searches; other work dominates these samples.

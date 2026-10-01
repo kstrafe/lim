@@ -264,6 +264,31 @@ fn empty_loan_state(count: usize) -> LoanState {
     }
 }
 
+/// Borrowed solver snapshots and their source-ordered expression-event index.
+/// Copying this view does not allocate or retain an additional index.
+#[derive(Clone, Copy)]
+struct LoanSnapshots<'a> {
+    before: &'a [Option<LoanState>],
+    events_by_value: &'a [Vec<usize>],
+}
+
+impl<'a> LoanSnapshots<'a> {
+    fn new(before: &'a [Option<LoanState>], events_by_value: &'a [Vec<usize>]) -> Self {
+        Self {
+            before,
+            events_by_value,
+        }
+    }
+}
+
+impl std::ops::Index<usize> for LoanSnapshots<'_> {
+    type Output = Option<LoanState>;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.before[index]
+    }
+}
+
 /// Direct reference origins at each typed flow point. This is a may-analysis,
 /// not yet an enforcing borrow check; indirect provenance and destructured
 /// payloads still need the full IR-04 transfer.
@@ -275,7 +300,8 @@ pub(crate) struct FlowLoanOrigins {
     before: Vec<Option<LoanState>>,
     after: Vec<Option<LoanState>>,
     // Reuse the solver's dense, source-ordered snapshot dependency index.
-    // Break events also occur here, so queries retain the original action filter.
+    // Break events are indexed by both their value and loop result, so queries
+    // retain the original action filter.
     events_by_value: Vec<Vec<usize>>,
 }
 
@@ -680,7 +706,12 @@ impl FlowLoanOrigins {
             return Vec::new();
         }
         if let Some(refinement) = &self.clear_refinements[event.0] {
-            return correlated_call_variant_clears(body, flow, &self.before, refinement);
+            return correlated_call_variant_clears(
+                body,
+                flow,
+                LoanSnapshots::new(&self.before, &self.events_by_value),
+                refinement,
+            );
         }
         let value = match flow.nodes[event.0].action {
             FlowAction::Release { value, .. } | FlowAction::Evaluate(value) => value,
@@ -693,10 +724,22 @@ impl FlowLoanOrigins {
             return Vec::new();
         };
         if callee.is_some() {
-            return call_parameter_clears(body, flow, &self.before, value, state);
+            return call_parameter_clears(
+                body,
+                flow,
+                LoanSnapshots::new(&self.before, &self.events_by_value),
+                value,
+                state,
+            );
         }
         let destinations = if body.consuming_releases.contains(&value) {
-            released_reference_destinations(body, flow, &self.before, children[1], state)
+            released_reference_destinations(
+                body,
+                flow,
+                LoanSnapshots::new(&self.before, &self.events_by_value),
+                children[1],
+                state,
+            )
         } else if body.consuming_pin_reads.contains(&value) {
             self.value_before(body, flow, event, children[1])
         } else {
@@ -734,7 +777,13 @@ impl FlowLoanOrigins {
             return Vec::new();
         };
         if callee.is_some() {
-            return call_loan_stores(body, flow, &self.before, value, state);
+            return call_loan_stores(
+                body,
+                flow,
+                LoanSnapshots::new(&self.before, &self.events_by_value),
+                value,
+                state,
+            );
         }
         let (source, field) = match (head.as_str(), children.len()) {
             ("deref-set" | "pin-write", 3) => (children[2], None),
@@ -774,7 +823,8 @@ impl FlowLoanOrigins {
     ) -> Vec<LoanOrigin> {
         if matches!(body.nodes[value.0].kind, NodeKind::Loop(_)) {
             let mut loop_results = Vec::new();
-            for (index, event) in flow.nodes.iter().enumerate() {
+            for &index in &self.events_by_value[value.0] {
+                let event = &flow.nodes[index];
                 let FlowAction::Break {
                     value: Some(break_value),
                     result: Some(result),
@@ -802,7 +852,7 @@ impl FlowLoanOrigins {
                                     &value_loan_origins_at_events(
                                         body,
                                         flow,
-                                        &self.before,
+                                        LoanSnapshots::new(&self.before, &self.events_by_value),
                                         alternative,
                                         state,
                                     ),
@@ -817,7 +867,7 @@ impl FlowLoanOrigins {
                         &value_loan_origins_at_events(
                             body,
                             flow,
-                            &self.before,
+                            LoanSnapshots::new(&self.before, &self.events_by_value),
                             *break_value,
                             state,
                         ),
@@ -840,14 +890,26 @@ impl FlowLoanOrigins {
                 if let Some(state) = &self.before[index] {
                     merge_loan_origins(
                         &mut results,
-                        &value_loan_origins_at_events(body, flow, &self.before, alternative, state),
+                        &value_loan_origins_at_events(
+                            body,
+                            flow,
+                            LoanSnapshots::new(&self.before, &self.events_by_value),
+                            alternative,
+                            state,
+                        ),
                     );
                 }
             }
         }
         if results.is_empty() {
             self.before[node.0].as_ref().map_or_else(Vec::new, |state| {
-                value_loan_origins_at_events(body, flow, &self.before, value, state)
+                value_loan_origins_at_events(
+                    body,
+                    flow,
+                    LoanSnapshots::new(&self.before, &self.events_by_value),
+                    value,
+                    state,
+                )
             })
         } else {
             results
@@ -2006,6 +2068,9 @@ impl FlowGraph {
             } = event.action
             {
                 loop_values[result.0].push(value);
+                if result != value {
+                    events_by_value[result.0].push(index);
+                }
             }
         }
         // Dense value IDs let every consumer reuse one visitation table.
@@ -2140,8 +2205,13 @@ impl FlowGraph {
                     let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
                         unreachable!()
                     };
-                    let destinations =
-                        released_reference_destinations(body, self, &before, children[1], &state);
+                    let destinations = released_reference_destinations(
+                        body,
+                        self,
+                        LoanSnapshots::new(&before, &events_by_value),
+                        children[1],
+                        &state,
+                    );
                     if one_concrete_store_destination(&destinations) {
                         for destination in destinations {
                             store_parameter_contents(&mut state, &destination, Vec::new(), true);
@@ -2151,15 +2221,24 @@ impl FlowGraph {
             }
             match &self.nodes[id.0].action {
                 FlowAction::Bind { binding, value } => {
-                    state[binding.0] =
-                        value_loan_origins_at_events(body, self, &before, *value, &state);
+                    state[binding.0] = value_loan_origins_at_events(
+                        body,
+                        self,
+                        LoanSnapshots::new(&before, &events_by_value),
+                        *value,
+                        &state,
+                    );
                 }
                 FlowAction::Pattern { pattern, value } => {
                     #[cfg(test)]
                     if let Some((calls, variant, region)) = &refinements[id.0] {
-                        for store in
-                            joined_call_variant_stores(body, self, &before, calls, *variant)
-                        {
+                        for store in joined_call_variant_stores(
+                            body,
+                            self,
+                            LoanSnapshots::new(&before, &events_by_value),
+                            calls,
+                            *variant,
+                        ) {
                             let PlaceRoot::Local(target) = store.destination.place.root else {
                                 continue;
                             };
@@ -2190,7 +2269,7 @@ impl FlowGraph {
                             for clear in correlated_call_variant_clears(
                                 body,
                                 self,
-                                &before,
+                                LoanSnapshots::new(&before, &events_by_value),
                                 refinements[id.0].as_ref().unwrap(),
                             ) {
                                 store_parameter_contents(&mut state, &clear, Vec::new(), true);
@@ -2204,7 +2283,13 @@ impl FlowGraph {
                             }
                         }
                     }
-                    let origins = value_loan_origins_at_events(body, self, &before, *value, &state);
+                    let origins = value_loan_origins_at_events(
+                        body,
+                        self,
+                        LoanSnapshots::new(&before, &events_by_value),
+                        *value,
+                        &state,
+                    );
                     distribute_pattern_origins(body, *pattern, &origins, &mut state);
                     if let (Some(place), Some(selected)) = (
                         Place::from_expression(body, *value),
@@ -2250,8 +2335,13 @@ impl FlowGraph {
                         },
                     value,
                 } => {
-                    let incoming =
-                        value_loan_origins_at_events(body, self, &before, *value, &state);
+                    let incoming = value_loan_origins_at_events(
+                        body,
+                        self,
+                        LoanSnapshots::new(&before, &events_by_value),
+                        *value,
+                        &state,
+                    );
                     if segments.is_empty() {
                         state[binding.0] = incoming;
                     } else {
@@ -2277,8 +2367,13 @@ impl FlowGraph {
                         }
                         _ => *value,
                     };
-                    let incoming =
-                        value_loan_origins_at_events(body, self, &before, source, &state);
+                    let incoming = value_loan_origins_at_events(
+                        body,
+                        self,
+                        LoanSnapshots::new(&before, &events_by_value),
+                        source,
+                        &state,
+                    );
                     let destinations = match &body.nodes[value.0].kind {
                         NodeKind::Form { head, children, .. }
                             if matches!(head.as_str(), "deref-set" | "pin-write")
@@ -2291,7 +2386,11 @@ impl FlowGraph {
                                     merge_loan_origins(
                                         &mut origins,
                                         &value_loan_origins_at_events(
-                                            body, self, &before, target, snapshot,
+                                            body,
+                                            self,
+                                            LoanSnapshots::new(&before, &events_by_value),
+                                            target,
+                                            snapshot,
                                         ),
                                     );
                                 }
@@ -2304,7 +2403,7 @@ impl FlowGraph {
                             let mut origins = value_loan_origins_at_events(
                                 body,
                                 self,
-                                &before,
+                                LoanSnapshots::new(&before, &events_by_value),
                                 children[1],
                                 &state,
                             );
@@ -2378,8 +2477,13 @@ impl FlowGraph {
                     let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
                         unreachable!()
                     };
-                    let destinations =
-                        value_loan_origins_at_events(body, self, &before, children[1], &state);
+                    let destinations = value_loan_origins_at_events(
+                        body,
+                        self,
+                        LoanSnapshots::new(&before, &events_by_value),
+                        children[1],
+                        &state,
+                    );
                     if one_concrete_store_destination(&destinations) {
                         for destination in destinations {
                             store_parameter_contents(&mut state, &destination, Vec::new(), true);
@@ -2406,11 +2510,23 @@ impl FlowGraph {
                         ) =>
                 {
                     let clears = if include_parameter_contents {
-                        call_parameter_clears(body, self, &before, *value, &state)
+                        call_parameter_clears(
+                            body,
+                            self,
+                            LoanSnapshots::new(&before, &events_by_value),
+                            *value,
+                            &state,
+                        )
                     } else {
                         Vec::new()
                     };
-                    let stores = call_loan_stores(body, self, &before, *value, &state);
+                    let stores = call_loan_stores(
+                        body,
+                        self,
+                        LoanSnapshots::new(&before, &events_by_value),
+                        *value,
+                        &state,
+                    );
                     for store in stores {
                         if store.destination.lifetime_only {
                             continue;
@@ -6999,7 +7115,7 @@ fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -
 fn released_reference_destinations(
     body: &Body,
     flow: &FlowGraph,
-    before: &[Option<LoanState>],
+    before: LoanSnapshots<'_>,
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
@@ -7106,7 +7222,7 @@ fn apply_parameter_loan_summary(
 fn joined_call_variant_stores(
     body: &Body,
     flow: &FlowGraph,
-    before: &[Option<LoanState>],
+    before: LoanSnapshots<'_>,
     calls: &[(FlowNodeId, NodeId)],
     variant: VariantId,
 ) -> Vec<LoanStore> {
@@ -7164,7 +7280,7 @@ fn joined_call_variant_stores(
 fn call_parameter_clears(
     body: &Body,
     flow: &FlowGraph,
-    before: &[Option<LoanState>],
+    before: LoanSnapshots<'_>,
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
@@ -7186,7 +7302,7 @@ fn call_parameter_clears(
 fn substitute_call_clears(
     body: &Body,
     flow: &FlowGraph,
-    before: &[Option<LoanState>],
+    before: LoanSnapshots<'_>,
     state: &LoanState,
     children: &[NodeId],
     clears: &[crate::typed_body::ParameterLoanSummary],
@@ -7217,7 +7333,7 @@ fn substitute_call_clears(
 fn correlated_call_variant_clears(
     body: &Body,
     flow: &FlowGraph,
-    before: &[Option<LoanState>],
+    before: LoanSnapshots<'_>,
     refinement: &CallResultRefinement,
 ) -> Vec<LoanOrigin> {
     let (calls, variant, region) = refinement;
@@ -7249,7 +7365,7 @@ fn correlated_call_variant_clears(
 fn joined_call_variant_clears(
     body: &Body,
     flow: &FlowGraph,
-    before: &[Option<LoanState>],
+    before: LoanSnapshots<'_>,
     calls: &[(FlowNodeId, NodeId)],
     variant: VariantId,
 ) -> Vec<LoanOrigin> {
@@ -7301,7 +7417,7 @@ fn joined_call_variant_clears(
 fn call_loan_stores(
     body: &Body,
     flow: &FlowGraph,
-    before: &[Option<LoanState>],
+    before: LoanSnapshots<'_>,
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanStore> {
@@ -7322,7 +7438,7 @@ fn call_loan_stores(
 fn substitute_call_stores(
     body: &Body,
     flow: &FlowGraph,
-    before: &[Option<LoanState>],
+    before: LoanSnapshots<'_>,
     value: NodeId,
     state: &LoanState,
     stores: &[crate::typed_body::ParameterStoreSummary],
@@ -8155,13 +8271,14 @@ fn value_projection(body: &Body, value: NodeId) -> Option<Segment> {
 fn value_loan_origins_at_events(
     body: &Body,
     flow: &FlowGraph,
-    before: &[Option<LoanState>],
+    before: LoanSnapshots<'_>,
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
     if matches!(body.nodes[value.0].kind, NodeKind::Loop(_)) {
         let mut result = Vec::new();
-        for (index, event) in flow.nodes.iter().enumerate() {
+        for &index in &before.events_by_value[value.0] {
+            let event = &flow.nodes[index];
             let FlowAction::Break {
                 value: Some(break_value),
                 result: Some(loop_result),
@@ -8190,7 +8307,8 @@ fn value_loan_origins_at_events(
         collect_result_alternatives(body, value, &mut alternatives);
         let mut result = Vec::new();
         for alternative in alternatives {
-            for (index, event) in flow.nodes.iter().enumerate() {
+            for &index in &before.events_by_value[alternative.0] {
+                let event = &flow.nodes[index];
                 if flow_action_has_value(&event.action, alternative) {
                     if let Some(state) = &before[index] {
                         merge_loan_origins(
@@ -8223,10 +8341,10 @@ fn value_loan_origins_at_events(
             let state = if body.consuming_pin_reads.contains(&value)
                 && state.parameter_contents.is_some()
             {
-                flow.nodes
+                before.events_by_value[value.0]
                     .iter()
-                    .enumerate()
-                    .find_map(|(index, event)| {
+                    .find_map(|&index| {
+                        let event = &flow.nodes[index];
                         matches!(event.action, FlowAction::Evaluate(id) if id == value)
                             .then(|| before[index].as_ref())
                             .flatten()
@@ -8322,10 +8440,10 @@ fn value_loan_origins_at_events(
             {
                 // Return summaries selecting entry storage must not observe
                 // the caller's state after this call has already cleared it.
-                flow.nodes
+                before.events_by_value[value.0]
                     .iter()
-                    .enumerate()
-                    .find_map(|(index, node)| {
+                    .find_map(|&index| {
+                        let node = &flow.nodes[index];
                         matches!(node.action, FlowAction::Evaluate(id) if id == value)
                             .then(|| before[index].as_ref())
                             .flatten()
@@ -12253,6 +12371,59 @@ mod tests {
                         })
                         .collect::<Vec<_>>();
                     assert_eq!(indexed, scanned, "{name}: value {value}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn recursive_loan_snapshot_queries_match_exhaustive_candidates() {
+        for source in [
+            include_str!("../examples/callee_variant_branch_clear.lim"),
+            include_str!("../examples/callee_variant_loop_clear.lim"),
+            include_str!("../examples/large_reference_projections.lim"),
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            for (name, body) in &checked.declarations().bodies {
+                let graph = &checked.declarations().flows[name];
+                let origins = graph.loan_origins(body);
+                // Visiting every event for every expression reproduces the old
+                // recursive scans; action and reachable-snapshot filters remain.
+                let exhaustive = vec![(0..graph.nodes.len()).collect::<Vec<_>>(); body.nodes.len()];
+                let indexed = LoanSnapshots::new(&origins.before, &origins.events_by_value);
+                let scanned = LoanSnapshots::new(&origins.before, &exhaustive);
+                for (value, candidates) in origins.events_by_value.iter().enumerate() {
+                    assert!(candidates.windows(2).all(|pair| pair[0] < pair[1]));
+                    for &event in candidates {
+                        let Some(state) = &origins.before[event] else {
+                            continue;
+                        };
+                        assert_eq!(
+                            value_loan_origins_at_events(
+                                body,
+                                graph,
+                                indexed,
+                                NodeId(value),
+                                state
+                            ),
+                            value_loan_origins_at_events(
+                                body,
+                                graph,
+                                scanned,
+                                NodeId(value),
+                                state
+                            ),
+                            "{name}: value {value}, event {event}"
+                        );
+                    }
+                    let loop_breaks = |events: &[usize]| {
+                        events.iter().copied().filter(|&event| {
+                            matches!(graph.nodes[event].action,
+                                FlowAction::Break { result: Some(result), .. } if result == NodeId(value))
+                        }).collect::<Vec<_>>()
+                    };
+                    assert_eq!(loop_breaks(candidates), loop_breaks(&exhaustive[value]));
                 }
             }
         }
