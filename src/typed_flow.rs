@@ -695,6 +695,25 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
+    #[cfg(test)]
+    fn reachable_loop_breaks(&self, flow: &FlowGraph, result: NodeId) -> Vec<(FlowNodeId, NodeId)> {
+        self.events_by_value[result.0]
+            .iter()
+            .filter_map(|index| {
+                if self.before[*index].is_none() {
+                    return None;
+                }
+                match flow.nodes[*index].action {
+                    FlowAction::Break {
+                        value: Some(value),
+                        result: Some(found),
+                    } if found == result => Some((FlowNodeId(*index), value)),
+                    _ => None,
+                }
+            })
+            .collect()
+    }
+
     /// Proven final callee clears or an exact direct destructive access.
     /// Empty contents are not an initialization or ownership proof.
     #[cfg(test)]
@@ -1162,20 +1181,37 @@ impl FlowGraph {
             let FlowAction::Return(Some(value)) = event.action else {
                 continue;
             };
-            let Some(state) = &states[index] else {
+            if states[index].is_none() {
                 continue;
-            };
-            let mut alternatives = Vec::new();
-            collect_result_alternatives(body, value, &mut alternatives);
-            for alternative in alternatives {
-                let facts = value_variant_facts(body, alternative, state)
-                    .into_iter()
-                    .map(|(place, variant)| (place.segments, variant))
-                    .collect::<HashMap<_, _>>();
-                if let Some(held) = &mut returned {
-                    held.retain(|path, variant| facts.get(path) == Some(variant));
-                } else {
-                    returned = Some(facts);
+            }
+            let mut pending = vec![(FlowNodeId(index), value)];
+            let mut seen = HashSet::new();
+            while let Some((event, value)) = pending.pop() {
+                let Some(state) = &states[event.0] else {
+                    continue;
+                };
+                let mut alternatives = Vec::new();
+                collect_result_alternatives(body, value, &mut alternatives);
+                for alternative in alternatives {
+                    if !seen.insert((event, alternative)) {
+                        continue;
+                    }
+                    if matches!(body.nodes[alternative.0].kind, NodeKind::Loop(_)) {
+                        let breaks = origins.reachable_loop_breaks(self, alternative);
+                        if !breaks.is_empty() {
+                            pending.extend(breaks);
+                            continue;
+                        }
+                    }
+                    let facts = value_variant_facts(body, alternative, state)
+                        .into_iter()
+                        .map(|(place, variant)| (place.segments, variant))
+                        .collect::<HashMap<_, _>>();
+                    if let Some(held) = &mut returned {
+                        held.retain(|path, variant| facts.get(path) == Some(variant));
+                    } else {
+                        returned = Some(facts);
+                    }
                 }
             }
         }
@@ -5501,21 +5537,7 @@ impl FlowGraph {
             if matches!(body.nodes[alternative.0].kind, NodeKind::Loop(_)) {
                 let key = (event, alternative);
                 if !visiting.contains(&key) {
-                    let breaks = origins.events_by_value[alternative.0]
-                        .iter()
-                        .filter_map(|index| {
-                            if origins.before[*index].is_none() {
-                                return None;
-                            }
-                            match self.nodes[*index].action {
-                                FlowAction::Break {
-                                    value: Some(value),
-                                    result: Some(result),
-                                } if result == alternative => Some((FlowNodeId(*index), value)),
-                                _ => None,
-                            }
-                        })
-                        .collect::<Vec<_>>();
+                    let breaks = origins.reachable_loop_breaks(self, alternative);
                     if !breaks.is_empty() {
                         visiting.insert(key);
                         let missing = breaks.into_iter().any(|(break_event, source)| {

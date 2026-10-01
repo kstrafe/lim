@@ -16620,6 +16620,43 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_callee_loop_returns_publish_common_discriminants() {
+        for (expression, expected) in [
+            ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (Has right)))))", Some("Has")),
+            ("(#loop (#break (#loop (#break (Has left)))))", Some("Has")),
+            ("(#loop (#break (Has left)) (#break (Other right)))", Some("Has")),
+            ("(#loop (#break Empty))", Some("Empty")),
+            ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (Other right)))))", None),
+            ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (#call ambiguous (: view right : selected selected))))))", None),
+        ] {
+        let source = format!("(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
+          (#fn ambiguous ((view (#ref u64)) (selected bool)) Choice
+            (#return (#if selected (Has view) (Other view))))
+          (#fn choose ((left (#ref u64)) (right (#ref u64)) (selected bool)) Choice
+            (#return {expression}))
+          (#fn forward ((left (#ref u64)) (right (#ref u64)) (selected bool)) Choice
+            (#return (#call choose (: left left : right right : selected selected))))");
+        let program = crate::parse_program(&source).unwrap();
+        crate::check_types(&program).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations
+            .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                &program,
+            ))
+            .unwrap();
+        let expected = expected.map(|name| declarations
+            .variant_id(&crate::Type::Named("Choice".into()), name)
+            .unwrap());
+        assert_eq!(
+            declarations.bodies["forward"].call_return_variants
+                [&declarations.function_id("choose").unwrap()]
+                .get(&Vec::new()).copied(),
+            expected
+        );
+        }
+    }
+
+    #[test]
     fn staged_enum_loop_results_check_each_reachable_break() {
         for (body, missing_exit) in [
             ("(#if selected (#block (#break (Has left))) (#block (#break Empty)))", None),
