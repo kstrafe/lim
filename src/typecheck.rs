@@ -13050,4 +13050,95 @@ mod typed_ownership_tests {
             .staged_referent_entry_contracts(&types)
             .unwrap();
     }
+
+    #[test]
+    fn staged_owned_exits_use_mapped_callee_referent_consumption() {
+        for (destruction, valid) in [
+            ("(#forget (#deref value))", true),
+            ("(#if choice (#forget (#deref value)) ())", false),
+            ("", false),
+        ] {
+            for scoped in [false, true] {
+                let body = "(#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+                  (#call consume ((value (#borrow-mut owner)) (choice choice)))";
+                let body = if scoped {
+                    format!("(#block {body} ())")
+                } else {
+                    body.into()
+                };
+                let source = format!(
+                    "(#struct Resource ((number u64))) (#linear Resource)
+                  (#fn consume ((value (#ref-mut Resource)) (choice bool)) ()
+                    {destruction} (#return ()))
+                  (#fn caller ((choice bool)) () {body} (#return ()))"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                let declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let types = crate::linearcheck::LinearTypes::from_program(&program);
+                let result = declarations.staged_referent_entry_contracts(&types);
+                if valid {
+                    result.unwrap();
+                } else {
+                    let error = result.unwrap_err();
+                    let crate::typed_ir::StagedReferentError::Use { function, conflict } = error
+                    else {
+                        panic!("unexpected error: {error:?}");
+                    };
+                    assert_eq!(function, "caller");
+                    assert!(
+                        conflict.message.contains("linear value 'owner'"),
+                        "{conflict:?}"
+                    );
+                    let span = conflict.span.unwrap();
+                    assert!(
+                        source[span.start..span.end].contains("owner"),
+                        "{conflict:?}"
+                    );
+                    assert_eq!(!conflict.labels.is_empty(), !destruction.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn staged_owned_exit_obligations_return_after_callee_restoration() {
+        for consume_again in [false, true] {
+            let cleanup = if consume_again {
+                "(#call consume ((value handle)))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn consume ((value (#ref-mut Resource))) ()
+                (#forget (#deref value)) (#return ()))
+              (#fn initialize ((value (#ref-mut Resource))) ()
+                (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+              (#fn caller () ()
+                (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+                (#let handle (#ref-mut Resource) (#borrow-mut owner))
+                (#call consume ((value handle)))
+                (#call initialize ((value handle))) {cleanup} (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_referent_entry_contracts(&types);
+            if consume_again {
+                result.unwrap();
+            } else {
+                let error = result.unwrap_err();
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                    panic!("unexpected error: {error:?}");
+                };
+                assert_eq!(function, "caller");
+                assert!(
+                    conflict
+                        .message
+                        .contains("linear value 'owner' must be consumed"),
+                    "{conflict:?}"
+                );
+            }
+        }
+    }
 }

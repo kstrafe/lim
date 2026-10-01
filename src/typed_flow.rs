@@ -2700,7 +2700,7 @@ impl FlowGraph {
         types: &LinearTypes,
         declarations: &crate::typed_ir::Declarations,
     ) -> Result<(), ReleaseConflict> {
-        self.check_linear_exit_obligations_with_moves(body, types, declarations, None)
+        self.check_linear_exit_obligations_with_moves(body, types, declarations, None, false)
     }
 
     /// Share the move-flow solution between use checks and exit diagnostics.
@@ -2730,7 +2730,13 @@ impl FlowGraph {
             self.check_linear_releases(body, types),
             self.check_referent_consumption_permissions_with_moves(body, types, &moves)
                 .and_then(|_| self.check_linear_consumptions_with_moves(body, &moves)),
-            self.check_linear_exit_obligations_with_moves(body, types, declarations, Some(&moves)),
+            self.check_linear_exit_obligations_with_moves(
+                body,
+                types,
+                declarations,
+                Some(&moves),
+                false,
+            ),
             self.check_linear_projected_replacements(body, types, declarations, &moves),
         ]
     }
@@ -2999,6 +3005,13 @@ impl FlowGraph {
         self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
         self.check_returned_referents_initialized(body, declarations, &origins, &seeded)?;
+        self.check_linear_exit_obligations_with_moves(
+            body,
+            types,
+            declarations,
+            Some(&seeded),
+            true,
+        )?;
         Ok(entry)
     }
 
@@ -3246,6 +3259,7 @@ impl FlowGraph {
         types: &LinearTypes,
         declarations: &crate::typed_ir::Declarations,
         moves: Option<&FlowConsumptions>,
+        referent_exit_facts: bool,
     ) -> Result<(), ReleaseConflict> {
         let obligations = body
             .bindings
@@ -3269,8 +3283,10 @@ impl FlowGraph {
             .iter()
             .map(|(_, _, place)| place.clone())
             .collect::<HashSet<_>>();
-        let (definite_before, _definite_after) =
-            self.obligation_consumptions(body, types, &obligation_places);
+        let syntactic_before = (!referent_exit_facts).then(|| {
+            self.obligation_consumptions(body, types, &obligation_places)
+                .0
+        });
         let computed_moves;
         let possible = match moves {
             Some(moves) => moves,
@@ -3280,6 +3296,11 @@ impl FlowGraph {
             }
         };
         let active = self.active_bindings_before(body);
+        let definite_before = if referent_exit_facts {
+            &possible.definitely_before
+        } else {
+            syntactic_before.as_ref().unwrap()
+        };
         for (index, node) in self.nodes.iter().enumerate() {
             if definite_before[index].is_none() {
                 continue;
@@ -3312,9 +3333,20 @@ impl FlowGraph {
                 if !leaving.contains(binding) {
                     continue;
                 }
-                let consumed = definite_before[index]
-                    .as_ref()
-                    .is_some_and(|state| state.contains(place));
+                let consumed = definite_before[index].as_ref().is_some_and(|state| {
+                    if referent_exit_facts {
+                        state.iter().any(|consumed| {
+                            !consumed.segments.iter().any(|segment| {
+                                matches!(
+                                    segment,
+                                    Segment::DynamicIndex | Segment::SliceDynamicIndex
+                                )
+                            }) && place_covers(consumed, place)
+                        })
+                    } else {
+                        state.contains(place)
+                    }
+                });
                 if !consumed {
                     let labels: Vec<(Span, String)> = possible.before[index]
                         .as_ref()
