@@ -17921,19 +17921,96 @@ mod typed_ownership_tests {
             let source = std::fs::read_to_string(&path).unwrap();
             let program = crate::parse_program_from_path(&source, &path).unwrap();
             crate::check_types(&program).unwrap();
-            let declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
-            if let Err(error) = declarations.staged_referent_entry_contracts(&types) {
-                failures.push(format!("{name}: {error:?}"));
+            for contents in [false, true] {
+                let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let result = if contents {
+                    declarations.staged_contents_referent_entry_contracts(&types)
+                } else {
+                    declarations.staged_referent_entry_contracts(&types)
+                };
+                if let Err(error) = result {
+                    failures.push(format!("{name} (contents={contents}): {error:?}"));
+                }
             }
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
+    #[test]
+    fn staged_async_contents_contracts_preserve_pinned_frame_referents() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for (name, poll) in [
+            ("async_fn_local_self_reference", "local-self-ref-poll"),
+            ("async_fn_self_reference", "self-ref-poll"),
+            ("async_fn_enum_self_reference", "enum-poll"),
+        ] {
+            let path = root.join("examples").join(format!("{name}.lim"));
+            let source = std::fs::read_to_string(&path).unwrap();
+            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            crate::check_types(&program).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            if let Err(error) = declarations.staged_contents_referent_entry_contracts(&types) {
+                panic!("{name}: {error:?}");
+            }
+            assert!(declarations
+                .bodies
+                .values()
+                .all(|body| body.staged_parameter_contents));
+            // Indirect slot schemas are conditional on a real incoming loan.
+            // Preparing the contents-aware gate cannot make a missing task
+            // input physical again merely because its type has reference slots.
+            let body = declarations.bodies.get_mut(poll).unwrap();
+            assert!(!body.parameter_referent_loan_slots[0].is_empty());
+            body.parameter_loan_slots[0].clear();
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("unexpected error for {name}: {error:?}");
+            };
+            assert_eq!(function, poll, "{name}: {conflict:?}");
+            assert!(
+                conflict.message.contains("unresolved call inputs"),
+                "{name}: {conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            let generated = &program.source_files[span.source_id as usize].source;
+            assert!(
+                generated[span.start..span.end].starts_with(&format!("(#call {poll}-move")),
+                "{name}: {}",
+                &generated[span.start..span.end]
+            );
+            let body = &declarations.bodies[poll];
+            let flow = &declarations.flows[poll];
+            let state = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "state")
+                    .unwrap(),
+            );
+            let event = flow
+                .nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action,
+                crate::typed_flow::FlowAction::Bind { binding, .. } if binding == state)
+                })
+                .unwrap();
+            assert!(
+                flow.loan_origins(body)
+                    .after(crate::typed_flow::FlowNodeId(event), state)
+                    .is_empty(),
+                "{name}: indirect schemas must not fabricate loaded loans"
+            );
+        }
+    }
+
     /// These are valid language programs, not negative language fixtures.
-    /// Preserve the exact known migration gaps until each case can be moved
-    /// into the positive differential corpus above. They prohibit claiming
-    /// the staged checker is ready to replace production ownership analysis.
+    /// Preserve the exact known gaps in the legacy contents-disabled staging
+    /// mode. The contents-aware migration gate above must accept these cases,
+    /// but that success alone does not authorize production replacement.
     #[test]
     fn staged_async_migration_gaps_are_explicit() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

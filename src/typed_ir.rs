@@ -823,6 +823,21 @@ impl Declarations {
         self.staged_referent_analysis(types, false, false, true)
     }
 
+    /// Prepare actual parameter contents and interprocedural store/clear
+    /// summaries before enforcing initialized entry and escape contracts.
+    /// Keeping these phases together avoids validating later calls against
+    /// the legacy symbolic-load summaries. This is a migration gate, not a
+    /// replacement for production ownership validation yet.
+    #[cfg(test)]
+    pub fn staged_contents_referent_entry_contracts(
+        &mut self,
+        types: &crate::linearcheck::LinearTypes,
+    ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
+    {
+        self.staged_parameter_contents_summaries();
+        self.staged_referent_entry_contracts(types)
+    }
+
     #[cfg(test)]
     fn staged_referent_analysis(
         &self,
