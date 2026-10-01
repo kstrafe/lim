@@ -12322,6 +12322,45 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn indirect_external_stores_cannot_hide_local_reference_origins_in_aliases() {
+        for pinned in [false, true] {
+            let target = if pinned { "#pin-ref-mut" } else { "#ref-mut" };
+            let write = if pinned {
+                "(#unsafe (#pin-write target temporary))"
+            } else {
+                "(#deref-set target temporary)"
+            };
+            let source = format!(
+                "(#struct Holder (: view (#ref u64)))
+                (#fn bad (: target ({target} Holder)) ()
+                  (#let local u64 7u64)
+                  (#let temporary Holder (#struct-literal Holder (: view (#borrow local))))
+                  {write} (#forget temporary) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let conflict = crate::typed_borrow::check_scope_escapes(
+                &declarations.bodies["bad"],
+                &declarations.flows["bad"],
+            )
+            .unwrap_err();
+            assert!(
+                conflict
+                    .message
+                    .contains("local variable 'local' in non-local storage"),
+                "{conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert_eq!(&source[span.start..span.end], "temporary");
+            assert!(conflict
+                .labels
+                .iter()
+                .any(|(span, _)| &source[span.start..span.end] == "(#borrow local)"));
+            assert!(crate::check_types(&program).is_err());
+        }
+    }
+
+    #[test]
     fn indirect_variant_writes_require_one_actual_local_destination() {
         let program = crate::parse_program(
             "(#enum Choice ((Empty) (Full u64)))

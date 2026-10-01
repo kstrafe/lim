@@ -649,6 +649,57 @@ pub(crate) fn check_scope_escapes_cached(
         let Some(active) = active[index].as_ref() else {
             continue;
         };
+        let store = match node.action {
+            FlowAction::Write { value, .. } | FlowAction::Evaluate(value) => {
+                match &body.nodes[value.0].kind {
+                    NodeKind::Form { head, children, .. }
+                        if matches!(head.as_str(), "deref-set" | "pin-write")
+                            && children.len() == 3 =>
+                    {
+                        Some((children[1], children[2]))
+                    }
+                    NodeKind::Form { head, children, .. }
+                        if head == "pin-set-field" && children.len() == 4 =>
+                    {
+                        Some((children[1], children[3]))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        if let Some((target, value)) = store {
+            let event = FlowNodeId(index);
+            let targets = origins.value_before(body, flow, event, target);
+            let local_storage = !targets.is_empty() && targets.iter().all(|origin|
+                !origin.lifetime_only && origin.storage.is_empty()
+                && matches!(origin.place.root, PlaceRoot::Local(binding) if active.contains(&binding)));
+            for origin in origins.value_before(body, flow, event, value) {
+                let PlaceRoot::Local(binding) = origin.place.root else {
+                    continue;
+                };
+                if active.contains(&binding) && local_storage {
+                    continue;
+                }
+                let name = &body.bindings[binding.0].name;
+                let message = if !active.contains(&binding) {
+                    format!("reference to block-local variable '{name}' escapes its scope")
+                } else {
+                    format!(
+                        "cannot store a reference to local variable '{name}' in non-local storage"
+                    )
+                };
+                return Err(BorrowConflict {
+                    message,
+                    span: body.nodes[value.0].span.or(node.span).or(origin.span),
+                    labels: origin
+                        .span
+                        .into_iter()
+                        .map(|span| (span, "reference originates here".into()))
+                        .collect(),
+                });
+            }
+        }
         if let FlowAction::ScopeExit(exiting) = &node.action {
             if exiting.is_empty() {
                 continue;
