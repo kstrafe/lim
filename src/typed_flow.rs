@@ -1736,6 +1736,7 @@ impl FlowGraph {
         for effect in &summary.effects {
             let mut places = Vec::new();
             let mut incomplete = false;
+            let mut inactive = false;
             match effect.place.root {
                 PlaceRoot::Global(_) => places.push(effect.place.clone()),
                 PlaceRoot::Parameter(parameter) => {
@@ -1744,10 +1745,17 @@ impl FlowGraph {
                     {
                         let mut alternatives = Vec::new();
                         collect_call_input_components(body, *argument, slot, &mut alternatives);
-                        for (alternative, selected_slot) in alternatives {
-                            let Some(alternative) = alternative else {
-                                incomplete = true;
-                                continue;
+                        for alternative in alternatives {
+                            let (alternative, selected_slot) = match alternative {
+                                CallInputComponent::Selected(value, slot) => (value, slot),
+                                CallInputComponent::Inactive => {
+                                    inactive = true;
+                                    continue;
+                                }
+                                CallInputComponent::Missing => {
+                                    incomplete = true;
+                                    continue;
+                                }
                             };
                             let sources = origins.value_before(body, self, event, alternative);
                             let mut selected_alternative = false;
@@ -1801,10 +1809,11 @@ impl FlowGraph {
                 }
                 _ => incomplete = true,
             }
-            if places.is_empty() {
+            if places.is_empty() && !inactive {
                 incomplete = true;
             }
-            let definite = effect.definitely_consumed && places.len() == 1 && !incomplete;
+            let definite =
+                effect.definitely_consumed && places.len() == 1 && !incomplete && !inactive;
             unknown |= incomplete;
             for place in places {
                 let (input_storage, referent_projection) =
@@ -6204,11 +6213,19 @@ fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
 }
 
 #[cfg(test)]
+enum CallInputComponent {
+    Selected(NodeId, Vec<Segment>),
+    Missing,
+    /// A resolved constructor of another variant in the same enum.
+    Inactive,
+}
+
+#[cfg(test)]
 fn collect_call_input_components(
     body: &Body,
     value: NodeId,
     path: &[Segment],
-    output: &mut Vec<(Option<NodeId>, Vec<Segment>)>,
+    output: &mut Vec<CallInputComponent>,
 ) {
     let mut alternatives = Vec::new();
     collect_result_alternatives(body, value, &mut alternatives);
@@ -6219,6 +6236,19 @@ fn collect_call_input_components(
                 continue;
             }
             if let Some((selected, tail)) = path.split_first() {
+                if let (
+                    Segment::Payload(wanted, _),
+                    Some(NodeKind::Declaration(DeclarationId::Variant(actual))),
+                ) = (selected, children.first().map(|id| &body.nodes[id.0].kind))
+                {
+                    if wanted != actual && wanted.owner == actual.owner {
+                        // This alternative cannot contain the requested
+                        // payload. It contributes no effect, not an unknown
+                        // reference and never definite consumption.
+                        output.push(CallInputComponent::Inactive);
+                        continue;
+                    }
+                }
                 if head == "array-repeat"
                     && matches!(selected, Segment::Index(_) | Segment::DynamicIndex)
                 {
@@ -6228,7 +6258,7 @@ fn collect_call_input_components(
                         _ => true,
                     });
                     if !valid {
-                        output.push((None, path.to_vec()));
+                        output.push(CallInputComponent::Missing);
                         continue;
                     }
                     if let Some(element) = children.get(if children.len() == 3 { 2 } else { 1 }) {
@@ -6257,12 +6287,12 @@ fn collect_call_input_components(
                     if found {
                         continue;
                     }
-                    output.push((None, path.to_vec()));
+                    output.push(CallInputComponent::Missing);
                     continue;
                 }
             }
         }
-        output.push((Some(alternative), path.to_vec()));
+        output.push(CallInputComponent::Selected(alternative, path.to_vec()));
     }
 }
 

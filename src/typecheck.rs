@@ -12074,6 +12074,68 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn enum_call_slots_distinguish_inactive_payloads_from_missing_provenance() {
+        for (argument, count, definite) in [
+            ("(Empty)", 0, false),
+            ("(Full left)", 1, true),
+            ("(#if selected (Full left) (Empty))", 1, false),
+        ] {
+            let source = format!(
+                "(#struct Resource (: number u64)) (#linear Resource)
+                (#enum Choice ((Empty) (Full (#ref-mut Resource))))
+                (#fn consume (: choice Choice) ()
+                  (#let done () (#match choice
+                    (#case (Empty) ())
+                    (#case (Full value) (#block (#forget (#deref value)) ()))))
+                  (#return ()))
+                (#fn caller (: left (#ref-mut Resource) : selected bool) ()
+                  (#call consume (: choice {argument})) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let mut summary = declarations.flows["consume"]
+                .referent_function_effects(&declarations.bodies["consume"], &types);
+            assert_eq!(summary.effects.len(), 1);
+            // Exercise substitution of a requested definite fact. The
+            // inactive alternative must weaken it independently of inference.
+            summary.effects[0].definitely_consumed = true;
+            let flow = &declarations.flows["caller"];
+            let body = &declarations.bodies["caller"];
+            let callee = declarations.function_id("consume").unwrap();
+            let (event, call) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(call) = node.action else { return None; };
+                matches!(&body.nodes[call.0].kind, crate::typed_body::NodeKind::Form { callee: Some(found), .. } if *found == callee)
+                    .then_some((crate::typed_flow::FlowNodeId(index), call))
+            }).unwrap();
+            let (mapped, unknown) = flow.map_referent_call_effects(body, event, call, &summary);
+            assert!(!unknown, "{argument}: {summary:?}");
+            assert_eq!(mapped.len(), count);
+            assert!(mapped
+                .iter()
+                .all(|effect| effect.definitely_consumed == definite));
+            declarations
+                .bodies
+                .get_mut("caller")
+                .unwrap()
+                .parameter_loan_slots[0]
+                .clear();
+            let (mapped, unknown) = flow.map_referent_call_effects(
+                &declarations.bodies["caller"],
+                event,
+                call,
+                &summary,
+            );
+            assert!(mapped.is_empty());
+            assert_eq!(
+                unknown,
+                count != 0,
+                "inactive is not missing; active is not fabricated"
+            );
+        }
+    }
+
+    #[test]
     fn repeated_array_call_slots_retain_alternatives_and_reject_missing_elements() {
         let source = "(#fn read ((values (#array (#ref u64) 2))) u64
               (#return (#deref (#index values 1usize))))
