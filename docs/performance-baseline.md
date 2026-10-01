@@ -611,3 +611,29 @@ run but regresses 1.7% in the reverse-order repeat. Vector improves 2.5% and
 1.5% respectively. Outliers reach multiple seconds; these small differences
 do not establish a general speedup. Eliminating the redundant incoming vector
 and its nested projection clones is deterministic.
+
+## Move loan vectors and borrow transfer comparisons (2026-10-01)
+
+Matched reference fields now move their loan vectors into flattening rather
+than deep-cloning vectors that are immediately replaced. Mutable-loan transfer
+compares borrowed strings rather than allocating two strings for each candidate
+comparison. Loan ordering, deduplication, and exclusive transfer rules remain
+unchanged.
+
+All 813 library tests and 13 targeted nested-reference, reference-release, and
+reference-write integration tests pass. Warm release CLI comparisons use 40
+samples and verify identical executable bytes. Both compilers include the same
+uncommitted async changes, which are excluded from this optimization commit.
+
+| Workload | Before median | After median |
+| --- | ---: | ---: |
+| async_fn | 49.31 ms | 49.15 ms |
+| vec_allocator | 37.26 ms | 37.79 ms |
+| vec_allocator, after measured first | 36.84 ms | 44.35 ms |
+
+The async difference is 0.3%; vector results regress 1.4% and 20.4%, with a
+410.84 ms outlier in the reverse-order run. These samples do not establish a
+wall-clock improvement. The verified benefit is eliminating unnecessary
+allocations; further optimization should target larger algorithmic costs.
+Repository-wide formatting still reports preexisting pending async edits;
+the changed borrow-checker module has been formatted independently.

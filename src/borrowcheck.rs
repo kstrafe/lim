@@ -1256,7 +1256,7 @@ fn check_let_binding(
         if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match"))
         {
             for (_, loans) in reference_fields.values_mut() {
-                *loans = flatten_transferred_loans(loans.clone(), context);
+                *loans = flatten_transferred_loans(std::mem::take(loans), context);
             }
         }
     }
@@ -1342,9 +1342,12 @@ fn check_let_binding(
             if contains_mutable_references
                 && context.loans.active.get(loan) == Some(&LoanKind::Mutable)
             {
-                if let Some(index) = transferred_loans
-                    .iter()
-                    .position(|transferred| transferred == &(owner.clone(), loan.clone()))
+                if let Some(index) =
+                    transferred_loans
+                        .iter()
+                        .position(|(transferred_owner, transferred_loan)| {
+                            transferred_owner == owner && transferred_loan == loan
+                        })
                 {
                     transferred_loans.swap_remove(index);
                     continue;
