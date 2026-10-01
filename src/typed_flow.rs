@@ -1188,6 +1188,18 @@ impl FlowGraph {
         summary: &ReferentFunctionEffects,
     ) -> (Vec<ReferentExitEffect>, bool) {
         let origins = self.loan_origins(body);
+        self.map_referent_call_effects_with_origins(body, event, call, summary, &origins)
+    }
+
+    #[cfg(test)]
+    pub fn map_referent_call_effects_with_origins(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        summary: &ReferentFunctionEffects,
+        origins: &FlowLoanOrigins,
+    ) -> (Vec<ReferentExitEffect>, bool) {
         let NodeKind::Form { children, .. } = &body.nodes[call.0].kind else {
             return (Vec::new(), true);
         };

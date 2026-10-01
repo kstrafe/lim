@@ -824,6 +824,10 @@ impl Declarations {
                         node.successors.clear();
                     }
                 }
+                // All call arguments must use snapshots from this same
+                // divergence-adjusted graph. Solve provenance once per body,
+                // not once for every invocation in the body.
+                let origins = flow.loan_origins(body);
                 let mut calls = Vec::new();
                 for (index, node) in flow.nodes.iter().enumerate() {
                     let FlowAction::Evaluate(value) = node.action else {
@@ -838,9 +842,9 @@ impl Declarations {
                     };
                     let event = FlowNodeId(index);
                     let (effects, unknown) = match summaries.get(callee) {
-                        Some(summary) => {
-                            flow.map_referent_call_effects(body, event, value, summary)
-                        }
+                        Some(summary) => flow.map_referent_call_effects_with_origins(
+                            body, event, value, summary, &origins,
+                        ),
                         None => (Vec::new(), true),
                     };
                     calls.push((event, effects, unknown));
