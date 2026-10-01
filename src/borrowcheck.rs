@@ -3145,6 +3145,7 @@ fn reference_origins(
                         return parameters
                             .iter()
                             .filter(|summary| summary.mutable)
+                            .filter(|summary| summary.global.is_none())
                             .filter_map(|summary| items.get(summary.parameter + 1))
                             .flat_map(|argument| reference_origins(argument, context, true))
                             .collect();

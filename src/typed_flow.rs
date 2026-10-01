@@ -2752,6 +2752,22 @@ fn apply_parameter_loan_summary(
     Some(origin)
 }
 
+fn global_summary_origin(summary: &crate::typed_body::ParameterLoanSummary) -> Option<LoanOrigin> {
+    Some(LoanOrigin {
+        place: Place {
+            root: PlaceRoot::Global(summary.global?),
+            segments: summary.referent_projection.clone(),
+        },
+        mutable: summary.mutable,
+        pinned: summary.pinned,
+        lifetime_only: summary.lifetime_only,
+        span: None,
+        borrowed_from: None,
+        storage: summary.storage.clone(),
+        parameter_storage: None,
+    })
+}
+
 fn replace_projected_origins(
     held: &mut Vec<LoanOrigin>,
     path: &[Segment],
@@ -2866,6 +2882,10 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             if let Some(summary) = body.call_return_origins.get(callee) {
                 let mut result = Vec::new();
                 for source in summary {
+                    if let Some(origin) = global_summary_origin(source) {
+                        merge_loan_origins(&mut result, &[origin]);
+                        continue;
+                    }
                     let Some(argument) = children.get(source.parameter + 1) else {
                         continue;
                     };
@@ -3308,6 +3328,10 @@ fn value_loan_origins_at_events(
             if let Some(summary) = body.call_return_origins.get(callee) {
                 let mut result = Vec::new();
                 for source in summary {
+                    if let Some(origin) = global_summary_origin(source) {
+                        merge_loan_origins(&mut result, &[origin]);
+                        continue;
+                    }
                     let Some(argument) = children.get(source.parameter + 1) else {
                         continue;
                     };

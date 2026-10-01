@@ -9492,6 +9492,40 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn static_reference_origins_survive_forwarding_calls() {
+        let source = "(#static VALUE u64 1u64)
+          (#fn obtain () (#ref u64) (#return (#unsafe (#borrow VALUE))))
+          (#fn forward () (#ref u64) (#return (#call obtain ())))
+          (#fn inspect () () (#let view (#ref u64) (#call forward ()))
+            (#forget view) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let view = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap(),
+        );
+        let release = crate::typed_flow::FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action, crate::typed_flow::FlowAction::Release { .. })
+                })
+                .unwrap(),
+        );
+        let origins = flow.loan_origins(body);
+        let held = origins.before(release, view);
+        assert_eq!(held.len(), 1);
+        assert!(matches!(
+            held[0].place.root,
+            crate::typed_body::PlaceRoot::Global(_)
+        ));
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};

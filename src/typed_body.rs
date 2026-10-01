@@ -1039,6 +1039,8 @@ pub(crate) enum PlaceRoot {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ParameterLoanSummary {
+    /// When present, this is a static origin; `parameter` is unused.
+    pub global: Option<crate::typed_ir::GlobalId>,
     pub parameter: usize,
     pub mutable: bool,
     pub pinned: bool,

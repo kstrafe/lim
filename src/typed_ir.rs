@@ -861,11 +861,14 @@ impl Declarations {
                 for origin in
                     origins.value_before(body, flow, crate::typed_flow::FlowNodeId(index), *value)
                 {
-                    let crate::typed_body::PlaceRoot::Parameter(binding) = origin.place.root else {
-                        continue;
+                    let (parameter, global) = match origin.place.root {
+                        crate::typed_body::PlaceRoot::Parameter(binding) => (binding.0, None),
+                        crate::typed_body::PlaceRoot::Global(global) => (0, Some(global)),
+                        _ => continue,
                     };
                     let summary = crate::typed_body::ParameterLoanSummary {
-                        parameter: binding.0,
+                        parameter,
+                        global,
                         mutable: origin.mutable,
                         pinned: origin.pinned,
                         lifetime_only: origin.lifetime_only,
