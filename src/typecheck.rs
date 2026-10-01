@@ -12975,4 +12975,79 @@ mod typed_ownership_tests {
             );
         }
     }
+
+    #[test]
+    fn staged_nested_result_alternatives_do_not_hide_missing_reference_origins() {
+        for (ty, returned) in [
+            (
+                "View",
+                "(#struct-literal View ((value (#if choice left right))))",
+            ),
+            (
+                "(#tuple (#ref u64) u64)",
+                "(#tuple (#tuple (#ref u64) u64) (#if choice left right) 0u64)",
+            ),
+            (
+                "(#array (#ref u64) 2)",
+                "(#array-of (#array (#ref u64) 2) left (#if choice left right))",
+            ),
+            (
+                "(#array (#ref u64) 2)",
+                "(#array-repeat (#if choice left right))",
+            ),
+            (
+                "Wrapper",
+                "(#struct-literal Wrapper ((choice (#if choice (Has left) (Has right)))))",
+            ),
+        ] {
+            let source = format!(
+                "(#struct View ((value (#ref u64))))
+              (#enum Choice ((Has (#ref u64)) Empty)) (#struct Wrapper ((choice Choice)))
+              (#fn make ((left (#ref u64)) (right (#ref u64)) (choice bool)) {ty}
+                (#return {returned}))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            declarations
+                .bodies
+                .get_mut("make")
+                .unwrap()
+                .parameter_loan_slots[1]
+                .clear();
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert!(
+                conflict.message.contains("missing slot provenance"),
+                "{returned}: {conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert_eq!(
+                &source[span.start..span.end],
+                format!("(#return {returned})")
+            );
+        }
+    }
+
+    #[test]
+    fn staged_nested_match_results_retain_arm_local_reference_snapshots() {
+        let source = "(#enum Holder ((Has (#ref u64))))
+          (#struct View ((value (#ref u64))))
+          (#fn make ((holder Holder)) View
+            (#return (#struct-literal View
+              ((value (#match holder (#case (Has view) view)))))))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+    }
 }

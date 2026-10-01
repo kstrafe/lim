@@ -3024,9 +3024,7 @@ impl FlowGraph {
             };
             let event = FlowNodeId(index);
             let returned = origins.value_before(body, self, event, value);
-            let mut alternatives = Vec::new();
-            collect_result_alternatives(body, value, &mut alternatives);
-            for alternative in alternatives {
+            for alternative in returned_provenance_components(body, value) {
                 let alternative_origins = origins.value_before(body, self, event, alternative);
                 if let Some(ty) = &body.nodes[alternative.0].ty {
                     for slot in declarations.reference_storage_slots(ty) {
@@ -5171,6 +5169,44 @@ fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
     } else {
         2
     }
+}
+
+#[cfg(test)]
+fn returned_provenance_components(body: &Body, value: NodeId) -> Vec<NodeId> {
+    let mut pending = vec![value];
+    let mut seen = HashSet::new();
+    let mut components = Vec::new();
+    while let Some(value) = pending.pop() {
+        let mut alternatives = Vec::new();
+        collect_result_alternatives(body, value, &mut alternatives);
+        for alternative in alternatives {
+            if !seen.insert(alternative) {
+                continue;
+            }
+            components.push(alternative);
+            let NodeKind::Form { head, children, .. } = &body.nodes[alternative.0].kind else {
+                continue;
+            };
+            if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
+                pending.push(children[1]);
+            } else if head == "array-repeat" {
+                if matches!(body.nodes[alternative.0].ty, Some(Type::Array(_, length)) if length > 0)
+                {
+                    if let Some(child) = children.get(if children.len() == 3 { 2 } else { 1 }) {
+                        pending.push(*child);
+                    }
+                }
+            } else if aggregate_slot(body, head, children, 0).is_some() {
+                let start = if matches!(head.as_str(), "array" | "array-of" | "tuple") {
+                    constructor_values_start(body.nodes[alternative.0].ty.as_ref(), children.len())
+                } else {
+                    1
+                };
+                pending.extend(children.iter().skip(start).copied());
+            }
+        }
+    }
+    components
 }
 
 #[cfg(test)]
