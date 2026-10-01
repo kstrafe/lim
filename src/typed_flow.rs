@@ -785,7 +785,11 @@ impl FlowGraph {
                         replace_projected_origins(&mut state[binding.0], segments, incoming);
                     }
                 }
-                FlowAction::Write { place, value } => {
+                FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
+                    if matches!(self.nodes[id.0].action, FlowAction::Write { .. })
+                        || matches!(&body.nodes[value.0].kind,
+                            NodeKind::Form { head, children, .. } if head == "deref-set" && children.len() == 3) =>
+                {
                     let source = match &body.nodes[value.0].kind {
                         NodeKind::Form { head, children, .. }
                             if matches!(head.as_str(), "deref-set" | "pin-write")
@@ -802,7 +806,32 @@ impl FlowGraph {
                     };
                     let incoming =
                         value_loan_origins_at_events(body, self, &before, source, &state);
-                    let destinations = reborrow_source_origins(place, &state, &mut HashSet::new());
+                    let destinations = match &body.nodes[value.0].kind {
+                        NodeKind::Form { head, children, .. }
+                            if matches!(head.as_str(), "deref-set" | "pin-write")
+                                && children.len() == 3 =>
+                        {
+                            let target = children[1];
+                            let mut origins = Vec::new();
+                            for event in &events_by_value[target.0] {
+                                if let Some(snapshot) = &before[*event] {
+                                    merge_loan_origins(
+                                        &mut origins,
+                                        &value_loan_origins_at_events(
+                                            body, self, &before, target, snapshot,
+                                        ),
+                                    );
+                                }
+                            }
+                            origins
+                        }
+                        _ => match &self.nodes[id.0].action {
+                            FlowAction::Write { place, .. } => {
+                                reborrow_source_origins(place, &state, &mut HashSet::new())
+                            }
+                            _ => Vec::new(),
+                        },
+                    };
                     let mut known_places = Vec::new();
                     for origin in &destinations {
                         if !known_places.contains(&origin.place) {
