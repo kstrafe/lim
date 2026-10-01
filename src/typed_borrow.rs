@@ -51,6 +51,16 @@ pub(crate) fn check_live_direct_loans_with_types(
         .iter()
         .any(|node| matches!(node.action, FlowAction::Borrow { .. }))
         && body.parameter_loan_slots.iter().all(Vec::is_empty)
+        && !body.nodes.iter().any(|node| match &node.kind {
+            NodeKind::Form {
+                callee: Some(callee),
+                ..
+            } => body
+                .call_return_origins
+                .get(callee)
+                .is_some_and(|summary| summary.iter().any(|origin| origin.global.is_some())),
+            _ => false,
+        })
     {
         return Ok(());
     }
@@ -1598,6 +1608,59 @@ mod tests {
             origins.projected_referents(read.0, parent, &read.1.segments),
             vec![Place::root(PlaceRoot::Local(value))]
         );
+    }
+
+    #[test]
+    fn static_returned_loans_are_checked_without_local_borrow_events() {
+        let source = "(#static VALUE u64 1u64)
+          (#fn obtain () (#ref u64) (#return (#unsafe (#borrow VALUE))))
+          (#fn inspect () u64
+            (#let view (#ref u64) (#call obtain ()))
+            (#forget view)
+            (#let observed u64 (#unsafe VALUE)) (#return observed))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["inspect"];
+        let mut flow = FlowGraph::lower(body).unwrap();
+        assert!(!flow
+            .nodes
+            .iter()
+            .any(|node| matches!(node.action, FlowAction::Borrow { .. })));
+        check_live_direct_loans(body, &flow).unwrap();
+        let release = flow
+            .nodes
+            .iter()
+            .position(|node| matches!(node.action, FlowAction::Release { .. }))
+            .unwrap();
+        let action = flow
+            .nodes
+            .iter()
+            .find(|node| {
+                matches!(&node.action,
+            FlowAction::Read { place, .. } if matches!(place.root, PlaceRoot::Global(_)))
+            })
+            .unwrap()
+            .action
+            .clone();
+        let FlowAction::Read { place, value, .. } = action else {
+            unreachable!()
+        };
+        let action = FlowAction::Release { place, value };
+        let read = FlowNodeId(flow.nodes.len());
+        for node in &mut flow.nodes {
+            for successor in &mut node.successors {
+                if *successor == FlowNodeId(release) {
+                    *successor = read;
+                }
+            }
+        }
+        flow.nodes.push(FlowNode {
+            action,
+            successors: vec![FlowNodeId(release)],
+            span: None,
+        });
+        let error = check_live_direct_loans(body, &flow).unwrap_err();
+        assert!(error.message.contains("borrow"), "{}", error.message);
     }
 
     #[test]
