@@ -460,3 +460,26 @@ and a 2-second outlier mean these runs do not establish a reliable overall
 latency improvement. The demonstrated win is reduced solver work on acyclic
 graphs, not a universal compilation speedup. All 763 library tests and enabled
 integration/native/UI tests passed; four existing tests remain ignored.
+
+## Contiguous liveness transfer masks (2026-10-01)
+
+The immutable use/definition masks now occupy two contiguous buffers rather
+than two vectors of event rows. For N events and a nonzero binding bitset,
+this removes 2N row allocations and 2N vector headers; the bit payload is
+unchanged. Zero-binding functions allocate no mask buffers. Queried before
+and after snapshots retain their existing representation. Regression checks
+cover empty binding sets, multi-word bitsets, branches, loops, and unreachable
+events; all 763 library tests and enabled integration/native/UI tests passed.
+
+Sequential warm CLI comparisons against the postorder-only compiler, 100
+samples per compiler, after tests:
+
+| Workload | Before median | After median | Change |
+| --- | ---: | ---: | ---: |
+| Reference-heavy | 39.61 ms | 38.71 ms | 2.3% faster |
+| async_fn | 43.31 ms | 43.86 ms | 1.3% slower |
+| vec_allocator | 32.19 ms | 32.16 ms | 0.1% faster |
+
+Executable bytes were identical throughout. These small, mixed timing changes
+do not demonstrate a general latency improvement. The guaranteed reduction
+is temporary allocations and vector-header storage, not peak process RSS.

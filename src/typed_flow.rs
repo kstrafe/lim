@@ -5317,16 +5317,18 @@ impl FlowGraph {
         let words = count.div_ceil(64);
         let mut before = vec![vec![0u64; words]; self.nodes.len()];
         let mut after = before.clone();
-        let mut uses = before.clone();
-        let mut defs = before.clone();
+        // These immutable transfer masks need no per-event allocation.
+        // Keep only the externally queried snapshots as separate rows.
+        let mut uses = vec![0u64; self.nodes.len() * words];
+        let mut defs = vec![0u64; self.nodes.len() * words];
         let mut predecessors = vec![Vec::<FlowNodeId>::new(); self.nodes.len()];
         for id in reachable {
             let node = &self.nodes[id.0];
             for successor in &node.successors {
                 predecessors[successor.0].push(*id);
             }
-            let set = |bits: &mut [Vec<u64>], binding: BindingId| {
-                bits[id.0][binding.0 / 64] |= 1u64 << (binding.0 % 64);
+            let set = |bits: &mut [u64], binding: BindingId| {
+                bits[id.0 * words + binding.0 / 64] |= 1u64 << (binding.0 % 64);
             };
             match &node.action {
                 FlowAction::Read {
@@ -5416,7 +5418,8 @@ impl FlowGraph {
                     .successors
                     .iter()
                     .fold(0, |bits, successor| bits | before[successor.0][word]);
-                let next_before = (next_after & !defs[id.0][word]) | uses[id.0][word];
+                let offset = id.0 * words + word;
+                let next_before = (next_after & !defs[offset]) | uses[offset];
                 changed |= before[id.0][word] != next_before || after[id.0][word] != next_after;
                 before[id.0][word] = next_before;
                 after[id.0][word] = next_after;
@@ -10883,6 +10886,7 @@ mod tests {
         }
         wide.push_str("(#return value129))");
         for source in [
+            "(#fn main () u64 (#return 42u64))",
             wide.as_str(),
             "(#fn main () u64 (#let-mut counter u64 0u64)
              (#while (#u64.< counter 3u64)
