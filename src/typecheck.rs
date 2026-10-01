@@ -10143,6 +10143,41 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_direct_write_entry_inference_rejects_contradictory_consumption() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize ((value (#ref-mut Resource))) ()
+            (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+          (#fn replace ((value (#ref-mut Resource))) ()
+            (#forget (#deref value))
+            (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+          (#fn invalid ((value (#ref-mut Resource)) (choice bool)) ()
+            (#if choice (#forget (#deref value)) ())
+            (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let expected = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+            crate::typed_body::BindingId(0),
+        ));
+        let infer = |name| {
+            declarations.flows[name].infer_direct_referent_consumed_entry(
+                &declarations.bodies[name],
+                &types,
+                &declarations,
+            )
+        };
+        assert_eq!(infer("initialize").unwrap(), vec![expected]);
+        assert!(infer("replace").unwrap().is_empty());
+        let conflict = infer("invalid").unwrap_err();
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#forget (#deref value))");
+        assert!(
+            conflict.labels.is_empty(),
+            "consumed entry is an assumption, not a source operation"
+        );
+    }
+
+    #[test]
     fn staged_direct_body_validation_distinguishes_referent_entry_states() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()

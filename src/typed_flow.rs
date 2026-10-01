@@ -2582,6 +2582,50 @@ impl FlowGraph {
         origins: &FlowLoanOrigins,
         moves: &FlowConsumptions,
     ) -> Result<(), ReleaseConflict> {
+        self.check_referent_replacements_and_entry_requirements(
+            body,
+            types,
+            declarations,
+            origins,
+            moves,
+            None,
+        )
+    }
+
+    /// Infer direct-body consumed-entry obligations and validate the body
+    /// under them. Calls and complete exit contracts are not handled here.
+    #[cfg(test)]
+    pub fn infer_direct_referent_consumed_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+    ) -> Result<Vec<Place>, ReleaseConflict> {
+        let origins = self.loan_origins(body);
+        let moves = self.consumptions_with_origins(body, types, Some(&origins));
+        let mut requirements = Vec::new();
+        self.check_referent_replacements_and_entry_requirements(
+            body,
+            types,
+            declarations,
+            &origins,
+            &moves,
+            Some(&mut requirements),
+        )?;
+        self.check_referent_body_from_entry(body, types, declarations, &requirements)?;
+        Ok(requirements)
+    }
+
+    #[cfg(test)]
+    fn check_referent_replacements_and_entry_requirements(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+        origins: &FlowLoanOrigins,
+        moves: &FlowConsumptions,
+        mut entry_requirements: Option<&mut Vec<Place>>,
+    ) -> Result<(), ReleaseConflict> {
         for (index, node) in self.nodes.iter().enumerate() {
             let value = match node.action {
                 FlowAction::Write { value, .. } | FlowAction::Evaluate(value) => value,
@@ -2646,6 +2690,14 @@ impl FlowGraph {
                     let mut leaf = destination.clone();
                     leaf.segments.extend(projection.segments);
                     if !moves.definitely_consumed_before(event, &leaf) {
+                        if matches!(leaf.root, PlaceRoot::Parameter(_)) {
+                            if let Some(requirements) = entry_requirements.as_deref_mut() {
+                                if !requirements.contains(&leaf) {
+                                    requirements.push(leaf);
+                                }
+                                continue;
+                            }
+                        }
                         return Err(failure("reference write would destroy a live linear referent; consume it explicitly first"));
                     }
                 }
