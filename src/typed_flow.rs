@@ -1683,23 +1683,28 @@ impl FlowGraph {
                         (children.get(parameter.0 + 1), &effect.input_storage)
                     {
                         let mut alternatives = Vec::new();
-                        collect_result_alternatives(body, *argument, &mut alternatives);
-                        for alternative in alternatives {
+                        collect_call_input_components(body, *argument, slot, &mut alternatives);
+                        for (alternative, selected_slot) in alternatives {
                             let sources = origins.value_before(body, self, event, alternative);
                             let mut selected_alternative = false;
                             for source in sources {
-                                let crosses_referent = slot
+                                let crosses_referent = selected_slot
                                     .iter()
                                     .position(|segment| *segment == Segment::Dereference)
                                     .is_some_and(|boundary| {
                                         source.storage.len() >= boundary
-                                            && slot[..boundary].iter().zip(&source.storage).all(
-                                                |(wanted, held)| storage_slot_matches(wanted, held),
-                                            )
+                                            && selected_slot[..boundary]
+                                                .iter()
+                                                .zip(&source.storage)
+                                                .all(|(wanted, held)| {
+                                                    storage_slot_matches(wanted, held)
+                                                })
                                     });
                                 let selected = origins.before[event.0]
                                     .as_ref()
-                                    .map(|state| select_summary_inputs(source, slot, state))
+                                    .map(|state| {
+                                        select_summary_inputs(source, &selected_slot, state)
+                                    })
                                     .unwrap_or_default();
                                 if crosses_referent && selected.is_empty() {
                                     incomplete = true;
@@ -4804,11 +4809,18 @@ fn split_referent_effect_place(body: &Body, place: &Place) -> (Option<Vec<Segmen
                 .into_iter()
                 .flatten(),
         )
-        .filter(|slot| place.segments.starts_with(&slot.storage))
+        .filter(|slot| {
+            slot.storage.len() <= place.segments.len()
+                && slot
+                    .storage
+                    .iter()
+                    .zip(&place.segments)
+                    .all(|(schema, actual)| storage_slot_matches(schema, actual))
+        })
         .max_by_key(|slot| slot.storage.len());
     match slot {
         Some(slot) => (
-            Some(slot.storage.clone()),
+            Some(place.segments[..slot.storage.len()].to_vec()),
             place.segments[slot.storage.len()..].to_vec(),
         ),
         None => (None, place.segments.clone()),
@@ -5949,6 +5961,63 @@ fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
         1
     } else {
         2
+    }
+}
+
+#[cfg(test)]
+fn collect_call_input_components(
+    body: &Body,
+    value: NodeId,
+    path: &[Segment],
+    output: &mut Vec<(NodeId, Vec<Segment>)>,
+) {
+    let mut alternatives = Vec::new();
+    collect_result_alternatives(body, value, &mut alternatives);
+    for alternative in alternatives {
+        if let NodeKind::Form { head, children, .. } = &body.nodes[alternative.0].kind {
+            if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
+                collect_call_input_components(body, children[1], path, output);
+                continue;
+            }
+            if let Some((selected, tail)) = path.split_first() {
+                if head == "array-repeat"
+                    && matches!(selected, Segment::Index(_) | Segment::DynamicIndex)
+                    && matches!(body.nodes[alternative.0].ty.as_ref(), Some(Type::Array(_, length))
+                    if *length > 0 && match selected {
+                        Segment::Index(index) => *index < *length as u128,
+                        _ => true,
+                    })
+                {
+                    if let Some(element) = children.get(if children.len() == 3 { 2 } else { 1 }) {
+                        collect_call_input_components(body, *element, tail, output);
+                        continue;
+                    }
+                }
+                if aggregate_slot(body, head, children, 0).is_some() {
+                    let start = if matches!(head.as_str(), "array" | "array-of" | "tuple") {
+                        constructor_values_start(
+                            body.nodes[alternative.0].ty.as_ref(),
+                            children.len(),
+                        )
+                    } else {
+                        1
+                    };
+                    let mut found = false;
+                    for (index, child) in children.iter().skip(start).enumerate() {
+                        if aggregate_slot(body, head, children, index)
+                            .is_some_and(|slot| storage_slot_matches(selected, &slot))
+                        {
+                            found = true;
+                            collect_call_input_components(body, *child, tail, output);
+                        }
+                    }
+                    if found {
+                        continue;
+                    }
+                }
+            }
+        }
+        output.push((alternative, path.to_vec()));
     }
 }
 

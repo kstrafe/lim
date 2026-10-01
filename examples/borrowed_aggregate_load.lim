@@ -20,6 +20,15 @@
   (#let refs (#array (#ref Resource) 2) (#call load-table (: table table)))
   (#return (#index refs 1usize)))
 
+(#fn read-left (: views Views) u64
+  (#return (#get (#get views left) number)))
+
+(#fn choose-value (: first (#ref Resource) : second (#ref Resource) : selected bool) u64
+  (#return
+    (#call read-left
+      (: views (#struct-literal Views
+        (: left (#if selected first second) : right second))))))
+
 (#fn main () u64
   (#let-mut owner Container
     (#struct-literal Container
@@ -42,7 +51,7 @@
     (#call select-second (: table (#borrow table))))
   (#let result u64
     (#u64.+.wrap
-      (#get (#get loaded left) number)
+      (#call choose-value (: first (#get loaded left) : second second : selected #true))
       (#get second number)))
   (#forget table)
   (#drop view)
