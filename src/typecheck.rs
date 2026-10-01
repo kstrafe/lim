@@ -9623,6 +9623,28 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn referent_replacement_checks_each_structural_linear_leaf() {
+        for (cleanup, target, rhs, allowed) in [
+            ("(#forget (#get reference left))", "reference",
+             "(#struct-literal Pair ((left (#struct-literal Resource ((number 3u64)))) (right (#struct-literal Resource ((number 4u64))))))", false),
+            ("(#forget (#get reference left)) (#forget (#get reference right))", "reference",
+             "(#struct-literal Pair ((left (#struct-literal Resource ((number 3u64)))) (right (#struct-literal Resource ((number 4u64))))))", true),
+            ("(#forget (#get reference left))", "(#borrow-mut (#get reference left))",
+             "(#struct-literal Resource ((number 3u64)))", true),
+        ] {
+            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+              (#struct Pair ((left Resource) (right Resource)))
+              (#fn inspect ((reference (#ref-mut Pair))) ()
+                {cleanup} (#deref-set {target} {rhs}) (#return ()))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let result = declarations.flows["inspect"].check_referent_replacements(
+                &declarations.bodies["inspect"], &crate::linearcheck::LinearTypes::from_program(&program), &declarations);
+            assert_eq!(result.is_ok(), allowed, "{target}: {result:?}");
+        }
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
