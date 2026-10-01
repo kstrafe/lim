@@ -13271,4 +13271,84 @@ mod typed_ownership_tests {
             assert!(crate::check_types(&program).is_err());
         }
     }
+
+    #[test]
+    fn staged_reference_storage_checks_missing_alternatives_before_merging() {
+        let bad = "(#struct-literal View ((value (#if choice left right))))";
+        for (setup, operation, returned) in [
+            (
+                String::new(),
+                format!("(#let-mut stored View {bad})"),
+                "stored",
+            ),
+            (
+                String::new(),
+                format!("(#deref-set target {bad})"),
+                "(#struct-literal View ((value left)))",
+            ),
+        ] {
+            let source = format!("(#struct View ((value (#ref u64)))) (#struct Container ((view View)))
+              (#fn make ((left (#ref u64)) (right (#ref u64)) (choice bool) (target (#ref-mut View))) View
+                {setup} {operation} (#return {returned}))");
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            declarations
+                .bodies
+                .get_mut("make")
+                .unwrap()
+                .parameter_loan_slots[1]
+                .clear();
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert!(
+                conflict
+                    .message
+                    .contains("cannot transfer reference-bearing value"),
+                "{operation}: {conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert_eq!(&source[span.start..span.end], operation);
+        }
+    }
+
+    #[test]
+    fn staged_stored_enum_construction_does_not_hide_missing_active_payloads() {
+        let operation = "(#let stored Choice (#if choice (Has left) (Has right)))";
+        let source = format!(
+            "(#enum Choice ((Has (#ref u64)) Empty))
+          (#fn make ((left (#ref u64)) (right (#ref u64)) (choice bool)) Choice
+            {operation} (#return stored))"
+        );
+        let program = crate::parse_program(&source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        declarations
+            .bodies
+            .get_mut("make")
+            .unwrap()
+            .parameter_loan_slots[1]
+            .clear();
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert!(conflict
+            .message
+            .contains("cannot transfer reference-bearing value"));
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], operation);
+    }
 }

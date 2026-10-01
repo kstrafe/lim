@@ -3006,6 +3006,7 @@ impl FlowGraph {
         self.check_linear_consumptions_with_origins(body, &seeded, Some(&origins))?;
         self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
+        self.check_stored_reference_provenance(body, declarations, &origins, &seeded)?;
         self.check_returned_referents_initialized(body, declarations, &origins, &seeded)?;
         self.check_linear_exit_obligations_with_moves(
             body,
@@ -3039,32 +3040,14 @@ impl FlowGraph {
             };
             let event = FlowNodeId(index);
             let returned = origins.value_before(body, self, event, value);
-            for alternative in returned_provenance_components(body, value) {
-                let alternative_origins = origins.value_before(body, self, event, alternative);
-                if let Some(ty) = &body.nodes[alternative.0].ty {
-                    for slot in declarations.reference_storage_slots(ty) {
-                        // Constructor trees identify active nested payloads.
-                        // Stored enums still need separate variant-flow facts.
-                        if slot.storage.iter().enumerate().any(|(index, segment)| {
-                            matches!(segment, Segment::Payload(variant, _)
-                                if constructor_variant_at_storage(body, alternative, &slot.storage[..index]) != Some(*variant))
-                        }) {
-                            continue;
-                        }
-                        if !alternative_origins.iter().any(|origin| {
-                            origin.storage.len() == slot.storage.len()
-                                && slot.storage.iter().zip(&origin.storage).all(
-                                    |(expected, actual)| storage_slot_matches(expected, actual),
-                                )
-                        }) {
-                            return Err(ReleaseConflict {
-                            message: "cannot prove initialization of returned reference: missing slot provenance".into(),
-                            span: node.span,
-                            labels: Vec::new(),
-                        });
-                        }
-                    }
-                }
+            if self.value_missing_reference_provenance(body, declarations, origins, event, value) {
+                return Err(ReleaseConflict {
+                    message:
+                        "cannot prove initialization of returned reference: missing slot provenance"
+                            .into(),
+                    span: node.span,
+                    labels: Vec::new(),
+                });
             }
             for origin in returned {
                 if origin.lifetime_only {
@@ -3096,6 +3079,90 @@ impl FlowGraph {
                         .into_iter()
                         .map(|span| (*span, "referent was consumed here".into()))
                         .collect(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn value_missing_reference_provenance(
+        &self,
+        body: &Body,
+        declarations: &crate::typed_ir::Declarations,
+        origins: &FlowLoanOrigins,
+        event: FlowNodeId,
+        value: NodeId,
+    ) -> bool {
+        for alternative in returned_provenance_components(body, value) {
+            let Some(ty) = &body.nodes[alternative.0].ty else {
+                continue;
+            };
+            let alternative_origins = origins.value_before(body, self, event, alternative);
+            for slot in declarations.reference_storage_slots(ty) {
+                if slot.storage.iter().enumerate().any(|(index, segment)| {
+                    matches!(segment, Segment::Payload(variant, _)
+                        if constructor_variant_at_storage(body, alternative, &slot.storage[..index]) != Some(*variant))
+                }) { continue; }
+                if !alternative_origins.iter().any(|origin| {
+                    origin.storage.len() == slot.storage.len()
+                        && slot
+                            .storage
+                            .iter()
+                            .zip(&origin.storage)
+                            .all(|(expected, actual)| storage_slot_matches(expected, actual))
+                }) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    #[cfg(test)]
+    fn check_stored_reference_provenance(
+        &self,
+        body: &Body,
+        declarations: &crate::typed_ir::Declarations,
+        origins: &FlowLoanOrigins,
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
+        for (index, node) in self.nodes.iter().enumerate() {
+            let value = match node.action {
+                FlowAction::Bind { value, .. }
+                | FlowAction::Assign { value, .. }
+                | FlowAction::Write { value, .. } => value,
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, .. } if head == "deref-set") =>
+                {
+                    value
+                }
+                _ => continue,
+            };
+            if moves.before[index].is_none() {
+                continue;
+            }
+            let value = match &body.nodes[value.0].kind {
+                NodeKind::Form { head, children, .. }
+                    if head == "deref-set" && children.len() == 3 =>
+                {
+                    children[2]
+                }
+                _ => value,
+            };
+            if self.value_missing_reference_provenance(
+                body,
+                declarations,
+                origins,
+                FlowNodeId(index),
+                value,
+            ) {
+                return Err(ReleaseConflict {
+                    message: "cannot transfer reference-bearing value: missing slot provenance"
+                        .into(),
+                    span: node.span,
+                    labels: Vec::new(),
                 });
             }
         }
