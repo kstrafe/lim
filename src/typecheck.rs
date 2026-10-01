@@ -9917,6 +9917,7 @@ mod typed_ownership_tests {
             assert!(restored.has_normal_return);
             assert!(restored.unresolved.is_empty());
             assert!(declarations.staged_validate_referent_replacements(&types).is_ok());
+            assert!(declarations.staged_validate_referent_uses_and_replacements(&types).is_ok());
             assert_eq!(!restored.effects.is_empty(), remaining, "{replacement}");
             if remaining {
                 assert_eq!(restored.effects.len(), 1);
@@ -10153,6 +10154,15 @@ mod typed_ownership_tests {
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_validate_referent_uses_and_replacements(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("expected use conflict")
+        };
+        assert_eq!(function, "inspect");
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#forget (#deref alias))");
         let summaries = declarations
             .staged_referent_function_effects(&types)
             .unwrap();

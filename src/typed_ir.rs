@@ -281,6 +281,10 @@ pub(crate) struct FunctionDeclaration {
 #[derive(Debug)]
 pub(crate) enum StagedReferentError {
     Dependency,
+    Use {
+        function: String,
+        conflict: crate::typed_flow::ReleaseConflict,
+    },
     Replacement {
         function: String,
         conflict: crate::typed_flow::ReleaseConflict,
@@ -757,7 +761,7 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, &'static str> {
-        self.staged_referent_analysis(types, false)
+        self.staged_referent_analysis(types, false, false)
             .map_err(|_| "cyclic or unresolved internal ownership summary dependencies")
     }
 
@@ -766,7 +770,16 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<(), StagedReferentError> {
-        self.staged_referent_analysis(types, true).map(|_| ())
+        self.staged_referent_analysis(types, true, false)
+            .map(|_| ())
+    }
+
+    #[cfg(test)]
+    pub fn staged_validate_referent_uses_and_replacements(
+        &self,
+        types: &crate::linearcheck::LinearTypes,
+    ) -> Result<(), StagedReferentError> {
+        self.staged_referent_analysis(types, true, true).map(|_| ())
     }
 
     #[cfg(test)]
@@ -774,6 +787,7 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
         validate_replacements: bool,
+        validate_uses: bool,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
     {
         use crate::typed_body::NodeKind;
@@ -848,6 +862,17 @@ impl Declarations {
                         None => (Vec::new(), true),
                     };
                     calls.push((event, effects, unknown));
+                }
+                if validate_uses {
+                    if let Err(conflict) =
+                        flow.check_owner_consumptions_with_calls(body, types, &calls)
+                    {
+                        failure = Some(StagedReferentError::Use {
+                            function: name.clone(),
+                            conflict,
+                        });
+                        return true;
+                    }
                 }
                 if validate_replacements {
                     if let Err(conflict) =
