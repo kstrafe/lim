@@ -12361,6 +12361,125 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn whole_local_reference_stores_release_old_loans_and_retain_new_ones() {
+        for premature in [false, true] {
+            let mutation = if premature { "(#set other 1u64)" } else { "" };
+            let source = format!(
+                "(#struct Holder (: view (#ref u64)))
+                (#fn main () u64
+                  (#let-mut value u64 7u64) (#let-mut other u64 42u64)
+                  (#let-mut holder Holder (#struct-literal Holder (: view (#borrow value))))
+                  (#let writer (#ref-mut Holder) (#borrow-mut holder))
+                  (#deref-set writer (#struct-literal Holder (: view (#borrow other))))
+                  (#drop writer) (#set value 9u64) {mutation}
+                  (#let result u64 (#deref (#get holder view)))
+                  (#forget holder) (#set other 1u64) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            if premature {
+                let error = crate::check_types(&program).unwrap_err();
+                assert!(
+                    error.contains("other") && error.contains("borrow"),
+                    "{error}"
+                );
+            } else {
+                crate::check_types(&program).unwrap();
+                crate::generate_assembly(&program).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn local_holder_restoration_cannot_duplicate_an_exclusive_loan() {
+        let source = "(#struct Pair (: left (#ref-mut u64) : right (#ref-mut u64)))
+            (#fn main () u64
+              (#let-mut left u64 1u64) (#let-mut right u64 2u64)
+              (#let-mut owner u64 3u64)
+              (#let-mut pair Pair (#struct-literal Pair
+                (: left (#borrow-mut left) : right (#borrow-mut right))))
+              (#let target (#pin-ref-mut Pair) (#pin-borrow-mut pair))
+              (#let displaced Pair (#unsafe (#pin-read target)))
+              (#forget displaced)
+              (#let reference (#ref-mut u64) (#borrow-mut owner))
+              (#unsafe (#pin-write target (#struct-literal Pair
+                (: left reference : right reference))))
+              (#drop target) (#forget pair) (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let error = crate::check_types(&program).unwrap_err();
+        assert!(
+            error.contains("borrow") || error.contains("consumed") || error.contains("moved"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn storing_a_copied_nested_holder_preserves_both_shared_loans() {
+        for premature in [false, true] {
+            let mutation = if premature { "(#set value 1u64)" } else { "" };
+            let source = format!(
+                "(#struct Holder (: view (#ref u64)))
+                (#struct Wrapper (: holder Holder))
+                (#fn main () u64
+                  (#let-mut value u64 42u64)
+                  (#let source Holder (#struct-literal Holder (: view (#borrow value))))
+                  (#let-mut destination Wrapper (#struct-literal Wrapper (: holder source)))
+                  (#let writer (#ref-mut Wrapper) (#borrow-mut destination))
+                  (#deref-set writer (#struct-literal Wrapper (: holder source)))
+                  (#drop writer) (#forget source) {mutation}
+                  (#let result u64 (#deref (#get (#get destination holder) view)))
+                  (#forget destination) (#set value 1u64) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            if premature {
+                let error = crate::check_types(&program).unwrap_err();
+                assert!(
+                    error.contains("value") && error.contains("borrow"),
+                    "{error}"
+                );
+            } else {
+                crate::check_types(&program).unwrap();
+                crate::generate_assembly(&program).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn restoring_a_moved_exclusive_holder_keeps_its_parent_suspended() {
+        for premature in [false, true] {
+            let access = if premature {
+                "(#let observed u64 (#call observe (: owner parent)))"
+            } else {
+                ""
+            };
+            let source = format!("(#struct Owner (: number u64)) (#linear Owner)
+                (#struct View (: item (#ref-mut u64))) (#linear View)
+                (#fn observe (: owner (#ref-mut Owner)) u64 (#return (#get owner number)))
+                (#fn main () u64
+                  (#let-mut owner Owner (#struct-literal Owner (: number 1u64)))
+                  (#let parent (#ref-mut Owner) (#borrow-mut owner))
+                  (#let-mut view View (#struct-literal View (: item (#borrow-mut (#get parent number)))))
+                  (#let target (#pin-ref-mut View) (#pin-borrow-mut view))
+                  (#let loaded View (#unsafe (#pin-read target)))
+                  (#unsafe (#pin-write target loaded)) (#drop target) {access}
+                  (#deref-set (#get view item) 42u64)
+                  (#forget view) (#drop parent)
+                  (#let result u64 (#get owner number)) (#forget owner) (#return result))");
+            let program = crate::parse_program(&source).unwrap();
+            if premature {
+                let error = crate::check_types(&program).unwrap_err();
+                assert!(
+                    error.contains("parent")
+                        && (error.contains("borrow") || error.contains("suspend")),
+                    "{error}"
+                );
+            } else {
+                crate::check_types(&program).unwrap();
+                crate::generate_assembly(&program).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn indirect_variant_writes_require_one_actual_local_destination() {
         let program = crate::parse_program(
             "(#enum Choice ((Empty) (Full u64)))
@@ -14422,6 +14541,7 @@ mod typed_ownership_tests {
             "borrowed_whole_load",
             "pinned_parameter_load",
             "borrowed_variant",
+            "pinned_holder_restore",
             "pinned_linear_replacement",
             "async_fn",
         ] {

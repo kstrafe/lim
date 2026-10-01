@@ -1,0 +1,12 @@
+(#struct Holder (: view (#ref u64)))
+(#fn main () u64
+  (#let-mut old u64 7u64)
+  (#let-mut value u64 42u64)
+  (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
+  (#let writer (#ref-mut Holder) (#borrow-mut holder))
+  (#deref-set writer (#struct-literal Holder (: view (#borrow value))))
+  (#drop writer)
+  (#set value 1u64)
+  (#let result u64 (#deref (#get holder view)))
+  (#forget holder)
+  (#return result))

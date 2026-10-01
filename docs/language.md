@@ -365,6 +365,17 @@ copying one retains both sets until the corresponding values are released.
 See `examples/pinned_local_move.lim` for local move/restoration and returning
 a loaded reference-bearing value from a branch-local holder.
 
+For `#deref-set` and unsafe `#pin-write`, a destination proven to be one whole
+owned local value retains the RHS's reference fields and their original
+referent loans. Replacing a holder releases its previous stored loans; moving
+an exclusive-reference holder transfers its loans and keeps derived-reference
+parents suspended until the restored holder is consumed. Shared copies keep
+their respective loans. A local reference cannot be stored in external storage
+or survive its referent's scope, even when the write is indirect. See
+`examples/borrowed_variant.lim` and `examples/pinned_holder_restore.lim`.
+This whole-local registration rule does not enable projected, ambiguous,
+parameter, global, or lifetime-only destinations.
+
 Whole ordinary `#deref` loads from borrowed parameters preserve the retained
 reference fields of the loaded value. Each field remains tied to its original
 input slot through function returns and caller substitution, rather than to

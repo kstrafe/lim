@@ -7,17 +7,14 @@
       (#case (Empty) 0u64)
       (#case (Full value) (#deref value)))))
 
-(#fn write-and-read (: value (#ref u64)) u64
+(#fn main () u64
+  (#let value u64 42u64)
   (#let-mut choice Choice (Empty))
   (#let writer (#ref-mut Choice) (#borrow-mut choice))
-  (#deref-set writer (Full value))
+  (#deref-set writer (Full (#borrow value)))
   (#drop writer)
   (#let source (#ref Choice) (#borrow choice))
   (#let result u64 (#call read (: source source)))
   (#drop source)
   (#forget choice)
   (#return result))
-
-(#fn main () u64
-  (#let value u64 42u64)
-  (#return (#call write-and-read (: value (#borrow value)))))

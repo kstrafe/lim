@@ -414,6 +414,7 @@ struct Loans {
 struct LocalLoad {
     source: String,
     moves: bool,
+    store_type: Option<crate::Type>,
 }
 
 #[derive(Clone)]
@@ -1082,193 +1083,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             value,
             mutable,
         } => {
-            let _origin = Site::expression(value).enter();
-            let contains_references = contains_reference_type(ty, &context.reference_types);
-            let origins = reference_origins(value, context, contains_references);
-            if !context.typed_scope_escapes {
-                ensure_origins_in_scope(&origins, context)?;
-            }
-            let derived_parents = aggregate_reborrow_parents(value, context);
-            let moved_parent_sources = aggregate_moved_parent_sources(value, context);
-            let contains_mutable_references = contains_mutable_reference(
-                ty,
-                &context.reference_types,
-                &context.mutable_reference_types,
-            );
-            let is_reference_binding = matches!(
-                ty,
-                crate::Type::Reference { .. } | crate::Type::PinnedReference { .. }
-            );
-            let mut reference_fields = HashMap::new();
-            if contains_references {
-                collect_reference_fields(
-                    ty,
-                    value,
-                    context,
-                    &mut Vec::new(),
-                    &mut reference_fields,
-                );
-                if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match"))
-                {
-                    for (_, loans) in reference_fields.values_mut() {
-                        *loans = flatten_transferred_loans(loans.clone(), context);
-                    }
-                }
-            }
-            let task_loans = thread_spawn_origins(value, context);
-            context.allow_local_reference = true;
-            let checked = check_expression(value, context);
-            context.allow_local_reference = false;
-            checked?;
-            let match_transferred_loans = contains_references
-                && matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match"));
-            let moves_thread_task = if let Expr::Symbol(source) = value {
-                context.thread_task_loans.contains_key(source).then(|| {
-                    move_thread_task_loans(source, name, context);
-                })
-            } else {
-                None
-            }
-            .is_some();
-            if let Some(task_loans) = task_loans {
-                for (owner, kind) in &task_loans {
-                    context.loans.borrow(owner, *kind)?;
-                    if *kind == LoanKind::Mutable {
-                        *context
-                            .thread_exclusive_owners
-                            .entry(owner.clone())
-                            .or_default() += 1;
-                    }
-                }
-                context.reference_origins.insert(
-                    name.clone(),
-                    task_loans.iter().map(|(owner, _)| owner.clone()).collect(),
-                );
-                context.thread_task_loans.insert(name.clone(), task_loans);
-            } else if !moves_thread_task {
-                for parent in &derived_parents {
-                    if context.mutable_references.contains(parent) {
-                        context.suspended_references.insert(parent.clone());
-                    }
-                }
-                let mut loans = if contains_references {
-                    let mut paths = reference_fields.keys().collect::<Vec<_>>();
-                    paths.sort();
-                    paths
-                        .into_iter()
-                        .flat_map(|path| reference_fields[path].1.iter().cloned())
-                        .collect::<Vec<_>>()
-                } else {
-                    Vec::new()
-                };
-                if loans.is_empty() && contains_references {
-                    loans = borrow_place_loans(value, context);
-                }
-                if loans.is_empty() {
-                    loans = origins
-                        .iter()
-                        .cloned()
-                        .map(|owner| (owner.clone(), owner))
-                        .collect();
-                }
-                let mut transferred_loans = existing_reference_value_loans(value, context);
-                if match_transferred_loans {
-                    loans = flatten_transferred_loans(loans, context);
-                }
-                for (owner, loan) in &loans {
-                    let kind = if contains_mutable_references {
-                        LoanKind::Mutable
-                    } else {
-                        LoanKind::Shared(1)
-                    };
-                    // A linear value containing an existing `&mut` moves
-                    // that loan into the new aggregate; it does not create a
-                    // second borrow. The source value cannot be used again
-                    // after this move, which is enforced by linearity.
-                    if contains_mutable_references
-                        && context.loans.active.get(loan) == Some(&LoanKind::Mutable)
-                    {
-                        if let Some(index) = transferred_loans
-                            .iter()
-                            .position(|transferred| transferred == &(owner.clone(), loan.clone()))
-                        {
-                            transferred_loans.swap_remove(index);
-                            continue;
-                        }
-                    }
-                    if match_transferred_loans
-                        && context.loans.active.get(loan).is_some_and(|active| {
-                            matches!((active, kind), (LoanKind::Mutable, LoanKind::Mutable))
-                                || matches!(
-                                    (active, kind),
-                                    (LoanKind::Shared(_), LoanKind::Shared(_))
-                                )
-                        })
-                    {
-                        continue;
-                    }
-                    if derived_parents.iter().any(|parent| {
-                        context.mutable_references.contains(parent)
-                            && context
-                                .reference_origins
-                                .get(parent)
-                                .is_some_and(|origins| origins.contains(owner))
-                    }) {
-                        if loan != owner {
-                            context.loans.active.remove(owner);
-                        }
-                        if contains_mutable_references {
-                            context.loans.borrow(loan, kind)?;
-                        } else {
-                            context.loans.borrow(loan, kind)?;
-                        }
-                    } else {
-                        context.loans.borrow(loan, kind)?;
-                    }
-                }
-                if origins.is_empty() || !contains_references {
-                    context.reference_origins.remove(name);
-                } else {
-                    context.reference_origins.insert(name.clone(), origins);
-                }
-                if !loans.is_empty() {
-                    context.reference_loans.insert(name.clone(), loans);
-                }
-                if !derived_parents.is_empty() {
-                    context
-                        .reference_parents
-                        .insert(name.clone(), derived_parents);
-                }
-                for source in moved_parent_sources {
-                    context.reference_parents.remove(&source);
-                    context.reference_origins.remove(&source);
-                    context.reference_fields.remove(&source);
-                    if let Some(loans) = context.reference_loans.remove(&source) {
-                        for (_, loan) in loans {
-                            // Exclusive loans transfer without registration;
-                            // shared loans were counted for the destination.
-                            if !matches!(context.loans.active.get(&loan), Some(LoanKind::Mutable)) {
-                                context.loans.end(&loan);
-                            }
-                        }
-                    }
-                }
-            }
-            if *mutable {
-                context.mutable.insert(name.clone());
-            }
-            context.scope_bindings.insert(name.clone());
-            if contains_mutable_references || matches!(ty, crate::Type::MutableSlice(_)) {
-                context.mutable_references.insert(name.clone());
-            }
-            if is_reference_binding {
-                context.reference_bindings.insert(name.clone());
-            }
-            if !reference_fields.is_empty() {
-                context
-                    .reference_fields
-                    .insert(name.clone(), reference_fields);
-            }
+            check_let_binding(name, ty, value, mutable, context, false)?;
         }
         Statement::Destructure {
             pattern,
@@ -1406,6 +1221,207 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
     }
     if let Statement::LetElse { else_body, .. } = statement {
         check_statements(else_body, context)?;
+    }
+    Ok(())
+}
+
+fn check_let_binding(
+    name: &String,
+    ty: &crate::Type,
+    value: &Expr,
+    mutable: &bool,
+    context: &mut Context,
+    replacing: bool,
+) -> Result<(), Error> {
+    let _origin = Site::expression(value).enter();
+    let contains_references = contains_reference_type(ty, &context.reference_types);
+    let origins = reference_origins(value, context, contains_references);
+    if !context.typed_scope_escapes {
+        ensure_origins_in_scope(&origins, context)?;
+    }
+    let derived_parents = aggregate_reborrow_parents(value, context);
+    let moved_parent_sources = aggregate_moved_parent_sources(value, context);
+    let contains_mutable_references = contains_mutable_reference(
+        ty,
+        &context.reference_types,
+        &context.mutable_reference_types,
+    );
+    let is_reference_binding = matches!(
+        ty,
+        crate::Type::Reference { .. } | crate::Type::PinnedReference { .. }
+    );
+    let mut reference_fields = HashMap::new();
+    if contains_references {
+        collect_reference_fields(ty, value, context, &mut Vec::new(), &mut reference_fields);
+        if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match"))
+        {
+            for (_, loans) in reference_fields.values_mut() {
+                *loans = flatten_transferred_loans(loans.clone(), context);
+            }
+        }
+    }
+    let task_loans = thread_spawn_origins(value, context);
+    if replacing {
+        release_dropped_value(&Expr::Symbol(name.clone()), context);
+    }
+    let previous_allow_local = context.allow_local_reference;
+    context.allow_local_reference = true;
+    let checked = check_expression(value, context);
+    context.allow_local_reference = previous_allow_local;
+    checked?;
+    let match_transferred_loans = contains_references
+        && matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match"));
+    let moves_thread_task = if let Expr::Symbol(source) = value {
+        context.thread_task_loans.contains_key(source).then(|| {
+            move_thread_task_loans(source, name, context);
+        })
+    } else {
+        None
+    }
+    .is_some();
+    if let Some(task_loans) = task_loans {
+        for (owner, kind) in &task_loans {
+            context.loans.borrow(owner, *kind)?;
+            if *kind == LoanKind::Mutable {
+                *context
+                    .thread_exclusive_owners
+                    .entry(owner.clone())
+                    .or_default() += 1;
+            }
+        }
+        context.reference_origins.insert(
+            name.clone(),
+            task_loans.iter().map(|(owner, _)| owner.clone()).collect(),
+        );
+        context.thread_task_loans.insert(name.clone(), task_loans);
+    } else if !moves_thread_task {
+        for parent in &derived_parents {
+            if context.mutable_references.contains(parent) {
+                context.suspended_references.insert(parent.clone());
+            }
+        }
+        let mut loans = if contains_references {
+            let mut paths = reference_fields.keys().collect::<Vec<_>>();
+            paths.sort();
+            paths
+                .into_iter()
+                .flat_map(|path| reference_fields[path].1.iter().cloned())
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        if loans.is_empty() && contains_references {
+            loans = borrow_place_loans(value, context);
+        }
+        if loans.is_empty() {
+            loans = origins
+                .iter()
+                .cloned()
+                .map(|owner| (owner.clone(), owner))
+                .collect();
+        }
+        let mut transferred_loans = existing_reference_value_loans(value, context);
+        // An existing exclusive loan can move once, even if the RHS names
+        // its source more than once. Do not treat duplicate uses as separate
+        // permissions to transfer the same mutable reference.
+        transferred_loans.sort();
+        transferred_loans.dedup();
+        if match_transferred_loans {
+            loans = flatten_transferred_loans(loans, context);
+        }
+        for (owner, loan) in &loans {
+            let kind = if contains_mutable_references {
+                LoanKind::Mutable
+            } else {
+                LoanKind::Shared(1)
+            };
+            // A linear value containing an existing `&mut` moves
+            // that loan into the new aggregate; it does not create a
+            // second borrow. The source value cannot be used again
+            // after this move, which is enforced by linearity.
+            if contains_mutable_references
+                && context.loans.active.get(loan) == Some(&LoanKind::Mutable)
+            {
+                if let Some(index) = transferred_loans
+                    .iter()
+                    .position(|transferred| transferred == &(owner.clone(), loan.clone()))
+                {
+                    transferred_loans.swap_remove(index);
+                    continue;
+                }
+            }
+            if match_transferred_loans
+                && context.loans.active.get(loan).is_some_and(|active| {
+                    matches!((active, kind), (LoanKind::Mutable, LoanKind::Mutable))
+                        || matches!((active, kind), (LoanKind::Shared(_), LoanKind::Shared(_)))
+                })
+            {
+                continue;
+            }
+            if derived_parents.iter().any(|parent| {
+                context.mutable_references.contains(parent)
+                    && context
+                        .reference_origins
+                        .get(parent)
+                        .is_some_and(|origins| origins.contains(owner))
+            }) {
+                if loan != owner {
+                    context.loans.active.remove(owner);
+                }
+                if contains_mutable_references {
+                    context.loans.borrow(loan, kind)?;
+                } else {
+                    context.loans.borrow(loan, kind)?;
+                }
+            } else {
+                context.loans.borrow(loan, kind)?;
+            }
+        }
+        if origins.is_empty() || !contains_references {
+            context.reference_origins.remove(name);
+        } else {
+            context.reference_origins.insert(name.clone(), origins);
+        }
+        if !loans.is_empty() {
+            context.reference_loans.insert(name.clone(), loans);
+        }
+        if !derived_parents.is_empty() {
+            context
+                .reference_parents
+                .insert(name.clone(), derived_parents);
+        }
+        for source in moved_parent_sources {
+            if replacing && source == *name {
+                continue;
+            }
+            context.reference_parents.remove(&source);
+            context.reference_origins.remove(&source);
+            context.reference_fields.remove(&source);
+            if let Some(loans) = context.reference_loans.remove(&source) {
+                for (_, loan) in loans {
+                    // Exclusive loans transfer without registration;
+                    // shared loans were counted for the destination.
+                    if !matches!(context.loans.active.get(&loan), Some(LoanKind::Mutable)) {
+                        context.loans.end(&loan);
+                    }
+                }
+            }
+        }
+    }
+    if *mutable {
+        context.mutable.insert(name.clone());
+    }
+    context.scope_bindings.insert(name.clone());
+    if contains_mutable_references || matches!(ty, crate::Type::MutableSlice(_)) {
+        context.mutable_references.insert(name.clone());
+    }
+    if is_reference_binding {
+        context.reference_bindings.insert(name.clone());
+    }
+    if !reference_fields.is_empty() {
+        context
+            .reference_fields
+            .insert(name.clone(), reference_fields);
     }
     Ok(())
 }
@@ -1595,12 +1611,15 @@ fn collect_reference_fields(
         return;
     }
     if let Expr::Symbol(name) = value {
-        if let Some(existing) = context
-            .reference_fields
-            .get(name)
-            .and_then(|fields| fields.get(path))
-        {
-            result.insert(path.clone(), existing.clone());
+        if let Some(fields) = context.reference_fields.get(name) {
+            // A value used here supplies all of its retained fields. Its
+            // input slots are relative to that value, not to the output
+            // constructor's current path.
+            for (slot, facts) in fields {
+                let mut output = path.clone();
+                output.extend_from_slice(slot);
+                result.insert(output, facts.clone());
+            }
             return;
         }
     }
@@ -2215,7 +2234,24 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     let target = check_expression(&items[1], context);
                     context.allow_local_reference = previous;
                     target?;
-                    check_expression(&items[2], context)?;
+                    let store = context
+                        .typed_local_loads
+                        .get(&(std::ptr::from_ref(expression) as usize))
+                        .cloned()
+                        .filter(|access| access.store_type.is_some());
+                    if let Some(store) = store {
+                        let mutable = context.mutable.contains(&store.source);
+                        check_let_binding(
+                            &store.source,
+                            store.store_type.as_ref().unwrap(),
+                            &items[2],
+                            &mutable,
+                            context,
+                            true,
+                        )?;
+                    } else {
+                        check_expression(&items[2], context)?;
+                    }
                 } else if operator == "pin-set-field" && items.len() == 4 {
                     // The checked-place analysis records this as a write to
                     // one projected field of the pinned referent. Treating
@@ -2881,6 +2917,7 @@ fn typed_local_load<'a>(expression: &Expr, context: &'a Context) -> Option<&'a L
     if let Some(load) = context
         .typed_local_loads
         .get(&(std::ptr::from_ref(expression) as usize))
+        .filter(|access| access.store_type.is_none())
     {
         return Some(load);
     }
@@ -3007,14 +3044,18 @@ fn typed_borrow_facts(
     for (index, node) in flow.nodes.iter().enumerate() {
         let value = match node.action {
             crate::typed_flow::FlowAction::Evaluate(value)
-            | crate::typed_flow::FlowAction::Read { value, .. } => value,
+            | crate::typed_flow::FlowAction::Read { value, .. }
+            | crate::typed_flow::FlowAction::Write { value, .. } => value,
             _ => continue,
         };
         let crate::typed_body::NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind
         else {
             continue;
         };
-        if !matches!(head.as_str(), "pin-read" | "deref") || children.len() != 2 {
+        let store = matches!(head.as_str(), "deref-set" | "pin-write");
+        if !(store && children.len() == 3)
+            && !(matches!(head.as_str(), "pin-read" | "deref") && children.len() == 2)
+        {
             continue;
         }
         let targets = loan_origins.value_before(
@@ -3031,6 +3072,7 @@ fn typed_borrow_facts(
         };
         if targets.iter().any(|target| {
             target.lifetime_only
+                || (store && !target.mutable)
                 || !target.storage.is_empty()
                 || !target.place.segments.is_empty()
                 || target.place.root != first.place.root
@@ -3044,6 +3086,7 @@ fn typed_borrow_facts(
             expression_id,
             LocalLoad {
                 source: body.bindings[binding.0].name.clone(),
+                store_type: store.then(|| body.bindings[binding.0].ty.clone()),
                 moves: head == "pin-read"
                     && body.nodes[value.0]
                         .ty
