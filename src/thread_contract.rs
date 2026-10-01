@@ -17,6 +17,54 @@ pub(crate) struct CapturedWorkerContract {
     pub facts: ReferentFunctionEffects,
 }
 
+/// A running or retryable worker has not established its normal-return facts.
+/// In particular this type intentionally has no restoration guarantees.
+pub(crate) struct PendingWorkerEffects {
+    pub effects: Vec<ReferentExitEffect>,
+    pub unresolved: Vec<crate::typed_flow::FlowNodeId>,
+    pub unresolved_reads: Vec<crate::typed_flow::FlowNodeId>,
+}
+
+impl CapturedWorkerContract {
+    pub fn pending_effects(&self) -> PendingWorkerEffects {
+        let mut effects = Vec::<ReferentExitEffect>::new();
+        // Exit effects miss transient consumption followed by restoration.
+        // Keep both sources, retaining their exact storage identities/spans.
+        let accesses = self
+            .facts
+            .consuming_accesses
+            .iter()
+            .map(|access| ReferentExitEffect {
+                place: access.place.clone(),
+                input_storage: access.input_storage.clone(),
+                referent_projection: access.referent_projection.clone(),
+                definitely_consumed: false,
+                consumption_spans: vec![access.span],
+            });
+        for mut incoming in self.facts.effects.iter().cloned().chain(accesses) {
+            incoming.definitely_consumed = false;
+            if let Some(existing) = effects.iter_mut().find(|effect| {
+                effect.place == incoming.place
+                    && effect.input_storage == incoming.input_storage
+                    && effect.referent_projection == incoming.referent_projection
+            }) {
+                for span in incoming.consumption_spans {
+                    if !existing.consumption_spans.contains(&span) {
+                        existing.consumption_spans.push(span);
+                    }
+                }
+            } else {
+                effects.push(incoming);
+            }
+        }
+        PendingWorkerEffects {
+            effects,
+            unresolved: self.facts.unresolved.clone(),
+            unresolved_reads: self.facts.unresolved_reads.clone(),
+        }
+    }
+}
+
 struct Captures {
     owner: AggregateId,
     parameters: usize,

@@ -18186,6 +18186,60 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_pending_workers_retain_transient_consumption_without_completion() {
+        for (operation, exit) in [
+            ("(#forget (#deref target))", "(#return ())"),
+            (
+                "(#forget (#deref target))
+             (#deref-set target (#struct-literal Resource ((number 42u64))))",
+                "(#return ())",
+            ),
+            ("(#forget (#deref target))", "(#return (#panic))"),
+        ] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn worker ((target (#ref-mut Resource))) () {operation} {exit})
+                 (@thread-spawn (: task Task : worker worker))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let summaries = declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap();
+            let captured = declarations
+                .staged_captured_thread_worker_contract("Task", &summaries)
+                .unwrap();
+            let pending = captured.pending_effects();
+            assert_eq!(pending.effects.len(), 1);
+            assert!(!pending.effects[0].definitely_consumed);
+            assert_eq!(
+                pending.effects[0].place,
+                captured.facts.consuming_accesses[0].place
+            );
+            assert_eq!(
+                pending.effects[0].input_storage,
+                captured.facts.consuming_accesses[0].input_storage
+            );
+            assert!(pending.effects[0]
+                .consumption_spans
+                .contains(&captured.facts.consuming_accesses[0].span));
+            assert_eq!(pending.unresolved, captured.facts.unresolved);
+            assert_eq!(pending.unresolved_reads, captured.facts.unresolved_reads);
+            if exit == "(#return (#panic))" {
+                assert!(!captured.facts.has_normal_return);
+            } else if operation.contains("deref-set") {
+                assert!(
+                    captured.facts.effects.is_empty(),
+                    "completed worker restored the referent"
+                );
+            } else {
+                assert!(captured.facts.effects[0].definitely_consumed);
+            }
+        }
+    }
+
+    #[test]
     fn staged_capture_mapping_preserves_unknown_and_conditional_facts() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{ReferentExitEffect, ReferentFunctionEffects, ReferentVariantExit};
