@@ -432,6 +432,11 @@ pub(crate) fn check_live_direct_loans_with_types(
 }
 
 fn scoped_borrows_before(flow: &FlowGraph, scoped_ids: &HashSet<NodeId>) -> Vec<HashSet<NodeId>> {
+    // Without a scoped loan, every transfer preserves the empty set. Avoid
+    // constructing predecessors and iterating the fixed point in that case.
+    if scoped_ids.is_empty() {
+        return vec![HashSet::new(); flow.nodes.len()];
+    }
     let mut predecessors = vec![Vec::new(); flow.nodes.len()];
     for (index, node) in flow.nodes.iter().enumerate() {
         for successor in &node.successors {
@@ -1445,6 +1450,18 @@ mod tests {
                (#let-mut value u64 1u64)
                (#return (#call inspect ( {args}))))"
         )
+    }
+
+    #[test]
+    fn absent_scoped_loans_have_empty_facts_at_every_event() {
+        let program =
+            crate::parse_program("(#fn main () u64 (#let value u64 1u64) (#return value))")
+                .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let flow = &checked.declarations().flows["main"];
+        let facts = super::scoped_borrows_before(flow, &std::collections::HashSet::new());
+        assert_eq!(facts.len(), flow.nodes.len());
+        assert!(facts.iter().all(std::collections::HashSet::is_empty));
     }
 
     #[test]

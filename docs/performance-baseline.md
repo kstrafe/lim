@@ -19,6 +19,26 @@ not a per-phase memory profile.
 
 ## Shared typed ownership facts (2026-09-30)
 
+### Empty scoped-borrow fast path
+
+The scoped-borrow solver now returns empty event facts immediately when no
+scoped loans exist, avoiding predecessor construction and fixed-point scans.
+The empty-fact regression and all 60 typed-borrow tests pass. All 694 other
+library tests pass; the existing uncommitted borrowed-field regression fails
+independently. The async, local-waker, native-example, and UI suites pass.
+
+Sixty sequential warm samples per version, with baseline measured first:
+
+| Warm median (ms) | Before | After |
+| --- | ---: | ---: |
+| `async_fn.lim` | 34.16 | 33.16 |
+| `vec_allocator.lim` | 23.63 | 23.81 |
+
+Executables are byte-identical. The observed async reduction is 2.9%, while
+the vector measurement regresses 0.8%; these mixed sequential measurements
+do not establish a reliable speedup. Both binaries contain the same unrelated
+in-progress borrowed-field changes, which are not part of this optimization.
+
 ### Allocation-free liveness updates
 
 Backward liveness now computes each bitset word directly into its retained
