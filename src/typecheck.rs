@@ -1482,10 +1482,39 @@ fn check_types_inner(
         }
     }
     let mut typed_linear_error = None;
+    let mut checked_local_pin_reads = HashMap::new();
+    let mut checked_local_pin_writes = HashMap::new();
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
                 let flow = &declarations.flows[&function.name];
+                for (value, place) in flow.local_pin_accesses(body, &linear_types) {
+                    if matches!(&body.nodes[value.0].kind,
+                        crate::typed_body::NodeKind::Form { head, .. } if head == "pin-read")
+                        && body.nodes[value.0]
+                            .ty
+                            .as_ref()
+                            .is_some_and(|ty| linear_types.is_linear(ty))
+                    {
+                        if let (Some(id), crate::typed_body::PlaceRoot::Local(binding)) =
+                            (body.nodes[value.0].expression_id, place.root)
+                        {
+                            checked_local_pin_reads
+                                .insert(id, body.bindings[binding.0].name.clone());
+                        }
+                    } else if matches!(&body.nodes[value.0].kind,
+                        crate::typed_body::NodeKind::Form { head, .. } if head == "pin-write")
+                    {
+                        if let (Some(id), crate::typed_body::PlaceRoot::Local(binding)) =
+                            (body.nodes[value.0].expression_id, place.root)
+                        {
+                            if linear_types.is_linear(&body.bindings[binding.0].ty) {
+                                checked_local_pin_writes
+                                    .insert(id, body.bindings[binding.0].name.clone());
+                            }
+                        }
+                    }
+                }
                 for result in flow.check_linear_ownership(body, &linear_types, &declarations) {
                     if typed_linear_error.is_none() {
                         typed_linear_error = result.err();
@@ -1501,6 +1530,8 @@ fn check_types_inner(
         program,
         checked_expression_types,
         expression_ids,
+        checked_local_pin_reads,
+        checked_local_pin_writes,
     )
     .err();
     if let Some(error) = typed_linear_error {
@@ -14038,6 +14069,7 @@ mod typed_ownership_tests {
             "aggregate_reborrow",
             "borrowed_aggregate_load",
             "pinned_aggregate_load",
+            "pinned_local_move",
             "pinned_linear_replacement",
             "async_fn",
         ] {
@@ -14463,7 +14495,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn pinned_loads_of_branch_local_containers_use_evaluation_snapshots() {
-        let source = "(#struct Views ((left (#ref u64)) (right (#ref u64))))
+        let source = "(#struct Views ((left (#ref u64)) (right (#ref u64)))) (#linear Views)
             (#fn load ((left (#ref u64)) (right (#ref u64)) (flag bool)) Views
               (#return (#if flag
                 (#block
@@ -14473,15 +14505,7 @@ mod typed_ownership_tests {
                   (#let-mut other Views (#struct-literal Views ((left right) (right left))))
                   (#unsafe (#pin-read (#pin-borrow-mut other)))))))";
         let program = crate::parse_program(source).unwrap();
-        // The source checker still confuses the address used for a pinned
-        // load with the loaded value's retained slots at direct returns.
-        // Keep that migration gap visible while testing the typed transfer.
-        let error = crate::check_types(&program)
-            .expect_err("promote after migrating loaded-value return checking");
-        assert!(
-            error.contains("cannot return a reference to local variable 'holder'"),
-            "{error}"
-        );
+        crate::check_types(&program).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let body = &declarations.bodies["load"];
         let flow = &declarations.flows["load"];
@@ -14570,9 +14594,33 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn pinned_local_move_parent_registration_migration_gap_is_explicit() {
-        let source = "(#struct Owner ((number u64)))
-            (#struct Views ((item (#ref u64))))
+    fn pinned_local_loads_transfer_moved_holder_loans_but_preserve_copies() {
+        for (linear, release_original, release_loaded_early, accepted) in [
+            (true, false, true, true),
+            (false, true, true, true),
+            (false, false, true, false),
+            (true, false, false, false),
+            (false, true, false, false),
+        ] {
+            let annotation = if linear { "(#linear Views)" } else { "" };
+            let original = if release_original {
+                "(#forget holder)"
+            } else {
+                ""
+            };
+            let early = if release_loaded_early {
+                "(#forget loaded)"
+            } else {
+                ""
+            };
+            let late = if release_loaded_early {
+                ""
+            } else {
+                "(#forget loaded)"
+            };
+            let source = format!(
+                "(#struct Owner ((number u64)))
+            (#struct Views ((item (#ref u64)))) {annotation}
             (#fn main () u64
               (#let-mut owner Owner (#struct-literal Owner ((number 42u64))))
               (#let parent (#ref-mut Owner) (#borrow-mut owner))
@@ -14582,22 +14630,159 @@ mod typed_ownership_tests {
               (#let loaded Views (#unsafe (#pin-read target)))
               (#drop target)
               (#let result u64 (#deref (#get loaded item)))
-              (#forget loaded) (#drop parent) (#forget owner) (#return result))";
+              {original} {early} (#drop parent) {late} (#forget owner) (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations
+                .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                    &program,
+                ))
+                .unwrap();
+            if accepted {
+                crate::check_types(&program).unwrap();
+                continue;
+            }
+            let error = crate::check_types(&program)
+                .expect_err("a remaining holder still retains its parent loan");
+            assert!(
+                error.contains("reference 'parent'") && error.contains("derived"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn local_pinned_reads_and_writes_enforce_moves_restoration_and_overwrite_rules() {
+        for (read_first, restore, read_again, accepted) in [
+            (true, true, true, true),
+            (true, false, true, false),
+            (false, true, true, false),
+            (true, true, false, false),
+        ] {
+            let first = if read_first {
+                "(#let first Resource (#unsafe (#pin-read target))) (#forget first)"
+            } else {
+                ""
+            };
+            let write = if restore {
+                "(#unsafe (#pin-write target (#struct-literal Resource ((number 42u64)))))"
+            } else {
+                ""
+            };
+            let second = if read_again {
+                "(#let second Resource (#unsafe (#pin-read target))) (#forget second)"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                (#fn main () ()
+                  (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+                  (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
+                  {first} {write} {second} (#drop target) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            if accepted {
+                crate::check_types(&program).unwrap();
+                continue;
+            }
+            let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+            let span = span.unwrap();
+            if !restore {
+                assert!(message.contains("used more than once"), "{message}");
+                assert_eq!(&source[span.start..span.end], "(#pin-read target)");
+                assert!(!labels.is_empty());
+            } else if !read_first {
+                assert!(
+                    message.contains("pin-write would destroy live linear"),
+                    "{message}"
+                );
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#pin-write target (#struct-literal Resource ((number 42u64))))"
+                );
+            } else {
+                assert!(
+                    message.contains("owner") && message.contains("must be consumed"),
+                    "{message}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn returning_a_pinned_loaded_value_still_rejects_its_local_pointee() {
+        let source = "(#struct Views ((item (#ref u64))))
+            (#fn leak () Views
+              (#return (#block
+                (#let owner u64 42u64)
+                (#let-mut holder Views (#struct-literal Views ((item (#borrow owner)))))
+                (#unsafe (#pin-read (#pin-borrow-mut holder))))))";
         let program = crate::parse_program(source).unwrap();
+        let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+        assert!(message.contains("reference to local 'owner'"), "{message}");
+        let span = span.unwrap();
+        assert!(source[span.start..span.end].starts_with("(#return"));
+        assert!(!labels.is_empty());
+    }
+
+    #[test]
+    fn aliases_of_locally_pin_moved_storage_remain_uninitialized_until_restored() {
+        for restored in [false, true] {
+            let write = if restored {
+                "(#unsafe (#pin-write target (#struct-literal Resource ((number 42u64)))))"
+            } else {
+                ""
+            };
+            let cleanup = if restored { "(#forget owner)" } else { "" };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn main () u64
+                (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+                (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
+                (#let taken Resource (#unsafe (#pin-read target)))
+                (#forget taken) {write}
+                (#let value u64 (#get target number))
+                (#drop target) {cleanup} (#return value))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            if restored {
+                crate::check_types(&program).unwrap();
+                continue;
+            }
+            let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+            assert!(message.contains("used more than once"), "{message}");
+            let span = span.unwrap();
+            assert_eq!(&source[span.start..span.end], "(#get target number)");
+            assert!(!labels.is_empty());
+        }
+    }
+
+    #[test]
+    fn locally_pin_moved_exclusive_reference_slots_transfer_without_duplicate_loans() {
+        let source = "(#struct Owner ((number u64)))
+            (#struct View ((item (#ref-mut u64)))) (#linear View)
+            (#fn main () u64
+              (#let-mut owner Owner (#struct-literal Owner ((number 1u64))))
+              (#let parent (#ref-mut Owner) (#borrow-mut owner))
+              (#let-mut holder View (#struct-literal View
+                ((item (#borrow-mut (#get parent number))))))
+              (#let target (#pin-ref-mut View) (#pin-borrow-mut holder))
+              (#let loaded View (#unsafe (#pin-read target)))
+              (#drop target)
+              (#deref-set (#get loaded item) 42u64)
+              (#forget loaded) (#drop parent)
+              (#let result u64 (#get owner number))
+              (#forget owner) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         declarations
             .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
                 &program,
             ))
             .unwrap();
-        let error = crate::check_types(&program)
-            .expect_err("promote this valid case after retiring moved holder registrations");
-        assert!(
-            error.contains(
-                "cannot use reference 'parent' while a derived field reference is active"
-            ),
-            "{error}"
-        );
     }
 
     #[test]

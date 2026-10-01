@@ -10291,9 +10291,10 @@ mod tests {
             "(#struct Point ((x u64))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 42)))) (#return (#get (#deref (#borrow point)) x)))",
         )
         .unwrap();
-        assert!(check_types(&aggregate_deref)
-            .unwrap_err()
-            .contains("cannot return a reference to local variable 'point'"));
+        // The borrow is only an address operand for a local value load. The
+        // returned scalar does not retain a reference to the local Point.
+        check_types(&aggregate_deref).unwrap();
+        generate_assembly(&aggregate_deref).unwrap();
 
         let stored = parse_program(
             "(#struct Allocator ((cursor u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)) (length u64))) (#fn main () u64 (#let-mut allocator Allocator (#struct-literal Allocator ((cursor 0)))) (#let-mut vector VecWithAllocator (#struct-literal VecWithAllocator ((allocator (#borrow allocator)) (length 0)))) (#set-field allocator cursor 1) (#return 0))",

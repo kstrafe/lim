@@ -201,6 +201,7 @@ pub(crate) struct FlowConsumptions {
     before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
     at: Vec<HashSet<Place>>,
+    local_pin_accesses: HashMap<NodeId, Place>,
     /// Resolved direct consuming accesses, independent of later restoration.
     #[cfg(test)]
     resolved_at: Vec<HashSet<Place>>,
@@ -1160,6 +1161,48 @@ impl FlowGraph {
         self.consumptions_with_origins(body, types, None)
     }
 
+    /// Production ownership can already resolve whole local pinned storage.
+    /// Projected, parameter, global, ambiguous and anchored targets still
+    /// require the full referent-contract migration; never guess their roots.
+    pub fn local_pin_accesses(&self, body: &Body, types: &LinearTypes) -> HashMap<NodeId, Place> {
+        if !body.nodes.iter().any(|node| matches!(&node.kind,
+            NodeKind::Form { head, children, .. }
+                if (head == "pin-read" && node.ty.as_ref().is_some_and(|ty| types.is_linear(ty)))
+                || (head == "pin-write" && children.get(1).and_then(|id| body.nodes[id.0].ty.as_ref()).is_some_and(|ty|
+                    matches!(ty, Type::PinnedReference { target, .. } if types.is_linear(target)))))
+        ) { return HashMap::new(); }
+        let origins = self.loan_origins(body);
+        let mut accesses = HashMap::new();
+        for (index, event) in self.nodes.iter().enumerate() {
+            let value = match event.action {
+                FlowAction::Evaluate(value) | FlowAction::Write { value, .. } => value,
+                _ => continue,
+            };
+            let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+                continue;
+            };
+            if !matches!(head.as_str(), "pin-read" | "pin-write") || children.len() < 2 {
+                continue;
+            }
+            let targets = origins.value_before(body, self, FlowNodeId(index), children[1]);
+            let Some(first) = targets.first() else {
+                continue;
+            };
+            if !matches!(first.place.root, PlaceRoot::Local(_))
+                || targets.iter().any(|target| {
+                    target.lifetime_only
+                        || !target.storage.is_empty()
+                        || !target.place.segments.is_empty()
+                        || target.place != first.place
+                })
+            {
+                continue;
+            }
+            accesses.insert(value, first.place.clone());
+        }
+        accesses
+    }
+
     /// Staging analysis for borrowed-storage ownership. Resolve reference
     /// projections to loan roots and retain those facts across alias cleanup.
     /// Ambiguous writes cannot definitely restore any one possible referent.
@@ -2041,6 +2084,11 @@ impl FlowGraph {
         calls: Option<&HashMap<FlowNodeId, CallConsumptionFacts>>,
         entry_consumed: &[Place],
     ) -> FlowConsumptions {
+        let local_pin_accesses = if origins.is_none() {
+            self.local_pin_accesses(body, types)
+        } else {
+            HashMap::new()
+        };
         let resolve = |id: FlowNodeId, place: &Place, value: NodeId| {
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
@@ -2287,7 +2335,13 @@ impl FlowGraph {
                     _ => Vec::new(),
                 })
                 .collect::<Vec<_>>()
-        });
+        }).or_else(|| (!local_pin_accesses.is_empty()).then(|| self.nodes.iter().map(|node| match &node.action {
+            FlowAction::Assign { place, .. } => vec![place.clone()],
+            FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
+                if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "pin-write") =>
+                    local_pin_accesses.get(value).cloned().into_iter().collect(),
+            _ => Vec::new(),
+        }).collect::<Vec<_>>()));
         let targets_for = |id: FlowNodeId| -> &[Place] {
             if let Some(targets) = &write_targets {
                 &targets[id.0]
@@ -2372,6 +2426,24 @@ impl FlowGraph {
                         if !spans.contains(&node.span) {
                             spans.push(node.span);
                         }
+                    }
+                }
+                FlowAction::Evaluate(value)
+                    if origins.is_none()
+                        && local_pin_accesses.contains_key(value)
+                        && matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "pin-read")
+                        && body.nodes[value.0]
+                            .ty
+                            .as_ref()
+                            .is_some_and(|ty| types.is_linear(ty)) =>
+                {
+                    let place = local_pin_accesses[value].clone();
+                    consumed_at[id.0].insert(place.clone());
+                    #[cfg(test)]
+                    resolved_at[id.0].insert(place.clone());
+                    let spans = state.entry(place).or_default();
+                    if !spans.contains(&node.span) {
+                        spans.push(node.span);
                     }
                 }
                 FlowAction::Evaluate(value)
@@ -2567,6 +2639,7 @@ impl FlowGraph {
             before,
             after,
             at: consumed_at,
+            local_pin_accesses,
             #[cfg(test)]
             resolved_at,
             definitely_before,
@@ -2882,17 +2955,32 @@ impl FlowGraph {
         moves: &FlowConsumptions,
         origins: Option<&FlowLoanOrigins>,
     ) -> Result<(), ReleaseConflict> {
+        // Whole-local pinned moves must also invalidate reads/reborrows via
+        // aliases of that storage. Resolve only owned local roots here;
+        // symbolic parameter referents still need the staged call contracts.
+        let local_origins = (origins.is_none() && !moves.local_pin_accesses.is_empty())
+            .then(|| self.loan_origins(body));
+        let resolving_origins = origins.or(local_origins.as_ref());
         for (index, node) in self.nodes.iter().enumerate() {
             let pinned_read_place = match node.action {
                 FlowAction::Evaluate(value)
                     if matches!(&body.nodes[value.0].kind,
                     NodeKind::Form { head, .. } if head == "pin-read") =>
                 {
-                    origins
+                    resolving_origins
                         .and_then(|origins| {
                             dereferenced_value_places(body, self, FlowNodeId(index), value, origins)
                         })
                         .and_then(|places| places.into_iter().next())
+                        .or_else(|| {
+                            moves.at[index]
+                                .iter()
+                                .find(|place| {
+                                    matches!(place.root, PlaceRoot::Local(_))
+                                        && place.segments.is_empty()
+                                })
+                                .cloned()
+                        })
                 }
                 _ => None,
             };
@@ -2921,11 +3009,11 @@ impl FlowGraph {
                 }
                 _ => value,
             };
-            let resolved = origins
+            let mut resolved = resolving_origins
                 .and_then(|origins| {
                     dereferenced_value_places(body, self, FlowNodeId(index), value, origins)
                 })
-                .unwrap_or_else(|| match (origins, &place.root) {
+                .unwrap_or_else(|| match (resolving_origins, &place.root) {
                     (Some(origins), PlaceRoot::Local(binding))
                         if (place.segments.contains(&Segment::Dereference)
                             || reads_through_reference(body, value))
@@ -2943,6 +3031,9 @@ impl FlowGraph {
                     }
                     _ => Vec::new(),
                 });
+            if local_origins.is_some() {
+                resolved.retain(|place| matches!(place.root, PlaceRoot::Local(_)));
+            }
             let accessed = if resolved.is_empty() {
                 std::slice::from_ref(place)
             } else {
@@ -3615,14 +3706,26 @@ impl FlowGraph {
         declarations: &crate::typed_ir::Declarations,
         moves: &FlowConsumptions,
     ) -> Result<(), ReleaseConflict> {
+        let local_pin_accesses = &moves.local_pin_accesses;
         for (index, node) in self.nodes.iter().enumerate() {
-            let FlowAction::Assign { place, value } = &node.action else {
-                continue;
+            let (place, value, pinned_write) = match &node.action {
+                FlowAction::Assign { place, value } => (place, *value, false),
+                FlowAction::Write { value, .. } | FlowAction::Evaluate(value) if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "pin-write") =>
+                {
+                    let Some(place) = local_pin_accesses.get(value) else {
+                        continue;
+                    };
+                    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                        unreachable!();
+                    };
+                    (place, children[2], true)
+                }
+                _ => continue,
             };
             let PlaceRoot::Local(binding) = place.root else {
                 continue;
             };
-            if place.segments.is_empty() {
+            if place.segments.is_empty() && !pinned_write {
                 continue;
             }
             let Some(state) = moves.definitely_before[index].as_ref() else {
@@ -3648,7 +3751,8 @@ impl FlowGraph {
                     let name = display_linear_place(body, place);
                     return Err(ReleaseConflict {
                         message: format!(
-                            "assignment would destroy live linear projection '{name}'; consume it explicitly first"
+                            "{} would destroy live linear projection '{name}'; consume it explicitly first",
+                            if pinned_write { "pin-write" } else { "assignment" }
                         ),
                         span: node.span,
                         labels: body.bindings[binding.0].span.into_iter().map(|span| {
@@ -3691,10 +3795,6 @@ impl FlowGraph {
             .iter()
             .map(|(_, _, place)| place.clone())
             .collect::<HashSet<_>>();
-        let syntactic_before = (!referent_exit_facts).then(|| {
-            self.obligation_consumptions(body, types, &obligation_places)
-                .0
-        });
         let computed_moves;
         let possible = match moves {
             Some(moves) => moves,
@@ -3703,6 +3803,15 @@ impl FlowGraph {
                 &computed_moves
             }
         };
+        let syntactic_before = (!referent_exit_facts).then(|| {
+            self.obligation_consumptions_with_local_pin_accesses(
+                body,
+                types,
+                &obligation_places,
+                &possible.local_pin_accesses,
+            )
+            .0
+        });
         let active = self.active_bindings_before(body);
         let preview_cleanup = self
             .guard_preview_boundaries(body)
@@ -3899,11 +4008,28 @@ impl FlowGraph {
         Ok(())
     }
 
+    #[cfg(test)]
     fn obligation_consumptions(
         &self,
         body: &Body,
         types: &LinearTypes,
         obligations: &HashSet<Place>,
+    ) -> (Vec<Option<HashSet<Place>>>, Vec<Option<HashSet<Place>>>) {
+        let local_pin_accesses = self.local_pin_accesses(body, types);
+        self.obligation_consumptions_with_local_pin_accesses(
+            body,
+            types,
+            obligations,
+            &local_pin_accesses,
+        )
+    }
+
+    fn obligation_consumptions_with_local_pin_accesses(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        obligations: &HashSet<Place>,
+        local_pin_accesses: &HashMap<NodeId, Place>,
     ) -> (Vec<Option<HashSet<Place>>>, Vec<Option<HashSet<Place>>>) {
         let mut before = vec![None; self.nodes.len()];
         let mut after = vec![None; self.nodes.len()];
@@ -3933,6 +4059,15 @@ impl FlowGraph {
                         && release_operand_is_linear(body, *value, types) =>
                 {
                     Some(place)
+                }
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "pin-read")
+                        && body.nodes[value.0]
+                            .ty
+                            .as_ref()
+                            .is_some_and(|ty| types.is_linear(ty)) =>
+                {
+                    local_pin_accesses.get(value)
                 }
                 _ => None,
             };
@@ -3977,6 +4112,13 @@ impl FlowGraph {
                     state.retain(|place| {
                         !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
                     });
+                }
+                FlowAction::Write { value, .. } | FlowAction::Evaluate(value) if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "pin-write") => {
+                    if let Some(target) = local_pin_accesses.get(value) {
+                        state.retain(|leaf| {
+                            !place_covers(target, leaf) && !place_covers(leaf, target)
+                        });
+                    }
                 }
                 _ => {}
             }

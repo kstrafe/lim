@@ -11,6 +11,30 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "local-pin-alias-read",
+            diagnostic_code: "E4200",
+            offending_line: "  (#let value u64 (#get target number))",
+            line_number: 8,
+        },
+        Case {
+            name: "local-pin-read-twice",
+            diagnostic_code: "E4200",
+            offending_line: "  (#let second Resource (#unsafe (#pin-read target)))",
+            line_number: 8,
+        },
+        Case {
+            name: "local-pin-write-live",
+            diagnostic_code: "E4200",
+            offending_line: "  (#unsafe (#pin-write target (#struct-literal Resource (: number 2u64))))",
+            line_number: 6,
+        },
+        Case {
+            name: "pinned-loaded-reference-escape",
+            diagnostic_code: "E4100",
+            offending_line: "  (#return (#block",
+            line_number: 3,
+        },
+        Case {
             name: "match-guard-consumes-preview",
             diagnostic_code: "E4200",
             offending_line: "      (#forget first)",
@@ -919,6 +943,10 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "local-pin-alias-read" => Some("(#get target number)"),
+            "local-pin-read-twice" => Some("(#pin-read target)"),
+            "local-pin-write-live" => Some("(#pin-write target (#struct-literal Resource (: number 2u64)))"),
+            "pinned-loaded-reference-escape" => Some("(#return (#block"),
             "lex" => Some("\"unterminated)"),
             "type" => Some("missing"),
             "return-type-mismatch" => Some("false"),

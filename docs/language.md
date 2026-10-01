@@ -354,6 +354,22 @@ exclusive access, preserve any displaced ownership they need, and ensure no
 derived references remain. Ordinary code should use safe field operations
 instead; safe code cannot replace a pinned referent.
 
+For a pinned handle proven to address one whole owned local value, the
+compiler tracks a linear `#pin-read` as a move: the original value's cleanup
+obligation is satisfied, and repeated loads, alias reads, and reborrows of
+that uninitialized storage are rejected. A matching `#pin-write` requires
+prior consumption before replacing a linear value and restores its cleanup
+obligation. The loaded value keeps its own retained reference slots, not the
+container address. Moving a reference-bearing holder transfers its loans;
+copying one retains both sets until the corresponding values are released.
+See `examples/pinned_local_move.lim` for local move/restoration and returning
+a loaded reference-bearing value from a branch-local holder.
+
+This local rule does not establish complete contracts for parameter-loaded
+frames, projected/ambiguous storage, or lifetime-anchored raw pointers. Those
+unsafe protocols still require the caller's guarantees; full referent and
+variant-conditioned async ownership analysis remains under development.
+
 `#pin-set-field` is the checked field-wise operation for scalar/fieldless-enum
 and shared-reference struct fields. It writes only that field, so a state tag
 can change independently and an immutable reference can be established after

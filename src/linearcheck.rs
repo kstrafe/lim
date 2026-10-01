@@ -135,6 +135,8 @@ pub(crate) struct LinearTypes {
         Option<std::sync::Arc<std::collections::HashMap<crate::typed_ir::ExpressionId, Type>>>,
     checked_expression_ids:
         Option<std::sync::Arc<std::collections::HashMap<usize, crate::typed_ir::ExpressionId>>>,
+    checked_local_pin_reads: std::collections::HashMap<crate::typed_ir::ExpressionId, String>,
+    checked_local_pin_writes: std::collections::HashMap<crate::typed_ir::ExpressionId, String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -398,10 +400,14 @@ pub(crate) fn check_program_with_span(
     checked_expression_ids: std::sync::Arc<
         std::collections::HashMap<usize, crate::typed_ir::ExpressionId>,
     >,
+    checked_local_pin_reads: std::collections::HashMap<crate::typed_ir::ExpressionId, String>,
+    checked_local_pin_writes: std::collections::HashMap<crate::typed_ir::ExpressionId, String>,
 ) -> Result<(), (String, Option<crate::Span>, Vec<(crate::Span, String)>)> {
     let mut types = LinearTypes::from_program(program);
     types.checked_expressions = Some(checked_expressions);
     types.checked_expression_ids = Some(checked_expression_ids);
+    types.checked_local_pin_reads = checked_local_pin_reads;
+    types.checked_local_pin_writes = checked_local_pin_writes;
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
@@ -1150,6 +1156,37 @@ fn check_expr(
                     for arg in items.iter().skip(1) {
                         check_expr(arg, bindings, moved, globals, true, types)?;
                     }
+                }
+            } else if head == "pin-read" && items.len() == 2 {
+                check_expr(&items[1], bindings, moved, globals, true, types)?;
+                if let Some(source) = types
+                    .checked_expression_ids
+                    .as_ref()
+                    .and_then(|ids| ids.get(&(std::ptr::from_ref(expr) as usize)))
+                    .and_then(|id| types.checked_local_pin_reads.get(id))
+                {
+                    let root = Place::root(source);
+                    if has_move_conflict(moved, &root) {
+                        return Err(failure!(
+                            "linear value '{source}' was used more than once; clone it explicitly"
+                        )
+                        .related(moved.prior(&root)));
+                    }
+                    moved.insert(root);
+                }
+            } else if head == "pin-write" && items.len() == 3 {
+                check_expr(&items[1], bindings, moved, globals, true, types)?;
+                check_expr(&items[2], bindings, moved, globals, false, types)?;
+                if let Some(source) = types
+                    .checked_expression_ids
+                    .as_ref()
+                    .and_then(|ids| ids.get(&(std::ptr::from_ref(expr) as usize)))
+                    .and_then(|id| types.checked_local_pin_writes.get(id))
+                {
+                    if !types.binding_consumed(source, moved) {
+                        return Err(failure!("pin-write would destroy live linear value '{source}'; consume it explicitly first"));
+                    }
+                    moved.retain(|place| place_root(place) != source);
                 }
             } else if head == "ptr-offset" {
                 if let Some(pointer) = items.get(1) {

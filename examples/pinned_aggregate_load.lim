@@ -2,6 +2,7 @@
 (#struct Resource (: number u64))
 (#struct Container (: item Resource : other Resource))
 (#struct Views (: left (#ref Resource) : right (#ref Resource)))
+(#linear Views)
 
 (#fn sum-values (: owner (#ref-mut Container)) u64
   (#let-mut holder Views

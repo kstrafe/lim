@@ -411,6 +411,12 @@ struct Loans {
 }
 
 #[derive(Clone)]
+struct LocalLoad {
+    source: String,
+    moves: bool,
+}
+
+#[derive(Clone)]
 struct Context {
     loans: Loans,
     // Imported globals never change; function and branch contexts share them.
@@ -445,6 +451,7 @@ struct Context {
     mutable_reference_types: Arc<HashSet<String>>,
     program_items: Arc<Vec<Item>>,
     typed_reborrow_parents: HashMap<usize, String>,
+    typed_local_loads: Arc<HashMap<usize, LocalLoad>>,
 }
 
 impl Loans {
@@ -828,26 +835,30 @@ fn check_program_impl(
                 .collect::<HashMap<_, _>>(),
         )
     });
+    let typed_linear_types =
+        declarations.map(|_| crate::linearcheck::LinearTypes::from_program(program));
     for item in &program.items {
         if let Item::Function(function) = item {
             if !function.external {
-                let typed_reborrow_parents = if let Some(declarations) = declarations {
-                    let body = declarations.bodies.get(&function.name).ok_or_else(|| {
-                        BorrowDiagnostic::from(format!(
-                            "internal error: typed body missing for '{}'",
-                            function.name
-                        ))
-                    })?;
-                    typed_reborrow_parents(
-                        function,
-                        body,
-                        declarations.flows.get(&function.name),
-                        &reference_types,
-                        &mutable_reference_types,
-                    )?
-                } else {
-                    HashMap::new()
-                };
+                let (typed_reborrow_parents, typed_local_loads) =
+                    if let Some(declarations) = declarations {
+                        let body = declarations.bodies.get(&function.name).ok_or_else(|| {
+                            BorrowDiagnostic::from(format!(
+                                "internal error: typed body missing for '{}'",
+                                function.name
+                            ))
+                        })?;
+                        typed_borrow_facts(
+                            function,
+                            body,
+                            declarations.flows.get(&function.name),
+                            &reference_types,
+                            &mutable_reference_types,
+                            typed_linear_types.as_ref().unwrap(),
+                        )?
+                    } else {
+                        (HashMap::new(), HashMap::new())
+                    };
                 check_function(
                     function,
                     program,
@@ -876,6 +887,7 @@ fn check_program_impl(
                         )),
                     declarations.is_some(),
                     typed_reborrow_parents,
+                    typed_local_loads,
                     typed_reference_return_parameters.clone(),
                 )?;
             }
@@ -945,6 +957,7 @@ fn check_function(
     typed_return_escapes: bool,
     typed_scope_escapes: bool,
     typed_reborrow_parents: HashMap<usize, String>,
+    typed_local_loads: HashMap<usize, LocalLoad>,
     typed_reference_return_parameters: Option<
         Arc<HashMap<String, Vec<crate::typed_body::ParameterLoanSummary>>>,
     >,
@@ -1017,6 +1030,7 @@ fn check_function(
         typed_scope_escapes,
         program_items: Arc::clone(program_items),
         typed_reborrow_parents,
+        typed_local_loads: Arc::new(typed_local_loads),
     };
     for parameter in &function.parameters {
         if contains_reference_type(&parameter.ty, reference_types) {
@@ -1397,6 +1411,13 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
 }
 
 fn existing_reference_value_loans(expression: &Expr, context: &Context) -> Vec<(String, String)> {
+    if let Some(load) = typed_local_load(expression, context) {
+        return context
+            .reference_loans
+            .get(&load.source)
+            .cloned()
+            .unwrap_or_default();
+    }
     match expression {
         Expr::Symbol(name)
             if context.reference_bindings.contains(name)
@@ -1561,6 +1582,16 @@ fn collect_reference_fields(
     result: &mut HashMap<Vec<usize>, (HashSet<String>, Vec<(String, String)>)>,
 ) {
     if !type_contains_reference(ty, &context.program_items, &mut HashSet::new()) {
+        return;
+    }
+    if let Some(load) = typed_local_load(value, context) {
+        if let Some(fields) = context.reference_fields.get(&load.source) {
+            for (slot, facts) in fields {
+                let mut output = path.clone();
+                output.extend_from_slice(slot);
+                result.insert(output, facts.clone());
+            }
+        }
         return;
     }
     if let Expr::Symbol(name) = value {
@@ -2162,6 +2193,18 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     });
                     context.allow_local_reference = previous;
                     checked?;
+                } else if matches!(operator.as_str(), "pin-read" | "deref")
+                    && items.len() == 2
+                    && typed_local_load(expression, context).is_some()
+                {
+                    // Only the loaded value escapes; the address operand is
+                    // used locally. Typed flow has proven its local storage
+                    // identity, and checks the loaded value's actual loans.
+                    let previous = context.allow_local_reference;
+                    context.allow_local_reference = true;
+                    let checked = check_expression(&items[1], context);
+                    context.allow_local_reference = previous;
+                    checked?;
                 } else if matches!(operator.as_str(), "deref-set" | "pin-write") && items.len() == 3
                 {
                     // The target reference is used locally, never returned
@@ -2373,6 +2416,13 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
 }
 
 fn release_dropped_value(expression: &Expr, context: &mut Context) {
+    if let Some(load) = typed_local_load(expression, context)
+        .filter(|load| load.moves)
+        .cloned()
+    {
+        release_dropped_value(&Expr::Symbol(load.source), context);
+        return;
+    }
     let Expr::Symbol(name) = expression else {
         release_projected_value(expression, context);
         return;
@@ -2827,7 +2877,30 @@ fn context_reborrow_parent(expression: &Expr, context: &Context) -> Option<Strin
 
 // Only constructors retain their operands structurally. Do not interpret
 // borrows passed into arbitrary calls as loans retained by the call result.
+fn typed_local_load<'a>(expression: &Expr, context: &'a Context) -> Option<&'a LocalLoad> {
+    if let Some(load) = context
+        .typed_local_loads
+        .get(&(std::ptr::from_ref(expression) as usize))
+    {
+        return Some(load);
+    }
+    if let Expr::List(items) = expression {
+        if items.len() == 2 && matches!(items.first(), Some(Expr::Symbol(head)) if head == "unsafe")
+        {
+            return typed_local_load(&items[1], context);
+        }
+    }
+    None
+}
+
 fn aggregate_reborrow_parents(expression: &Expr, context: &Context) -> HashSet<String> {
+    if let Some(load) = typed_local_load(expression, context) {
+        return context
+            .reference_parents
+            .get(&load.source)
+            .cloned()
+            .unwrap_or_default();
+    }
     if let Some(parent) = context_reborrow_parent(expression, context) {
         return HashSet::from([parent]);
     }
@@ -2858,6 +2931,13 @@ fn aggregate_reborrow_parents(expression: &Expr, context: &Context) -> HashSet<S
 }
 
 fn aggregate_moved_parent_sources(expression: &Expr, context: &Context) -> HashSet<String> {
+    if let Some(load) = typed_local_load(expression, context) {
+        return if load.moves {
+            HashSet::from([load.source.clone()])
+        } else {
+            HashSet::new()
+        };
+    }
     if let Expr::Symbol(name) = expression {
         return if context.reference_parents.contains_key(name)
             && (!context.reference_bindings.contains(name)
@@ -2887,6 +2967,7 @@ fn aggregate_moved_parent_sources(expression: &Expr, context: &Context) -> HashS
         .collect()
 }
 
+#[cfg(test)]
 fn typed_reborrow_parents(
     function: &Function,
     body: &crate::typed_body::Body,
@@ -2894,6 +2975,25 @@ fn typed_reborrow_parents(
     reference_types: &HashSet<String>,
     mutable_reference_types: &HashSet<String>,
 ) -> Result<HashMap<usize, String>, String> {
+    typed_borrow_facts(
+        function,
+        body,
+        flow,
+        reference_types,
+        mutable_reference_types,
+        &crate::linearcheck::LinearTypes::default(),
+    )
+    .map(|(parents, _)| parents)
+}
+
+fn typed_borrow_facts(
+    function: &Function,
+    body: &crate::typed_body::Body,
+    flow: Option<&crate::typed_flow::FlowGraph>,
+    reference_types: &HashSet<String>,
+    mutable_reference_types: &HashSet<String>,
+    linear_types: &crate::linearcheck::LinearTypes,
+) -> Result<(HashMap<usize, String>, HashMap<usize, LocalLoad>), String> {
     let flow = flow.ok_or_else(|| {
         format!(
             "internal error: typed flow missing for '{}' while resolving reborrows",
@@ -2903,6 +3003,55 @@ fn typed_reborrow_parents(
     let emission = body.emission_types(function)?;
     let loan_origins = flow.loan_origins(body);
     let mut parent_by_expression = HashMap::new();
+    let mut loads_by_expression = HashMap::new();
+    for (index, node) in flow.nodes.iter().enumerate() {
+        let value = match node.action {
+            crate::typed_flow::FlowAction::Evaluate(value)
+            | crate::typed_flow::FlowAction::Read { value, .. } => value,
+            _ => continue,
+        };
+        let crate::typed_body::NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind
+        else {
+            continue;
+        };
+        if !matches!(head.as_str(), "pin-read" | "deref") || children.len() != 2 {
+            continue;
+        }
+        let targets = loan_origins.value_before(
+            body,
+            flow,
+            crate::typed_flow::FlowNodeId(index),
+            children[1],
+        );
+        let Some(first) = targets.first() else {
+            continue;
+        };
+        let crate::typed_body::PlaceRoot::Local(binding) = first.place.root else {
+            continue;
+        };
+        if targets.iter().any(|target| {
+            target.lifetime_only
+                || !target.storage.is_empty()
+                || !target.place.segments.is_empty()
+                || target.place.root != first.place.root
+        }) {
+            continue;
+        }
+        let Some(expression_id) = body.nodes[value.0].expression_id else {
+            continue;
+        };
+        loads_by_expression.insert(
+            expression_id,
+            LocalLoad {
+                source: body.bindings[binding.0].name.clone(),
+                moves: head == "pin-read"
+                    && body.nodes[value.0]
+                        .ty
+                        .as_ref()
+                        .is_some_and(|ty| linear_types.is_linear(ty)),
+            },
+        );
+    }
     for (index, node) in flow.nodes.iter().enumerate() {
         let crate::typed_flow::FlowAction::Borrow { value, place, .. } = &node.action else {
             continue;
@@ -2942,16 +3091,27 @@ fn typed_reborrow_parents(
         };
         parent_by_expression.insert(expression_id, binding_info.name.clone());
     }
-    Ok(emission
+    let parents = emission
         .address_to_id
-        .into_iter()
+        .iter()
         .filter_map(|(address, expression_id)| {
             parent_by_expression
-                .get(&expression_id)
+                .get(expression_id)
                 .cloned()
-                .map(|parent| (address, parent))
+                .map(|parent| (*address, parent))
         })
-        .collect())
+        .collect();
+    let loads = emission
+        .address_to_id
+        .into_iter()
+        .filter_map(|(address, id)| {
+            loads_by_expression
+                .get(&id)
+                .cloned()
+                .map(|load| (address, load))
+        })
+        .collect();
+    Ok((parents, loads))
 }
 
 #[cfg(test)]
@@ -3203,6 +3363,19 @@ fn reference_origins(
     }
     if !result_contains_references {
         return HashSet::new();
+    }
+    if let Some(load) = typed_local_load(expression, context) {
+        let mut origins = context
+            .reference_origins
+            .get(&load.source)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(fields) = context.reference_fields.get(&load.source) {
+            for (held, _) in fields.values() {
+                origins.extend(held.iter().cloned());
+            }
+        }
+        return origins;
     }
     match expression {
         Expr::Symbol(name) => {
