@@ -10143,6 +10143,33 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_restoration_guarantees_intersect_normal_returns() {
+        for (write, guaranteed) in [
+            ("", false),
+            ("(#deref-set value (#struct-literal Resource ((number 2u64))))", true),
+            ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", false),
+            ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true),
+            ("(#if choice (#block (#return ())) ()) (#deref-set value (#struct-literal Resource ((number 2u64))))", false),
+        ] {
+            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource)) (choice bool)) ()
+                {write} (#return ()))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let guarantees = declarations.flows["initialize"].referent_restoration_guarantees(
+                &declarations.bodies["initialize"], &types, &[],
+            );
+            assert_eq!(!guarantees.is_empty(), guaranteed, "{write}");
+            if guaranteed {
+                assert_eq!(guarantees.len(), 1);
+                assert_eq!(guarantees[0], crate::typed_place::Place::root(
+                    crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))));
+            }
+        }
+    }
+
+    #[test]
     fn staged_entry_read_inference_accounts_for_callee_consumption() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) ()

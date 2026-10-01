@@ -1476,6 +1476,51 @@ impl FlowGraph {
     }
 
     /// Direct-read entry requirements under symbolic input initialization.
+    /// Whole parameter-referent initialization on every normal return when
+    /// those referents start consumed. Write-entry permissions/preconditions
+    /// remain separate and are not established by this postcondition.
+    #[cfg(test)]
+    pub fn referent_restoration_guarantees(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+    ) -> Vec<Place> {
+        let mut candidates = Vec::new();
+        for (index, slots) in body
+            .parameter_loan_slots
+            .iter()
+            .enumerate()
+            .take(body.parameter_count)
+        {
+            for slot in slots {
+                let mut place = Place::root(PlaceRoot::Parameter(BindingId(index)));
+                place.segments = slot.storage.clone();
+                if !candidates.contains(&place) {
+                    candidates.push(place);
+                }
+            }
+        }
+        let moves =
+            self.referent_consumptions_with_calls_from_entry(body, types, calls, &candidates);
+        let exits = self.referent_exit_effects_from_moves(body, &moves);
+        if exits.is_empty() {
+            return Vec::new();
+        }
+        candidates
+            .into_iter()
+            .filter(|candidate| {
+                exits.iter().all(|(_, effects, unresolved)| {
+                    unresolved.is_empty()
+                        && !effects
+                            .iter()
+                            .any(|effect| effect.place.overlaps(candidate))
+                })
+            })
+            .collect()
+    }
+
+    /// Direct-read entry requirements under symbolic input initialization.
     /// Callee reads/restoration, write preconditions, and validity of local
     /// consumption are separate obligations, not proven by this filter.
     #[cfg(test)]
