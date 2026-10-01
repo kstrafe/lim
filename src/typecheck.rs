@@ -10142,6 +10142,57 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_callee_consumption_rejects_reference_alias_reuse() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn consume ((value (#ref-mut Resource))) ()
+            (#forget (#deref value)) (#return ()))
+          (#fn inspect ((value (#ref-mut Resource))) ()
+            (#let alias (#ref-mut Resource) value)
+            (#call consume (: value value))
+            (#forget (#deref alias)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let (event, call, callee) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                    return None;
+                };
+                let crate::typed_body::NodeKind::Form {
+                    callee: Some(callee),
+                    ..
+                } = &body.nodes[value.0].kind
+                else {
+                    return None;
+                };
+                Some((crate::typed_flow::FlowNodeId(index), value, *callee))
+            })
+            .unwrap();
+        let (effects, unknown) =
+            flow.map_referent_call_effects(body, event, call, &summaries[&callee]);
+        assert!(!unknown);
+        let conflict = flow
+            .check_owner_consumptions_with_calls(body, &types, &[(event, effects, unknown)])
+            .unwrap_err();
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#forget (#deref alias))");
+        assert_eq!(conflict.labels.len(), 1);
+        let origin = conflict.labels[0].0;
+        assert_eq!(
+            &source[origin.start..origin.end],
+            "(#forget (#deref value))"
+        );
+    }
+
+    #[test]
     fn staged_reference_alias_uses_resolve_to_consumed_storage() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn inspect ((value (#ref-mut Resource))) ()
