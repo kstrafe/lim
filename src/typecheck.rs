@@ -10143,6 +10143,42 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_read_entry_requirements_propagate_through_helpers() {
+        for initialized in [false, true] {
+            let write = if initialized {
+                "(#deref-set value (#struct-literal Resource ((number 2u64))))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64)))
+              (#fn inspect ((value (#ref-mut Resource))) u64 (#return (#get value number)))
+              (#fn forward ((value (#ref-mut Resource))) u64
+                {write} (#return (#call inspect (: value value))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let summaries = declarations
+                .staged_referent_function_effects(&types)
+                .unwrap();
+            let callee = &summaries[&declarations.function_id("inspect").unwrap()];
+            assert_eq!(callee.entry_reads.len(), 1);
+            let helper = &summaries[&declarations.function_id("forward").unwrap()];
+            assert!(helper.unresolved_reads.is_empty());
+            assert_eq!(helper.entry_reads.is_empty(), initialized);
+            if !initialized {
+                assert_eq!(helper.entry_reads.len(), 1);
+                assert_eq!(helper.entry_reads[0].span, callee.entry_reads[0].span);
+                assert_eq!(
+                    helper.entry_reads[0].place.root,
+                    crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+                );
+            }
+        }
+    }
+
+    #[test]
     fn staged_symbolic_entry_consumption_tracks_initialization_before_reads() {
         for (write, initialized, definitely_consumed) in [
             ("", false, true),

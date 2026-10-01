@@ -845,6 +845,7 @@ impl Declarations {
                 let mut calls = Vec::new();
                 let reachable = flow.reachable();
                 let mut call_reads = Vec::new();
+                let mut call_entry_reads = Vec::new();
                 let mut unresolved_reads = Vec::new();
                 for (index, node) in flow.nodes.iter().enumerate() {
                     let FlowAction::Evaluate(value) = node.action else {
@@ -878,7 +879,16 @@ impl Declarations {
                                 &origins,
                             );
                             call_reads.extend(mapped);
-                            if unknown || !summary.unresolved_reads.is_empty() {
+                            let (entry_reads, entry_unknown) = flow
+                                .map_referent_call_reads_with_origins(
+                                    body,
+                                    event,
+                                    value,
+                                    &summary.entry_reads,
+                                    &origins,
+                                );
+                            call_entry_reads.extend(entry_reads);
+                            if unknown || entry_unknown || !summary.unresolved_reads.is_empty() {
                                 unresolved_reads.push(event);
                             }
                         }
@@ -908,6 +918,9 @@ impl Declarations {
                     }
                 }
                 let mut summary = flow.referent_function_effects_with_calls(body, types, &calls);
+                let (mut entry_reads, _) = flow.referent_reads(body);
+                entry_reads.extend(call_entry_reads);
+                summary.entry_reads = flow.filter_referent_entry_reads(body, types, entry_reads);
                 summary.reads.extend(call_reads);
                 summary.unresolved_reads.extend(unresolved_reads);
                 summaries.insert(self.function_id(name).unwrap(), summary);

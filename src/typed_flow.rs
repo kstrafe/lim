@@ -176,6 +176,7 @@ pub(crate) struct ReferentFunctionEffects {
     pub unresolved: Vec<FlowNodeId>,
     pub reads: Vec<ReferentRead>,
     pub unresolved_reads: Vec<FlowNodeId>,
+    pub entry_reads: Vec<ReferentRead>,
 }
 
 /// Independent read facts, not outgoing consumption or complete entry
@@ -1243,6 +1244,7 @@ impl FlowGraph {
             unresolved,
             reads,
             unresolved_reads,
+            entry_reads: Vec::new(),
         }
     }
 
@@ -1295,6 +1297,7 @@ impl FlowGraph {
             unresolved: Vec::new(),
             reads: Vec::new(),
             unresolved_reads: Vec::new(),
+            entry_reads: Vec::new(),
         };
         let (mapped, unknown) =
             self.map_referent_call_effects_with_origins(body, event, call, &summary, origins);
@@ -1465,6 +1468,19 @@ impl FlowGraph {
         types: &LinearTypes,
     ) -> (Vec<ReferentRead>, Vec<FlowNodeId>) {
         let (reads, unresolved) = self.referent_reads(body);
+        (
+            self.filter_referent_entry_reads(body, types, reads),
+            unresolved,
+        )
+    }
+
+    #[cfg(test)]
+    pub fn filter_referent_entry_reads(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        reads: Vec<ReferentRead>,
+    ) -> Vec<ReferentRead> {
         let mut candidates = Vec::new();
         for read in &reads {
             if matches!(
@@ -1482,7 +1498,7 @@ impl FlowGraph {
                 candidates.contains(&read.place) && moves.before(read.event, &read.place).is_some()
             })
             .collect();
-        (requirements, unresolved)
+        requirements
     }
 
     fn consumptions_with_origins_and_calls(
