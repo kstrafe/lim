@@ -664,3 +664,24 @@ first, with no concurrent build or test activity. The baseline is commit
 Async is 1.8% faster in this sample; the other workloads are 0.3% slower.
 These noisy end-to-end results do not establish a general speedup. The
 deterministic benefit is removing candidate-name and path-vector allocations.
+
+## Borrow program declarations instead of cloning them
+
+The borrow checker now gives function and branch contexts an immutable slice
+of the input declarations. Previously it deep-cloned every imported item and
+function body into an Arc before checking. Rust lifetimes ensure contexts
+cannot outlive the program; no ownership rules or generated instructions change.
+
+Baseline: 4ba30f6. Warm release CLI runs, 40 samples per compiler, two warmups,
+baseline first, with builds and tests finished:
+
+| Workload | Before median | After median |
+| --- | ---: | ---: |
+| Reference-heavy | 39.17 ms | 38.76 ms |
+| async_fn | 50.37 ms | 50.43 ms |
+
+Executable bytes are identical. The 1.0% reference-heavy reduction and 0.1%
+async regression are too small to establish a general timing improvement.
+The deterministic benefit is eliminating one whole-program AST copy and its
+allocations. All 835 library tests, 183 async tests, and enabled integrations
+pass; four preexisting integrations remain ignored.

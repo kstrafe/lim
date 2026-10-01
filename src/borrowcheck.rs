@@ -418,7 +418,7 @@ struct LocalLoad {
 }
 
 #[derive(Clone)]
-struct Context {
+struct Context<'program> {
     loans: Loans,
     // Imported globals never change; function and branch contexts share them.
     globals: Arc<HashSet<String>>,
@@ -450,7 +450,7 @@ struct Context {
     typed_return_escapes: bool,
     typed_scope_escapes: bool,
     mutable_reference_types: Arc<HashSet<String>>,
-    program_items: Arc<Vec<Item>>,
+    program_items: &'program [Item],
     typed_reborrow_parents: HashMap<usize, String>,
     typed_local_loads: Arc<HashMap<usize, LocalLoad>>,
 }
@@ -534,7 +534,7 @@ fn has_child_loan(loans: &Loans, owner: &str) -> bool {
         .any(|active| active.starts_with(&prefix))
 }
 
-impl Context {
+impl Context<'_> {
     fn is_returnable(&self, owner: &str) -> bool {
         self.globals.contains(owner) || self.returnable.contains(owner)
     }
@@ -801,9 +801,9 @@ fn check_program_impl(
         .chain(thread_spawn_functions.keys().cloned())
         .chain(thread_join_functions.iter().cloned())
         .collect::<HashSet<_>>();
-    // Branch contexts need shared ownership, not a fresh copy of every
-    // imported function body for every function being checked.
-    let program_items = Arc::new(program.items.clone());
+    // Checking and branch contexts cannot outlive the immutable input program.
+    // Borrow declarations directly instead of cloning the whole syntax tree.
+    let program_items = program.items.as_slice();
     let reference_types = Arc::new(reference_types);
     let mutable_reference_types = Arc::new(mutable_reference_types);
     let reference_functions = Arc::new(reference_functions);
@@ -860,7 +860,7 @@ fn check_program_impl(
                 check_function(
                     function,
                     program,
-                    &program_items,
+                    program_items,
                     &globals,
                     &reference_types,
                     &reference_variants,
@@ -940,7 +940,7 @@ fn typed_aggregate_return_is_complete(
 fn check_function(
     function: &Function,
     program: &Program,
-    program_items: &Arc<Vec<Item>>,
+    program_items: &[Item],
     globals: &Arc<HashSet<String>>,
     reference_types: &Arc<HashSet<String>>,
     reference_variants: &Arc<HashSet<String>>,
@@ -1026,7 +1026,7 @@ fn check_function(
         return_contains_references: contains_reference_type(&function.return_type, reference_types),
         typed_return_escapes,
         typed_scope_escapes,
-        program_items: Arc::clone(program_items),
+        program_items,
         typed_reborrow_parents,
         typed_local_loads: Arc::new(typed_local_loads),
     };
