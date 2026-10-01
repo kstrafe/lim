@@ -377,3 +377,4 @@ exit 42 callee_reference_clear.lim - -
 exit 42 callee_variant_clear.lim - -
 exit 42 callee_variant_alias_clear.lim - -
 exit 84 callee_variant_branch_clear.lim - -
+exit 84 callee_variant_loop_clear.lim - -

@@ -382,8 +382,16 @@ using each call's original snapshot. Unknown results, different destinations,
 missing writes, and sequential call selection cannot fabricate clearing.
 Returned old values retain their separate loans. Snapshot dependencies include
 every call alternative. `examples/callee_variant_branch_clear.lim` exercises
-both branches and exits 84. Loop/projected/aggregate scrutinees, parameter
-contents, and ownership restoration
+both branches and exits 84. Loop results additionally trace reachable value
+breaks for that exact loop identity, in stable event order. Nested loops keep
+separate results, unreachable breaks do not contribute, and a loop without a
+reachable value break supplies no clearing proof. Continue-before-call paths
+can still establish clearing; unknown breaks and post-call writes/calls cannot.
+`examples/callee_variant_loop_clear.lim` continues once, exercises both break
+branches, and exits 84. The frontend now preserves loop-control context through
+nested expression blocks without leaking it afterward, and treats plain/labeled
+break and continue transfers as diverging branches. Repeated-call version
+correlations, projected/aggregate scrutinees, parameter contents, and restoration
 still need integration; this is not enabled
 in production.
 Return-variant-conditioned clearing, storage contents after parameter writes,

@@ -8,6 +8,7 @@ use crate::{
 };
 
 const LOOP_VALUE_CONTEXT: &str = "\0lim-loop-value";
+const LOOP_CONTROL_CONTEXT: &str = "\0lim-loop-control";
 
 /// Branches clone local types only; imported globals remain borrowed.
 #[derive(Clone)]
@@ -4809,6 +4810,36 @@ fn statement_type(
     aliases: &HashMap<String, Type>,
     in_loop: bool,
 ) -> Result<Type, SemanticError> {
+    let introduced = in_loop && mutable.insert(LOOP_CONTROL_CONTEXT.to_owned());
+    let active = in_loop || mutable.contains(LOOP_CONTROL_CONTEXT);
+    let result = statement_type_in_context(
+        statement,
+        variables,
+        mutable,
+        functions,
+        structs,
+        enums,
+        return_type,
+        aliases,
+        active,
+    );
+    if introduced {
+        mutable.remove(LOOP_CONTROL_CONTEXT);
+    }
+    result
+}
+
+fn statement_type_in_context(
+    statement: &Statement,
+    variables: &mut VariableTypes<'_>,
+    mutable: &mut HashSet<String>,
+    functions: &FunctionTable,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    return_type: &Type,
+    aliases: &HashMap<String, Type>,
+    in_loop: bool,
+) -> Result<Type, SemanticError> {
     match statement {
         Statement::Let {
             name,
@@ -5292,14 +5323,14 @@ fn statement_type(
         }
         Statement::BreakTo(label) | Statement::ContinueTo(label) => {
             if mutable.contains(&format!("\0lim-label:{label}")) {
-                Ok(Type::Unit)
+                Ok(Type::Never)
             } else {
                 Err(semantic_format!("unknown or inactive loop label '{label}'"))
             }
         }
         Statement::Break | Statement::Continue => {
             if in_loop {
-                Ok(Type::Unit)
+                Ok(Type::Never)
             } else {
                 Err("break or continue used outside a loop".into())
             }
@@ -5643,6 +5674,7 @@ fn expression_inner(
             let mut loop_variables = variables.clone();
             let mut loop_mutable = mutable.clone();
             loop_mutable.insert(LOOP_VALUE_CONTEXT.to_owned());
+            loop_mutable.insert(LOOP_CONTROL_CONTEXT.to_owned());
             let loop_return = functions
                 .return_type_context
                 .borrow()
@@ -12413,6 +12445,108 @@ mod typed_ownership_tests {
         assert!(conflict.span.is_some());
         let refined = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
         crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &refined).unwrap();
+    }
+
+    #[test]
+    fn nested_blocks_preserve_loop_control_without_leaking_it_afterward() {
+        for source in [
+            "(#fn main () u64 (#let-mut count u64 0u64)
+              (#while (#u64.< count 2u64)
+                (#block (#set count (#u64.+.wrap count 1u64))
+                  (#if (#u64.== count 1u64) (#block (#continue)) ())))
+              (#return count))",
+            "(#fn main () u64 (#loop (#block (#break))) (#return 42u64))",
+            "(#fn main () u64 (#let-mut count u64 0u64)
+              (#let result u64 (#loop (#if (#u64.< count 1u64)
+                (#block (#set count 1u64) (#continue))
+                (#block (#break 42u64))))) (#return result))",
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            crate::check_types(&program).unwrap();
+        }
+        for source in [
+            "(#fn main () u64 (#block (#continue)) (#return 42u64))",
+            "(#fn main () u64 (#while false (#block (#continue)))
+              (#block (#continue)) (#return 42u64))",
+            "(#fn main () u64 (#loop (#block (#break)))
+              (#block (#break)) (#return 42u64))",
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            let error = crate::check_types(&program).unwrap_err();
+            assert!(
+                error.contains("break or continue used outside a loop"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn staged_loop_call_results_use_reachable_breaks_of_the_correct_loop() {
+        let native =
+            crate::parse_program(include_str!("../examples/callee_variant_loop_clear.lim"))
+                .unwrap();
+        crate::check_types(&native).unwrap();
+        let declarations = resolve_program_for_analysis(&native, false).unwrap();
+        let body = &declarations.bodies["loop-run"];
+        let flow = &declarations.flows["loop-run"];
+        let types = crate::linearcheck::LinearTypes::from_program(&native);
+        let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+        crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache).unwrap();
+        let original = include_str!("../examples/callee_variant_clear.lim");
+        let call =
+            "(#call step-choice (: target next-target : value (#borrow value) : complete true))";
+        for mode in [
+            "direct",
+            "branches",
+            "nested",
+            "continue-before",
+            "unreachable-break",
+            "inner-unknown",
+            "unknown",
+            "post-call-write",
+            "post-call-call",
+        ] {
+            let replacement = match mode {
+                "direct" => format!("(#loop (#break {call}))"),
+                "branches" => format!("(#loop (#if true (#block (#break {call})) (#block (#break {call}))))"),
+                "nested" => format!("(#loop (#let saved Outcome (#loop (#break {call}))) (#break saved))"),
+                "continue-before" => format!("(#loop (#if (#u64.< turns 1u64) (#block (#set turns 1u64) (#continue)) (#block (#break {call}))))"),
+                "unreachable-break" => format!("(#loop (#break {call}) (#break (Ready)))"),
+                "inner-unknown" => format!("(#loop (#let ignored Outcome (#loop (#break (Ready)))) (#forget ignored) (#break {call}))"),
+                "unknown" => format!("(#loop (#if true (#block (#break {call})) (#block (#break (Ready)))))"),
+                "post-call-write" => format!("(#loop (#let completed Outcome {call}) (#deref-set next-target (Full (#borrow value))) (#break completed))"),
+                "post-call-call" => format!("(#loop (#let completed Outcome {call}) (#let ignored Outcome {}) (#forget ignored) (#break completed))", call.replace("complete true", "complete false")),
+                _ => unreachable!(),
+            };
+            let mut source = original.replace(call, &replacement);
+            if mode == "continue-before" {
+                source = source.replace(
+                    "(#let second Outcome",
+                    "(#let-mut turns u64 0u64) (#let second Outcome",
+                );
+            }
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false)
+                .unwrap_or_else(|error| panic!("{mode}: {error:?}"));
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if matches!(mode, "unknown" | "post-call-write" | "post-call-call") {
+                let conflict = checked.expect_err(mode);
+                assert!(
+                    conflict.message.contains("value") && conflict.message.contains("borrow"),
+                    "{mode}: {conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#set value 1u64)", "{mode}");
+            } else {
+                checked.unwrap();
+                crate::check_types(&program).unwrap();
+            }
+        }
     }
 
     #[test]

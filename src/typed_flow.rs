@@ -1155,9 +1155,33 @@ impl FlowGraph {
         use_event: FlowNodeId,
         predecessors: &[Vec<FlowNodeId>],
     ) -> Option<Vec<NodeId>> {
+        let reachable = self.reachable();
         let mut pending_values = vec![(value, use_event, Vec::new())];
         let mut calls = Vec::new();
         while let Some((value, use_event, mut bindings)) = pending_values.pop() {
+            if matches!(body.nodes[value.0].kind, NodeKind::Loop(_)) {
+                let mut found = false;
+                for (index, node) in self.nodes.iter().enumerate() {
+                    let event = FlowNodeId(index);
+                    if !reachable.contains(&event) {
+                        continue;
+                    }
+                    if let FlowAction::Break {
+                        value: Some(source),
+                        result: Some(result),
+                    } = node.action
+                    {
+                        if result == value {
+                            found = true;
+                            pending_values.push((source, event, bindings.clone()));
+                        }
+                    }
+                }
+                if !found {
+                    return None;
+                }
+                continue;
+            }
             let mut alternatives = Vec::new();
             collect_result_alternatives(body, value, &mut alternatives);
             if alternatives.is_empty() {
@@ -11199,6 +11223,47 @@ mod tests {
             .unwrap();
         assert_eq!(origins.before(cleanup, view).len(), 1);
         assert!(origins.after(cleanup, view).is_empty());
+    }
+
+    #[test]
+    fn loop_call_result_sources_need_a_reachable_value_break() {
+        let program = crate::parse_program(
+            "(#enum Outcome ((Ready) (Pending)))
+            (#fn finish () Outcome (#return (Ready)))
+            (#fn main () u64 (#let result Outcome (#loop (#break (#call finish ()))))
+              (#forget result) (#return 42u64))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let mut graph = checked.declarations().flows["main"].clone();
+        let value = body
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.kind, NodeKind::Loop(_)).then_some(NodeId(index))
+            })
+            .unwrap();
+        let mut predecessors = vec![Vec::new(); graph.nodes.len()];
+        for (index, node) in graph.nodes.iter().enumerate() {
+            for successor in &node.successors {
+                predecessors[successor.0].push(FlowNodeId(index));
+            }
+        }
+        assert!(graph
+            .call_result_sources(body, value, graph.exit, &predecessors)
+            .is_some());
+        for node in &mut graph.nodes {
+            if matches!(node.action, FlowAction::Break { result: Some(found), .. } if found == value)
+            {
+                node.action = FlowAction::Diverge;
+                node.successors.clear();
+            }
+        }
+        assert!(graph
+            .call_result_sources(body, value, graph.exit, &predecessors)
+            .is_none());
     }
 
     #[test]
