@@ -9745,6 +9745,56 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_callee_consumption_maps_to_caller_owned_storage() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn consume ((value (#ref-mut Resource))) () (#forget (#deref value)) (#return ()))
+          (#fn inspect () ()
+            (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
+            (#let reference (#ref-mut Resource) (#borrow-mut owner))
+            (#call consume (: value reference)) (#forget owner) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summary = declarations.flows["consume"]
+            .referent_function_effects(&declarations.bodies["consume"], &types);
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match node.action {
+                crate::typed_flow::FlowAction::Evaluate(value)
+                    if matches!(
+                        &body.nodes[value.0].kind,
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(_),
+                            ..
+                        }
+                    ) =>
+                {
+                    Some((crate::typed_flow::FlowNodeId(index), value))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let (effects, unknown) = flow.map_referent_call_effects(body, event, call, &summary);
+        assert!(!unknown);
+        assert_eq!(effects.len(), 1);
+        let owner = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "owner")
+                .unwrap(),
+        );
+        assert_eq!(
+            effects[0].place.root,
+            crate::typed_body::PlaceRoot::Local(owner)
+        );
+        assert!(effects[0].definitely_consumed);
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};

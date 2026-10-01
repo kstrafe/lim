@@ -1140,6 +1140,85 @@ impl FlowGraph {
         }
     }
 
+    /// Staged call mapping only; does not yet mutate caller ownership state.
+    #[cfg(test)]
+    pub fn map_referent_call_effects(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        summary: &ReferentFunctionEffects,
+    ) -> (Vec<ReferentExitEffect>, bool) {
+        let origins = self.loan_origins(body);
+        let NodeKind::Form { children, .. } = &body.nodes[call.0].kind else {
+            return (Vec::new(), true);
+        };
+        let mut unknown = !summary.unresolved.is_empty();
+        let mut mapped = Vec::new();
+        for effect in &summary.effects {
+            let mut places = Vec::new();
+            let mut incomplete = false;
+            match effect.place.root {
+                PlaceRoot::Global(_) => places.push(effect.place.clone()),
+                PlaceRoot::Parameter(parameter) => {
+                    if let (Some(argument), Some(slot)) =
+                        (children.get(parameter.0 + 1), &effect.input_storage)
+                    {
+                        for origin in origins.value_before(body, self, event, *argument) {
+                            if origin.storage.len() != slot.len()
+                                || !origin
+                                    .storage
+                                    .iter()
+                                    .zip(slot)
+                                    .all(|(held, required)| storage_slot_matches(required, held))
+                            {
+                                continue;
+                            }
+                            if origin.lifetime_only {
+                                incomplete = true;
+                                continue;
+                            }
+                            let mut place = origin.place.clone();
+                            if matches!(place.root, PlaceRoot::Parameter(_)) {
+                                if let Some(storage) = origin.parameter_storage {
+                                    let mut path = storage;
+                                    path.append(&mut place.segments);
+                                    place.segments = path;
+                                }
+                            }
+                            place
+                                .segments
+                                .extend(effect.referent_projection.iter().cloned());
+                            if !places.contains(&place) {
+                                places.push(place);
+                            }
+                        }
+                    } else {
+                        incomplete = true;
+                    }
+                }
+                _ => incomplete = true,
+            }
+            if places.is_empty() {
+                incomplete = true;
+            }
+            let definite = effect.definitely_consumed && places.len() == 1 && !incomplete;
+            unknown |= incomplete;
+            for place in places {
+                let (input_storage, referent_projection) =
+                    split_referent_effect_place(body, &place);
+                mapped.push(ReferentExitEffect {
+                    place,
+                    input_storage,
+                    referent_projection,
+                    definitely_consumed: definite,
+                    consumption_spans: effect.consumption_spans.clone(),
+                });
+            }
+        }
+        (mapped, unknown)
+    }
+
     fn consumptions_with_origins(
         &self,
         body: &Body,
