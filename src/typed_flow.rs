@@ -5377,10 +5377,156 @@ impl FlowGraph {
         event: FlowNodeId,
         value: NodeId,
     ) -> bool {
+        self.value_missing_reference_provenance_inner(
+            body,
+            declarations,
+            origins,
+            event,
+            value,
+            &mut HashSet::new(),
+        )
+    }
+
+    #[cfg(test)]
+    /// Find every reaching whole-value definition only while the local is
+    /// unchanged. Unknown writes/calls and parameter entry stop the proof;
+    /// a merged origin union is not a substitute for checking each source.
+    fn unchanged_local_definitions(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        event: FlowNodeId,
+        binding: BindingId,
+        read_value: NodeId,
+    ) -> Option<Vec<(FlowNodeId, NodeId)>> {
+        let mut predecessors = vec![Vec::new(); self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            if origins.before[index].is_some() {
+                for successor in &node.successors {
+                    predecessors[successor.0].push(FlowNodeId(index));
+                }
+            }
+        }
+        let at_read = matches!(self.nodes[event.0].action,
+            FlowAction::Read { value, .. } if value == read_value);
+        let mut pending = predecessors[event.0]
+            .iter()
+            .map(|event| (*event, at_read))
+            .collect::<Vec<_>>();
+        let mut seen = HashSet::new();
+        let mut definitions = Vec::new();
+        let target = Place::root(PlaceRoot::Local(binding));
+        while let Some((previous, mut passed_read)) = pending.pop() {
+            if !seen.insert((previous, passed_read)) {
+                continue;
+            }
+            if matches!(self.nodes[previous.0].action,
+                FlowAction::Read { value, .. } if value == read_value)
+            {
+                passed_read = true;
+            }
+            match &self.nodes[previous.0].action {
+                FlowAction::Bind {
+                    binding: found,
+                    value,
+                } if *found == binding => {
+                    if !passed_read {
+                        return None;
+                    }
+                    definitions.push((previous, *value));
+                    continue;
+                }
+                FlowAction::Assign { place, value } if *place == target => {
+                    if !passed_read {
+                        return None;
+                    }
+                    definitions.push((previous, *value));
+                    continue;
+                }
+                FlowAction::Assign { place, .. } | FlowAction::Release { place, .. }
+                    if place.overlaps(&target) =>
+                {
+                    return None
+                }
+                FlowAction::Write { .. } | FlowAction::Entry => return None,
+                FlowAction::ScopeExit(bindings) if bindings.contains(&binding) => return None,
+                FlowAction::Evaluate(value)
+                    if matches!(
+                        &body.nodes[value.0].kind,
+                        NodeKind::Form {
+                            callee: Some(_),
+                            ..
+                        }
+                    ) || matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, .. } if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "pin-read")) =>
+                {
+                    return None
+                }
+                FlowAction::Pattern { pattern, .. } => {
+                    let mut bindings = HashSet::new();
+                    collect_pattern_bindings(body, *pattern, &mut bindings);
+                    if bindings.contains(&binding) {
+                        return None;
+                    }
+                }
+                _ => {}
+            }
+            pending.extend(
+                predecessors[previous.0]
+                    .iter()
+                    .map(|event| (*event, passed_read)),
+            );
+        }
+        (!definitions.is_empty()).then_some(definitions)
+    }
+
+    #[cfg(test)]
+    fn value_missing_reference_provenance_inner(
+        &self,
+        body: &Body,
+        declarations: &crate::typed_ir::Declarations,
+        origins: &FlowLoanOrigins,
+        event: FlowNodeId,
+        value: NodeId,
+        visiting: &mut HashSet<(FlowNodeId, NodeId)>,
+    ) -> bool {
         for alternative in returned_provenance_components(body, value) {
             let Some(ty) = &body.nodes[alternative.0].ty else {
                 continue;
             };
+            let slots = declarations.reference_storage_slots(ty);
+            if slots.is_empty() {
+                continue;
+            }
+            if let NodeKind::Symbol {
+                binding: Some(binding),
+                ..
+            } = body.nodes[alternative.0].kind
+            {
+                let key = (event, alternative);
+                if !visiting.contains(&key) {
+                    if let Some(definitions) =
+                        self.unchanged_local_definitions(body, origins, event, binding, alternative)
+                    {
+                        visiting.insert(key);
+                        let missing = definitions.into_iter().any(|(definition, source)| {
+                            self.value_missing_reference_provenance_inner(
+                                body,
+                                declarations,
+                                origins,
+                                definition,
+                                source,
+                                visiting,
+                            )
+                        });
+                        visiting.remove(&key);
+                        if missing {
+                            return true;
+                        }
+                        continue;
+                    }
+                }
+            }
             let alternative_origins = origins.value_before(body, self, event, alternative);
             let variant_states = origins
                 .variants
@@ -5388,7 +5534,7 @@ impl FlowGraph {
             let stored_variants = variant_states[event.0]
                 .as_ref()
                 .map(|state| value_variant_facts(body, alternative, state));
-            for slot in declarations.reference_storage_slots(ty) {
+            for slot in slots {
                 if slot.storage.iter().enumerate().any(|(index, segment)| {
                     matches!(segment, Segment::Payload(variant, _)
                         if constructor_variant_at_storage(body, alternative, &slot.storage[..index])
@@ -9673,6 +9819,69 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reaching_provenance_definitions_do_not_cross_later_operand_effects() {
+        for (effect, expected) in [
+            ("()", true),
+            ("(#block (#set value 2u64) ())", false),
+            ("(#block (#call touch ()) ())", false),
+        ] {
+            let source = format!(
+                "(#fn touch () () (#return ()))
+              (#fn inspect () (#tuple u64 ())
+                (#let-mut value u64 1u64)
+                (#let pair (#tuple u64 ()) (#tuple value {effect}))
+                (#return pair))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let declarations = checked.declarations();
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
+            let binding = |name: &str| {
+                BindingId(
+                    body.bindings
+                        .iter()
+                        .position(|binding| binding.name == name)
+                        .unwrap(),
+                )
+            };
+            let value_binding = binding("value");
+            let event = flow
+                .nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action,
+                FlowAction::Bind { binding: found, .. } if found == binding("pair"))
+                })
+                .unwrap();
+            let read = flow
+                .nodes
+                .iter()
+                .find_map(|node| match &node.action {
+                    FlowAction::Read { value, place, .. }
+                        if place.root == PlaceRoot::Local(value_binding) =>
+                    {
+                        Some(*value)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!(
+                flow.unchanged_local_definitions(
+                    body,
+                    &flow.loan_origins(body),
+                    FlowNodeId(event),
+                    value_binding,
+                    read
+                )
+                .is_some(),
+                expected,
+                "{effect}"
+            );
+        }
+    }
 
     #[test]
     fn loaded_parameter_pointees_have_distinct_access_paths_from_the_container() {

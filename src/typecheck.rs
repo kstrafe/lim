@@ -16620,6 +16620,55 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_enum_local_joins_require_only_reaching_constructor_slots() {
+        let source = "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
+          (#fn choose ((view (#ref u64)) (selected bool)) Choice
+            (#let result Choice (#if selected (Has view) Empty))
+            (#return result))";
+        let alias = source.replace(
+            "(#return result)",
+            "(#let alias Choice result) (#return alias)",
+        );
+        let assigned = source.replace(
+            "(#let result Choice (#if selected (Has view) Empty))",
+            "(#let-mut result Choice Empty)
+             (#if selected
+               (#block (#set result (#match result
+                 (#case (Has old) (Has view)) (#case (Other old) (Has view))
+                 (#case Empty (Has view)))) ())
+               (#block (#set result (#match result
+                 (#case (Has old) Empty) (#case (Other old) Empty)
+                 (#case Empty Empty))) ()))",
+        );
+        for source in [source.to_owned(), alias, assigned] {
+            let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            declarations
+                .bodies
+                .get_mut("choose")
+                .unwrap()
+                .parameter_loan_slots[0]
+                .clear();
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert!(
+                conflict.message.contains("missing slot provenance"),
+                "{conflict:?}"
+            );
+            assert!(conflict.span.is_some());
+        }
+    }
+
+    #[test]
     fn staged_unknown_enum_returns_cannot_hide_missing_payload_provenance() {
         let source = "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
           (#fn echo ((value Choice)) Choice (#return value))";
