@@ -51,19 +51,34 @@ def reference_heavy_source():
     return "\n".join(lines) + "\n"
 
 
+def scoped_heavy_source():
+    """Exercise nested scoped-loan fixed points across 64 checked functions."""
+    lines = []
+    for function in range(64):
+        expression = "42u64"
+        for _ in range(24):
+            expression = f"(#borrow owner {expression})"
+        lines.append(f"(#fn worker-{function} () u64 (#let owner u64 42u64) "
+                     f"(#return {expression}))")
+    lines.append("(#fn main () u64 (#return (#call worker-0 ())))")
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, nargs="?")
     parser.add_argument("--reference-heavy", action="store_true",
                         help="benchmark 64 functions with 24 reference aliases each")
+    parser.add_argument("--scoped-heavy", action="store_true",
+                        help="benchmark 64 functions with 24 nested scoped borrows each")
     parser.add_argument("--compiler", type=Path, default=Path("target/release/lim"))
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--repetitions", type=int, default=20)
     parser.add_argument("--compare-runtime", action="store_true",
                         help="compare exit status/stdout/stderr instead of identical binary bytes (no stdin)")
     args = parser.parse_args()
-    if (args.source is None) == (not args.reference_heavy):
-        parser.error("provide a source file or --reference-heavy, not both")
+    if sum((args.source is not None, args.reference_heavy, args.scoped_heavy)) != 1:
+        parser.error("provide a source file, --reference-heavy, or --scoped-heavy")
     if args.repetitions < 1:
         parser.error("--repetitions must be positive")
     with tempfile.TemporaryDirectory(prefix="lim-compile-benchmark-") as directory:
@@ -71,6 +86,9 @@ def main():
         if args.reference_heavy:
             args.source = Path(directory) / "reference-heavy.lim"
             args.source.write_text(reference_heavy_source())
+        if args.scoped_heavy:
+            args.source = Path(directory) / "scoped-heavy.lim"
+            args.source.write_text(scoped_heavy_source())
         baseline = None
         if args.baseline:
             baseline = measure(args.baseline, args.source, output, args.repetitions, args.compare_runtime)

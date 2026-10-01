@@ -517,3 +517,42 @@ Executable bytes are identical for all workloads. These small, mixed results
 do not establish a general wall-clock speedup. The deterministic improvement
 is candidate lookup proportional to matching events rather than the entire
 control-flow graph for each published snapshot query.
+
+## Scoped-loan work queue and retained scratch sets (2026-10-01)
+
+Scoped-loan propagation now queues only successors whose predecessor outgoing
+facts changed, rather than repeatedly sweeping the entire graph. Every node
+is seeded initially, preserving the previous treatment of disconnected nodes.
+Two reusable scratch sets exchange allocations with changed snapshots instead
+of constructing and cloning fresh hash sets on every visit. A differential
+test compares every incoming set against the old solver on cyclic joins with
+1, 2, 65, and 130 loans, in forward and reversed node order.
+
+The benchmark harness adds `--scoped-heavy`: 64 checked functions containing
+24 nested scoped borrows each. Run it with:
+
+```sh
+python3 scripts/benchmark-compile.py --scoped-heavy --baseline /path/to/before --repetitions 60
+```
+
+Warm end-to-end release compilation, including internal native linking:
+
+| Workload | Before median | After median | Change |
+| --- | ---: | ---: | ---: |
+| Scoped-heavy | 95.11 ms | 44.00 ms | 53.7% faster |
+| async_fn | 46.51 ms | 47.74 ms | 2.7% slower |
+| vec_allocator | 35.35 ms | 35.38 ms | 0.1% slower |
+
+Each compiler had two warmups and 60 samples, measured sequentially with
+baseline first and no simultaneous build/test work. Executable bytes matched
+for all workloads. This establishes a large improvement on the scoped-loan
+stress case, not a general compilation speedup. Scratch reuse alone previously
+gave mixed results (async 0.8% faster; vector 2.8% slower); changed-successor
+scheduling is the key algorithmic improvement.
+
+All 63 borrow-checker tests, 793 library tests, and enabled integration/native/UI
+tests pass; four existing integration tests remain ignored. One unrelated
+uncommitted async return-variant test is excluded because its fixture uses
+unsupported aggregate `#addr-of-mut` syntax. Both measured compilers include
+identical pending async-analysis changes; those changes and CHECKLIST.md are
+not included in this optimization commit.

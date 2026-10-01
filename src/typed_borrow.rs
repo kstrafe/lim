@@ -459,33 +459,47 @@ fn scoped_borrows_before(flow: &FlowGraph, scoped_ids: &HashSet<NodeId>) -> Vec<
     }
     let mut before = vec![HashSet::new(); flow.nodes.len()];
     let mut after = before.clone();
-    loop {
-        let mut changed = false;
-        for (index, node) in flow.nodes.iter().enumerate() {
-            let mut incoming = HashSet::new();
-            for predecessor in &predecessors[index] {
-                incoming.extend(after[*predecessor].iter().copied());
-            }
-            let mut outgoing = incoming.clone();
-            match node.action {
-                FlowAction::Borrow { value, .. } if scoped_ids.contains(&value) => {
-                    outgoing.insert(value);
-                }
-                FlowAction::BorrowScopeEnd { scope } => {
-                    outgoing.remove(&scope);
-                }
-                _ => {}
-            }
-            if before[index] != incoming || after[index] != outgoing {
-                before[index] = incoming;
-                after[index] = outgoing;
-                changed = true;
-            }
+    // Keep two scratch sets across visits. Swapping changed snapshots also
+    // retains their old allocation for the next transfer instead of dropping
+    // it and allocating a fresh incoming set and outgoing clone each time.
+    let mut incoming = HashSet::new();
+    let mut outgoing = HashSet::new();
+    // Seed every node, as the original whole-graph solver did, including
+    // disconnected nodes. Only a changed outgoing set can affect successors.
+    let mut pending = (0..flow.nodes.len()).collect::<std::collections::VecDeque<_>>();
+    let mut queued = vec![true; flow.nodes.len()];
+    while let Some(index) = pending.pop_front() {
+        queued[index] = false;
+        let node = &flow.nodes[index];
+        incoming.clear();
+        for predecessor in &predecessors[index] {
+            incoming.extend(after[*predecessor].iter().copied());
         }
-        if !changed {
-            return before;
+        outgoing.clear();
+        outgoing.extend(incoming.iter().copied());
+        match node.action {
+            FlowAction::Borrow { value, .. } if scoped_ids.contains(&value) => {
+                outgoing.insert(value);
+            }
+            FlowAction::BorrowScopeEnd { scope } => {
+                outgoing.remove(&scope);
+            }
+            _ => {}
+        }
+        if before[index] != incoming {
+            std::mem::swap(&mut before[index], &mut incoming);
+        }
+        if after[index] != outgoing {
+            std::mem::swap(&mut after[index], &mut outgoing);
+            for successor in &node.successors {
+                if !queued[successor.0] {
+                    queued[successor.0] = true;
+                    pending.push_back(successor.0);
+                }
+            }
         }
     }
+    before
 }
 
 #[derive(Clone)]
@@ -1629,6 +1643,107 @@ mod tests {
         .unwrap();
         super::check_call_arguments_cached(body, flow, &cache).unwrap();
         assert!(cache.get().is_none());
+    }
+
+    #[test]
+    fn reused_scoped_sets_match_allocating_solver_on_cycles_and_joins() {
+        use crate::typed_body::{BindingId, NodeId, PlaceRoot};
+        use std::collections::HashSet;
+
+        fn reference(flow: &FlowGraph, ids: &HashSet<NodeId>) -> Vec<HashSet<NodeId>> {
+            let mut predecessors = vec![Vec::new(); flow.nodes.len()];
+            for (index, node) in flow.nodes.iter().enumerate() {
+                for successor in &node.successors {
+                    predecessors[successor.0].push(index);
+                }
+            }
+            let mut before = vec![HashSet::new(); flow.nodes.len()];
+            let mut after = before.clone();
+            loop {
+                let mut changed = false;
+                for (index, node) in flow.nodes.iter().enumerate() {
+                    let mut incoming = HashSet::new();
+                    for predecessor in &predecessors[index] {
+                        incoming.extend(after[*predecessor].iter().copied());
+                    }
+                    let mut outgoing = incoming.clone();
+                    match node.action {
+                        FlowAction::Borrow { value, .. } if ids.contains(&value) => {
+                            outgoing.insert(value);
+                        }
+                        FlowAction::BorrowScopeEnd { scope } => {
+                            outgoing.remove(&scope);
+                        }
+                        _ => {}
+                    }
+                    if before[index] != incoming || after[index] != outgoing {
+                        before[index] = incoming;
+                        after[index] = outgoing;
+                        changed = true;
+                    }
+                }
+                if !changed {
+                    return before;
+                }
+            }
+        }
+
+        for count in [1, 2, 65, 130] {
+            let mut nodes = Vec::new();
+            for index in 0..count {
+                nodes.push(FlowNode {
+                    action: FlowAction::Borrow {
+                        value: NodeId(index),
+                        place: Place {
+                            root: PlaceRoot::Local(BindingId(0)),
+                            segments: vec![],
+                        },
+                        mutable: false,
+                    },
+                    successors: vec![FlowNodeId(index + 1)],
+                    span: None,
+                });
+            }
+            // One edge ends the first scope, the other retains it. A back
+            // edge feeds their joined facts through the allocation swap.
+            nodes[count - 1].successors.push(FlowNodeId(count + 1));
+            nodes.push(FlowNode {
+                action: FlowAction::BorrowScopeEnd { scope: NodeId(0) },
+                successors: vec![FlowNodeId(count + 1)],
+                span: None,
+            });
+            nodes.push(FlowNode {
+                action: FlowAction::Exit,
+                successors: vec![FlowNodeId(0)],
+                span: None,
+            });
+            let flow = FlowGraph {
+                nodes,
+                entry: FlowNodeId(0),
+                exit: FlowNodeId(count + 1),
+            };
+            let ids = (0..count).map(NodeId).collect();
+            assert_eq!(
+                super::scoped_borrows_before(&flow, &ids),
+                reference(&flow, &ids)
+            );
+            // Lowering commonly puts successors before their predecessors.
+            // Reverse node IDs to exercise that scheduling order as well.
+            let mut reversed = flow.clone();
+            reversed.nodes.reverse();
+            let length = reversed.nodes.len();
+            for node in &mut reversed.nodes {
+                for successor in &mut node.successors {
+                    successor.0 = length - successor.0 - 1;
+                }
+            }
+            reversed.entry = FlowNodeId(reversed.nodes.len() - flow.entry.0 - 1);
+            reversed.exit = FlowNodeId(reversed.nodes.len() - flow.exit.0 - 1);
+            assert_eq!(
+                super::scoped_borrows_before(&reversed, &ids),
+                reference(&reversed, &ids)
+            );
+        }
     }
 
     #[test]
