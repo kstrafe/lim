@@ -834,6 +834,11 @@ impl Declarations {
     {
         use crate::typed_body::NodeKind;
         use crate::typed_flow::{FlowAction, FlowNodeId};
+        // Clear every cache before inference, including callers we may never
+        // reach if a callee fails in this entry-assumption mode.
+        for body in self.bodies.values() {
+            body.call_variant_exits.borrow_mut().clear();
+        }
         let body_ids = self
             .bodies
             .keys()
@@ -861,6 +866,24 @@ impl Declarations {
                 }) {
                     return true;
                 }
+                *body.call_variant_exits.borrow_mut() = body
+                    .nodes
+                    .iter()
+                    .filter_map(|node| {
+                        let NodeKind::Form {
+                            callee: Some(callee),
+                            ..
+                        } = &node.kind
+                        else {
+                            return None;
+                        };
+                        summaries.get(callee).map(
+                            |summary: &crate::typed_flow::ReferentFunctionEffects| {
+                                (*callee, summary.variant_exits.clone())
+                            },
+                        )
+                    })
+                    .collect();
                 // A callee with no normal return terminates this path. Keep
                 // original event IDs/spans while excluding its continuation
                 // from loan snapshots, ownership facts, and exit summaries.

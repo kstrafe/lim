@@ -523,11 +523,31 @@ when a consuming path diverges rather than returning normally. Tests cover
 explicit/nested/loop results, possible versus definite consumption, unknown
 and same-variant alternatives, consumed-and-restored storage, nested callee
 destruction, sibling destinations, unreachable returns, and raw unknown access.
-Caller-state refinement from these full tables is not integrated yet: Pending
-still cannot be assumed initialized merely because it lacks a clear. Preserving
-pre-call consumption, applying the correct entry profile, initialization
-contracts, and production integration remain requirements before replacing
-existing checking.
+Caller matching now uses these full outcome tables to reconstruct affected
+storage from original pre-call consumption snapshots, preserving earlier
+consumption instead of deleting it with the callee's contribution. Mutually
+exclusive call sources join may state and intersect must state. Both fixed-point
+passes register snapshot dependencies, wait for every required snapshot, and
+wake matching nodes when a source changes even if ordinary successor facts do
+not. A loop regression isolates that dependency by using a callee destruction
+whose span was already present in the unrefined outgoing call state.
+The consumed-entry profile carries exact input descriptors; substitution must
+prove their actual destinations before a conditional initializer can replace
+caller entry state. Pending retains the original caller destruction label;
+Ready initializes only the selected exact storage, never every possible alias.
+Fresh-result barriers remain conservative across writes/calls, releases,
+relevant assignments/scope exits, and potentially consuming accesses. Plain
+linear result moves to unrelated local slots preserve the correlation.
+Direct callee tables are cleared at the start of every staged analysis run,
+including callers never reached when a callee fails, then repopulated from the
+new run. Profiles from one entry-assumption mode cannot leak into another.
+Regressions cover Pending
+reads, prior destruction, ambiguous/unknown outcomes, stale calls, branch and
+loop result joins, explicit forwarding, linear result moves, sibling states,
+conditional initialization, ambiguous aliases, changing loop snapshots, and
+successful inference followed by an early failed run and successful reinference.
+Production ownership migration, complete initialization/escaping-reference and
+owned-exit validation, and arbitrary-body async lowering remain unfinished.
 
 The instruction selector still uses AST-shaped inputs. Compiler-synthesized
 expressions and internal legacy generic specializations retain the old type

@@ -311,7 +311,7 @@ pub(crate) struct FlowConsumptions {
 }
 
 #[cfg(test)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ReferentExitEffect {
     pub place: Place,
     pub input_storage: Option<Vec<Segment>>,
@@ -343,12 +343,14 @@ pub(crate) struct ReferentFunctionEffects {
 }
 
 #[cfg(test)]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ReferentVariantExit {
     pub has_normal_return: bool,
     pub effects: Vec<ReferentExitEffect>,
     /// None means consumed-entry assumptions were not inferred/checked.
     pub effects_from_consumed_entry: Option<Vec<ReferentExitEffect>>,
+    /// Exact input requirements selecting the consumed-entry profile.
+    pub consumed_entry: Vec<ReferentExitEffect>,
     pub unresolved: Vec<FlowNodeId>,
 }
 
@@ -402,6 +404,169 @@ struct CallConsumptionFacts {
     unresolved: bool,
     restored: Vec<Place>,
     possibly_restored: Vec<Place>,
+    #[cfg(test)]
+    outcomes: Vec<CallOutcomeSource>,
+}
+
+#[cfg(test)]
+struct CallOutcomeSource {
+    event: FlowNodeId,
+    effects: Vec<ReferentExitEffect>,
+    consumed_entry: Vec<Place>,
+}
+
+#[cfg(test)]
+fn outcome_candidates(
+    outcomes: &[CallOutcomeSource],
+    calls: &HashMap<FlowNodeId, CallConsumptionFacts>,
+) -> Vec<Place> {
+    let mut candidates = Vec::new();
+    for outcome in outcomes {
+        let original = &calls[&outcome.event];
+        for place in original
+            .possible
+            .iter()
+            .map(|(place, _)| place)
+            .chain(&original.restored)
+            .chain(&original.possibly_restored)
+            .chain(outcome.effects.iter().map(|effect| &effect.place))
+            .chain(&outcome.consumed_entry)
+        {
+            if !candidates.contains(place) {
+                candidates.push(place.clone());
+            }
+        }
+    }
+    candidates
+}
+
+#[cfg(test)]
+fn refine_outcome_may(
+    facts: &CallConsumptionFacts,
+    calls: &HashMap<FlowNodeId, CallConsumptionFacts>,
+    before: &[Option<HashMap<Place, Vec<Option<Span>>>>],
+    state: &mut HashMap<Place, Vec<Option<Span>>>,
+) -> bool {
+    if facts.outcomes.is_empty() {
+        return true;
+    }
+    let candidates = outcome_candidates(&facts.outcomes, calls);
+    let mut joined: HashMap<Place, Vec<Option<Span>>> = HashMap::new();
+    for outcome in &facts.outcomes {
+        let Some(entry) = &before[outcome.event.0] else {
+            return false;
+        };
+        let original = &calls[&outcome.event];
+        let mut branch = entry
+            .iter()
+            .filter(|(place, _)| {
+                candidates
+                    .iter()
+                    .any(|candidate| place_covers(candidate, place))
+            })
+            .map(|(place, spans)| (place.clone(), spans.clone()))
+            .collect::<HashMap<_, _>>();
+        let prior = branch.clone();
+        branch.retain(|place, _| {
+            !original
+                .restored
+                .iter()
+                .chain(&outcome.consumed_entry)
+                .any(|restored| place_covers(restored, place))
+        });
+        for effect in &outcome.effects {
+            let held = branch.entry(effect.place.clone()).or_default();
+            for span in &effect.consumption_spans {
+                if !held.contains(span) {
+                    held.push(*span);
+                }
+            }
+            // A seeded consumed-entry fact inherits the caller's destruction
+            // site, rather than losing that diagnostic to an anonymous seed.
+            if effect.consumption_spans.iter().all(Option::is_none) {
+                for (place, spans) in &prior {
+                    if place.overlaps(&effect.place) {
+                        for span in spans {
+                            if !held.contains(span) {
+                                held.push(*span);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for (place, spans) in branch {
+            let held = joined.entry(place).or_default();
+            for span in spans {
+                if !held.contains(&span) {
+                    held.push(span);
+                }
+            }
+        }
+    }
+    state.retain(|place, _| {
+        !candidates
+            .iter()
+            .any(|candidate| place_covers(candidate, place))
+    });
+    state.extend(joined);
+    true
+}
+
+#[cfg(test)]
+fn refine_outcome_must(
+    facts: &CallConsumptionFacts,
+    calls: &HashMap<FlowNodeId, CallConsumptionFacts>,
+    before: &[Option<HashSet<Place>>],
+    state: &mut HashSet<Place>,
+) -> bool {
+    if facts.outcomes.is_empty() {
+        return true;
+    }
+    let candidates = outcome_candidates(&facts.outcomes, calls);
+    let mut joined: Option<HashSet<Place>> = None;
+    for outcome in &facts.outcomes {
+        let Some(entry) = &before[outcome.event.0] else {
+            return false;
+        };
+        let original = &calls[&outcome.event];
+        let mut branch = entry
+            .iter()
+            .filter(|place| {
+                candidates
+                    .iter()
+                    .any(|candidate| place_covers(candidate, place))
+            })
+            .cloned()
+            .collect::<HashSet<_>>();
+        branch.retain(|place| {
+            !original
+                .restored
+                .iter()
+                .chain(&original.possibly_restored)
+                .chain(&outcome.consumed_entry)
+                .any(|restored| restored.overlaps(place))
+        });
+        branch.extend(
+            outcome
+                .effects
+                .iter()
+                .filter(|effect| effect.definitely_consumed)
+                .map(|effect| effect.place.clone()),
+        );
+        if let Some(held) = &mut joined {
+            held.retain(|place| branch.contains(place));
+        } else {
+            joined = Some(branch);
+        }
+    }
+    state.retain(|place| {
+        !candidates
+            .iter()
+            .any(|candidate| place_covers(candidate, place))
+    });
+    state.extend(joined.unwrap_or_default());
+    true
 }
 
 impl FlowConsumptions {
@@ -2725,6 +2890,21 @@ impl FlowGraph {
                         has_normal_return: summary.has_normal_return,
                         effects: summary.effects,
                         effects_from_consumed_entry,
+                        consumed_entry: consumed_entry
+                            .unwrap_or_default()
+                            .iter()
+                            .map(|place| {
+                                let (input_storage, referent_projection) =
+                                    split_referent_effect_place(body, place);
+                                ReferentExitEffect {
+                                    place: place.clone(),
+                                    input_storage,
+                                    referent_projection,
+                                    definitely_consumed: true,
+                                    consumption_spans: Vec::new(),
+                                }
+                            })
+                            .collect(),
                         unresolved: summary.unresolved,
                     },
                 )
@@ -3264,6 +3444,7 @@ impl FlowGraph {
                         unresolved: *unresolved,
                         restored: Vec::new(),
                         possibly_restored: Vec::new(),
+                        outcomes: Vec::new(),
                     },
                 )
             })
@@ -3304,6 +3485,16 @@ impl FlowGraph {
                     facts.definite.push(place);
                 }
             }
+            let outcomes = self.mapped_outcome_refinement(
+                body,
+                types,
+                &origins,
+                refinement.as_ref().unwrap(),
+                &calls,
+            );
+            if !outcomes.is_empty() {
+                calls.entry(event).or_default().outcomes = outcomes;
+            }
         }
         self.consumptions_with_origins_and_calls(
             body,
@@ -3321,6 +3512,129 @@ impl FlowGraph {
         origins: Option<&FlowLoanOrigins>,
     ) -> FlowConsumptions {
         self.consumptions_with_origins_and_calls(body, types, origins, None, &[])
+    }
+
+    #[cfg(test)]
+    fn mapped_outcome_refinement(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        origins: &FlowLoanOrigins,
+        refinement: &CallResultRefinement,
+        calls: &HashMap<FlowNodeId, CallConsumptionFacts>,
+    ) -> Vec<CallOutcomeSource> {
+        let (sources, variant, region) = refinement;
+        let contracts = body.call_variant_exits.borrow();
+        let mut outcomes = Vec::new();
+        for (event, call) in sources {
+            let Some(original) = calls.get(event) else {
+                return Vec::new();
+            };
+            if original.unresolved {
+                return Vec::new();
+            }
+            let NodeKind::Form {
+                callee: Some(callee),
+                ..
+            } = &body.nodes[call.0].kind
+            else {
+                return Vec::new();
+            };
+            let Some(outcome) = contracts.get(callee).and_then(|groups| groups.get(variant)) else {
+                return Vec::new();
+            };
+            if !outcome.has_normal_return || !outcome.unresolved.is_empty() {
+                return Vec::new();
+            }
+            let effects = outcome
+                .effects_from_consumed_entry
+                .as_ref()
+                .unwrap_or(&outcome.effects);
+            let map = |effects: &[ReferentExitEffect]| {
+                let adapter = ReferentFunctionEffects {
+                    has_normal_return: true,
+                    effects: effects.to_vec(),
+                    unresolved: Vec::new(),
+                    reads: Vec::new(),
+                    unresolved_reads: Vec::new(),
+                    entry_reads: Vec::new(),
+                    consuming_accesses: Vec::new(),
+                    restored_from_consumed_entry: Vec::new(),
+                    consumed_entry: Vec::new(),
+                    effects_from_consumed_entry: Vec::new(),
+                    variant_exits: HashMap::new(),
+                };
+                self.map_referent_call_effects_with_origins(body, *event, *call, &adapter, origins)
+            };
+            let (effects, unknown) = map(effects);
+            if unknown {
+                return Vec::new();
+            }
+            let (required, unknown) = map(&outcome.consumed_entry);
+            // Conditional initialization cannot restore all possible aliases
+            // when the callee actually writes only one. Require exact inputs.
+            if unknown
+                || required.len() != outcome.consumed_entry.len()
+                || required.iter().any(|effect| !effect.definitely_consumed)
+            {
+                return Vec::new();
+            }
+            outcomes.push(CallOutcomeSource {
+                event: *event,
+                effects,
+                consumed_entry: required.into_iter().map(|effect| effect.place).collect(),
+            });
+        }
+        let candidates = outcome_candidates(&outcomes, calls);
+        if candidates.is_empty()
+            || candidates.iter().any(|place| {
+                place.segments.iter().any(|segment| {
+                    matches!(
+                        segment,
+                        Segment::DynamicIndex | Segment::SliceDynamicIndex | Segment::SliceHalf(_)
+                    )
+                })
+            })
+        {
+            return Vec::new();
+        }
+        if region
+            .iter()
+            .any(|event| match &self.nodes[event.0].action {
+                FlowAction::Release { .. } => true,
+                FlowAction::Read {
+                    value,
+                    place,
+                    place_base: false,
+                    ..
+                } => {
+                    body.nodes[value.0]
+                        .ty
+                        .as_ref()
+                        .is_some_and(|ty| types.is_linear(ty))
+                        && (reads_through_reference(body, *value)
+                            || candidates
+                                .iter()
+                                .any(|candidate| candidate.root == place.root))
+                }
+                FlowAction::Assign { place, .. } => candidates.iter().any(|candidate| {
+                    candidate.root == place.root
+                        || matches!(candidate.root, PlaceRoot::Parameter(_))
+                }),
+                FlowAction::ScopeExit(bindings) => {
+                    candidates.iter().any(|candidate| match candidate.root {
+                        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
+                            bindings.contains(&binding)
+                        }
+                        _ => false,
+                    })
+                }
+                _ => false,
+            })
+        {
+            return Vec::new();
+        }
+        outcomes
     }
 
     /// Symbolic entry state for deriving initialization contracts. Seeded
@@ -3743,6 +4057,18 @@ impl FlowGraph {
         };
         let mut queued = vec![false; self.nodes.len()];
         let mut pending = VecDeque::from([self.entry]);
+        #[cfg(test)]
+        let outcome_users = {
+            let mut users = vec![Vec::new(); self.nodes.len()];
+            if let Some(calls) = calls {
+                for (event, facts) in calls {
+                    for source in &facts.outcomes {
+                        users[source.event.0].push(*event);
+                    }
+                }
+            }
+            users
+        };
         before[self.entry.0] = Some(
             entry_consumed
                 .iter()
@@ -3754,6 +4080,14 @@ impl FlowGraph {
             queued[id.0] = false;
             let mut state = before[id.0].as_ref().unwrap().clone();
             let node = &self.nodes[id.0];
+            #[cfg(test)]
+            if calls.and_then(|calls| calls.get(&id)).is_some_and(|facts| {
+                !refine_outcome_may(facts, calls.unwrap(), &before, &mut state)
+            }) {
+                // Never publish a conservative fallback before required
+                // source snapshots exist: union joins could retain it forever.
+                continue;
+            }
             match &node.action {
                 FlowAction::Read {
                     value,
@@ -3943,6 +4277,15 @@ impl FlowGraph {
                     pending.push_back(*successor);
                     queued[successor.0] = true;
                 }
+                #[cfg(test)]
+                if changed {
+                    for consumer in &outcome_users[successor.0] {
+                        if before[consumer.0].is_some() && !queued[consumer.0] {
+                            pending.push_back(*consumer);
+                            queued[consumer.0] = true;
+                        }
+                    }
+                }
             }
             after[id.0] = Some(state);
         }
@@ -3956,6 +4299,12 @@ impl FlowGraph {
         while let Some(id) = pending.pop_front() {
             queued[id.0] = false;
             let mut state = definitely_before[id.0].as_ref().unwrap().clone();
+            #[cfg(test)]
+            if calls.and_then(|calls| calls.get(&id)).is_some_and(|facts| {
+                !refine_outcome_must(facts, calls.unwrap(), &definitely_before, &mut state)
+            }) {
+                continue;
+            }
             state.extend(definite_consumed_at[id.0].iter().cloned());
             match &self.nodes[id.0].action {
                 FlowAction::Bind { binding, .. } => {
@@ -4021,6 +4370,15 @@ impl FlowGraph {
                 if changed && !queued[successor.0] {
                     pending.push_back(*successor);
                     queued[successor.0] = true;
+                }
+                #[cfg(test)]
+                if changed {
+                    for consumer in &outcome_users[successor.0] {
+                        if definitely_before[consumer.0].is_some() && !queued[consumer.0] {
+                            pending.push_back(*consumer);
+                            queued[consumer.0] = true;
+                        }
+                    }
                 }
             }
         }

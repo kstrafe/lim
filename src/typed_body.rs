@@ -1111,6 +1111,15 @@ pub(crate) struct Body {
     #[cfg(test)]
     pub call_clear_variants:
         Arc<HashMap<crate::typed_ir::FunctionId, HashMap<VariantId, Vec<ParameterLoanSummary>>>>,
+    /// Direct callee outcome contracts supplied by the staged ownership pass.
+    /// Replaced for each analysis run, never reused across entry assumptions.
+    #[cfg(test)]
+    pub call_variant_exits: std::cell::RefCell<
+        HashMap<
+            crate::typed_ir::FunctionId,
+            HashMap<VariantId, crate::typed_flow::ReferentVariantExit>,
+        >,
+    >,
     /// Keep opt-in ownership passes on the same provenance interpretation as
     /// their inferred contracts. Production bodies have no such mode flag.
     #[cfg(test)]

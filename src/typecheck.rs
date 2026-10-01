@@ -13026,6 +13026,399 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_outcome_refinement_preserves_pending_storage_and_prior_consumption() {
+        for (mode, accepts) in [
+            ("pending", true),
+            ("branches", true),
+            ("loop-result", true),
+            ("forward-pending", true),
+            ("ready", false),
+            ("unknown", false),
+            ("same-variant", false),
+            ("stale-call", false),
+            ("prior-consumed", false),
+        ] {
+            let alternative = match mode {
+                "unknown" => "unknown",
+                "same-variant" => "(Pending)",
+                _ => "(Pending)",
+            };
+            let destructive = if mode == "same-variant" {
+                "Pending"
+            } else {
+                "Ready"
+            };
+            let call = "(#call choose (: target target : selected false : unknown (Pending)))";
+            let result = match mode {
+                "branches" => format!("(#if true {call} {call})"),
+                "loop-result" => format!("(#loop (#break {call}))"),
+                "forward-pending" => call.replace("choose", "relay"),
+                _ => call.into(),
+            };
+            let before = if mode == "prior-consumed" {
+                "(#forget holder)"
+            } else {
+                ""
+            };
+            let after = if mode == "stale-call" {
+                "(#call touch ())"
+            } else {
+                ""
+            };
+            let selected = if mode == "ready" { "Ready" } else { "Pending" };
+            let finish = if accepts {
+                "(#drop target) (#forget holder) (#return result)"
+            } else {
+                "(#drop target) (#return (#unreachable))"
+            };
+            let source = format!("(#struct Resource (: number u64)) (#linear Resource)
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn touch () () (#return ()))
+                (#fn choose (: target (#ref-mut Resource) : selected bool : unknown Outcome) Outcome
+                  (#return (#if selected (#block (#forget (#deref target)) ({destructive})) {alternative})))
+                (#fn relay (: target (#ref-mut Resource) : selected bool : unknown Outcome) Outcome
+                  (#let outcome Outcome (#call choose (: target target : selected selected : unknown unknown)))
+                  (#return (#match outcome (#case (Ready) (Ready)) (#case (Pending) (Pending)))))
+                (#fn main () u64
+                  (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
+                  (#let target (#ref-mut Resource) (#borrow-mut holder)) {before}
+                  (#let outcome Outcome {result}) {after}
+                  (#let-else ({selected}) Outcome outcome (#unreachable))
+                  (#let result u64 (#get target number))
+                  {finish})");
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let checked = declarations.staged_referent_entry_contracts(&types);
+            if accepts {
+                checked.unwrap_or_else(|error| panic!("{mode}: {error:?}"));
+            } else {
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } =
+                    checked.unwrap_err()
+                else {
+                    panic!("{mode}: unexpected error");
+                };
+                assert_eq!(function, "main", "{mode}: {conflict:?}");
+                let span = conflict.span.unwrap();
+                let expected = if mode == "prior-consumed" {
+                    call
+                } else {
+                    "(#get target number)"
+                };
+                assert_eq!(
+                    &source[span.start..span.end],
+                    expected,
+                    "{mode}: {conflict:?}"
+                );
+                if mode == "prior-consumed" {
+                    assert!(conflict
+                        .labels
+                        .iter()
+                        .any(|(span, _)| &source[span.start..span.end] == "(#forget holder)"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn staged_outcome_refinement_initializes_only_exact_ready_destinations() {
+        for (mode, accepts) in [("ready", true), ("pending", false), ("ambiguous", false)] {
+            let setup = if mode == "ambiguous" {
+                "(#let-mut other Resource (#struct-literal Resource (: number 7u64)))
+                 (#let alternate (#ref-mut Resource) (#borrow-mut other))
+                 (#forget (#deref alternate))
+                 (#let selected (#ref-mut Resource) (#if choice target alternate))"
+            } else {
+                ""
+            };
+            let argument = if mode == "ambiguous" {
+                "selected"
+            } else {
+                "target"
+            };
+            let selected = if mode == "pending" {
+                "Pending"
+            } else {
+                "Ready"
+            };
+            let finish = if accepts {
+                "(#drop target) (#forget holder) (#return result)"
+            } else {
+                "(#return (#unreachable))"
+            };
+            let source = format!(
+                "(#struct Resource (: number u64)) (#linear Resource)
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn initialize (: target (#ref-mut Resource) : selected bool) Outcome
+                  (#return (#if selected (#block (#deref-set target
+                    (#struct-literal Resource (: number 42u64))) (Ready)) (Pending))))
+                (#fn caller (: choice bool) u64
+                  (#let-mut holder Resource (#struct-literal Resource (: number 7u64)))
+                  (#let target (#ref-mut Resource) (#borrow-mut holder))
+                  (#forget (#deref target)) {setup}
+                  (#let outcome Outcome (#call initialize (: target {argument} : selected true)))
+                  (#let-else ({selected}) Outcome outcome (#unreachable))
+                  (#let result u64 (#get target number)) {finish})"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let checked = declarations.staged_referent_entry_contracts(&types);
+            if accepts {
+                checked.unwrap_or_else(|error| panic!("{mode}: {error:?}"));
+                for (function, body) in &declarations.bodies {
+                    let flow = &declarations.flows[function];
+                    let cache = std::cell::OnceCell::from(flow.loan_origins(body));
+                    crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                        .unwrap();
+                }
+            } else {
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } =
+                    checked.unwrap_err()
+                else {
+                    panic!("{mode}: unexpected error");
+                };
+                assert_eq!(function, "caller", "{mode}: {conflict:?}");
+                let span = conflict.span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#get target number)",
+                    "{mode}: {conflict:?}"
+                );
+                assert!(
+                    conflict
+                        .labels
+                        .iter()
+                        .any(|(span, _)| &source[span.start..span.end]
+                            == "(#forget (#deref target))"),
+                    "{mode}: {conflict:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_outcome_refinement_revisits_loop_snapshot_dependencies() {
+        let source = "(#struct Resource (: number u64)) (#linear Resource)
+            (#enum Outcome ((Ready) (Pending)))
+            (#fn choose (: target (#ref-mut Resource) : selected bool) Outcome
+              (#return (#if selected (#block (#forget (#deref target)) (Ready)) (Pending))))
+            (#fn main () u64
+              (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
+              (#let target (#ref-mut Resource) (#borrow-mut holder))
+              (#let-mut turns u64 0u64)
+              (#loop
+                (#let outcome Outcome (#call choose (: target target : selected false)))
+                (#let-else (Pending) Outcome outcome (#unreachable))
+                (#let read u64 (#get target number))
+                (#if (#u64.< turns 1u64) (#block (#set turns 1u64) (#continue)) (#block (#break))))
+              (#let result u64 (#get target number))
+              (#drop target) (#forget holder) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+    }
+
+    #[test]
+    fn staged_outcome_refinement_keeps_other_sibling_consumed() {
+        for invalid in [false, true] {
+            let selected = if invalid { "right" } else { "left" };
+            let finish = if invalid {
+                "(#return (#unreachable))"
+            } else {
+                "(#drop target) (#forget (#get holder left)) (#return result)"
+            };
+            let read = format!("(#get (#get target {selected}) number)");
+            let source = format!(
+                "(#struct Resource (: number u64)) (#linear Resource)
+                (#struct Pair (: left Resource : right Resource))
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn choose (: target (#ref-mut Pair) : selected bool) Outcome
+                  (#return (#if selected (#block (#forget (#get target left)) (Ready))
+                    (#block (#forget (#get target right)) (Pending)))))
+                (#fn main () u64
+                  (#let-mut holder Pair (#struct-literal Pair
+                    (: left (#struct-literal Resource (: number 42u64))
+                     : right (#struct-literal Resource (: number 7u64)))))
+                  (#let target (#ref-mut Pair) (#borrow-mut holder))
+                  (#let outcome Outcome (#call choose (: target target : selected false)))
+                  (#let-else (Pending) Outcome outcome (#unreachable))
+                  (#let result u64 {read}) {finish})"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let checked = declarations.staged_referent_entry_contracts(&types);
+            if invalid {
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } =
+                    checked.unwrap_err()
+                else {
+                    panic!("unexpected error");
+                };
+                assert_eq!(function, "main");
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], read);
+            } else {
+                checked.unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn staged_outcome_refinement_wakes_on_pre_call_snapshot_changes() {
+        let source = "(#struct Resource (: number u64)) (#linear Resource)
+            (#enum Outcome ((Ready) (Pending)))
+            (#fn touch () () (#return ()))
+            (#fn choose (: target (#ref-mut Resource) : selected bool) Outcome
+              (#return (#if selected (#block (#forget (#deref target)) (#call touch ()) (Ready)) (Pending))))
+            (#fn main () u64
+              (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
+              (#let target (#ref-mut Resource) (#borrow-mut holder))
+              (#let-mut turns u64 0u64)
+              (#loop
+                (#let outcome Outcome (#call choose (: target target : selected (#u64.< turns 1u64))))
+                (#match outcome
+                  (#case (Ready) (#block (#set turns 1u64) (#continue)))
+                  (#case (Pending) (#block (#let read u64 (#get target number)) (#break)))))
+              (#return (#unreachable)))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        // Contents-clear inference deliberately loses its proof across touch;
+        // complete ownership exits still record the actual destruction.
+        let ready = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .unwrap();
+        let choose = declarations.function_id("choose").unwrap();
+        assert!(declarations.bodies["choose"].call_clear_variants[&choose][&ready].is_empty());
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let (event, call) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+            let crate::typed_flow::FlowAction::Evaluate(value) = node.action else { return None; };
+            matches!(&body.nodes[value.0].kind, crate::typed_body::NodeKind::Form { callee: Some(found), .. } if *found == choose)
+                .then_some((crate::typed_flow::FlowNodeId(index), value))
+        }).unwrap();
+        let (effects, unknown) =
+            flow.map_referent_call_effects(body, event, call, &summaries[&choose]);
+        assert!(!unknown);
+        let moves =
+            flow.referent_consumptions_with_calls(body, &types, &[(event, effects, unknown)]);
+        let read = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                node.span
+                    .filter(|span| &source[span.start..span.end] == "(#get target number)")
+                    .map(|_| crate::typed_flow::FlowNodeId(index))
+            })
+            .unwrap();
+        let holder = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "holder")
+                .unwrap(),
+        );
+        let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(holder));
+        let spans = moves
+            .before(read, &place)
+            .expect("a later Pending cannot erase destruction from an earlier Ready iteration");
+        assert!(spans
+            .iter()
+            .flatten()
+            .any(|span| &source[span.start..span.end] == "(#forget (#deref target))"));
+    }
+
+    #[test]
+    fn staged_outcome_refinement_tracks_linear_result_moves() {
+        let source = "(#struct Resource (: number u64)) (#linear Resource)
+            (#struct Metadata (: number u64)) (#linear Metadata)
+            (#enum Outcome ((Ready Metadata) (Pending Metadata)))
+            (#fn choose (: target (#ref-mut Resource) : selected bool) Outcome
+              (#return (#if selected (#block (#forget (#deref target))
+                (Ready (#struct-literal Metadata (: number 1u64))))
+                (Pending (#struct-literal Metadata (: number 2u64))))))
+            (#fn main () u64
+              (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
+              (#let target (#ref-mut Resource) (#borrow-mut holder))
+              (#let outcome Outcome (#call choose (: target target : selected false)))
+              (#let saved Outcome outcome)
+              (#let-else (Pending metadata) Outcome saved (#unreachable))
+              (#let result u64 (#get target number))
+              (#forget metadata) (#drop target) (#forget holder) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        declarations
+            .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                &program,
+            ))
+            .unwrap();
+    }
+
+    #[test]
+    fn staged_outcome_refinement_clears_profiles_even_when_a_run_fails_early() {
+        let source = "(#struct Resource (: number u64)) (#linear Resource)
+            (#enum Outcome ((Ready) (Pending)))
+            (#fn initialize (: target (#ref-mut Resource) : selected bool) Outcome
+              (#return (#if selected (#block (#deref-set target
+                (#struct-literal Resource (: number 42u64))) (Ready)) (Pending))))
+            (#fn caller () u64
+              (#let-mut holder Resource (#struct-literal Resource (: number 7u64)))
+              (#let target (#ref-mut Resource) (#borrow-mut holder))
+              (#forget (#deref target))
+              (#let outcome Outcome (#call initialize (: target target : selected true)))
+              (#let-else (Ready) Outcome outcome (#unreachable))
+              (#let result u64 (#get target number))
+              (#drop target) (#forget holder) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let initialize = declarations.function_id("initialize").unwrap();
+        let ready = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Ready")
+            .unwrap();
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        assert!(
+            declarations.bodies["caller"].call_variant_exits.borrow()[&initialize][&ready]
+                .effects_from_consumed_entry
+                .is_some()
+        );
+        declarations
+            .staged_validate_referent_uses_and_replacements(&types)
+            .unwrap_err();
+        assert!(
+            declarations.bodies["caller"]
+                .call_variant_exits
+                .borrow()
+                .is_empty(),
+            "an unvisited caller must not keep profiles from the previous run"
+        );
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        assert!(
+            declarations.bodies["caller"].call_variant_exits.borrow()[&initialize][&ready]
+                .effects_from_consumed_entry
+                .is_some()
+        );
+    }
+
+    #[test]
     fn staged_return_variant_constants_intersect_paths_and_forward_calls() {
         let source = "(#enum Choice ((Empty) (Full (#ref u64))))
             (#struct Pair (: left Choice : right Choice))
