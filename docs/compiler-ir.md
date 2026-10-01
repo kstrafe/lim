@@ -437,6 +437,18 @@ initialization, and ambiguous destinations are not strongly cleared. The legacy
 checker still rejects restoration while a moved reference-bearing value is
 live; general consumption, conditional restoration, and production promotion
 remain open.
+Ordinary destruction is now reflected in the staged parameter-contents table.
+Linear `#forget`/`#drop` operands are classified during lowering, and destruction
+resolves the container address through dereferences and field/array projections,
+including aliases, nested pointer inputs, and transparent unsafe wrappers.
+Only one proven mutable concrete destination can be strongly cleared; Copy
+operands, dynamic indices, and ambiguous destinations retain their facts.
+Whole destruction removes all contents, field destruction preserves siblings,
+and nested destruction leaves the outer pointer slot and handle intact.
+These reference facts are not initialization/restoration proofs or outgoing
+consumption effects. The production syntax-only ownership fallback still
+rejects ordinary restore-through-reference sequences, and callee destruction
+must be integrated with consumption contracts before promotion.
 Return-variant-conditioned clearing, storage contents after parameter writes,
 and definite restoration must be integrated before replacing production checking.
 

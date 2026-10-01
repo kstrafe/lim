@@ -1693,6 +1693,29 @@ impl FlowGraph {
         while let Some(id) = pending.pop_front() {
             queued[id.0] = false;
             let mut state = before[id.0].as_ref().unwrap().clone();
+            #[cfg(test)]
+            if include_parameter_contents {
+                let released = match self.nodes[id.0].action {
+                    FlowAction::Release { value, .. } | FlowAction::Evaluate(value)
+                        if body.consuming_releases.contains(&value) =>
+                    {
+                        Some(value)
+                    }
+                    _ => None,
+                };
+                if let Some(value) = released {
+                    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                        unreachable!()
+                    };
+                    let destinations =
+                        released_reference_destinations(body, self, &before, children[1], &state);
+                    if one_concrete_store_destination(&destinations) {
+                        for destination in destinations {
+                            store_parameter_contents(&mut state, &destination, Vec::new(), true);
+                        }
+                    }
+                }
+            }
             match &self.nodes[id.0].action {
                 FlowAction::Bind { binding, value } => {
                     state[binding.0] =
@@ -6234,6 +6257,47 @@ fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -
         }
     }
     changed
+}
+
+/// Resolve the container storage destroyed by a release, not any reference
+/// pointees retained inside the released value. Unresolved paths stay empty.
+#[cfg(test)]
+fn released_reference_destinations(
+    body: &Body,
+    flow: &FlowGraph,
+    before: &[Option<LoanState>],
+    value: NodeId,
+    state: &LoanState,
+) -> Vec<LoanOrigin> {
+    if matches!(
+        body.nodes[value.0].ty,
+        Some(Type::Reference { .. } | Type::PinnedReference { .. })
+    ) {
+        return value_loan_origins_at_events(body, flow, before, value, state);
+    }
+    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+        return Vec::new();
+    };
+    let Some(base) = children.get(1) else {
+        return Vec::new();
+    };
+    if head == "deref" && children.len() == 2 {
+        return value_loan_origins_at_events(body, flow, before, *base, state);
+    }
+    if head == "unsafe" && children.len() == 2 {
+        return released_reference_destinations(body, flow, before, *base, state);
+    }
+    if matches!(head.as_str(), "get" | "get-payload" | "index") {
+        let Some(slot) = value_projection(body, value) else {
+            return Vec::new();
+        };
+        let mut destinations = released_reference_destinations(body, flow, before, *base, state);
+        for origin in &mut destinations {
+            origin.place.segments.push(slot.clone());
+        }
+        return destinations;
+    }
+    Vec::new()
 }
 
 fn dereferenced_value_places(
@@ -11085,6 +11149,134 @@ mod tests {
                 graph.loan_origins(body).before(return_node, view).len(),
                 expected
             );
+        }
+    }
+
+    #[test]
+    fn staged_parameter_releases_preserve_copy_and_dynamic_contents() {
+        for (source, name) in [
+            (
+                "(#struct Part (: view (#ref u64)))
+              (#fn consume (: target (#ref-mut Part)) () (#forget (#deref target)) (#return ()))",
+                "copy",
+            ),
+            (
+                "(#struct Part (: view (#ref u64))) (#linear Part)
+              (#fn consume (: target (#ref-mut (#array Part 2)) : index usize) ()
+                (#forget (#index target index)) (#return ()))",
+                "dynamic",
+            ),
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["consume"];
+            let flow = &checked.declarations().flows["consume"];
+            let origins = flow.staged_parameter_store_loan_origins(body);
+            let event = flow
+                .nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Release { .. }))
+                .unwrap();
+            let before = origins.before[event].as_ref().unwrap();
+            let after = origins.after[event].as_ref().unwrap();
+            let initial = loaded_parameter_value_origins(&before[0][0], before);
+            assert!(!initial.is_empty());
+            assert_eq!(
+                loaded_parameter_value_origins(&after[0][0], after),
+                initial,
+                "{name}"
+            );
+            assert_eq!(after[0].len(), 1);
+        }
+    }
+
+    #[test]
+    fn staged_nested_parameter_release_keeps_the_outer_pointer_slot() {
+        let source = "(#struct Part (: view (#ref u64))) (#linear Part)
+            (#struct Outer (: inner (#ref-mut Part)))
+            (#fn consume (: target (#ref-mut Outer)) ()
+              (#forget (#deref (#get target inner))) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["consume"];
+        let flow = &checked.declarations().flows["consume"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        let event = flow
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(node.action, FlowAction::Release { value, .. }
+            if body.consuming_releases.contains(&value))
+            })
+            .unwrap();
+        for (state, expected_inner) in [
+            (origins.before[event].as_ref().unwrap(), 1),
+            (origins.after[event].as_ref().unwrap(), 0),
+        ] {
+            let outer = loaded_parameter_value_origins(&state[0][0], state);
+            assert_eq!(outer.len(), 1);
+            let mut inner_pointer = outer[0].clone();
+            let slot = inner_pointer.storage[0].clone();
+            inner_pointer.project_storage(&slot);
+            assert_eq!(
+                loaded_parameter_value_origins(&inner_pointer, state).len(),
+                expected_inner
+            );
+            assert_eq!(state[0].len(), 1);
+        }
+    }
+
+    #[test]
+    fn staged_parameter_releases_clear_container_storage_not_stored_pointees() {
+        for (release, expected) in [
+            ("(#forget (#deref target))", 0),
+            ("(#forget (#get target left))", 1),
+            (
+                "(#let alias (#ref-mut Pair) target) (#forget (#deref alias))",
+                0,
+            ),
+            (
+                "(#let alias (#ref-mut Pair) (#if selected target other)) (#forget (#deref alias))",
+                2,
+            ),
+            ("(#forget (#unsafe (#deref target)))", 0),
+        ] {
+            let source = format!(
+                "(#struct Part (: view (#ref u64))) (#linear Part)
+                 (#struct Pair (: left Part : right Part))
+                 (#fn consume (: target (#ref-mut Pair) : other (#ref-mut Pair) : selected bool) () {release} (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["consume"];
+            let flow = &checked.declarations().flows["consume"];
+            let origins = flow.staged_parameter_store_loan_origins(body);
+            let event = flow
+                .nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action, FlowAction::Release { value, .. } | FlowAction::Evaluate(value)
+                if body.consuming_releases.contains(&value))
+                })
+                .unwrap();
+            let before = origins.before[event].as_ref().unwrap();
+            let after = origins.after[event].as_ref().unwrap();
+            assert_eq!(
+                loaded_parameter_value_origins(&before[0][0], before).len(),
+                2
+            );
+            let remaining = loaded_parameter_value_origins(&after[0][0], after);
+            assert_eq!(remaining.len(), expected, "{release}: {remaining:?}");
+            if expected == 1 {
+                let field = checked
+                    .declarations()
+                    .field_id(&Type::Named("Pair".into()), "right")
+                    .unwrap();
+                assert_eq!(remaining[0].storage.first(), Some(&Segment::Field(field)));
+            }
+            assert_eq!(after[0].len(), 1);
+            assert_eq!(after[0][0].place.root, PlaceRoot::Parameter(BindingId(0)));
+            assert_eq!(loaded_parameter_value_origins(&after[1][0], after).len(), 2);
         }
     }
 

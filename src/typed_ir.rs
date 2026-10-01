@@ -737,6 +737,24 @@ impl Declarations {
                         && node.ty.as_ref().is_some_and(|ty| linear.is_linear(ty)))
                         .then_some(crate::typed_body::NodeId(index))
                 }).collect();
+                body.consuming_releases = body
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, node)| match &node.kind {
+                        crate::typed_body::NodeKind::Form { head, children, .. }
+                            if matches!(head.as_str(), "drop" | "forget")
+                                && children.len() == 2 =>
+                        {
+                            body.nodes[children[1].0]
+                                .ty
+                                .as_ref()
+                                .is_some_and(|ty| linear.is_linear(ty))
+                                .then_some(crate::typed_body::NodeId(index))
+                        }
+                        _ => None,
+                    })
+                    .collect();
             }
         }
         self.flows = self
