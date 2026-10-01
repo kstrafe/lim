@@ -12671,4 +12671,101 @@ mod typed_ownership_tests {
             }
         }
     }
+
+    #[test]
+    fn staged_returns_require_initialized_referents_in_every_reference_slot() {
+        for (return_type, returned) in [
+            ("(#ref-mut Resource)", "value"),
+            ("View", "(#struct-literal View ((value value)))"),
+        ] {
+            for (operations, valid) in [
+                ("", true),
+                ("(#forget (#deref value))", false),
+                ("(#if choice (#forget (#deref value)) ())", false),
+                ("(#forget (#deref value)) (#deref-set value (#struct-literal Resource ((number 2u64))))", true),
+            ] {
+                let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+                  (#struct View ((value (#ref-mut Resource))))
+                  (#fn make-view ((value (#ref-mut Resource)) (choice bool)) {return_type}
+                    {operations} (#return {returned}))");
+                let program = crate::parse_program(&source).unwrap();
+                let declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let types = crate::linearcheck::LinearTypes::from_program(&program);
+                let result = declarations.staged_referent_entry_contracts(&types);
+                if valid {
+                    result.unwrap();
+                } else {
+                    let error = result.unwrap_err();
+                    let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                        panic!("unexpected error: {error:?}");
+                    };
+                    assert_eq!(function, "make-view");
+                    assert!(conflict.message.contains("returned reference"), "{conflict:?}");
+                    let span = conflict.span.unwrap();
+                    assert_eq!(&source[span.start..span.end], format!("(#return {returned})"));
+                    assert!(conflict.labels.iter().any(|(span, _)|
+                        &source[span.start..span.end] == "(#forget (#deref value))"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn staged_return_initialization_preserves_parameter_slots_through_calls() {
+        for slot in ["left", "right"] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#struct Holder ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+              (#fn forward ((value (#ref-mut Resource))) (#ref-mut Resource)
+                (#return value))
+              (#fn make-view ((holder Holder)) (#ref-mut Resource)
+                (#forget (#deref (#get holder left)))
+                (#return (#call forward ((value (#get holder {slot}))))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_referent_entry_contracts(&types);
+            if slot == "right" {
+                result.unwrap();
+            } else {
+                let error = result.unwrap_err();
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                    panic!("unexpected error: {error:?}");
+                };
+                assert_eq!(function, "make-view");
+                assert!(
+                    conflict.message.contains("returned reference"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#return (#call forward ((value (#get holder left)))))"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_return_initialization_rejects_spanless_consumed_entry_state() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize-view ((value (#ref-mut Resource)) (choice bool)) (#ref-mut Resource)
+            (#if choice (#deref-set value
+              (#struct-literal Resource ((number 1u64)))) ())
+            (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert!(conflict.message.contains("returned reference"));
+        assert!(conflict.labels.is_empty());
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#return value)");
+    }
 }

@@ -2998,7 +2998,62 @@ impl FlowGraph {
         self.check_linear_consumptions_with_origins(body, &seeded, Some(&origins))?;
         self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
+        self.check_returned_referents_initialized(body, &origins, &seeded)?;
         Ok(entry)
+    }
+
+    /// Validate physical referents of escaping reference slots, not the
+    /// lifetime-only anchors carried by unsafe pointer-derived references.
+    /// Missing physical origins still need an independent completeness gate.
+    #[cfg(test)]
+    fn check_returned_referents_initialized(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
+        for (index, node) in self.nodes.iter().enumerate() {
+            let FlowAction::Return(Some(value)) = node.action else {
+                continue;
+            };
+            let Some(state) = moves.before[index].as_ref() else {
+                continue;
+            };
+            let event = FlowNodeId(index);
+            for origin in origins.value_before(body, self, event, value) {
+                if origin.lifetime_only {
+                    continue;
+                }
+                let mut place = origin.place;
+                if matches!(place.root, PlaceRoot::Parameter(_)) {
+                    if let Some(mut slot) = origin.parameter_storage {
+                        slot.append(&mut place.segments);
+                        place.segments = slot;
+                    }
+                }
+                let conflicts = state
+                    .iter()
+                    .filter(|(consumed, _)| consumed.overlaps(&place))
+                    .collect::<Vec<_>>();
+                if conflicts.is_empty() {
+                    continue;
+                }
+                let previous = conflicts
+                    .iter()
+                    .flat_map(|(_, spans)| spans.iter())
+                    .flatten()
+                    .min_by_key(|span| (span.source_id, span.start));
+                return Err(ReleaseConflict {
+                    message: "returned reference may point to a consumed linear referent".into(),
+                    span: node.span,
+                    labels: previous
+                        .into_iter()
+                        .map(|span| (*span, "referent was consumed here".into()))
+                        .collect(),
+                });
+            }
+        }
+        Ok(())
     }
 
     #[cfg(test)]
