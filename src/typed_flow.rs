@@ -8245,6 +8245,22 @@ fn dereference_value_origins(
     result
 }
 
+/// Select possible element contents rather than loading the entire backing
+/// array as one element. Slice ranges and split views retain a region anchor,
+/// not an exact offset mapping: even literal indexes must not fabricate a
+/// physical element identity or a definite restoration destination.
+#[cfg(test)]
+fn project_slice_element_origins(origins: &mut [LoanOrigin], state: &LoanState) {
+    if state.parameter_contents.is_none() {
+        return;
+    }
+    for origin in origins {
+        if origin.storage.is_empty() && !origin.lifetime_only {
+            origin.place.segments.push(Segment::DynamicIndex);
+        }
+    }
+}
+
 fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOrigin> {
     let node = &body.nodes[id.0];
     match &node.kind {
@@ -8402,6 +8418,10 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 if borrowed_from.is_some() {
                     origin.borrowed_from = borrowed_from;
                 }
+            }
+            #[cfg(test)]
+            if matches!(head.as_str(), "slice-idx" | "slice-mut-idx") {
+                project_slice_element_origins(&mut origins, state);
             }
             origins
         }
@@ -8746,6 +8766,10 @@ fn value_loan_origins_at_events(
                 if borrowed_from.is_some() {
                     origin.borrowed_from = borrowed_from;
                 }
+            }
+            #[cfg(test)]
+            if matches!(head.as_str(), "slice-idx" | "slice-mut-idx") {
+                project_slice_element_origins(&mut loans, state);
             }
             return loans;
         }

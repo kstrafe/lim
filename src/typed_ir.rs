@@ -1579,12 +1579,26 @@ impl Declarations {
                     path.pop();
                 }
             }
-            Type::Slice(_) | Type::MutableSlice(_) => {
+            Type::Slice(element) | Type::MutableSlice(element) => {
                 output.push(crate::typed_body::ParameterLoanSeed {
                     mutable: matches!(ty, Type::MutableSlice(_)),
                     pinned: false,
                     storage: path.clone(),
                 });
+                if include_referents {
+                    path.push(Segment::Dereference);
+                    path.push(Segment::DynamicIndex);
+                    self.collect_parameter_loan_slots(
+                        element,
+                        path,
+                        seen,
+                        output,
+                        expand_arrays,
+                        true,
+                    );
+                    path.pop();
+                    path.pop();
+                }
             }
             Type::Array(element, length) if *length > 0 => {
                 if expand_arrays {

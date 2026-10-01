@@ -17938,6 +17938,121 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_contents_contracts_accept_slice_loaded_async_poll_sources() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut failures = Vec::new();
+        for name in [
+            "async_wake_before_wait",
+            "async_mixed_wait",
+            "async_stdin_byte",
+            "async_stdin_cancel",
+            "async_stdin_race",
+            "timer_reactor1",
+            "timer_pair",
+            "timer_reactor_many",
+            "wake_executor",
+        ] {
+            let path = root.join("examples").join(format!("{name}.lim"));
+            let source = std::fs::read_to_string(&path).unwrap();
+            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            crate::check_types(&program).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            if let Err(error) = declarations.staged_contents_referent_entry_contracts(&types) {
+                failures.push(format!("{name}: {error:?}"));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn staged_slice_element_loads_retain_embedded_reference_slots() {
+        let source = "(#struct View ((value (#ref u64)) (other (#ref u64))))
+          (#fn inspect ((sources (#slice View)) (index usize)) u64
+            (#let view View (#deref (#slice-idx sources index)))
+            (#return (#deref (#get view value))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        for missing in ["none", "address", "value", "other"] {
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap();
+            let body = declarations.bodies.get_mut("inspect").unwrap();
+            if missing == "address" {
+                body.parameter_loan_slots[0].clear();
+            } else if missing != "none" {
+                let field = declarations
+                    .field_id(&Type::Named("View".into()), missing)
+                    .unwrap();
+                declarations
+                    .bodies
+                    .get_mut("inspect")
+                    .unwrap()
+                    .parameter_referent_loan_slots[0]
+                    .retain(|slot| {
+                        !slot
+                            .storage
+                            .contains(&crate::typed_place::Segment::Field(field))
+                    });
+            }
+            let result = declarations.staged_referent_entry_contracts(&types);
+            if missing == "none" {
+                result.unwrap();
+            } else {
+                let error = result.unwrap_err();
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                    panic!("unexpected error: {error:?}");
+                };
+                assert_eq!(function, "inspect");
+                assert!(
+                    conflict.message.contains("missing slot provenance"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#let view View (#deref (#slice-idx sources index)))"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_slice_ranges_do_not_invent_exact_element_identities() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#struct View ((value (#ref Resource))))
+          (#fn read ((sources (#slice View)) (index usize)) u64
+            (#let view View (#deref (#slice-idx sources index)))
+            (#return (#get (#get view value) number)))
+          (#fn inspect ((left (#ref Resource)) (right (#ref Resource))) u64
+            (#let views (#array View 2) (#array-of (#array View 2)
+              (#struct-literal View (: value left))
+              (#struct-literal View (: value right))))
+            (#return (#call read (: sources
+              (#slice-range (#slice-of (#borrow views)) 1usize 2usize)
+              : index 0usize))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("inspect").unwrap()];
+        for parameter in [0, 1] {
+            assert!(
+                summary.reads.iter().any(|read| read.place.root
+                    == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(
+                        parameter
+                    ))),
+                "range offset must not specialize to the wrong element: {summary:?}"
+            );
+        }
+    }
+
+    #[test]
     fn staged_ready_queue_updates_preserve_linear_owner() {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/ready_queue.lim");
