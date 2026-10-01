@@ -1033,6 +1033,15 @@ impl FlowGraph {
         types: &LinearTypes,
     ) -> Vec<(FlowNodeId, Vec<ReferentExitEffect>, Vec<FlowNodeId>)> {
         let moves = self.referent_consumptions(body, types);
+        self.referent_exit_effects_from_moves(body, &moves)
+    }
+
+    #[cfg(test)]
+    fn referent_exit_effects_from_moves(
+        &self,
+        body: &Body,
+        moves: &FlowConsumptions,
+    ) -> Vec<(FlowNodeId, Vec<ReferentExitEffect>, Vec<FlowNodeId>)> {
         let mut predecessors = vec![Vec::new(); self.nodes.len()];
         for (index, node) in self.nodes.iter().enumerate() {
             for successor in &node.successors {
@@ -1091,6 +1100,29 @@ impl FlowGraph {
         types: &LinearTypes,
     ) -> ReferentFunctionEffects {
         let exits = self.referent_exit_effects(body, types);
+        self.referent_function_effects_from_exits(body, exits)
+    }
+
+    /// Include mapped callee effects when summarizing a forwarding helper.
+    /// This remains staged until entry and restoration contracts are available.
+    #[cfg(test)]
+    pub fn referent_function_effects_with_calls(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+    ) -> ReferentFunctionEffects {
+        let moves = self.referent_consumptions_with_calls(body, types, calls);
+        let exits = self.referent_exit_effects_from_moves(body, &moves);
+        self.referent_function_effects_from_exits(body, exits)
+    }
+
+    #[cfg(test)]
+    fn referent_function_effects_from_exits(
+        &self,
+        body: &Body,
+        exits: Vec<(FlowNodeId, Vec<ReferentExitEffect>, Vec<FlowNodeId>)>,
+    ) -> ReferentFunctionEffects {
         let mut places = Vec::new();
         let mut unresolved = Vec::new();
         for (_, effects, unknown) in &exits {

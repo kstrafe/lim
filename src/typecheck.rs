@@ -9745,6 +9745,70 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_consumption_summaries_forward_callee_effects() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn consume ((value (#ref-mut Resource))) ()
+            (#forget (#deref value)) (#return ()))
+          (#fn forward ((value (#ref-mut Resource))) ()
+            (#call consume (: value value)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summary = declarations.flows["consume"]
+            .referent_function_effects(&declarations.bodies["consume"], &types);
+        let body = &declarations.bodies["forward"];
+        let flow = &declarations.flows["forward"];
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match node.action {
+                crate::typed_flow::FlowAction::Evaluate(value)
+                    if matches!(
+                        &body.nodes[value.0].kind,
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(_),
+                            ..
+                        }
+                    ) =>
+                {
+                    Some((crate::typed_flow::FlowNodeId(index), value))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(flow
+            .referent_function_effects(body, &types)
+            .effects
+            .is_empty());
+        let (effects, unknown) = flow.map_referent_call_effects(body, event, call, &summary);
+        assert!(!unknown);
+        let forwarded =
+            flow.referent_function_effects_with_calls(body, &types, &[(event, effects, unknown)]);
+        assert!(forwarded.has_normal_return);
+        assert!(forwarded.unresolved.is_empty());
+        assert_eq!(forwarded.effects.len(), 1);
+        let effect = &forwarded.effects[0];
+        assert_eq!(
+            effect.place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert_eq!(effect.input_storage.as_deref(), Some([].as_slice()));
+        assert!(effect.referent_projection.is_empty());
+        assert!(effect.definitely_consumed);
+        assert_eq!(
+            effect.consumption_spans,
+            summary.effects[0].consumption_spans
+        );
+        let (effects, _) = flow.map_referent_call_effects(body, event, call, &summary);
+        let unresolved =
+            flow.referent_function_effects_with_calls(body, &types, &[(event, effects, true)]);
+        assert_eq!(unresolved.unresolved, vec![event]);
+        assert_eq!(unresolved.effects.len(), 1);
+        assert!(!unresolved.effects[0].definitely_consumed);
+    }
+
+    #[test]
     fn staged_callee_consumption_maps_to_caller_owned_storage() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) () (#forget (#deref value)) (#return ()))
