@@ -10143,6 +10143,37 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_read_only_call_entry_requires_restoration_on_every_path() {
+        for (restoration, accepted) in [
+            ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", false),
+            ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true),
+        ] {
+            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+              (#fn inspect ((value (#ref-mut Resource))) u64 (#return (#get value number)))
+              (#fn caller ((value (#ref-mut Resource)) (choice bool)) ()
+                (#forget (#deref value)) {restoration}
+                (#let number u64 (#call inspect (: value value))) (#return ()))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_validate_referent_uses_and_replacements(&types);
+            assert_eq!(result.is_ok(), accepted);
+            if !accepted {
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } =
+                    result.unwrap_err() else { panic!("expected call entry conflict") };
+                assert_eq!(function, "caller");
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#call inspect (: value value))");
+                assert_eq!(conflict.labels.len(), 2);
+                let prior = conflict.labels[0].0;
+                assert_eq!(&source[prior.start..prior.end], "(#forget (#deref value))");
+                let read = conflict.labels[1].0;
+                assert_eq!(&source[read.start..read.end], "(#get value number)");
+            }
+        }
+    }
+
+    #[test]
     fn staged_read_only_calls_require_initialized_caller_storage() {
         for restored in [false, true] {
             let write = if restored {
