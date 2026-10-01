@@ -9590,24 +9590,29 @@ mod typed_ownership_tests {
 
     #[test]
     fn consuming_linear_referents_requires_mutable_permission() {
-        for (reference_type, allowed) in [
-            ("#ref", false),
-            ("#ref-mut", true),
-            ("#pin-ref", false),
-            ("#pin-ref-mut", false),
+        for operation in [
+            "(#forget (#deref reference))",
+            "(#let moved Resource (#deref reference)) (#forget moved)",
         ] {
-            let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+            for (reference_type, allowed) in [
+                ("#ref", false),
+                ("#ref-mut", true),
+                ("#pin-ref", false),
+                ("#pin-ref-mut", false),
+            ] {
+                let source = format!(
+                    "(#struct Resource ((number u64))) (#linear Resource)
               (#fn inspect ((reference ({reference_type} Resource))) ()
-                (#forget (#deref reference)) (#return ()))"
-            );
-            let program = crate::parse_program(&source).unwrap();
-            let declarations = resolve_program_for_analysis(&program, false).unwrap();
-            let result = declarations.flows["inspect"].check_referent_consumption_permissions(
-                &declarations.bodies["inspect"],
-                &crate::linearcheck::LinearTypes::from_program(&program),
-            );
-            assert_eq!(result.is_ok(), allowed, "{reference_type}: {result:?}");
+                {operation} (#return ()))"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                let declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let result = declarations.flows["inspect"].check_referent_consumption_permissions(
+                    &declarations.bodies["inspect"],
+                    &crate::linearcheck::LinearTypes::from_program(&program),
+                );
+                assert_eq!(result.is_ok(), allowed, "{reference_type}: {result:?}");
+            }
         }
     }
 
