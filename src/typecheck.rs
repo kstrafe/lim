@@ -10143,6 +10143,88 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_reader_call_checks_share_inherited_entry_and_restoration() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize ((value (#ref-mut Resource))) ()
+            (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+          (#fn read ((value (#ref-mut Resource))) u64 (#return (#get value number)))
+          (#fn caller ((value (#ref-mut Resource))) u64
+            (#call initialize (: value value)) (#return (#call read (: value value))))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let initializer = &declarations.bodies["initialize"];
+        let restored = declarations.flows["initialize"].referent_restoration_guarantees(
+            initializer,
+            &types,
+            &[],
+        );
+        let (required_reads, unknown) = declarations.flows["read"]
+            .direct_referent_entry_reads(&declarations.bodies["read"], &types);
+        assert!(unknown.is_empty());
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let mut calls = Vec::new();
+        let mut restorations = Vec::new();
+        let mut reads = Vec::new();
+        for (index, node) in flow.nodes.iter().enumerate() {
+            let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                continue;
+            };
+            let crate::typed_body::NodeKind::Form {
+                callee: Some(callee),
+                ..
+            } = &body.nodes[value.0].kind
+            else {
+                continue;
+            };
+            let event = crate::typed_flow::FlowNodeId(index);
+            calls.push((event, Vec::new(), false));
+            if *callee == declarations.function_id("initialize").unwrap() {
+                let (mapped, unknown) =
+                    flow.map_referent_call_restorations(body, event, value, initializer, &restored);
+                assert!(!unknown);
+                restorations.push((event, mapped));
+            } else {
+                let (mapped, unknown) =
+                    flow.map_referent_call_reads(body, event, value, &required_reads);
+                assert!(!unknown);
+                reads.extend(mapped);
+            }
+        }
+        assert_eq!(reads.len(), 1);
+        let entry = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+            crate::typed_body::BindingId(0),
+        ));
+        let conflict = flow
+            .check_referent_call_entry_reads_from_entry(
+                body,
+                &types,
+                &calls,
+                &[],
+                &reads,
+                &[entry.clone()],
+            )
+            .unwrap_err();
+        let span = conflict.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#call read (: value value))"
+        );
+        assert_eq!(conflict.labels.len(), 1);
+        assert!(flow
+            .check_referent_call_entry_reads_from_entry(
+                body,
+                &types,
+                &calls,
+                &restorations,
+                &reads,
+                &[entry],
+            )
+            .is_ok());
+    }
+
+    #[test]
     fn staged_caller_use_validation_shares_entry_and_restoration_state() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
