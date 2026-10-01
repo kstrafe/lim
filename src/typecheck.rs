@@ -12550,4 +12550,74 @@ mod typed_ownership_tests {
             "(#call initialize ((value (#borrow-mut (#index values index)))))"
         );
     }
+
+    #[test]
+    fn staged_partial_initializer_invalidates_later_replacement_proofs() {
+        for operation in [
+            "(#call initialize ((value value) (choice choice)))",
+            "(#deref-set value (#struct-literal Resource ((number 2u64))))",
+        ] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource)) (choice bool)) ()
+                (#if choice (#deref-set value
+                  (#struct-literal Resource ((number 1u64)))) ())
+                (#return ()))
+              (#fn caller ((value (#ref-mut Resource)) (choice bool)) ()
+                (#call initialize ((value value) (choice choice)))
+                {operation} (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert_eq!(function, "caller");
+            let span = conflict.span.unwrap();
+            assert_eq!(&source[span.start..span.end], operation);
+            assert_eq!(span.start, source.rfind(operation).unwrap());
+        }
+    }
+
+    #[test]
+    fn staged_possible_restoration_preserves_unrelated_consumption_facts() {
+        use crate::typed_body::{BindingId, PlaceRoot};
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        use crate::typed_place::Place;
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource))) ()
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let left = Place::root(PlaceRoot::Parameter(BindingId(0)));
+        let right = Place::root(PlaceRoot::Parameter(BindingId(1)));
+        let exit = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Return(_)).then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        // Supply a weak restoration at entry to isolate the transfer itself.
+        let moves = flow.referent_consumptions_with_partial_restorations(
+            body,
+            &types,
+            &[],
+            &[],
+            &[left.clone(), right.clone()],
+            &[(flow.entry, vec![left.clone()])],
+        );
+        assert!(moves.before(exit, &left).is_some());
+        assert!(moves.before(exit, &right).is_some());
+        assert!(!moves.definitely_consumed_before(exit, &left));
+        assert!(moves.definitely_consumed_before(exit, &right));
+    }
 }

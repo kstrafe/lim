@@ -212,6 +212,7 @@ struct CallConsumptionFacts {
     definite: Vec<Place>,
     unresolved: bool,
     restored: Vec<Place>,
+    possibly_restored: Vec<Place>,
 }
 
 impl FlowConsumptions {
@@ -1222,13 +1223,15 @@ impl FlowGraph {
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
         restorations: &[(FlowNodeId, Vec<Place>)],
         consumed_entry: &[Place],
+        possible_restorations: &[(FlowNodeId, Vec<Place>)],
     ) -> Vec<ReferentExitEffect> {
-        let moves = self.referent_consumptions_with_restorations(
+        let moves = self.referent_consumptions_with_partial_restorations(
             body,
             types,
             calls,
             restorations,
             consumed_entry,
+            possible_restorations,
         );
         let exits = self.referent_exit_effects_from_moves(body, &moves);
         self.referent_function_effects_from_exits(body, exits)
@@ -1572,6 +1575,28 @@ impl FlowGraph {
         restorations: &[(FlowNodeId, Vec<Place>)],
         entry_consumed: &[Place],
     ) -> FlowConsumptions {
+        self.referent_consumptions_with_partial_restorations(
+            body,
+            types,
+            calls,
+            restorations,
+            entry_consumed,
+            &[],
+        )
+    }
+
+    /// A possibly initializing call invalidates must-consumed facts only.
+    /// It cannot erase may-consumed facts or prove a definite restoration.
+    #[cfg(test)]
+    pub fn referent_consumptions_with_partial_restorations(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        entry_consumed: &[Place],
+        possible_restorations: &[(FlowNodeId, Vec<Place>)],
+    ) -> FlowConsumptions {
         let mut calls = calls
             .iter()
             .map(|(event, effects, unresolved)| {
@@ -1589,6 +1614,7 @@ impl FlowGraph {
                             .collect(),
                         unresolved: *unresolved,
                         restored: Vec::new(),
+                        possibly_restored: Vec::new(),
                     },
                 )
             })
@@ -1598,6 +1624,13 @@ impl FlowGraph {
                 .entry(*event)
                 .or_default()
                 .restored
+                .extend(restored.iter().cloned());
+        }
+        for (event, restored) in possible_restorations {
+            calls
+                .entry(*event)
+                .or_default()
+                .possibly_restored
                 .extend(restored.iter().cloned());
         }
         let origins = self.loan_origins(body);
@@ -2206,7 +2239,7 @@ impl FlowGraph {
                 state.clear();
             }
             if let Some(call) = calls.and_then(|calls| calls.get(&id)) {
-                for restored in &call.restored {
+                for restored in call.restored.iter().chain(&call.possibly_restored) {
                     state.retain(|moved| !restored.overlaps(moved));
                 }
             }
@@ -2421,6 +2454,15 @@ impl FlowGraph {
             restorations,
             entry_consumed,
         );
+        self.check_referent_call_consumed_entry_with_moves(requirements, &moves)
+    }
+
+    #[cfg(test)]
+    fn check_referent_call_consumed_entry_with_moves(
+        &self,
+        requirements: &[(FlowNodeId, Vec<Place>, bool)],
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
         for (event, places, unknown) in requirements {
             let Some(state) = moves.definitely_before[event.0].as_ref() else {
                 continue;
@@ -2869,13 +2911,19 @@ impl FlowGraph {
                 labels: Vec::new(),
             });
         }
+        let possible_restorations = calls
+            .consumed_inputs
+            .iter()
+            .map(|(event, places, _)| (*event, places.clone()))
+            .collect::<Vec<_>>();
         let origins = self.loan_origins(body);
-        let moves = self.referent_consumptions_with_restorations(
+        let moves = self.referent_consumptions_with_partial_restorations(
             body,
             types,
             &calls.effects,
             &calls.restorations,
             &[],
+            &possible_restorations,
         );
         let mut entry = Vec::new();
         self.check_referent_replacements_and_entry_requirements(
@@ -2921,13 +2969,15 @@ impl FlowGraph {
             &calls.read_inputs,
             &entry,
         )?;
-        let seeded = self.referent_consumptions_with_restorations(
+        let seeded = self.referent_consumptions_with_partial_restorations(
             body,
             types,
             &calls.effects,
             &calls.restorations,
             &entry,
+            &possible_restorations,
         );
+        self.check_referent_call_consumed_entry_with_moves(&calls.consumed_inputs, &seeded)?;
         self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
         Ok(entry)

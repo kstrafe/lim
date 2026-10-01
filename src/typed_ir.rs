@@ -1011,24 +1011,18 @@ impl Declarations {
                 summary.restored_from_consumed_entry = flow
                     .referent_restoration_guarantees_with_calls(body, types, &calls, &restorations);
                 if infer_entry_contracts {
+                    let possible_restorations = consumed_inputs
+                        .iter()
+                        .map(|(event, places, _)| (*event, places.clone()))
+                        .collect::<Vec<_>>();
                     summary.effects_from_consumed_entry = flow.referent_exit_state_from_entry(
                         body,
                         types,
                         &calls,
                         &restorations,
                         &consumed_entry,
+                        &possible_restorations,
                     );
-                    // Initialized-entry effects cannot describe a callee's
-                    // partial initialization of an incoming consumed slot.
-                    // Until that transfer is modeled, retain the possible
-                    // residual state without claiming definite consumption.
-                    for effect in &mut summary.effects_from_consumed_entry {
-                        if consumed_inputs.iter().any(|(_, places, _)| {
-                            places.iter().any(|place| place.overlaps(&effect.place))
-                        }) {
-                            effect.definitely_consumed = false;
-                        }
-                    }
                 }
                 summary.consumed_entry = consumed_entry;
                 summary.reads.extend(call_reads);
