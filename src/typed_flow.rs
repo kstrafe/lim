@@ -184,6 +184,21 @@ pub(crate) struct ReferentFunctionEffects {
     pub effects_from_consumed_entry: Vec<ReferentExitEffect>,
 }
 
+#[cfg(test)]
+impl ReferentFunctionEffects {
+    pub fn possibly_initialized_inputs(&self) -> Vec<Place> {
+        self.consumed_entry
+            .iter()
+            .filter(|input| {
+                !self.effects_from_consumed_entry.iter().any(|effect| {
+                    effect.definitely_consumed && definite_place_covers(&effect.place, input)
+                })
+            })
+            .cloned()
+            .collect()
+    }
+}
+
 /// Independent read facts, not outgoing consumption or complete entry
 /// requirements. Prior initialization writes must be considered separately.
 #[cfg(test)]
@@ -204,6 +219,8 @@ pub(crate) struct ReferentCallFacts {
     pub consumed_inputs: Vec<(FlowNodeId, Vec<Place>, bool)>,
     pub read_inputs: Vec<ReferentRead>,
     pub unresolved_inputs: Vec<FlowNodeId>,
+    /// None keeps the conservative consumed-input fallback for manual facts.
+    pub possible_restorations: Option<Vec<(FlowNodeId, Vec<Place>)>>,
 }
 
 #[derive(Default)]
@@ -2911,11 +2928,15 @@ impl FlowGraph {
                 labels: Vec::new(),
             });
         }
-        let possible_restorations = calls
+        let fallback_restorations = calls
             .consumed_inputs
             .iter()
             .map(|(event, places, _)| (*event, places.clone()))
             .collect::<Vec<_>>();
+        let possible_restorations = calls
+            .possible_restorations
+            .as_deref()
+            .unwrap_or(&fallback_restorations);
         let origins = self.loan_origins(body);
         let moves = self.referent_consumptions_with_partial_restorations(
             body,
@@ -2923,7 +2944,7 @@ impl FlowGraph {
             &calls.effects,
             &calls.restorations,
             &[],
-            &possible_restorations,
+            possible_restorations,
         );
         let mut entry = Vec::new();
         self.check_referent_replacements_and_entry_requirements(
@@ -2954,13 +2975,9 @@ impl FlowGraph {
             &calls.consumed_inputs,
             &entry,
         )?;
-        self.check_owner_consumptions_with_restorations_from_entry(
-            body,
-            types,
-            &calls.effects,
-            &calls.restorations,
-            &entry,
-        )?;
+        // Access requirements, not outgoing storage state, decide whether a
+        // callee may be invoked on consumed input. Initializing then consuming
+        // a referent produces a consumed exit without reading its entry value.
         self.check_referent_call_entry_reads_from_entry(
             body,
             types,
@@ -2975,9 +2992,10 @@ impl FlowGraph {
             &calls.effects,
             &calls.restorations,
             &entry,
-            &possible_restorations,
+            possible_restorations,
         );
         self.check_referent_call_consumed_entry_with_moves(&calls.consumed_inputs, &seeded)?;
+        self.check_linear_consumptions_with_origins(body, &seeded, Some(&origins))?;
         self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
         Ok(entry)

@@ -865,6 +865,7 @@ impl Declarations {
                 let mut call_entry_reads = Vec::new();
                 let mut restorations = Vec::new();
                 let mut consumed_inputs = Vec::new();
+                let mut possible_restorations = Vec::new();
                 let mut unresolved_reads = Vec::new();
                 for (index, node) in flow.nodes.iter().enumerate() {
                     let FlowAction::Evaluate(value) = node.action else {
@@ -900,6 +901,17 @@ impl Declarations {
                                         &summary.consumed_entry,
                                     );
                                     consumed_inputs.push((event, mapped, unknown));
+                                    let (mapped, unknown) = flow.map_referent_call_consumed_entry(
+                                        body,
+                                        event,
+                                        value,
+                                        &self.bodies[callee_name],
+                                        &summary.possibly_initialized_inputs(),
+                                    );
+                                    possible_restorations.push((event, mapped));
+                                    if unknown {
+                                        unresolved_reads.push(event);
+                                    }
                                 }
                                 let (mapped, unknown) = flow.map_referent_call_restorations(
                                     body,
@@ -943,12 +955,14 @@ impl Declarations {
                         consumed_inputs,
                         read_inputs: call_entry_reads,
                         unresolved_inputs: unresolved_reads.clone(),
+                        possible_restorations: Some(possible_restorations),
                     };
                     let result = flow
                         .infer_referent_consumed_entry_with_call_facts(body, types, self, &facts);
                     calls = facts.effects;
                     restorations = facts.restorations;
                     consumed_inputs = facts.consumed_inputs;
+                    possible_restorations = facts.possible_restorations.unwrap();
                     call_entry_reads = facts.read_inputs;
                     match result {
                         Ok(entry) => entry,
@@ -1011,10 +1025,6 @@ impl Declarations {
                 summary.restored_from_consumed_entry = flow
                     .referent_restoration_guarantees_with_calls(body, types, &calls, &restorations);
                 if infer_entry_contracts {
-                    let possible_restorations = consumed_inputs
-                        .iter()
-                        .map(|(event, places, _)| (*event, places.clone()))
-                        .collect::<Vec<_>>();
                     summary.effects_from_consumed_entry = flow.referent_exit_state_from_entry(
                         body,
                         types,

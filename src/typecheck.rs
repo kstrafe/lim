@@ -10240,6 +10240,7 @@ mod typed_ownership_tests {
             consumed_inputs,
             read_inputs: reads,
             unresolved_inputs: Vec::new(),
+            possible_restorations: None,
         };
         assert_eq!(flow.infer_referent_consumed_entry_with_call_facts(
             body, &types, &declarations, &facts,
@@ -12619,5 +12620,55 @@ mod typed_ownership_tests {
         assert!(moves.before(exit, &right).is_some());
         assert!(!moves.definitely_consumed_before(exit, &left));
         assert!(moves.definitely_consumed_before(exit, &right));
+    }
+
+    #[test]
+    fn staged_consumed_exit_contracts_allow_initialization_then_consumption() {
+        for read_after in [false, true] {
+            let continuation = if read_after {
+                "(#let number u64 (#call read ((value value)))) (#forget number)"
+            } else {
+                "(#call initialize ((value value)))"
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn initialize-consume ((value (#ref-mut Resource))) ()
+                (#deref-set value (#struct-literal Resource ((number 1u64))))
+                (#forget (#deref value)) (#return ()))
+              (#fn forward ((value (#ref-mut Resource))) ()
+                (#call initialize-consume ((value value))) (#return ()))
+              (#fn initialize ((value (#ref-mut Resource))) ()
+                (#deref-set value (#struct-literal Resource ((number 2u64))))
+                (#return ()))
+              (#fn read ((value (#ref-mut Resource))) u64
+                (#return (#get value number)))
+              (#fn caller ((value (#ref-mut Resource))) ()
+                (#call forward ((value value))) {continuation} (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_referent_entry_contracts(&types);
+            if read_after {
+                let error = result.unwrap_err();
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                    panic!("unexpected error: {error:?}");
+                };
+                assert_eq!(function, "caller");
+                let span = conflict.span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#call read ((value value)))"
+                );
+            } else {
+                let summaries = result.unwrap();
+                for name in ["initialize-consume", "forward"] {
+                    let summary = &summaries[&declarations.function_id(name).unwrap()];
+                    assert_eq!(summary.consumed_entry.len(), 1);
+                    assert!(summary.possibly_initialized_inputs().is_empty(), "{name}");
+                    assert!(summary.effects_from_consumed_entry[0].definitely_consumed);
+                }
+            }
+        }
     }
 }
