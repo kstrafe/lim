@@ -3005,7 +3005,7 @@ impl FlowGraph {
     /// Validate physical referents of escaping reference slots, not the
     /// lifetime-only anchors carried by unsafe pointer-derived references.
     /// Mandatory static slots require provenance in every result alternative;
-    /// active enum payloads and array wildcards still need completeness facts.
+    /// Active enum payloads still need variant-specific completeness facts.
     #[cfg(test)]
     fn check_returned_referents_initialized(
         &self,
@@ -3029,18 +3029,21 @@ impl FlowGraph {
                 let alternative_origins = origins.value_before(body, self, event, alternative);
                 if let Some(ty) = &body.nodes[alternative.0].ty {
                     for slot in declarations.reference_storage_slots(ty) {
-                        // Enum payloads require active-variant facts, and array
-                        // wildcards require per-element coverage. Neither may be
-                        // treated as an unconditional slot in this staged gate.
-                        if slot.storage.iter().any(|segment| {
-                            matches!(segment, Segment::Payload(_, _) | Segment::DynamicIndex)
-                        }) {
+                        // Enum payloads need active-variant facts rather than
+                        // unconditional completeness across inactive variants.
+                        if slot
+                            .storage
+                            .iter()
+                            .any(|segment| matches!(segment, Segment::Payload(_, _)))
+                        {
                             continue;
                         }
-                        if !alternative_origins
-                            .iter()
-                            .any(|origin| origin.storage == slot.storage)
-                        {
+                        if !alternative_origins.iter().any(|origin| {
+                            origin.storage.len() == slot.storage.len()
+                                && slot.storage.iter().zip(&origin.storage).all(
+                                    |(expected, actual)| storage_slot_matches(expected, actual),
+                                )
+                        }) {
                             return Err(ReleaseConflict {
                             message: "cannot prove initialization of returned reference: missing slot provenance".into(),
                             span: node.span,

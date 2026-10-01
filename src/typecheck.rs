@@ -12776,6 +12776,8 @@ mod typed_ownership_tests {
             "Holder",
             "(#tuple (#ref u64) (#ref u64))",
             "(#array (#ref u64) 1)",
+            "(#array (#ref u64) 3)",
+            "(#array (#tuple (#ref u64) (#ref u64)) 2)",
         ] {
             let source = format!(
                 "(#struct Holder ((left (#ref u64)) (right (#ref u64))))
@@ -12840,5 +12842,44 @@ mod typed_ownership_tests {
             &source[span.start..span.end],
             "(#return (#if choice left right))"
         );
+    }
+
+    #[test]
+    fn staged_return_arrays_require_each_reference_element() {
+        for nested in [false, true] {
+            let element = if nested {
+                "(#array (#ref u64) 2)"
+            } else {
+                "(#ref u64)"
+            };
+            let source = format!(
+                "(#fn make-array ((left {element}) (right {element})) (#array {element} 2)
+              (#return (#array-of (#array {element} 2) left right)))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            declarations
+                .bodies
+                .get_mut("make-array")
+                .unwrap()
+                .parameter_loan_slots[1]
+                .clear();
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert!(conflict.message.contains("missing slot provenance"));
+            let span = conflict.span.unwrap();
+            assert_eq!(
+                &source[span.start..span.end],
+                format!("(#return (#array-of (#array {element} 2) left right))")
+            );
+        }
     }
 }

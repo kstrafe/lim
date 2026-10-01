@@ -1067,6 +1067,7 @@ impl Declarations {
                     &mut Vec::new(),
                     &mut HashSet::new(),
                     &mut slots[index],
+                    false,
                 );
             }
             parameter_slots.insert(name.clone(), slots);
@@ -1206,7 +1207,13 @@ impl Declarations {
     #[cfg(test)]
     pub fn reference_storage_slots(&self, ty: &Type) -> Vec<crate::typed_body::ParameterLoanSeed> {
         let mut slots = Vec::new();
-        self.collect_parameter_loan_slots(ty, &mut Vec::new(), &mut HashSet::new(), &mut slots);
+        self.collect_parameter_loan_slots(
+            ty,
+            &mut Vec::new(),
+            &mut HashSet::new(),
+            &mut slots,
+            true,
+        );
         slots
     }
 
@@ -1216,6 +1223,7 @@ impl Declarations {
         path: &mut Vec<crate::typed_place::Segment>,
         seen: &mut HashSet<String>,
         output: &mut Vec<crate::typed_body::ParameterLoanSeed>,
+        expand_arrays: bool,
     ) {
         use crate::typed_place::Segment;
         match ty {
@@ -1234,18 +1242,26 @@ impl Declarations {
                 });
             }
             Type::Array(element, length) if *length > 0 => {
+                if expand_arrays {
+                    for index in 0..*length {
+                        path.push(Segment::Index(index as u128));
+                        self.collect_parameter_loan_slots(element, path, seen, output, true);
+                        path.pop();
+                    }
+                    return;
+                }
                 path.push(if *length == 1 {
                     Segment::Index(0)
                 } else {
                     Segment::DynamicIndex
                 });
-                self.collect_parameter_loan_slots(element, path, seen, output);
+                self.collect_parameter_loan_slots(element, path, seen, output, expand_arrays);
                 path.pop();
             }
             Type::Tuple(elements) => {
                 for (index, element) in elements.iter().enumerate() {
                     path.push(Segment::Tuple(index));
-                    self.collect_parameter_loan_slots(element, path, seen, output);
+                    self.collect_parameter_loan_slots(element, path, seen, output, expand_arrays);
                     path.pop();
                 }
             }
@@ -1254,7 +1270,13 @@ impl Declarations {
                     if let Some(owner) = self.aggregate_ids.get(name).copied() {
                         for (index, field) in fields.iter().enumerate() {
                             path.push(Segment::Field(FieldId { owner, index }));
-                            self.collect_parameter_loan_slots(&field.ty, path, seen, output);
+                            self.collect_parameter_loan_slots(
+                                &field.ty,
+                                path,
+                                seen,
+                                output,
+                                expand_arrays,
+                            );
                             path.pop();
                         }
                     }
@@ -1269,7 +1291,13 @@ impl Declarations {
                         };
                         for (index, field) in variant.fields.iter().enumerate() {
                             path.push(Segment::Payload(id, index));
-                            self.collect_parameter_loan_slots(field, path, seen, output);
+                            self.collect_parameter_loan_slots(
+                                field,
+                                path,
+                                seen,
+                                output,
+                                expand_arrays,
+                            );
                             path.pop();
                         }
                     }
