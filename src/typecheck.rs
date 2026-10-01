@@ -18117,6 +18117,186 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_captured_worker_contracts_rewrite_consumption_and_restoration() {
+        for (operation, initializes) in [
+            ("(#forget (#deref target))", false),
+            (
+                "(#deref-set target (#struct-literal Resource ((number 42u64))))",
+                true,
+            ),
+        ] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn worker ((other (#ref Resource)) (target (#ref-mut Resource))) ()
+                {operation} (#return ()))
+              (@thread-spawn (: task Task : worker worker))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let summaries = declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap();
+            let worker = declarations.function_id("worker").unwrap();
+            let original = &summaries[&worker];
+            let captured = declarations
+                .staged_captured_thread_worker_contract("Task", &summaries)
+                .unwrap();
+            assert_eq!(captured.worker, worker);
+            let owner = declarations
+                .aggregate_id(&Type::Named("Task".into()))
+                .unwrap();
+            let place = crate::typed_place::Place {
+                root: crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0)),
+                segments: vec![crate::typed_place::Segment::ThreadCapture(owner, 1)],
+            };
+            if initializes {
+                assert_eq!(captured.facts.consumed_entry, vec![place.clone()]);
+                assert_eq!(captured.facts.restored_from_consumed_entry, vec![place]);
+                assert!(captured.facts.effects_from_consumed_entry.is_empty());
+            } else {
+                assert!(captured.facts.consumed_entry.is_empty());
+                assert_eq!(captured.facts.effects.len(), 1);
+                let effect = &captured.facts.effects[0];
+                assert_eq!(effect.place, place);
+                assert_eq!(effect.input_storage.as_ref(), Some(&place.segments));
+                assert!(effect.referent_projection.is_empty());
+                assert!(effect.definitely_consumed);
+                assert_eq!(
+                    effect.consumption_spans,
+                    original.effects[0].consumption_spans
+                );
+                assert!(!captured.facts.consuming_accesses.is_empty());
+                for read in &captured.facts.consuming_accesses {
+                    assert_eq!(read.place, place);
+                    assert_eq!(read.input_storage.as_ref(), Some(&place.segments));
+                }
+            }
+            assert_eq!(captured.facts.has_normal_return, original.has_normal_return);
+            assert_eq!(captured.facts.unresolved, original.unresolved);
+            assert_eq!(captured.facts.unresolved_reads, original.unresolved_reads);
+            assert!(declarations
+                .staged_captured_thread_worker_contract("Missing", &summaries)
+                .is_none());
+            declarations.bodies.remove("worker");
+            assert!(declarations
+                .staged_captured_thread_worker_contract("Task", &summaries)
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn staged_capture_mapping_preserves_unknown_and_conditional_facts() {
+        use crate::typed_body::{BindingId, PlaceRoot};
+        use crate::typed_flow::{ReferentExitEffect, ReferentFunctionEffects, ReferentVariantExit};
+        use crate::typed_place::{Place, Segment};
+
+        let program = crate::parse_program(
+            "(#static Global u64 7u64)
+             (#fn worker ((target (#ref-mut u64))) () (#return ()))
+             (@thread-spawn (: task Task : worker worker))",
+        )
+        .unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let worker = declarations.function_id("worker").unwrap();
+        let owner = declarations
+            .aggregate_id(&Type::Named("Task".into()))
+            .unwrap();
+        let variant = declarations
+            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .unwrap();
+        let place = Place {
+            root: PlaceRoot::Parameter(BindingId(0)),
+            segments: vec![Segment::Tuple(1), Segment::Index(2), Segment::Dereference],
+        };
+        let effect = ReferentExitEffect {
+            place: place.clone(),
+            input_storage: Some(vec![Segment::Tuple(1), Segment::Index(2)]),
+            referent_projection: vec![Segment::Dereference],
+            definitely_consumed: false,
+            consumption_spans: vec![None],
+        };
+        let global = Place::root(PlaceRoot::Global(declarations.global_id("Global").unwrap()));
+        let mut facts = ReferentFunctionEffects {
+            has_normal_return: false,
+            effects: vec![effect.clone()],
+            effects_from_consumed_entry: vec![],
+            reads: vec![],
+            entry_reads: vec![],
+            consuming_accesses: vec![],
+            consumed_entry: vec![],
+            restored_from_consumed_entry: vec![],
+            unresolved: vec![crate::typed_flow::FlowNodeId(3)],
+            unresolved_reads: vec![crate::typed_flow::FlowNodeId(4)],
+            variant_exits: HashMap::from([(
+                variant,
+                ReferentVariantExit {
+                    has_normal_return: true,
+                    effects: vec![effect.clone()],
+                    effects_from_consumed_entry: None,
+                    consumed_entry: vec![],
+                    unresolved: vec![crate::typed_flow::FlowNodeId(5)],
+                },
+            )]),
+        };
+        let map = |facts: &ReferentFunctionEffects| {
+            crate::thread_contract::capture_worker_contract(worker, owner, 1, facts)
+        };
+        let captured = map(&facts).unwrap().facts;
+        let mut expected = place.clone();
+        expected
+            .segments
+            .insert(0, Segment::ThreadCapture(owner, 0));
+        assert_eq!(captured.effects[0].place, expected);
+        assert_eq!(
+            captured.effects[0].input_storage,
+            Some(vec![
+                Segment::ThreadCapture(owner, 0),
+                Segment::Tuple(1),
+                Segment::Index(2)
+            ])
+        );
+        assert_eq!(
+            captured.effects[0].referent_projection,
+            effect.referent_projection
+        );
+        assert!(!captured.effects[0].definitely_consumed);
+        assert!(!captured.has_normal_return);
+        assert_eq!(captured.unresolved, facts.unresolved);
+        assert_eq!(captured.unresolved_reads, facts.unresolved_reads);
+        assert_eq!(captured.variant_exits[&variant].effects[0].place, expected);
+        assert!(captured.variant_exits[&variant]
+            .effects_from_consumed_entry
+            .is_none());
+        assert_eq!(
+            captured.variant_exits[&variant].unresolved,
+            facts.variant_exits[&variant].unresolved
+        );
+
+        facts.effects[0].input_storage = None;
+        assert!(map(&facts).unwrap().facts.effects[0]
+            .input_storage
+            .is_none());
+        facts.effects[0].place = global.clone();
+        assert_eq!(map(&facts).unwrap().facts.effects[0].place, global);
+        facts.effects[0].place.root = PlaceRoot::Local(BindingId(9));
+        assert!(map(&facts).unwrap().facts.effects.is_empty());
+        facts
+            .consumed_entry
+            .push(Place::root(PlaceRoot::Local(BindingId(9))));
+        assert!(
+            map(&facts).is_none(),
+            "local entry obligations cannot cross a worker boundary"
+        );
+        facts.consumed_entry.clear();
+        facts.effects[0].place.root = PlaceRoot::Parameter(BindingId(1));
+        assert!(
+            map(&facts).is_none(),
+            "missing parameter slots cannot acquire capture identities"
+        );
+    }
+
+    #[test]
     fn staged_thread_worker_errors_precede_caller_contracts() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn z-worker ((owner (#ref-mut Resource))) u64

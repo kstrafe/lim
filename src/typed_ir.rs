@@ -280,6 +280,7 @@ pub(crate) struct FunctionDeclaration {
 #[cfg(test)]
 pub(crate) struct ThreadCaptureSchema {
     pub worker: FunctionId,
+    pub worker_name: String,
     pub parameters: Vec<Type>,
 }
 
@@ -724,11 +725,13 @@ impl Declarations {
                     let crate::Item::ThreadTask { name, worker, .. } = item else {
                         return None;
                     };
+                    let worker_name = worker.clone();
                     let worker = self.function_id(worker)?;
                     Some((
                         name.clone(),
                         ThreadCaptureSchema {
                             worker,
+                            worker_name,
                             parameters: self.function(worker).signature.parameters.clone(),
                         },
                     ))
@@ -1650,6 +1653,24 @@ impl Declarations {
                 body.call_return_variant_bounds = shared_return_bounds.clone();
             }
         }
+    }
+
+    #[cfg(test)]
+    pub fn staged_captured_thread_worker_contract(
+        &self,
+        task: &str,
+        summaries: &HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>,
+    ) -> Option<crate::thread_contract::CapturedWorkerContract> {
+        let captures = self.thread_capture_schemas.get(task)?;
+        if !self.bodies.contains_key(&captures.worker_name) {
+            return None;
+        }
+        crate::thread_contract::capture_worker_contract(
+            captures.worker,
+            self.aggregate_id(&Type::Named(task.into()))?,
+            captures.parameters.len(),
+            summaries.get(&captures.worker)?,
+        )
     }
 
     #[cfg(test)]

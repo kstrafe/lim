@@ -27,6 +27,8 @@ mod source_error;
 mod stack_usage;
 mod syntax_bundle;
 mod syntax_collection;
+#[cfg(test)]
+mod thread_contract;
 mod typecheck;
 mod typed_body;
 mod typed_borrow;
