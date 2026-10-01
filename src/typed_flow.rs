@@ -5296,6 +5296,39 @@ fn projected_value_origins(
     result
 }
 
+/// Loading a local value transfers its retained reference slots, not the
+/// address used to reach the value. Parameter/global storage has no local
+/// slot contents here and remains unresolved rather than inventing loans.
+fn loaded_local_value_origins(incoming: Vec<LoanOrigin>, state: &LoanState) -> Vec<LoanOrigin> {
+    let mut result = Vec::new();
+    for origin in incoming {
+        if origin.lifetime_only || !origin.storage.is_empty() {
+            continue;
+        }
+        let PlaceRoot::Local(binding) = origin.place.root else {
+            continue;
+        };
+        let path = &origin.place.segments;
+        for held in &state[binding.0] {
+            if held.storage.len() < path.len()
+                || !path
+                    .iter()
+                    .zip(&held.storage)
+                    .all(|(wanted, actual)| storage_slot_matches(wanted, actual))
+            {
+                continue;
+            }
+            let mut loaded = held.clone();
+            for selected in path {
+                loaded.project_storage(selected);
+            }
+            loaded.mutable &= origin.mutable;
+            merge_loan_origins(&mut result, &[loaded]);
+        }
+    }
+    result
+}
+
 fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOrigin> {
     let node = &body.nodes[id.0];
     match &node.kind {
@@ -5424,6 +5457,11 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 }
             }
             origins
+        }
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2 =>
+        {
+            loaded_local_value_origins(value_loan_origins(body, children[1], state), state)
         }
         NodeKind::Form { head, children, .. }
             if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 =>
@@ -5734,6 +5772,12 @@ fn value_loan_origins_at_events(
     {
         if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
             return value_loan_origins_at_events(body, flow, before, children[1], state);
+        }
+        if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2 {
+            return loaded_local_value_origins(
+                value_loan_origins_at_events(body, flow, before, children[1], state),
+                state,
+            );
         }
         if matches!(
             head.as_str(),
@@ -6792,6 +6836,71 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn whole_local_loads_specialize_selected_slots_and_do_not_invent_pointees() {
+        let address = LoanOrigin {
+            place: Place {
+                root: PlaceRoot::Local(BindingId(0)),
+                segments: vec![Segment::Index(1)],
+            },
+            mutable: false,
+            pinned: true,
+            span: None,
+            borrowed_from: None,
+            storage: Vec::new(),
+            parameter_storage: None,
+            storage_inputs: Vec::new(),
+            lifetime_only: false,
+        };
+        let held = LoanOrigin {
+            place: Place::root(PlaceRoot::Parameter(BindingId(0))),
+            mutable: true,
+            pinned: true,
+            span: None,
+            borrowed_from: None,
+            storage: vec![Segment::DynamicIndex],
+            parameter_storage: Some(vec![Segment::DynamicIndex]),
+            storage_inputs: vec![Some(0)],
+            lifetime_only: false,
+        };
+        let state = vec![vec![held]];
+        let loaded = loaded_local_value_origins(vec![address.clone()], &state);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].place.root, PlaceRoot::Parameter(BindingId(0)));
+        assert_eq!(loaded[0].parameter_storage, Some(vec![Segment::Index(1)]));
+        assert!(loaded[0].storage.is_empty());
+        assert!(loaded[0].storage_inputs.is_empty());
+        assert!(
+            !loaded[0].mutable,
+            "a shared address cannot grant exclusivity"
+        );
+        assert!(loaded[0].pinned, "the stored pointee's pin flag survives");
+        for missing in [
+            LoanOrigin {
+                lifetime_only: true,
+                ..address.clone()
+            },
+            LoanOrigin {
+                storage: vec![Segment::Tuple(0)],
+                ..address.clone()
+            },
+            LoanOrigin {
+                place: Place::root(PlaceRoot::Parameter(BindingId(0))),
+                ..address.clone()
+            },
+            LoanOrigin {
+                place: Place {
+                    root: PlaceRoot::Local(BindingId(0)),
+                    segments: vec![Segment::Tuple(0)],
+                },
+                ..address.clone()
+            },
+        ] {
+            assert!(loaded_local_value_origins(vec![missing], &state).is_empty());
+        }
+        assert!(loaded_local_value_origins(vec![address], &vec![Vec::new()]).is_empty());
+    }
 
     #[test]
     fn missing_reference_origins_do_not_establish_consumption_proofs() {

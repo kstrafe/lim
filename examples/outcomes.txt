@@ -366,3 +366,4 @@ exit 42 linear_field_replacement.lim - -
 exit 42 aggregate_reborrow.lim - -
 exit 42 pinned_linear_replacement.lim - -
 exit 42 borrowed_aggregate_load.lim - -
+exit 42 pinned_aggregate_load.lim - -

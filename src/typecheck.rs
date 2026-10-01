@@ -14037,6 +14037,7 @@ mod typed_ownership_tests {
             "pinned_self_reference",
             "aggregate_reborrow",
             "borrowed_aggregate_load",
+            "pinned_aggregate_load",
             "pinned_linear_replacement",
             "async_fn",
         ] {
@@ -14368,6 +14369,235 @@ mod typed_ownership_tests {
             .staged_referent_entry_contracts(&types)
             .unwrap();
         crate::check_types(&program).unwrap();
+    }
+
+    #[test]
+    fn pinned_local_aggregate_loads_transfer_retained_pointees_not_container_addresses() {
+        for consumed in [false, true] {
+            let destruction = if consumed {
+                "(#forget (#get owner item))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#struct Container ((item Resource) (other Resource)))
+                 (#struct Views ((left (#ref Resource)) (right (#ref Resource))))
+                 (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
+                   (#let-mut holder Views (#struct-literal Views
+                     ((left (#borrow (#get owner item)))
+                      (right (#borrow (#get owner other))))))
+                   (#let target (#pin-ref-mut Views) (#pin-borrow-mut holder))
+                   (#let loaded Views (#unsafe (#pin-read target)))
+                   (#drop target)
+                   (#let result (#ref Resource) (#get loaded left))
+                   (#forget loaded) {destruction}
+                   (#return result))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let loaded = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|b| b.name == "loaded")
+                    .unwrap(),
+            );
+            let event = flow
+                .nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action,
+                crate::typed_flow::FlowAction::Bind { binding, .. } if binding == loaded)
+                })
+                .unwrap();
+            let origins = flow.loan_origins(body);
+            let held = origins.after(crate::typed_flow::FlowNodeId(event), loaded);
+            assert_eq!(held.len(), 2, "all loaded value slots must survive");
+            for (name, pointee) in [("left", "item"), ("right", "other")] {
+                let storage = crate::typed_place::Segment::Field(
+                    declarations
+                        .field_id(&crate::Type::Named("Views".into()), name)
+                        .unwrap(),
+                );
+                let loan = held
+                    .iter()
+                    .find(|origin| origin.storage == [storage.clone()])
+                    .unwrap();
+                assert_eq!(
+                    loan.place.root,
+                    crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+                );
+                assert_eq!(
+                    loan.place.segments,
+                    [crate::typed_place::Segment::Field(
+                        declarations
+                            .field_id(&crate::Type::Named("Container".into()), pointee)
+                            .unwrap()
+                    )]
+                );
+                assert!(!loan.mutable);
+                assert!(
+                    !loan.pinned,
+                    "pinning the container does not pin stored pointees"
+                );
+            }
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let checked = declarations.staged_referent_entry_contracts(&types);
+            if consumed {
+                let crate::typed_ir::StagedReferentError::Use { conflict, .. } =
+                    checked.unwrap_err()
+                else {
+                    panic!("wrong error");
+                };
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#return result)");
+                assert!(!conflict.labels.is_empty());
+            } else {
+                checked.unwrap();
+                crate::check_types(&program).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn pinned_loads_of_branch_local_containers_use_evaluation_snapshots() {
+        let source = "(#struct Views ((left (#ref u64)) (right (#ref u64))))
+            (#fn load ((left (#ref u64)) (right (#ref u64)) (flag bool)) Views
+              (#return (#if flag
+                (#block
+                  (#let-mut holder Views (#struct-literal Views ((left left) (right right))))
+                  (#unsafe (#pin-read (#pin-borrow-mut holder))))
+                (#block
+                  (#let-mut other Views (#struct-literal Views ((left right) (right left))))
+                  (#unsafe (#pin-read (#pin-borrow-mut other)))))))";
+        let program = crate::parse_program(source).unwrap();
+        // The source checker still confuses the address used for a pinned
+        // load with the loaded value's retained slots at direct returns.
+        // Keep that migration gap visible while testing the typed transfer.
+        let error = crate::check_types(&program)
+            .expect_err("promote after migrating loaded-value return checking");
+        assert!(
+            error.contains("cannot return a reference to local variable 'holder'"),
+            "{error}"
+        );
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["load"];
+        let flow = &declarations.flows["load"];
+        let (event, value) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                if let crate::typed_flow::FlowAction::Return(Some(value)) = node.action {
+                    Some((crate::typed_flow::FlowNodeId(index), value))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let held = flow
+            .loan_origins(body)
+            .value_before(body, flow, event, value);
+        assert_eq!(
+            held.len(),
+            4,
+            "both slots of each branch retain their pointees"
+        );
+        assert!(held.iter().all(|origin| matches!(
+            origin.place.root,
+            crate::typed_body::PlaceRoot::Parameter(_)
+        ) && origin.storage.len() == 1));
+        declarations
+            .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                &program,
+            ))
+            .unwrap();
+    }
+
+    #[test]
+    fn dereferencing_local_reference_storage_retains_the_inner_pointee() {
+        let source = "(#struct Held ((item (#ref u64))))
+            (#fn load ((input (#ref u64))) (#ref u64)
+            (#let held Held (#struct-literal Held ((item input))))
+            (#let outer (#ref Held) (#borrow held))
+            (#let loaded Held (#deref outer))
+            (#drop outer)
+            (#let result (#ref u64) (#get loaded item))
+            (#forget held) (#forget loaded) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["load"];
+        let flow = &declarations.flows["load"];
+        let binding = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "loaded")
+                .unwrap(),
+        );
+        let event = flow
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(node.action,
+            crate::typed_flow::FlowAction::Bind { binding: found, .. } if found == binding)
+            })
+            .unwrap();
+        let origins = flow.loan_origins(body);
+        let [loaded] = origins.after(crate::typed_flow::FlowNodeId(event), binding) else {
+            panic!("missing inner loan");
+        };
+        assert_eq!(
+            loaded.place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert!(loaded.place.segments.is_empty());
+        assert_eq!(
+            loaded.storage,
+            [crate::typed_place::Segment::Field(
+                declarations
+                    .field_id(&crate::Type::Named("Held".into()), "item")
+                    .unwrap()
+            )]
+        );
+        assert!(!loaded.mutable);
+        declarations
+            .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                &program,
+            ))
+            .unwrap();
+    }
+
+    #[test]
+    fn pinned_local_move_parent_registration_migration_gap_is_explicit() {
+        let source = "(#struct Owner ((number u64)))
+            (#struct Views ((item (#ref u64))))
+            (#fn main () u64
+              (#let-mut owner Owner (#struct-literal Owner ((number 42u64))))
+              (#let parent (#ref-mut Owner) (#borrow-mut owner))
+              (#let-mut holder Views (#struct-literal Views
+                ((item (#borrow (#get parent number))))))
+              (#let target (#pin-ref-mut Views) (#pin-borrow-mut holder))
+              (#let loaded Views (#unsafe (#pin-read target)))
+              (#drop target)
+              (#let result u64 (#deref (#get loaded item)))
+              (#forget loaded) (#drop parent) (#forget owner) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations
+            .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
+                &program,
+            ))
+            .unwrap();
+        let error = crate::check_types(&program)
+            .expect_err("promote this valid case after retiring moved holder registrations");
+        assert!(
+            error.contains(
+                "cannot use reference 'parent' while a derived field reference is active"
+            ),
+            "{error}"
+        );
     }
 
     #[test]

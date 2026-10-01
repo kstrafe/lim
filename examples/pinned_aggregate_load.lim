@@ -1,0 +1,28 @@
+; The loaded value keeps its fields' pointees, not the pinned holder address.
+(#struct Resource (: number u64))
+(#struct Container (: item Resource : other Resource))
+(#struct Views (: left (#ref Resource) : right (#ref Resource)))
+
+(#fn sum-values (: owner (#ref-mut Container)) u64
+  (#let-mut holder Views
+    (#struct-literal Views
+      (: left (#borrow (#get owner item))
+       : right (#borrow (#get owner other)))))
+  (#let target (#pin-ref-mut Views) (#pin-borrow-mut holder))
+  (#let loaded Views (#unsafe (#pin-read target)))
+  (#drop target)
+  (#let result u64
+    (#u64.+.wrap
+      (#get (#get loaded left) number)
+      (#get (#get loaded right) number)))
+  (#forget loaded)
+  (#return result))
+
+(#fn main () u64
+  (#let-mut owner Container
+    (#struct-literal Container
+      (: item (#struct-literal Resource (: number 19u64))
+       : other (#struct-literal Resource (: number 23u64)))))
+  (#let result u64 (#call sum-values (: owner (#borrow-mut owner))))
+  (#forget owner)
+  (#return result))
