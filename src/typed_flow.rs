@@ -5498,6 +5498,44 @@ impl FlowGraph {
             if slots.is_empty() {
                 continue;
             }
+            if matches!(body.nodes[alternative.0].kind, NodeKind::Loop(_)) {
+                let key = (event, alternative);
+                if !visiting.contains(&key) {
+                    let breaks = origins.events_by_value[alternative.0]
+                        .iter()
+                        .filter_map(|index| {
+                            if origins.before[*index].is_none() {
+                                return None;
+                            }
+                            match self.nodes[*index].action {
+                                FlowAction::Break {
+                                    value: Some(value),
+                                    result: Some(result),
+                                } if result == alternative => Some((FlowNodeId(*index), value)),
+                                _ => None,
+                            }
+                        })
+                        .collect::<Vec<_>>();
+                    if !breaks.is_empty() {
+                        visiting.insert(key);
+                        let missing = breaks.into_iter().any(|(break_event, source)| {
+                            self.value_missing_reference_provenance_inner(
+                                body,
+                                declarations,
+                                origins,
+                                break_event,
+                                source,
+                                visiting,
+                            )
+                        });
+                        visiting.remove(&key);
+                        if missing {
+                            return true;
+                        }
+                        continue;
+                    }
+                }
+            }
             if let NodeKind::Symbol {
                 binding: Some(binding),
                 ..

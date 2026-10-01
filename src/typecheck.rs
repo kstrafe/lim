@@ -16620,6 +16620,61 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_enum_loop_results_check_each_reachable_break() {
+        for (body, missing_exit) in [
+            ("(#if selected (#block (#break (Has left))) (#block (#break Empty)))", None),
+            ("(#let inner Choice (#loop (#break (Has left)))) (#break inner)", None),
+            ("(#if selected (#block (#break (Has left))) (#block (#break (Has right))))", Some(true)),
+            ("(#break (Has left)) (#break (Has right))", Some(false)),
+            ("(#let ignored Choice (#loop (#break (Other right)))) (#forget ignored) (#break (Has left))", None),
+            ("(#if selected (#block (#continue)) (#block (#break (Has left))))", None),
+            ("(#let borrowed (#ref u64) left) (#break (Has borrowed))", None),
+        ] {
+            let source = format!(
+                "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
+              (#fn choose ((left (#ref u64)) (right (#ref u64)) (selected bool)) Choice
+                (#let result Choice (#loop {body}))
+                (#return result))"
+            );
+            let binding_statement = format!("(#let result Choice (#loop {body}))");
+            let return_statement = format!("(#return (#loop {body}))");
+            let direct = source.replace(&binding_statement, "").replace("(#return result)", &return_statement);
+            for (source, expected_span) in [(source, binding_statement), (direct, return_statement)] {
+            let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            if let Some(missing_exit) = missing_exit {
+                declarations
+                    .bodies
+                    .get_mut("choose")
+                    .unwrap()
+                    .parameter_loan_slots[1]
+                    .clear();
+                let result = declarations.staged_referent_entry_contracts(&types);
+                if !missing_exit {
+                    result.unwrap();
+                    continue;
+                }
+                let error = result.unwrap_err();
+                let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                    panic!("unexpected error: {error:?}");
+                };
+                assert!(
+                    conflict.message.contains("missing slot provenance"),
+                    "{conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], expected_span);
+            }
+            }
+        }
+    }
+
+    #[test]
     fn staged_enum_local_joins_require_only_reaching_constructor_slots() {
         let source = "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
           (#fn choose ((view (#ref u64)) (selected bool)) Choice
