@@ -9750,7 +9750,9 @@ mod typed_ownership_tests {
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
           (#fn forward ((value (#ref-mut Resource))) ()
-            (#call consume (: value value)) (#return ()))";
+            (#call consume (: value value)) (#return ()))
+          (#fn a-wrapper ((value (#ref-mut Resource))) ()
+            (#call forward (: value value)) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -9806,6 +9808,25 @@ mod typed_ownership_tests {
         assert_eq!(unresolved.unresolved, vec![event]);
         assert_eq!(unresolved.effects.len(), 1);
         assert!(!unresolved.effects[0].definitely_consumed);
+        let summaries = declarations
+            .staged_referent_function_effects(&types)
+            .unwrap();
+        let automatic = &summaries[&declarations.function_id("forward").unwrap()];
+        assert!(automatic.has_normal_return);
+        assert!(automatic.unresolved.is_empty());
+        assert_eq!(automatic.effects.len(), 1);
+        assert_eq!(automatic.effects[0].place, effect.place);
+        assert!(automatic.effects[0].definitely_consumed);
+        let wrapper = &summaries[&declarations.function_id("a-wrapper").unwrap()];
+        assert!(wrapper.has_normal_return);
+        assert!(wrapper.unresolved.is_empty());
+        assert_eq!(wrapper.effects.len(), 1);
+        assert_eq!(wrapper.effects[0].place, effect.place);
+        assert!(wrapper.effects[0].definitely_consumed);
+        assert_eq!(
+            wrapper.effects[0].consumption_spans,
+            effect.consumption_spans
+        );
     }
 
     #[test]

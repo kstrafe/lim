@@ -740,6 +740,69 @@ impl Declarations {
         Ok(())
     }
 
+    /// Staged ownership summaries over the complete acyclic body call graph.
+    /// Missing external bodies remain unresolved rather than implying no effect.
+    #[cfg(test)]
+    pub fn staged_referent_function_effects(
+        &self,
+        types: &crate::linearcheck::LinearTypes,
+    ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, &'static str> {
+        use crate::typed_body::NodeKind;
+        use crate::typed_flow::{FlowAction, FlowNodeId};
+        let body_ids = self
+            .bodies
+            .keys()
+            .filter_map(|name| self.function_id(name))
+            .collect::<HashSet<_>>();
+        let mut pending = self.bodies.keys().cloned().collect::<Vec<_>>();
+        pending.sort();
+        let mut summaries = HashMap::new();
+        while !pending.is_empty() {
+            let previous = pending.len();
+            pending.retain(|name| {
+                let body = &self.bodies[name];
+                if body.nodes.iter().any(|node| {
+                    matches!(&node.kind,
+                    NodeKind::Form { callee: Some(callee), .. }
+                    if body_ids.contains(callee) && !summaries.contains_key(callee))
+                }) {
+                    return true;
+                }
+                let flow = &self.flows[name];
+                let mut calls = Vec::new();
+                for (index, node) in flow.nodes.iter().enumerate() {
+                    let FlowAction::Evaluate(value) = node.action else {
+                        continue;
+                    };
+                    let NodeKind::Form {
+                        callee: Some(callee),
+                        ..
+                    } = &body.nodes[value.0].kind
+                    else {
+                        continue;
+                    };
+                    let event = FlowNodeId(index);
+                    let (effects, unknown) = match summaries.get(callee) {
+                        Some(summary) => {
+                            flow.map_referent_call_effects(body, event, value, summary)
+                        }
+                        None => (Vec::new(), true),
+                    };
+                    calls.push((event, effects, unknown));
+                }
+                summaries.insert(
+                    self.function_id(name).unwrap(),
+                    flow.referent_function_effects_with_calls(body, types, &calls),
+                );
+                false
+            });
+            if pending.len() == previous {
+                return Err("cyclic or unresolved internal ownership summary dependencies");
+            }
+        }
+        Ok(summaries)
+    }
+
     /// Compute interprocedural loan summaries over the acyclic checked call
     /// graph. Process callees before callers so each body is analyzed once,
     /// preserving parameter and aggregate-slot identities without a repeated
