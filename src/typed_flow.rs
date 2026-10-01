@@ -2727,7 +2727,8 @@ impl FlowGraph {
         }
         let moves = self.consumptions(body, types);
         [
-            self.check_linear_releases(body, types),
+            self.check_guard_preview_consumptions(body, &moves)
+                .and_then(|_| self.check_linear_releases(body, types)),
             self.check_referent_consumption_permissions_with_moves(body, types, &moves)
                 .and_then(|_| self.check_linear_consumptions_with_moves(body, &moves)),
             self.check_linear_exit_obligations_with_moves(
@@ -3001,6 +3002,7 @@ impl FlowGraph {
             possible_restorations,
         );
         self.check_referent_call_consumed_entry_with_moves(&calls.consumed_inputs, &seeded)?;
+        self.check_guard_preview_consumptions(body, &seeded)?;
         self.check_linear_consumptions_with_origins(body, &seeded, Some(&origins))?;
         self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
@@ -3296,6 +3298,11 @@ impl FlowGraph {
             }
         };
         let active = self.active_bindings_before(body);
+        let preview_cleanup = self
+            .guard_preview_boundaries(body)
+            .into_iter()
+            .map(|(_, _, cleanup, _)| cleanup)
+            .collect::<HashSet<_>>();
         let definite_before = if referent_exit_facts {
             &possible.definitely_before
         } else {
@@ -3303,6 +3310,9 @@ impl FlowGraph {
         };
         for (index, node) in self.nodes.iter().enumerate() {
             if definite_before[index].is_none() {
+                continue;
+            }
+            if preview_cleanup.contains(&FlowNodeId(index)) {
                 continue;
             }
             let leaving = match &node.action {
@@ -3393,6 +3403,81 @@ impl FlowGraph {
                         labels,
                     });
                 }
+            }
+        }
+        Ok(())
+    }
+
+    /// Preview bindings disappear when a guard fails; they acquire owning
+    /// cleanup obligations only on the arm body path.
+    fn guard_preview_boundaries(
+        &self,
+        body: &Body,
+    ) -> Vec<(FlowNodeId, FlowNodeId, FlowNodeId, Vec<BindingId>)> {
+        let mut boundaries = Vec::new();
+        for arm in &body.nodes {
+            let NodeKind::MatchArm { pattern, values } = &arm.kind else {
+                continue;
+            };
+            if values.len() != 2 {
+                continue;
+            }
+            let NodeKind::Form { head, children, .. } = &body.nodes[values[0].0].kind else {
+                continue;
+            };
+            if head != "when" || children.len() != 2 {
+                continue;
+            }
+            let mut bindings = HashSet::new();
+            collect_pattern_bindings(body, *pattern, &mut bindings);
+            if bindings.is_empty() {
+                continue;
+            }
+            for (index, node) in self.nodes.iter().enumerate() {
+                if !matches!(node.action, FlowAction::Branch(value) if value == children[1]) {
+                    continue;
+                }
+                let Some(cleanup) = node.successors.get(1).copied() else {
+                    continue;
+                };
+                let FlowAction::ScopeExit(exiting) = &self.nodes[cleanup.0].action else {
+                    continue;
+                };
+                if exiting.iter().copied().collect::<HashSet<_>>() != bindings {
+                    continue;
+                }
+                if let Some((bound, _)) = self.nodes.iter().enumerate().find(|(_, node)| {
+                    matches!(node.action, FlowAction::Pattern { pattern: found, .. } if found == *pattern)
+                }) {
+                    boundaries.push((FlowNodeId(bound), FlowNodeId(index), cleanup, exiting.clone()));
+                }
+            }
+        }
+        boundaries
+    }
+
+    fn check_guard_preview_consumptions(
+        &self,
+        body: &Body,
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
+        for (bound, decision, _, bindings) in self.guard_preview_boundaries(body) {
+            let mut pending = self.nodes[bound.0].successors.clone();
+            let mut seen = HashSet::new();
+            while let Some(event) = pending.pop() {
+                if event == decision || !seen.insert(event) || moves.before[event.0].is_none() {
+                    continue;
+                }
+                if moves.at[event.0].iter().any(|place| {
+                    matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                }) {
+                    return Err(ReleaseConflict {
+                        message: "match guard cannot consume a preview payload before arm selection".into(),
+                        span: self.nodes[event.0].span,
+                        labels: Vec::new(),
+                    });
+                }
+                pending.extend(self.nodes[event.0].successors.iter().copied());
             }
         }
         Ok(())

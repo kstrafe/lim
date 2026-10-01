@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "match-guard-consumes-preview",
+            diagnostic_code: "E4200",
+            offending_line: "      (#forget first)",
+            line_number: 8,
+        },
+        Case {
             name: "anchor-only-linear-referent-consumption",
             diagnostic_code: "E4200",
             offending_line: "  (#forget (#deref target))",
@@ -971,6 +977,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "reversed-match-range" => Some("2"),
             "non-reference-deref-set" => Some("value"),
             "anchor-only-linear-referent-consumption" => Some("(#forget (#deref target))"),
+            "match-guard-consumes-preview" => Some("(#forget first)"),
             "shared-linear-referent-consumption" => Some("(#forget (#deref reference))"),
             "pinned-linear-referent-move" => Some("(#deref reference)"),
             "thread-worker-missing" => Some("missing-worker"),

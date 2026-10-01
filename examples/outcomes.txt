@@ -247,6 +247,7 @@ exit 3 loop_value_conditional.lim - -
 exit 42 loop_value.lim - -
 exit 1 loop.lim - -
 exit 7 match_guard_fallback.lim - -
+exit 7 match_linear_guard.lim - -
 exit 50 match_guard.lim - -
 exit 41 match_bindings.lim - -
 exit 42 match_u128.lim - -

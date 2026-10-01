@@ -1,0 +1,12 @@
+(#struct Token ((value u64)))
+(#linear Token)
+(#enum Choice ((Owned Token) Empty))
+(#fn main () ()
+  (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
+  (#match choice
+    (#case (Owned first) (#when (#block
+      (#forget first)
+      #false)) (#forget first))
+    (#case (Owned second) (#forget second))
+    (#case Empty ()))
+  (#return ()))

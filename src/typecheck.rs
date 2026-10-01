@@ -13219,4 +13219,56 @@ mod typed_ownership_tests {
             }
         }
     }
+
+    #[test]
+    fn guarded_linear_payloads_do_not_need_cleanup_when_the_guard_fails() {
+        let source = "(#struct Token ((value u64))) (#linear Token)
+          (#enum Choice ((Owned Token) Empty))
+          (#fn caller ((selected bool)) ()
+            (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
+            (#match choice
+              (#case (Owned first) (#when selected) (#forget first))
+              (#case (Owned second) (#forget second))
+              (#case Empty ())) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        crate::check_types(&program).unwrap();
+    }
+
+    #[test]
+    fn guarded_payloads_cannot_be_consumed_before_arm_selection() {
+        for guard in [
+            "(#block (#forget first) #false)",
+            "(#call discard ((value first)))",
+        ] {
+            let source = format!(
+                "(#struct Token ((value u64))) (#linear Token)
+              (#enum Choice ((Owned Token) Empty))
+              (#fn discard ((value Token)) bool (#forget value) (#return #false))
+              (#fn caller () ()
+                (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
+                (#match choice
+                  (#case (Owned first) (#when {guard}) (#forget first))
+                  (#case (Owned second) (#forget second))
+                  (#case Empty ())) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert!(conflict.message.contains("preview payload"), "{conflict:?}");
+            let span = conflict.span.unwrap();
+            assert!(guard.contains(&source[span.start..span.end]));
+            assert!(crate::check_types(&program).is_err());
+        }
+    }
 }
