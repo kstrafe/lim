@@ -18,7 +18,7 @@ use crate::{Span, Type};
 pub(crate) struct FlowNodeId(pub usize);
 
 #[cfg(test)]
-type CallResultRefinement = (BindingId, FlowNodeId, NodeId, VariantId, Vec<FlowNodeId>);
+type CallResultRefinement = (FlowNodeId, NodeId, VariantId, Vec<FlowNodeId>);
 
 #[derive(Clone, Debug)]
 pub(crate) enum FlowAction {
@@ -1064,24 +1064,8 @@ impl FlowGraph {
                     return None;
                 };
                 let variant = constructor_variant_at_storage(body, pattern, &[])?;
-                let place = Place::from_expression(body, value)?;
-                let PlaceRoot::Local(binding) = place.root else {
-                    return None;
-                };
-                if !place.segments.is_empty() {
-                    return None;
-                }
-                let mut definitions = self.nodes.iter().filter_map(|node| match node.action {
-                    FlowAction::Bind {
-                        binding: found,
-                        value,
-                    } if found == binding => Some(value),
-                    _ => None,
-                });
-                let call = definitions.next()?;
-                if definitions.next().is_some() {
-                    return None;
-                }
+                let call =
+                    self.call_result_source(body, value, FlowNodeId(index), &predecessors)?;
                 let NodeKind::Form {
                     callee: Some(callee),
                     ..
@@ -1111,23 +1095,105 @@ impl FlowGraph {
                         continue;
                     }
                     // Do not classify effects by builtin spelling here. Until
-                    // every form has an effect contract, any intervening form
+                    // every form has an effect contract, non-constructor form
                     // evaluation can invalidate the storage correlation.
                     match &self.nodes[event.0].action {
                         FlowAction::Entry | FlowAction::Write { .. } => return None,
-                        FlowAction::Evaluate(value)
-                            if matches!(body.nodes[value.0].kind, NodeKind::Form { .. }) =>
-                        {
-                            return None
+                        FlowAction::Evaluate(value) => {
+                            if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
+                                // Constructor evaluation is pure; operand
+                                // effects have their own graph events.
+                                if !matches!(
+                                    children.first().map(|id| &body.nodes[id.0].kind),
+                                    Some(NodeKind::Declaration(
+                                        DeclarationId::Variant(_) | DeclarationId::Aggregate(_)
+                                    ))
+                                ) {
+                                    return None;
+                                }
+                            }
                         }
                         _ => {}
                     }
                     region.push(event);
                     pending.extend(predecessors[event.0].iter().copied());
                 }
-                reached_call.then_some((binding, call_event, call, variant, region))
+                reached_call.then_some((call_event, call, variant, region))
             })
             .collect()
+    }
+
+    #[cfg(test)]
+    fn call_result_source(
+        &self,
+        body: &Body,
+        mut value: NodeId,
+        mut use_event: FlowNodeId,
+        predecessors: &[Vec<FlowNodeId>],
+    ) -> Option<NodeId> {
+        let mut bindings = Vec::new();
+        loop {
+            if matches!(
+                body.nodes[value.0].kind,
+                NodeKind::Form {
+                    callee: Some(_),
+                    ..
+                }
+            ) {
+                return Some(value);
+            }
+            let place = Place::from_expression(body, value)?;
+            let PlaceRoot::Local(binding) = place.root else {
+                return None;
+            };
+            if !place.segments.is_empty() || bindings.contains(&binding) {
+                return None;
+            }
+            bindings.push(binding);
+            let mut definitions =
+                self.nodes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, node)| match node.action {
+                        FlowAction::Bind {
+                            binding: found,
+                            value,
+                        } if found == binding => Some((FlowNodeId(index), value)),
+                        _ => None,
+                    });
+            let (definition, source) = definitions.next()?;
+            if definitions.next().is_some() {
+                return None;
+            }
+            let mut pending = predecessors[use_event.0].clone();
+            let mut visited = HashSet::new();
+            let mut reached_definition = false;
+            while let Some(event) = pending.pop() {
+                if event == definition {
+                    reached_definition = true;
+                    continue;
+                }
+                if !visited.insert(event) {
+                    continue;
+                }
+                match &self.nodes[event.0].action {
+                    FlowAction::Entry => return None,
+                    FlowAction::Assign { place, .. } | FlowAction::Release { place, .. }
+                        if place.root == PlaceRoot::Local(binding) =>
+                    {
+                        return None
+                    }
+                    FlowAction::ScopeExit(bindings) if bindings.contains(&binding) => return None,
+                    _ => {}
+                }
+                pending.extend(predecessors[event.0].iter().copied());
+            }
+            if !reached_definition {
+                return None;
+            }
+            value = source;
+            use_event = definition;
+        }
     }
 
     /// Final reference contents on normal returns. Missing paths retain the
@@ -1452,7 +1518,7 @@ impl FlowGraph {
         };
         #[cfg(test)]
         for (event, refinement) in refinements.iter().enumerate() {
-            if let Some((_, call_event, _, _, _)) = refinement {
+            if let Some((call_event, _, _, _)) = refinement {
                 snapshot_users[call_event.0].push(FlowNodeId(event));
             }
         }
@@ -1493,7 +1559,7 @@ impl FlowGraph {
                 }
                 FlowAction::Pattern { pattern, value } => {
                     #[cfg(test)]
-                    if let Some((binding, call_event, call, variant, region)) = &refinements[id.0] {
+                    if let Some((call_event, call, variant, region)) = &refinements[id.0] {
                         if let Some(entry) = &before[call_event.0] {
                             let NodeKind::Form {
                                 callee: Some(callee),
@@ -1521,11 +1587,9 @@ impl FlowGraph {
                                                 FlowAction::Assign { place, .. }
                                                 | FlowAction::Release { place, .. } => {
                                                     place.root == PlaceRoot::Local(target)
-                                                        || place.root == PlaceRoot::Local(*binding)
                                                 }
                                                 FlowAction::ScopeExit(bindings) => {
                                                     bindings.contains(&target)
-                                                        || bindings.contains(binding)
                                                 }
                                                 _ => false,
                                             }

@@ -12416,6 +12416,82 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_variant_store_refinement_tracks_result_moves_and_direct_calls() {
+        let native =
+            crate::parse_program(include_str!("../examples/callee_variant_alias_clear.lim"))
+                .unwrap();
+        let declarations = resolve_program_for_analysis(&native, false).unwrap();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let types = crate::linearcheck::LinearTypes::from_program(&native);
+        let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+        crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache).unwrap();
+        let original = include_str!("../examples/callee_variant_clear.lim");
+        for mode in [
+            "moves",
+            "direct",
+            "stale-source",
+            "stale-intermediate",
+            "stale-final",
+            "reinitialized-source",
+            "reinitialized-intermediate",
+        ] {
+            let mut source = original.to_owned();
+            if mode == "direct" {
+                source = source.replace(
+                    "  (#let next-target (#ref-mut Choice) (#borrow-mut holder))\n  (#let second Outcome\n    (#call step-choice (: target next-target : value (#borrow value) : complete true)))\n  (#drop next-target)\n", "")
+                    .replace("(#match second", "(#match (#call step-choice (: target (#borrow-mut holder) : value (#borrow value) : complete true))");
+            } else {
+                source = source.replace("(#drop next-target)",
+                    "(#drop next-target) (#let-mut forwarded Outcome second) (#let-mut final Outcome forwarded)")
+                    .replace("(#let second Outcome", "(#let-mut second Outcome")
+                    .replace("(#match second", "(#match final");
+                let target = match mode {
+                    "stale-source" | "reinitialized-source" => Some("second"),
+                    "stale-intermediate" | "reinitialized-intermediate" => Some("forwarded"),
+                    "stale-final" => Some("final"),
+                    _ => None,
+                };
+                if let Some(target) = target {
+                    let next_use = match mode {
+                        "stale-source" => "(#let-mut forwarded Outcome",
+                        "stale-intermediate" => "(#let-mut final Outcome",
+                        _ => "(#let output u64",
+                    };
+                    source =
+                        source.replace(next_use, &format!("(#set {target} (Ready)) {next_use}"));
+                    if mode.starts_with("reinitialized-") {
+                        source = source.replace(
+                            "(#forget holder)",
+                            &format!("(#forget holder) (#forget {target})"),
+                        );
+                    }
+                }
+            }
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let cache = std::cell::OnceCell::from(flow.staged_variant_store_loan_origins(body));
+            let checked =
+                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache);
+            if mode.starts_with("stale-") {
+                let conflict = checked.expect_err(mode);
+                assert!(
+                    conflict.message.contains("value") && conflict.message.contains("borrow"),
+                    "{mode}: {conflict:?}"
+                );
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#set value 1u64)", "{mode}");
+            } else {
+                checked.unwrap();
+                crate::check_types(&program).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn staged_variant_store_refinement_rejects_stale_results_and_pending_loans() {
         let original = include_str!("../examples/callee_variant_clear.lim");
         for mode in [
@@ -12423,6 +12499,7 @@ mod typed_ownership_tests {
             "write",
             "conditional-write",
             "call",
+            "constructor-effect",
             "result-assignment",
         ] {
             let mut source = original.to_owned();
@@ -12447,13 +12524,22 @@ mod typed_ownership_tests {
                         &format!("(#drop next-target) (#if true (#block {write}) ())"),
                     )
                 }
-                "call" => {
+                "call" | "constructor-effect" => {
                     source.push_str(
                         "\n(#fn overwrite (: target (#ref-mut Choice) : value (#ref u64)) ()
                         (#deref-set target (Full value)) (#return ()))",
                     );
-                    source = source.replace("(#drop next-target)",
-                        "(#call overwrite (: target next-target : value (#borrow value))) (#drop next-target)");
+                    if mode == "call" {
+                        source = source.replace("(#drop next-target)",
+                            "(#call overwrite (: target next-target : value (#borrow value))) (#drop next-target)");
+                    } else {
+                        source = source.replace(
+                            "(#drop next-target)",
+                            "(#let temporary Choice (Full (#block
+                                (#call overwrite (: target next-target : value (#borrow value)))
+                                (#borrow old)))) (#forget temporary) (#drop next-target)",
+                        );
+                    }
                 }
                 "result-assignment" => {
                     source = source
