@@ -14076,6 +14076,7 @@ mod typed_ownership_tests {
             "borrowed_aggregate_load",
             "pinned_aggregate_load",
             "pinned_local_move",
+            "borrowed_whole_load",
             "pinned_linear_replacement",
             "async_fn",
         ] {
@@ -14793,11 +14794,16 @@ mod typed_ownership_tests {
 
     #[test]
     fn borrowed_parameter_aggregate_loads_preserve_each_nested_reference_slot() {
-        for consumed in [false, true] {
+        for (consumed, whole) in [(false, false), (true, false), (false, true), (true, true)] {
             let destruction = if consumed {
                 "(#forget (#get owner item))"
             } else {
                 ""
+            };
+            let loading = if whole {
+                "(#get (#deref outer) nested)"
+            } else {
+                "(#get outer nested)"
             };
             let source = format!(
                 "(#struct Resource ((number u64))) (#linear Resource)
@@ -14806,7 +14812,7 @@ mod typed_ownership_tests {
                  (#struct Nested ((views Views)))
                  (#struct Outer ((nested Nested)))
                  (#fn load ((outer (#ref Outer))) Nested
-                   (#let selected Nested (#get outer nested))
+                   (#let selected Nested {loading})
                    (#return selected))
                  (#fn forward ((outer (#ref Outer))) Views
                    (#let nested Nested (#call load (: outer outer)))

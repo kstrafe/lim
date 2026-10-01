@@ -5485,6 +5485,56 @@ fn loaded_local_value_origins(incoming: Vec<LoanOrigin>, state: &LoanState) -> V
     result
 }
 
+/// Ordinary dereference loads can describe retained parameter slots without
+/// equating their pointees with the borrowed container address. This is not a
+/// pinned move/restore contract and must not be used for parameter pin-read.
+fn dereference_value_origins(
+    body: &Body,
+    incoming: Vec<LoanOrigin>,
+    state: &LoanState,
+) -> Vec<LoanOrigin> {
+    let mut result = loaded_local_value_origins(incoming.clone(), state);
+    for origin in incoming {
+        if origin.lifetime_only || !origin.storage.is_empty() {
+            continue;
+        }
+        let PlaceRoot::Parameter(parameter) = origin.place.root else {
+            continue;
+        };
+        let mut prefix = origin.parameter_storage.clone().unwrap_or_default();
+        prefix.push(Segment::Dereference);
+        prefix.extend_from_slice(&origin.place.segments);
+        for slot in body
+            .parameter_referent_loan_slots
+            .get(parameter.0)
+            .into_iter()
+            .flatten()
+        {
+            if slot.storage.len() < prefix.len()
+                || !prefix
+                    .iter()
+                    .zip(&slot.storage)
+                    .all(|(wanted, actual)| storage_slot_matches(wanted, actual))
+            {
+                continue;
+            }
+            let remaining = &slot.storage[prefix.len()..];
+            if remaining.contains(&Segment::Dereference) {
+                continue;
+            }
+            let mut loaded = origin.clone();
+            loaded.place.segments.clear();
+            loaded.parameter_storage = Some(slot.storage.clone());
+            loaded.storage = remaining.to_vec();
+            loaded.storage_inputs = (prefix.len()..slot.storage.len()).map(Some).collect();
+            loaded.mutable &= slot.mutable;
+            loaded.pinned = slot.pinned;
+            merge_loan_origins(&mut result, &[loaded]);
+        }
+    }
+    result
+}
+
 fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOrigin> {
     let node = &body.nodes[id.0];
     match &node.kind {
@@ -5617,7 +5667,12 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         NodeKind::Form { head, children, .. }
             if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2 =>
         {
-            loaded_local_value_origins(value_loan_origins(body, children[1], state), state)
+            let incoming = value_loan_origins(body, children[1], state);
+            if head == "deref" {
+                dereference_value_origins(body, incoming, state)
+            } else {
+                loaded_local_value_origins(incoming, state)
+            }
         }
         NodeKind::Form { head, children, .. }
             if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 =>
@@ -5930,10 +5985,12 @@ fn value_loan_origins_at_events(
             return value_loan_origins_at_events(body, flow, before, children[1], state);
         }
         if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2 {
-            return loaded_local_value_origins(
-                value_loan_origins_at_events(body, flow, before, children[1], state),
-                state,
-            );
+            let incoming = value_loan_origins_at_events(body, flow, before, children[1], state);
+            return if head == "deref" {
+                dereference_value_origins(body, incoming, state)
+            } else {
+                loaded_local_value_origins(incoming, state)
+            };
         }
         if matches!(
             head.as_str(),

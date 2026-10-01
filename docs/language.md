@@ -365,6 +365,14 @@ copying one retains both sets until the corresponding values are released.
 See `examples/pinned_local_move.lim` for local move/restoration and returning
 a loaded reference-bearing value from a branch-local holder.
 
+Whole ordinary `#deref` loads from borrowed parameters preserve the retained
+reference fields of the loaded value. Each field remains tied to its original
+input slot through function returns and caller substitution, rather than to
+the address of the container. A shared container cannot grant exclusive
+access through a stored mutable reference. See `examples/borrowed_whole_load.lim`.
+This provenance rule does not supply a parameter `#pin-read` move/restore
+contract or prove variant-conditioned async frame accesses.
+
 This local rule does not establish complete contracts for parameter-loaded
 frames, projected/ambiguous storage, or lifetime-anchored raw pointers. Those
 unsafe protocols still require the caller's guarantees; full referent and
