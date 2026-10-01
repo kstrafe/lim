@@ -13475,6 +13475,31 @@ mod typed_ownership_tests {
                 "{name}: {conflict:?}"
             );
             assert!(conflict.span.is_some(), "missing causal span for {name}");
+            let body = &declarations.bodies[expected_function];
+            let state = crate::typed_body::BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == "state")
+                    .unwrap(),
+            );
+            assert!(!declarations
+                .reference_storage_slots(&body.bindings[state.0].ty)
+                .is_empty());
+            let flow = &declarations.flows[expected_function];
+            let event = flow
+                .nodes
+                .iter()
+                .position(|node| {
+                    node.span == conflict.span
+                        && matches!(node.action, crate::typed_flow::FlowAction::Evaluate(_))
+                })
+                .unwrap();
+            assert!(
+                flow.loan_origins(body)
+                    .before(crate::typed_flow::FlowNodeId(event), state)
+                    .is_empty(),
+                "pin-read provenance gap changed; re-audit the unresolved call"
+            );
         }
     }
 
@@ -13654,5 +13679,74 @@ mod typed_ownership_tests {
             &source[span.start..span.end],
             "(#forget (#deref (#get holder target)))"
         );
+    }
+
+    #[test]
+    fn projected_parameter_containers_compose_loaded_reference_slots_in_order() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#struct Container ((item Resource)))
+            (#struct Holder ((target (#ref Resource))))
+            (#struct Outer ((holder Holder)))
+            (#fn load ((view (#ref Holder))) (#ref Resource)
+              (#return (#get view target)))
+            (#fn forward ((outer (#ref Outer))) (#ref Resource)
+              (#return (#call load (: view (#borrow (#get outer holder))))))
+            (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
+              (#let outer Outer (#struct-literal Outer
+                ((holder (#struct-literal Holder ((target (#borrow (#get owner item)))))))))
+              (#let result (#ref Resource) (#call forward (: outer (#borrow outer))))
+              (#forget outer) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["caller"];
+        let forward = declarations.function_id("forward").unwrap();
+        let [summary] = body.call_return_origins[&forward].as_slice() else {
+            panic!("expected one loaded reference");
+        };
+        let field = |owner: &str, name| {
+            crate::typed_place::Segment::Field(
+                declarations
+                    .field_id(&crate::Type::Named(owner.into()), name)
+                    .unwrap(),
+            )
+        };
+        assert_eq!(
+            summary.input_storage,
+            vec![
+                crate::typed_place::Segment::Dereference,
+                field("Outer", "holder"),
+                field("Holder", "target")
+            ]
+        );
+        assert!(summary.referent_projection.is_empty());
+        let flow = &declarations.flows["caller"];
+        let origins = flow.loan_origins(body);
+        let result = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "result")
+                .unwrap(),
+        );
+        let bound = flow
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(node.action,
+            crate::typed_flow::FlowAction::Bind { binding, .. } if binding == result)
+            })
+            .unwrap();
+        let [origin] = origins.after(crate::typed_flow::FlowNodeId(bound), result) else {
+            panic!("missing caller loan");
+        };
+        assert_eq!(
+            origin.place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert_eq!(origin.place.segments, vec![field("Container", "item")]);
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        crate::check_types(&program).unwrap();
     }
 }

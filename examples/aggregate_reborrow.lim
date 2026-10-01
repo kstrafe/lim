@@ -5,6 +5,9 @@
 (#fn left-reference ((views (#ref Views))) (#ref u64)
   (#return (#get views left)))
 
+(#fn left-reference-from-wrapper ((wrapper (#ref WrappedViews))) (#ref u64)
+  (#return (#call left-reference (: views (#borrow (#get wrapper views))))))
+
 (#fn sum-views ((left (#ref-mut Owner)) (right (#ref-mut Owner))) u64
   (#let views Views
     (#struct-literal Views
@@ -14,7 +17,7 @@
   (#let wrapped WrappedViews (#struct-literal WrappedViews (: views moved)))
   (#let wrapper-reference (#ref WrappedViews) (#borrow wrapped))
   (#let left-view (#ref u64)
-    (#call left-reference (: views (#borrow (#get wrapper-reference views)))))
+    (#call left-reference-from-wrapper (: wrapper wrapper-reference)))
   (#let result u64
     (#u64.+.wrap
       (#deref left-view)

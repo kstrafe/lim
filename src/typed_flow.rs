@@ -4734,10 +4734,10 @@ fn select_summary_inputs(
     if *head == Segment::Dereference && origin.storage.is_empty() && !origin.lifetime_only {
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
             let mut loaded = origin;
-            loaded
-                .parameter_storage
-                .get_or_insert_with(Vec::new)
-                .extend_from_slice(path);
+            let storage = loaded.parameter_storage.get_or_insert_with(Vec::new);
+            storage.push(Segment::Dereference);
+            storage.append(&mut loaded.place.segments);
+            storage.extend_from_slice(tail);
             return vec![loaded];
         }
         if let PlaceRoot::Local(binding) = origin.place.root {
