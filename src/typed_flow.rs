@@ -742,6 +742,11 @@ impl FlowGraph {
                 loop_values[result.0].push(value);
             }
         }
+        // Dense value IDs let every consumer reuse one visitation table.
+        // The event index plus one is a unique, nonzero traversal stamp.
+        let mut dependency_stamps = vec![0; body.nodes.len()];
+        let mut dependencies = Vec::new();
+        let mut pending_values = Vec::new();
         for (consumer_index, consumer) in self.nodes.iter().enumerate() {
             let value = match consumer.action {
                 FlowAction::Bind { value, .. }
@@ -750,12 +755,14 @@ impl FlowGraph {
                 | FlowAction::Write { value, .. } => value,
                 _ => continue,
             };
-            let mut dependencies = HashSet::new();
-            let mut pending_values = vec![value];
+            dependencies.clear();
+            pending_values.push(value);
             while let Some(value) = pending_values.pop() {
-                if !dependencies.insert(value) {
+                if dependency_stamps[value.0] == consumer_index + 1 {
                     continue;
                 }
+                dependency_stamps[value.0] = consumer_index + 1;
+                dependencies.push(value);
                 match &body.nodes[value.0].kind {
                     NodeKind::Form { children, .. } => {
                         pending_values.extend(children.iter().copied())
@@ -786,7 +793,7 @@ impl FlowGraph {
                     _ => {}
                 }
             }
-            for value in dependencies {
+            for value in &dependencies {
                 for event_index in &events_by_value[value.0] {
                     snapshot_users[*event_index].push(FlowNodeId(consumer_index));
                 }

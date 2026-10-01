@@ -343,3 +343,27 @@ multiplication overflow direction.
 nonzero high bits is rejected instead of being truncated to its low word.
 `nested_wrapping_constant.lim` checks width normalization between constant
 operations, including wrapping negation and bitwise inversion.
+
+## Loan dependency visitation (2026-10-01)
+
+Loan-origin snapshot dependency discovery now reuses a dense visitation table
+and two traversal buffers instead of allocating a hash set and stack for each
+consumer. A unique event stamp prevents revisiting shared expression nodes;
+the transfer rules and snapshot wakeup dependencies are unchanged.
+
+Warm native CLI compilation, 80 samples per compiler, measured median times:
+
+| Example | Before | After |
+| --- | ---: | ---: |
+| async_fn | 36.16 ms | 35.15 ms |
+| vec_allocator | 24.56 ms | 24.82 ms |
+| large_reference_projections | 3.80 ms | 4.06 ms |
+
+These sequential measurements used `scripts/benchmark-compile.py` after the
+test suite finished. An earlier 60-sample run overlapping integration tests
+showed different changes (+0.5%, +2.2%, +7.3% reductions respectively).
+The disagreement and large outliers do not establish a reliable end-to-end
+speedup. This is an allocation/hash-work reduction, not a demonstrated overall
+latency improvement. All three executable comparisons were byte-identical;
+709 library tests and all enabled integration tests passed (four existing
+ignored tests). Each compiler was warmed separately to populate its cache.
