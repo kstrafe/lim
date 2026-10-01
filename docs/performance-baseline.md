@@ -637,3 +637,30 @@ wall-clock improvement. The verified benefit is eliminating unnecessary
 allocations; further optimization should target larger algorithmic costs.
 Repository-wide formatting still reports preexisting pending async edits;
 the changed borrow-checker module has been formatted independently.
+
+## Avoid allocations when comparing active loan places (2026-10-01)
+
+Borrow conflict searches now borrow active names rather than eagerly cloning
+every candidate. Place overlap streams paired path components rather than
+allocating two vectors, including when the first component already differs.
+Child-loan searches build their owner prefix once per search, not per candidate.
+Linear release collection clones a place only when its operand is linear.
+
+A differential test compares the streaming overlap predicate against the old
+collected-prefix implementation for 3,721 pairs, including wildcards, empty
+components, unequal depths, and distinct roots. All 824 library tests, 183 async
+tests, and enabled integrations pass; four preexisting tests remain ignored.
+
+Warm release CLI comparisons use 40 samples per compiler, two warmups, baseline
+first, with no concurrent build or test activity. The baseline is commit
+08dac20. Every executable is byte-identical:
+
+| Workload | Before median | After median |
+| --- | ---: | ---: |
+| Reference-heavy | 38.78 ms | 38.89 ms |
+| async_fn | 49.84 ms | 48.97 ms |
+| vec_allocator | 37.21 ms | 37.34 ms |
+
+Async is 1.8% faster in this sample; the other workloads are 0.3% slower.
+These noisy end-to-end results do not establish a general speedup. The
+deterministic benefit is removing candidate-name and path-vector allocations.

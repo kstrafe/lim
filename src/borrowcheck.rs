@@ -464,14 +464,14 @@ impl Loans {
                     (active_kind, kind),
                     (LoanKind::Shared(_), LoanKind::Shared(_))
                 ))
-            .then_some(active.clone())
+            .then_some(active)
         }) {
             return Err(failure!(
                 "cannot borrow '{}' because '{}' is already borrowed",
                 display_place(place),
-                display_place(&active)
+                display_place(active)
             )
-            .related(self.origins.get(&active).copied()));
+            .related(self.origins.get(active).copied()));
         }
         match (self.active.get(place).copied(), kind) {
             (None, kind) => {
@@ -517,13 +517,9 @@ impl Loans {
 }
 
 fn places_conflict(left: &str, right: &str) -> bool {
-    let left = left.split(PLACE_SEPARATOR).collect::<Vec<_>>();
-    let right = right.split(PLACE_SEPARATOR).collect::<Vec<_>>();
-    let common = left.len().min(right.len());
-    left[..common]
-        .iter()
-        .zip(&right[..common])
-        .all(|(left, right)| left == right || *left == "*" || *right == "*")
+    left.split(PLACE_SEPARATOR)
+        .zip(right.split(PLACE_SEPARATOR))
+        .all(|(left, right)| left == right || left == "*" || right == "*")
 }
 
 fn display_place(place: &str) -> String {
@@ -531,10 +527,11 @@ fn display_place(place: &str) -> String {
 }
 
 fn has_child_loan(loans: &Loans, owner: &str) -> bool {
+    let prefix = format!("{owner}{PLACE_SEPARATOR}");
     loans
         .active
         .keys()
-        .any(|active| active.starts_with(&format!("{owner}{PLACE_SEPARATOR}")))
+        .any(|active| active.starts_with(&prefix))
 }
 
 impl Context {
@@ -3712,5 +3709,40 @@ fn contains_reference_type(ty: &crate::Type, reference_types: &HashSet<String>) 
             .any(|field| contains_reference_type(field, reference_types)),
         crate::Type::Named(name) => reference_types.contains(name),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod allocation_free_place_tests {
+    use super::*;
+
+    #[test]
+    fn streaming_conflicts_match_collected_prefixes() {
+        let mut places = vec![String::new()];
+        for root in ["owner", "other", "*"] {
+            places.push(root.to_owned());
+            for field in ["a", "b", "*", ""] {
+                let place = format!("{root}{PLACE_SEPARATOR}{field}");
+                places.push(place.clone());
+                for nested in ["x", "y", "*", ""] {
+                    places.push(format!("{place}{PLACE_SEPARATOR}{nested}"));
+                }
+            }
+        }
+        for left in &places {
+            for right in &places {
+                let left_parts = left.split(PLACE_SEPARATOR).collect::<Vec<_>>();
+                let right_parts = right.split(PLACE_SEPARATOR).collect::<Vec<_>>();
+                let expected = left_parts
+                    .iter()
+                    .zip(&right_parts)
+                    .all(|(a, b)| a == b || *a == "*" || *b == "*");
+                assert_eq!(
+                    places_conflict(left, right),
+                    expected,
+                    "{left:?}, {right:?}"
+                );
+            }
+        }
     }
 }

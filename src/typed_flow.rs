@@ -6427,7 +6427,7 @@ impl FlowGraph {
                 let operand = *children.get(1)?;
                 types
                     .is_linear(body.nodes[operand.0].ty.as_ref()?)
-                    .then_some(place.clone())
+                    .then(|| place.clone())
             })
             .collect::<HashSet<_>>();
         if linear_places.is_empty() {
