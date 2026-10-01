@@ -3910,21 +3910,20 @@ impl FlowGraph {
         }
         while let Some(id) = pending.pop_front() {
             queued[id.0] = false;
-            let mut next_after = vec![0u64; words];
-            for successor in &self.nodes[id.0].successors {
-                for (word, successor_word) in next_after.iter_mut().zip(&before[successor.0]) {
-                    *word |= successor_word;
-                }
+            // Compute one word at a time in the existing snapshots. Successor
+            // reads must precede the update, including for a self-loop.
+            let mut changed = false;
+            for word in 0..words {
+                let next_after = self.nodes[id.0]
+                    .successors
+                    .iter()
+                    .fold(0, |bits, successor| bits | before[successor.0][word]);
+                let next_before = (next_after & !defs[id.0][word]) | uses[id.0][word];
+                changed |= before[id.0][word] != next_before || after[id.0][word] != next_after;
+                before[id.0][word] = next_before;
+                after[id.0][word] = next_after;
             }
-            let mut next_before = next_after.clone();
-            for ((word, used), defined) in next_before.iter_mut().zip(&uses[id.0]).zip(&defs[id.0])
-            {
-                *word = (*word & !*defined) | *used;
-            }
-            let changed = before[id.0] != next_before || after[id.0] != next_after;
             if changed {
-                before[id.0] = next_before;
-                after[id.0] = next_after;
                 for predecessor in &predecessors[id.0] {
                     if !queued[predecessor.0] {
                         pending.push_back(*predecessor);
@@ -8356,6 +8355,42 @@ mod tests {
             .unwrap();
         assert_eq!(origins.before(cleanup, view).len(), 1);
         assert!(origins.after(cleanup, view).is_empty());
+    }
+
+    #[test]
+    fn liveness_preserves_bindings_across_multiple_bitset_words() {
+        let mut source = String::from("(#fn main () u64 ");
+        for index in 0..130 {
+            source.push_str(&format!("(#let value{index} u64 {index}u64) "));
+        }
+        for index in 0..129 {
+            source.push_str(&format!("(#forget value{index}) "));
+        }
+        source.push_str("(#return value129))");
+        let program = crate::parse_program(&source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let graph = &checked.declarations().flows["main"];
+        let liveness = &checked.declarations().liveness["main"];
+        let last = BindingId(
+            body.bindings
+                .iter()
+                .position(|b| b.name == "value129")
+                .unwrap(),
+        );
+        let bound = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                matches!(node.action, FlowAction::Bind { binding, .. } if binding == last)
+                    .then_some(FlowNodeId(index))
+            })
+            .unwrap();
+        assert_eq!(liveness.before(bound).len(), 129);
+        assert_eq!(liveness.after(bound).len(), 130);
+        assert!(!liveness.before(bound).contains(&last));
+        assert!(liveness.after(bound).contains(&last));
     }
 
     #[test]

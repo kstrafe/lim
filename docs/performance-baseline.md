@@ -19,6 +19,27 @@ not a per-phase memory profile.
 
 ## Shared typed ownership facts (2026-09-30)
 
+### Allocation-free liveness updates
+
+Backward liveness now computes each bitset word directly into its retained
+before/after snapshots, removing two temporary vector allocations per
+worklist visit. Successor words are read before updating the current word,
+preserving self-loop and back-edge fixed-point behavior. A new regression
+checks 130 simultaneously live bindings across three bitset words.
+
+Warm end-to-end CLI measurements used two warmups and 60 samples per
+compiler, baseline first, with separate generator-cache warmups:
+
+| Warm median (ms) | Before | After | Reduction |
+| --- | ---: | ---: | ---: |
+| `async_fn.lim` | 33.51 | 32.23 | 3.8% |
+| `vec_allocator.lim` | 23.85 | 23.80 | 0.2% |
+
+Executable bytes were identical for both workloads. These sequential
+measurements suggest a small async improvement, not a statistically
+established speedup; the vector result is effectively unchanged. The
+allocation removal is deterministic regardless of timing noise.
+
 ### Move completed dataflow snapshots instead of cloning them
 
 Loan-origin and consumption solvers now publish each completed outgoing
