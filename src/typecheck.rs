@@ -10188,6 +10188,11 @@ mod typed_ownership_tests {
         assert_eq!(mapped, vec![inherited.clone()]);
         let calls = [(event, Vec::new(), false)];
         let requirements = [(event, mapped, unknown)];
+        assert_eq!(
+            flow.infer_referent_call_consumed_entry(body, &types, &calls, &[], &requirements,)
+                .unwrap(),
+            vec![inherited.clone()]
+        );
         assert!(flow
             .check_referent_call_consumed_entry(body, &types, &calls, &[], &requirements)
             .is_err());
@@ -10268,6 +10273,34 @@ mod typed_ownership_tests {
                 unknown_result.is_err(),
                 "unknown targets cannot establish an entry proof"
             );
+            assert!(flow
+                .infer_referent_call_consumed_entry(
+                    body,
+                    &types,
+                    &calls,
+                    &[],
+                    &[(event, mapped.clone(), true)]
+                )
+                .is_err());
+            let inherited = flow
+                .infer_referent_call_consumed_entry(
+                    body,
+                    &types,
+                    &calls,
+                    &[],
+                    &[(event, mapped.clone(), unknown)],
+                )
+                .unwrap();
+            if both {
+                assert!(inherited.is_empty());
+            } else {
+                assert_eq!(
+                    inherited,
+                    vec![crate::typed_place::Place::root(
+                        crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(1))
+                    )]
+                );
+            }
             let result = flow.check_referent_call_consumed_entry(
                 body,
                 &types,

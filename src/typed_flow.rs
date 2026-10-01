@@ -2289,6 +2289,57 @@ impl FlowGraph {
     }
 
     #[cfg(test)]
+    pub fn infer_referent_call_consumed_entry(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        requirements: &[(FlowNodeId, Vec<Place>, bool)],
+    ) -> Result<Vec<Place>, ReleaseConflict> {
+        let moves =
+            self.referent_consumptions_with_restorations(body, types, calls, restorations, &[]);
+        let mut inherited = Vec::new();
+        for (event, places, unknown) in requirements {
+            let Some(state) = moves.definitely_before[event.0].as_ref() else {
+                continue;
+            };
+            let failure = || ReleaseConflict {
+                message: "cannot infer a consumed-entry contract for this initializer call".into(),
+                span: self.nodes[event.0].span,
+                labels: Vec::new(),
+            };
+            if *unknown {
+                return Err(failure());
+            }
+            for place in places {
+                if state.iter().any(|consumed| place_covers(consumed, place)) {
+                    continue;
+                }
+                // Only caller input storage can acquire an entry contract.
+                // A live local owner requires actual local consumption.
+                if !matches!(place.root, PlaceRoot::Parameter(_)) {
+                    return Err(failure());
+                }
+                if !inherited.contains(place) {
+                    inherited.push(place.clone());
+                }
+            }
+        }
+        self.check_referent_call_consumed_entry_from_entry(
+            body,
+            types,
+            calls,
+            restorations,
+            requirements,
+            &inherited,
+        )?;
+        // This validates call consumption preconditions only. Direct body
+        // reads, writes, and complete exit contracts remain separate checks.
+        Ok(inherited)
+    }
+
+    #[cfg(test)]
     pub fn check_referent_call_consumed_entry_from_entry(
         &self,
         body: &Body,
