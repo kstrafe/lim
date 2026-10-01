@@ -7051,6 +7051,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn loaded_parameter_pointees_have_distinct_access_paths_from_the_container() {
+        let program = crate::parse_program(
+            "(#struct Views (: left (#pin-ref u64) : right (#pin-ref u64)))
+             (#fn inspect (: source (#ref Views)) u64
+               (#let loaded Views (#deref source))
+               (#let left u64 (#unsafe (#pin-read (#get loaded left))))
+               (#let right u64 (#unsafe (#pin-read (#get loaded right))))
+               (#forget loaded)
+               (#return (#u64.+.wrap left right)))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let origins = flow.loan_origins(body);
+        let mut accesses = Vec::new();
+        for (index, node) in flow.nodes.iter().enumerate() {
+            let FlowAction::Evaluate(value) = node.action else {
+                continue;
+            };
+            if !matches!(&body.nodes[value.0].kind,
+                NodeKind::Form { head, .. } if head == "pin-read")
+            {
+                continue;
+            }
+            let places =
+                dereferenced_value_places(body, flow, FlowNodeId(index), value, &origins).unwrap();
+            assert_eq!(places.len(), 1);
+            accesses.push(places[0].clone());
+        }
+        let source = PlaceRoot::Parameter(BindingId(0));
+        assert_eq!(accesses.len(), 2);
+        for place in &accesses {
+            assert_eq!(place.root, source);
+            assert_ne!(
+                *place,
+                Place::root(source.clone()),
+                "a stored pointee must not collapse to the container address"
+            );
+        }
+        assert_ne!(accesses[0], accesses[1]);
+        for field in ["left", "right"] {
+            let expected = vec![
+                Segment::Dereference,
+                Segment::Field(
+                    declarations
+                        .field_id(&Type::Named("Views".into()), field)
+                        .unwrap(),
+                ),
+            ];
+            assert!(accesses.iter().any(|place| place.segments == expected));
+        }
+    }
+
+    #[test]
     fn whole_local_loads_specialize_selected_slots_and_do_not_invent_pointees() {
         let address = LoanOrigin {
             place: Place {
