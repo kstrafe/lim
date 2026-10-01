@@ -1107,6 +1107,10 @@ pub(crate) struct Body {
     /// Every-normal-return contents clearing, not an initialization contract.
     #[cfg(test)]
     pub call_parameter_clears: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
+    /// Keep opt-in ownership passes on the same provenance interpretation as
+    /// their inferred contracts. Production bodies have no such mode flag.
+    #[cfg(test)]
+    pub staged_parameter_contents: bool,
     /// Interprocedural return-origin summaries shared by all checked bodies.
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     #[cfg(test)]

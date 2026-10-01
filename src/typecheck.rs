@@ -12448,6 +12448,102 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_contents_do_not_hide_reads_of_destroyed_reference_storage() {
+        let source = "(#struct Part (: view (#ref u64))) (#linear Part)
+            (#fn inspect (: target (#ref-mut Part) : replacement (#ref u64)) ()
+              (#forget (#deref target))
+              (#let invalid (#ref u64) (#get target view)) (#drop invalid)
+              (#deref-set target (#struct-literal Part (: view replacement))) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("{error:?}");
+        };
+        assert_eq!(function, "inspect");
+        assert!(
+            conflict.message.contains("used more than once"),
+            "{conflict:?}"
+        );
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#get target view)");
+        assert!(conflict
+            .labels
+            .iter()
+            .any(|(span, _)| &source[span.start..span.end] == "(#forget (#deref target))"));
+    }
+
+    #[test]
+    fn staged_contents_async_ownership_migration_audit() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for name in [
+            "async_fn_local_self_reference",
+            "async_fn_self_reference",
+            "async_fn_enum_self_reference",
+        ] {
+            let path = root.join("examples").join(format!("{name}.lim"));
+            let source = std::fs::read_to_string(&path).unwrap();
+            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .expect_err("resolved async ownership cases must move into the positive corpus");
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("{name}: {error:?}");
+            };
+            assert_eq!(function, "main", "{name}");
+            assert!(
+                conflict.message.contains("unresolved call inputs"),
+                "{name}: {conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert!(
+                source[span.start..span.end].starts_with("(#call"),
+                "{name}: {conflict:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn staged_contents_and_ownership_share_restore_provenance() {
+        let source = "(#struct Part (: view (#ref u64))) (#linear Part)
+            (#fn replace (: target (#ref-mut Part) : replacement (#ref u64)) ()
+              (#forget (#deref target))
+              (#deref-set target (#struct-literal Part (: view replacement))) (#return ()))
+            (#fn forward (: target (#ref-mut Part) : replacement (#ref u64)) ()
+              (#call replace (: target target : replacement replacement)) (#return ()))
+            (#fn main () u64
+              (#let-mut old u64 7u64) (#let-mut replacement u64 42u64)
+              (#let-mut holder Part (#struct-literal Part (: view (#borrow old))))
+              (#let target (#ref-mut Part) (#borrow-mut holder))
+              (#call forward (: target target : replacement (#borrow replacement)))
+              (#drop target) (#set old 9u64)
+              (#let value u64 (#deref (#get holder view))) (#forget holder)
+              (#set replacement 9u64) (#return value))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        assert!(declarations
+            .bodies
+            .values()
+            .all(|body| body.staged_parameter_contents));
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let cache = std::cell::OnceCell::from(flow.loan_origins(body));
+        crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache).unwrap();
+    }
+
+    #[test]
     fn staged_callee_field_destruction_preserves_sibling_loans() {
         for premature in [false, true] {
             let mutation = if premature { "(#set right 9u64)" } else { "" };

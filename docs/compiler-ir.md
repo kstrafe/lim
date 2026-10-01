@@ -465,6 +465,18 @@ forwarding, whole/field destruction, sibling protection, nested redirection,
 conditional clearing, later restoration/calls, non-returning bodies, and exact
 escaped/sibling mutation spans. Conditional consumption, complete ownership
 contracts, and production migration remain open.
+Opting into the interprocedural contents pass now also records that provenance
+mode on staged bodies. Subsequent ordinary `loan_origins` queries, including
+consumption, entry-contract, restoration, and borrow passes, use the same
+contents-aware solver instead of silently returning to entry-schema loads.
+Default test bodies and production builds keep their previous behavior. A
+combined regression verifies destroy/restore forwarding with reference-bearing
+storage across both ownership contracts and live loans. Reading the destroyed
+field before restoration remains an error despite empty reference facts, with
+the exact read span and destruction label. The three self-referential async
+examples still fail combined ownership inference in `main` with unresolved
+call inputs at the polling call; this remains an explicit migration gate,
+not evidence of arbitrary-body suspension support.
 Return-variant-conditioned clearing, storage contents after parameter writes,
 and definite restoration must be integrated before replacing production checking.
 

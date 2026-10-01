@@ -1130,6 +1130,10 @@ impl Declarations {
         &mut self,
         #[cfg(test)] include_parameter_contents: bool,
     ) {
+        #[cfg(test)]
+        for body in self.bodies.values_mut() {
+            body.staged_parameter_contents = include_parameter_contents;
+        }
         let mut names = self.bodies.keys().cloned().collect::<Vec<_>>();
         names.sort();
         let mut parameter_slots = HashMap::new();

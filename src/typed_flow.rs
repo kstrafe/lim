@@ -1117,7 +1117,11 @@ impl FlowGraph {
     pub fn loan_origins(&self, body: &Body) -> FlowLoanOrigins {
         #[cfg(test)]
         {
-            self.solve_loan_origins(body, false, false, false)
+            if body.staged_parameter_contents {
+                self.solve_loan_origins(body, true, true, true)
+            } else {
+                self.solve_loan_origins(body, false, false, false)
+            }
         }
         #[cfg(not(test))]
         {
