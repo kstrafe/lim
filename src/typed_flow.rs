@@ -4573,11 +4573,7 @@ impl FlowGraph {
             }
             for successor in &self.nodes[id.0].successors {
                 let changed = match &mut definitely_before[successor.0] {
-                    Some(existing) => {
-                        let prior_len = existing.len();
-                        existing.retain(|place| state.contains(place));
-                        existing.len() != prior_len
-                    }
+                    Some(existing) => intersect_consumed_coverage(existing, &state),
                     slot @ None => {
                         *slot = Some(state.clone());
                         true
@@ -7286,6 +7282,61 @@ fn linear_obligation_place(
 
 fn place_covers(ancestor: &Place, descendant: &Place) -> bool {
     ancestor.root == descendant.root && descendant.segments.starts_with(&ancestor.segments)
+}
+
+/// Meet definite consumed regions, retaining structural leaves covered on
+/// both paths even when one path consumed their whole parent. Probe prefix
+/// identities in the sets instead of comparing every pair of places.
+fn intersect_consumed_coverage(held: &mut HashSet<Place>, incoming: &HashSet<Place>) -> bool {
+    if held.is_subset(incoming) {
+        return false;
+    }
+    if incoming.is_subset(held) {
+        held.clone_from(incoming);
+        return true;
+    }
+    let common = held
+        .union(incoming)
+        .filter(|place| {
+            consumed_coverage_contains(held, place) && consumed_coverage_contains(incoming, place)
+        })
+        .cloned()
+        .collect::<HashSet<_>>();
+    if common == *held {
+        false
+    } else {
+        *held = common;
+        true
+    }
+}
+
+fn consumed_coverage_contains(consumed: &HashSet<Place>, place: &Place) -> bool {
+    if consumed.contains(place) {
+        return true;
+    }
+    if place
+        .segments
+        .iter()
+        .any(|segment| matches!(segment, Segment::DynamicIndex | Segment::SliceDynamicIndex))
+    {
+        return false;
+    }
+    let mut parent = place.clone();
+    while let Some(segment) = parent.segments.pop() {
+        // A stored reference's pointee and a slice-region token are not
+        // structural parts of their containing value. Exact facts above
+        // remain available, but a consumed container cannot invent them.
+        if !matches!(
+            segment,
+            Segment::Field(_) | Segment::Tuple(_) | Segment::Payload(_, _) | Segment::Index(_)
+        ) {
+            return false;
+        }
+        if consumed.contains(&parent) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -10085,6 +10136,67 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn definite_consumption_meet_preserves_only_structural_coverage() {
+        let root = Place::root(PlaceRoot::Local(BindingId(0)));
+        let place = |segments| Place {
+            root: root.root.clone(),
+            segments,
+        };
+        let child = place(vec![Segment::Tuple(0)]);
+        for (left, right) in [(root.clone(), child.clone()), (child.clone(), root.clone())] {
+            let changed = left != child;
+            let mut held = HashSet::from([left]);
+            assert_eq!(
+                intersect_consumed_coverage(&mut held, &HashSet::from([right])),
+                changed
+            );
+            assert_eq!(held, HashSet::from([child.clone()]));
+        }
+        for boundary in [
+            Segment::Dereference,
+            Segment::DynamicIndex,
+            Segment::SliceIndex(0),
+            Segment::SliceDynamicIndex,
+            Segment::SliceHalf(0),
+        ] {
+            let mut held = HashSet::from([root.clone()]);
+            let incoming = HashSet::from([place(vec![boundary, Segment::Tuple(0)])]);
+            assert!(intersect_consumed_coverage(&mut held, &incoming));
+            assert!(held.is_empty());
+        }
+        let mut held = HashSet::from([child.clone()]);
+        assert!(intersect_consumed_coverage(
+            &mut held,
+            &HashSet::from([place(vec![Segment::Tuple(1)])])
+        ));
+        assert!(held.is_empty());
+        let mut held = HashSet::from([root.clone()]);
+        assert!(intersect_consumed_coverage(
+            &mut held,
+            &HashSet::from([Place::root(PlaceRoot::Local(BindingId(1)))])
+        ));
+        assert!(held.is_empty());
+
+        // Structural members of an already identified pointee remain parts
+        // of that pointee; the join cannot cross its address boundary.
+        let pointee = place(vec![Segment::Dereference]);
+        let member = place(vec![Segment::Dereference, Segment::Tuple(0)]);
+        let mut held = HashSet::from([pointee]);
+        assert!(intersect_consumed_coverage(
+            &mut held,
+            &HashSet::from([member.clone()])
+        ));
+        assert_eq!(held, HashSet::from([member]));
+
+        let exact_unknown = place(vec![Segment::DynamicIndex]);
+        let mut held = HashSet::from([exact_unknown.clone()]);
+        assert!(!intersect_consumed_coverage(
+            &mut held,
+            &HashSet::from([exact_unknown])
+        ));
+    }
 
     #[test]
     fn reaching_provenance_definitions_do_not_cross_later_operand_effects() {

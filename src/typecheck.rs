@@ -18053,6 +18053,70 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_fieldwise_cleanup_matches_whole_owner_on_sibling_branch() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/struct_fieldwise_branch.lim");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let program = crate::parse_program_from_path(&source, &path).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+    }
+
+    #[test]
+    fn staged_structural_cleanup_joins_require_every_owned_leaf() {
+        for (ty, initializer, partial, explicit, valid) in [
+            ("Wrapper", "(#struct-literal Wrapper (: first (#struct-literal Resource (: number 1u64)) : second (#struct-literal Resource (: number 2u64))))",
+             "(#forget (#get value first)) (#forget (#get value second))", "", true),
+            ("Wrapper", "(#struct-literal Wrapper (: first (#struct-literal Resource (: number 1u64)) : second (#struct-literal Resource (: number 2u64))))",
+             "(#forget (#get value first))", "", false),
+            ("Wrapper", "(#struct-literal Wrapper (: first (#struct-literal Resource (: number 1u64)) : second (#struct-literal Resource (: number 2u64))))",
+             "(#forget (#get value first)) (#forget (#get value second))", "(#linear Wrapper)", false),
+            ("(#tuple Resource u64)", "(#tuple (#struct-literal Resource (: number 1u64)) 2u64)",
+             "(#forget (#get value 0))", "", true),
+            ("(#array Resource 2)", "(#array-of (#array Resource 2) (#struct-literal Resource (: number 1u64)) (#struct-literal Resource (: number 2u64)))",
+             "(#forget (#index value 0usize)) (#forget (#index value 1usize))", "", true),
+            ("(#array Resource 2)", "(#array-of (#array Resource 2) (#struct-literal Resource (: number 1u64)) (#struct-literal Resource (: number 2u64)))",
+             "(#forget (#index value 0usize))", "", false),
+        ] {
+            for expression in [
+                format!("(#if selected (#block (#forget value) 42u64) (#block {partial} 42u64))"),
+                format!("(#match selected (#case true (#block (#forget value) 42u64)) (#case false (#block {partial} 42u64)))"),
+                format!("(#loop (#if selected (#block (#forget value) (#break 42u64)) (#block {partial} (#break 42u64))))"),
+            ] {
+                let source = format!("(#struct Resource (: number u64)) (#linear Resource)
+                  (#struct Wrapper (: first Resource : second Resource)) {explicit}
+                  (#fn inspect (: selected bool) u64
+                    (#let value {ty} {initializer}) (#return {expression}))");
+                let program = crate::parse_program(&source).unwrap();
+                if valid {
+                    crate::check_types(&program).unwrap();
+                }
+                let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let types = crate::linearcheck::LinearTypes::from_program(&program);
+                let result = declarations.staged_contents_referent_entry_contracts(&types);
+                if valid {
+                    result.unwrap();
+                } else {
+                    let error = result.unwrap_err();
+                    let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                        panic!("unexpected error: {error:?}");
+                    };
+                    assert_eq!(function, "inspect");
+                    assert!(conflict.message.contains("linear value 'value'"), "{conflict:?}");
+                    assert!(conflict.message.contains("consum"), "{conflict:?}");
+                    let span = conflict.span.unwrap();
+                    assert_eq!(&source[span.start..span.end], "value");
+                    assert!(!conflict.labels.is_empty(), "{conflict:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn staged_ready_queue_updates_preserve_linear_owner() {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/ready_queue.lim");
