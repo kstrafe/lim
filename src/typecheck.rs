@@ -13351,4 +13351,52 @@ mod typed_ownership_tests {
         let span = conflict.span.unwrap();
         assert_eq!(&source[span.start..span.end], operation);
     }
+
+    #[test]
+    fn staged_call_arguments_validate_provenance_before_callee_mapping() {
+        for (ty, argument) in [
+            ("(#ref u64)", "(#if choice left right)"),
+            (
+                "View",
+                "(#struct-literal View ((value (#if choice left right))))",
+            ),
+            ("Choice", "(#if choice (Has left) (Has right))"),
+        ] {
+            let call = format!("(#call identity ((value {argument}) (ignored 0u64)))");
+            let source = format!(
+                "(#struct View ((value (#ref u64))))
+              (#enum Choice ((Has (#ref u64)) Empty))
+              (#fn identity ((ignored u64) (value {ty})) {ty} (#return value))
+              (#fn caller ((left (#ref u64)) (right (#ref u64)) (choice bool)) {ty}
+                (#return {call}))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap();
+            declarations
+                .bodies
+                .get_mut("caller")
+                .unwrap()
+                .parameter_loan_slots[1]
+                .clear();
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("unexpected error: {error:?}");
+            };
+            assert_eq!(function, "caller");
+            assert!(
+                conflict
+                    .message
+                    .contains("cannot pass reference-bearing argument"),
+                "{ty}: {conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert_eq!(&source[span.start..span.end], call);
+        }
+    }
 }

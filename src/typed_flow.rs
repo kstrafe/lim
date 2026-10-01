@@ -3007,6 +3007,7 @@ impl FlowGraph {
         self.check_referent_consumption_permissions_with_moves(body, types, &seeded)?;
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &seeded)?;
         self.check_stored_reference_provenance(body, declarations, &origins, &seeded)?;
+        self.check_call_argument_reference_provenance(body, declarations, &origins, &seeded)?;
         self.check_returned_referents_initialized(body, declarations, &origins, &seeded)?;
         self.check_linear_exit_obligations_with_moves(
             body,
@@ -3117,6 +3118,49 @@ impl FlowGraph {
             }
         }
         false
+    }
+
+    #[cfg(test)]
+    fn check_call_argument_reference_provenance(
+        &self,
+        body: &Body,
+        declarations: &crate::typed_ir::Declarations,
+        origins: &FlowLoanOrigins,
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
+        for (index, node) in self.nodes.iter().enumerate() {
+            let FlowAction::Evaluate(value) = node.action else {
+                continue;
+            };
+            if moves.before[index].is_none() {
+                continue;
+            }
+            let NodeKind::Form {
+                children,
+                callee: Some(_),
+                ..
+            } = &body.nodes[value.0].kind
+            else {
+                continue;
+            };
+            for argument in children.iter().skip(1) {
+                if self.value_missing_reference_provenance(
+                    body,
+                    declarations,
+                    origins,
+                    FlowNodeId(index),
+                    *argument,
+                ) {
+                    return Err(ReleaseConflict {
+                        message: "cannot pass reference-bearing argument: missing slot provenance"
+                            .into(),
+                        span: node.span,
+                        labels: Vec::new(),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 
     #[cfg(test)]
