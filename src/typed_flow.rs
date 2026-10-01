@@ -2749,20 +2749,6 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             ) && children.len() == 2 =>
         {
             Place::from_expression(body, children[1]).map_or_else(Vec::new, |place| {
-                let inherited_pin = match &place.root {
-                    PlaceRoot::Local(binding) => {
-                        state[binding.0].iter().any(|origin| origin.pinned)
-                    }
-                    _ => false,
-                };
-                let pinned =
-                    inherited_pin || matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut");
-                let lifetime_only = match place.root {
-                    PlaceRoot::Local(binding) => {
-                        state[binding.0].iter().any(|origin| origin.lifetime_only)
-                    }
-                    _ => false,
-                };
                 let borrowed_from = match &place.root {
                     PlaceRoot::Local(binding)
                         if matches!(
@@ -2777,18 +2763,15 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     }
                     _ => None,
                 };
-                let places = resolve_known_referents(body, &place, state, &mut HashSet::new());
+                let places = reborrow_source_origins(&place, state, &mut HashSet::new());
                 places
                     .into_iter()
-                    .map(|place| LoanOrigin {
-                        borrowed_from,
-                        place,
-                        mutable: matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut"),
-                        pinned,
-                        span: node.span,
-                        storage: Vec::new(),
-                        parameter_storage: None,
-                        lifetime_only,
+                    .map(|mut origin| {
+                        origin.borrowed_from = borrowed_from;
+                        origin.mutable = matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut");
+                        origin.pinned |= matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut");
+                        origin.span = node.span;
+                        origin
                     })
                     .collect()
             })
@@ -3367,6 +3350,65 @@ fn value_loan_origins_at_events(
 
 /// Follow only known, direct reference origins. Unknown parameters, aggregate
 /// slots, and cycles keep their original place for conservative analysis.
+fn reborrow_source_origins(
+    place: &Place,
+    state: &LoanState,
+    seen: &mut HashSet<BindingId>,
+) -> Vec<LoanOrigin> {
+    let segments = place
+        .segments
+        .iter()
+        .filter(|segment| **segment != Segment::Dereference)
+        .cloned()
+        .collect::<Vec<_>>();
+    let through_deref = place.segments.contains(&Segment::Dereference);
+    if let PlaceRoot::Local(binding) = place.root {
+        if seen.len() < 128 && seen.insert(binding) {
+            let mut result = Vec::new();
+            for origin in &state[binding.0] {
+                if segments.len() < origin.storage.len()
+                    || (!through_deref && segments.len() == origin.storage.len())
+                    || !segments
+                        .iter()
+                        .zip(&origin.storage)
+                        .all(|(path, slot)| storage_slot_matches(path, slot))
+                {
+                    continue;
+                }
+                let mut next = origin.clone();
+                next.place
+                    .segments
+                    .extend_from_slice(&segments[origin.storage.len()..]);
+                next.storage.clear();
+                for mut resolved in reborrow_source_origins(&next.place, state, seen) {
+                    resolved.lifetime_only |= next.lifetime_only;
+                    resolved.pinned |= next.pinned;
+                    if resolved.parameter_storage.is_none() {
+                        resolved.parameter_storage = next.parameter_storage.clone();
+                    }
+                    if !result.contains(&resolved) {
+                        result.push(resolved);
+                    }
+                }
+            }
+            seen.remove(&binding);
+            if !result.is_empty() {
+                return result;
+            }
+        }
+    }
+    vec![LoanOrigin {
+        place: place.clone(),
+        mutable: false,
+        pinned: false,
+        lifetime_only: false,
+        span: None,
+        borrowed_from: None,
+        storage: Vec::new(),
+        parameter_storage: None,
+    }]
+}
+
 fn resolve_known_referents(
     body: &Body,
     place: &Place,

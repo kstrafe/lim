@@ -9196,13 +9196,15 @@ mod typed_ownership_tests {
     #[test]
     fn lifetime_only_provenance_survives_aggregate_reborrowing() {
         let source = "(#struct Resource ((number u64)))
-          (#struct Holder ((value (#ref-mut Resource))))
-          (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) ()
+          (#struct Holder ((value (#ref-mut Resource)) (safe (#ref-mut Resource))))
+          (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (safe (#ref-mut Resource))) ()
             (#let raw (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
-            (#let-mut holder Holder (#struct-literal Holder ((value raw))))
+            (#let-mut holder Holder (#struct-literal Holder ((value raw) (safe safe))))
             (#let parent (#ref-mut Holder) (#borrow-mut holder))
             (#let derived (#ref-mut u64) (#borrow-mut (#get (#get parent value) number)))
-            (#forget derived) (#forget parent) (#forget holder) (#return ()))";
+            (#forget derived)
+            (#let known (#ref-mut u64) (#borrow-mut (#get (#get parent safe) number)))
+            (#forget known) (#forget parent) (#forget holder) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let body = &declarations.bodies["inspect"];
@@ -9219,6 +9221,21 @@ mod typed_ownership_tests {
         let held = origins.before(release, binding);
         assert!(!held.is_empty());
         assert!(held.iter().all(|origin| origin.lifetime_only));
+        let known = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "known")
+                .unwrap(),
+        );
+        let release = crate::typed_flow::FlowNodeId(flow.nodes.iter().position(|node| matches!(&node.action,
+            crate::typed_flow::FlowAction::Release { place, .. } if place.root == crate::typed_body::PlaceRoot::Local(known))).unwrap());
+        let held = origins.before(release, known);
+        assert_eq!(held.len(), 1);
+        assert!(!held[0].lifetime_only);
+        assert_eq!(
+            held[0].place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(2))
+        );
     }
 
     #[test]

@@ -31,6 +31,10 @@ direct tests, not yet used as a production validation boundary. Return
 summaries also retain the referent's projection separately from the input and
 output reference-storage slots. Call transfer appends that projection to the
 argument's referent, preserving field identity through forwarding calls.
+Ordinary reborrows follow selected reference-storage slots through local
+aliases, retaining lifetime-only provenance and original parameter slots.
+Taking an aggregate's address does not inherit every reference field's
+provenance. Tests distinguish safe and raw-pointer fields in the same holder.
 It follows
 stored reference origins to stable loan roots so losing an alias does not
 erase a move from its referent. Original parameter storage-slot metadata
