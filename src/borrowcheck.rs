@@ -350,6 +350,54 @@ fn array_constructors_retain_projected_reborrow_parents() {
     crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
 }
 
+#[cfg(test)]
+#[test]
+fn moved_and_nested_aggregate_reborrows_protect_parent_calls() {
+    for (release_first, mutable) in [(false, false), (true, false), (false, true), (true, true)] {
+        let release = if release_first {
+            "(#forget wrapped)"
+        } else {
+            ""
+        };
+        let cleanup = if release_first {
+            ""
+        } else {
+            "(#let observed u64 (#deref (#get (#get wrapped view) item))) (#forget wrapped)"
+        };
+        let source = format!(
+            "(#struct Owner ((x u64)))
+             (#struct View ((item (#ref u64))))
+             (#struct Wrapped ((view View)))
+             (#fn overwrite ((parent (#ref-mut Owner))) ()
+               (#deref-set parent (#struct-literal Owner ((x 2u64)))) (#return ()))
+             (#fn inspect ((parent (#ref-mut Owner))) ()
+               (#let view View (#struct-literal View ((item (#borrow (#get parent x))))))
+               (#let moved View view)
+               (#let wrapped Wrapped (#struct-literal Wrapped ((view moved))))
+               {release}
+               (#call overwrite (: parent parent))
+               {cleanup} (#return ()))"
+        );
+        let source = if mutable {
+            source
+                .replace("(#ref u64)", "(#ref-mut u64)")
+                .replace("(#borrow (#get parent x))", "(#borrow-mut (#get parent x))")
+        } else {
+            source
+        };
+        let result = crate::check_types(&crate::parse_program(&source).unwrap());
+        if release_first {
+            result.unwrap();
+        } else {
+            let error = result.unwrap_err();
+            assert!(
+                error.contains("borrow") || error.contains("derived"),
+                "{error}"
+            );
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoanKind {
     Shared(usize),
@@ -1027,6 +1075,7 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                 ensure_origins_in_scope(&origins, context)?;
             }
             let derived_parents = aggregate_reborrow_parents(value, context);
+            let moved_parent_sources = aggregate_moved_parent_sources(value, context);
             let contains_mutable_references = contains_mutable_reference(
                 ty,
                 &context.reference_types,
@@ -1175,6 +1224,20 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                     context
                         .reference_parents
                         .insert(name.clone(), derived_parents);
+                }
+                for source in moved_parent_sources {
+                    context.reference_parents.remove(&source);
+                    context.reference_origins.remove(&source);
+                    context.reference_fields.remove(&source);
+                    if let Some(loans) = context.reference_loans.remove(&source) {
+                        for (_, loan) in loans {
+                            // Exclusive loans transfer without registration;
+                            // shared loans were counted for the destination.
+                            if !matches!(context.loans.active.get(&loan), Some(LoanKind::Mutable)) {
+                                context.loans.end(&loan);
+                            }
+                        }
+                    }
                 }
             }
             if *mutable {
@@ -1335,19 +1398,24 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
 
 fn existing_reference_value_loans(expression: &Expr, context: &Context) -> Vec<(String, String)> {
     match expression {
-        Expr::Symbol(name) if context.reference_bindings.contains(name) => context
-            .reference_loans
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| {
-                context
-                    .reference_origins
-                    .get(name)
-                    .into_iter()
-                    .flatten()
-                    .map(|owner| (owner.clone(), owner.clone()))
-                    .collect()
-            }),
+        Expr::Symbol(name)
+            if context.reference_bindings.contains(name)
+                || context.reference_fields.contains_key(name) =>
+        {
+            context
+                .reference_loans
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| {
+                    context
+                        .reference_origins
+                        .get(name)
+                        .into_iter()
+                        .flatten()
+                        .map(|owner| (owner.clone(), owner.clone()))
+                        .collect()
+                })
+        }
         Expr::List(items)
             if items.len() == 2
                 && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut")) =>
@@ -2763,6 +2831,43 @@ fn aggregate_reborrow_parents(expression: &Expr, context: &Context) -> HashSet<S
     if let Some(parent) = context_reborrow_parent(expression, context) {
         return HashSet::from([parent]);
     }
+    if let Expr::Symbol(name) = expression {
+        return context
+            .reference_parents
+            .get(name)
+            .cloned()
+            .unwrap_or_default();
+    }
+    let Expr::List(items) = expression else {
+        return HashSet::new();
+    };
+    let Some(Expr::Symbol(head)) = items.first() else {
+        return HashSet::new();
+    };
+    if !context.reference_types.contains(head)
+        && !context.reference_variants.contains(head)
+        && !matches!(head.as_str(), "tuple" | "array" | "array-repeat" | "clone")
+    {
+        return HashSet::new();
+    }
+    items
+        .iter()
+        .skip(1)
+        .flat_map(|child| aggregate_reborrow_parents(child, context))
+        .collect()
+}
+
+fn aggregate_moved_parent_sources(expression: &Expr, context: &Context) -> HashSet<String> {
+    if let Expr::Symbol(name) = expression {
+        return if context.reference_parents.contains_key(name)
+            && (!context.reference_bindings.contains(name)
+                || context.mutable_references.contains(name))
+        {
+            HashSet::from([name.clone()])
+        } else {
+            HashSet::new()
+        };
+    }
     let Expr::List(items) = expression else {
         return HashSet::new();
     };
@@ -2778,7 +2883,7 @@ fn aggregate_reborrow_parents(expression: &Expr, context: &Context) -> HashSet<S
     items
         .iter()
         .skip(1)
-        .flat_map(|child| aggregate_reborrow_parents(child, context))
+        .flat_map(|child| aggregate_moved_parent_sources(child, context))
         .collect()
 }
 

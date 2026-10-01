@@ -13417,6 +13417,7 @@ mod typed_ownership_tests {
             "string_expression",
             "ref_field_mutation",
             "pinned_self_reference",
+            "aggregate_reborrow",
         ] {
             let path = root.join("examples").join(format!("{name}.lim"));
             let source = std::fs::read_to_string(&path).unwrap();
