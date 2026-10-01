@@ -1187,6 +1187,64 @@ impl FlowGraph {
         returned.unwrap_or_default()
     }
 
+    /// Conditional final contents for explicit returned enum constructors.
+    /// Unknown return values remain possible for every selected variant.
+    /// Original event IDs and all writes after construction are preserved.
+    #[cfg(test)]
+    pub fn parameter_store_variant_summaries(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> HashMap<VariantId, Vec<crate::typed_body::ParameterStoreSummary>> {
+        let mut alternatives = Vec::new();
+        for node in &self.nodes {
+            if let FlowAction::Return(Some(value)) = node.action {
+                collect_result_alternatives(body, value, &mut alternatives);
+            }
+        }
+        // Loop result values live at break events rather than at the loop's
+        // merged evaluation node. Include nested loop alternatives without
+        // inventing a result for a loop with no reachable value break.
+        let mut visited = HashSet::new();
+        let mut constructors = HashMap::new();
+        while let Some(value) = alternatives.pop() {
+            if !visited.insert(value) {
+                continue;
+            }
+            if matches!(body.nodes[value.0].kind, NodeKind::Loop(_)) {
+                for node in &self.nodes {
+                    if let FlowAction::Break {
+                        value: Some(break_value),
+                        result: Some(result),
+                    } = node.action
+                    {
+                        if result == value {
+                            collect_result_alternatives(body, break_value, &mut alternatives);
+                        }
+                    }
+                }
+            } else if let Some(variant) = constructor_variant_at_storage(body, value, &[]) {
+                constructors.insert(value, variant);
+            }
+        }
+        let mut variants = constructors.values().copied().collect::<Vec<_>>();
+        variants.sort();
+        variants.dedup();
+        let mut result = HashMap::new();
+        for selected in variants {
+            let mut filtered = self.clone();
+            for node in &mut filtered.nodes {
+                if constructors.iter().any(|(value, variant)| {
+                    *variant != selected && flow_action_has_value(&node.action, *value)
+                }) {
+                    node.successors.clear();
+                }
+            }
+            result.insert(selected, filtered.parameter_store_summaries(body, origins));
+        }
+        result
+    }
+
     fn solve_loan_origins(
         &self,
         body: &Body,

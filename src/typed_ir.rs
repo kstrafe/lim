@@ -1192,6 +1192,8 @@ impl Declarations {
         let mut summaries = HashMap::new();
         #[cfg(test)]
         let mut store_summaries = HashMap::new();
+        #[cfg(test)]
+        let mut store_variants = HashMap::new();
         for name in order {
             // Loan transfer only consults direct callees. Copying every summary
             // accumulated so far for every body was another quadratic pass.
@@ -1236,8 +1238,11 @@ impl Declarations {
             let origins = flow.loan_origins(body);
             let mut returned = Vec::new();
             #[cfg(test)]
-            let stores =
-                flow.parameter_store_summaries(body, &flow.staged_store_loan_origins(body));
+            let store_origins = flow.staged_store_loan_origins(body);
+            #[cfg(test)]
+            let stores = flow.parameter_store_summaries(body, &store_origins);
+            #[cfg(test)]
+            let variants = flow.parameter_store_variant_summaries(body, &store_origins);
             for (index, node) in flow.nodes.iter().enumerate() {
                 let crate::typed_flow::FlowAction::Return(Some(value)) = &node.action else {
                     continue;
@@ -1272,16 +1277,21 @@ impl Declarations {
                 summaries.insert(id, returned);
                 #[cfg(test)]
                 store_summaries.insert(id, stores);
+                #[cfg(test)]
+                store_variants.insert(id, variants);
             }
         }
         let shared = Arc::new(summaries);
         #[cfg(test)]
         let shared_stores = Arc::new(store_summaries);
+        #[cfg(test)]
+        let shared_variants = Arc::new(store_variants);
         for body in self.bodies.values_mut() {
             body.call_return_origins = shared.clone();
             #[cfg(test)]
             {
                 body.call_store_origins = shared_stores.clone();
+                body.call_store_variants = shared_variants.clone();
             }
         }
     }

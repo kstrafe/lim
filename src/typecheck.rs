@@ -12390,6 +12390,175 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_variant_clear_example_preserves_the_caller_refinement_gap() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/callee_variant_clear.lim");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let program = crate::parse_program_from_path(&source, &path).unwrap();
+        crate::check_types(&program).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let cache = std::cell::OnceCell::from(flow.staged_store_loan_origins(body));
+        let conflict =
+            crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                .expect_err(
+                    "resolved caller variant refinement must be promoted to the positive corpus",
+                );
+        assert!(
+            conflict.message.contains("value") && conflict.message.contains("borrow"),
+            "{conflict:?}"
+        );
+        assert!(conflict.span.is_some());
+    }
+
+    #[test]
+    fn staged_async_poll_store_contracts_separate_ready_from_pending() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for (example, poll, result_type, ready_name, pending_name) in [
+            (
+                "async_fn_local_self_reference",
+                "local-self-ref-poll",
+                "LocalSelfRefPoll",
+                "LocalSelfRefReady",
+                "LocalSelfRefPending",
+            ),
+            (
+                "async_fn_self_reference",
+                "self-ref-poll",
+                "SelfRefPoll",
+                "SelfRefReady",
+                "SelfRefPending",
+            ),
+            (
+                "async_fn_enum_self_reference",
+                "enum-poll",
+                "EnumPoll",
+                "EnumReady",
+                "EnumPending",
+            ),
+        ] {
+            let path = root.join("examples").join(format!("{example}.lim"));
+            let source = std::fs::read_to_string(&path).unwrap();
+            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            crate::check_types(&program).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies[poll];
+            let groups = &body.call_store_variants[&declarations.function_id(poll).unwrap()];
+            let ty = crate::Type::Named(result_type.into());
+            let ready = &groups[&declarations.variant_id(&ty, ready_name).unwrap()];
+            let pending = &groups[&declarations.variant_id(&ty, pending_name).unwrap()];
+            assert!(!ready.is_empty(), "{example}");
+            assert!(
+                ready
+                    .iter()
+                    .all(|store| store.definitely_written && store.sources.is_empty()),
+                "{example}: {ready:?}"
+            );
+            assert!(
+                pending.iter().any(|store| !store.sources.is_empty()),
+                "{example}: {pending:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn staged_return_conditioned_contents_include_writes_after_constructor_evaluation() {
+        use crate::typed_flow::{FlowAction, FlowNode, FlowNodeId};
+        let source = "(#enum Choice ((Empty) (Full (#ref u64))))
+            (#enum Outcome ((Ready) (Pending)))
+            (#fn choose (: target (#ref-mut Choice) : value (#ref u64)) Outcome
+              (#deref-set target (Full value)) (#deref-set target (Empty))
+              (#return (Ready)))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["choose"];
+        let mut flow = declarations.flows["choose"].clone();
+        let ready = declarations
+            .variant_id(&crate::Type::Named("Outcome".into()), "Ready")
+            .unwrap();
+        let write = flow.nodes.iter().find(|node| matches!(node.action, FlowAction::Write { value, .. }
+            if matches!(&body.nodes[value.0].kind, crate::typed_body::NodeKind::Form { children, .. }
+                if matches!(&body.nodes[children[2].0].kind, crate::typed_body::NodeKind::Form { head, .. } if head == "Full")))).unwrap().clone();
+        let evaluated = flow.nodes.iter().position(|node| matches!(node.action, FlowAction::Evaluate(value)
+            if matches!(&body.nodes[value.0].kind, crate::typed_body::NodeKind::Form { children, .. }
+                if matches!(body.nodes[children[0].0].kind, crate::typed_body::NodeKind::Declaration(crate::typed_ir::DeclarationId::Variant(variant)) if variant == ready)))).unwrap();
+        let extra = FlowNodeId(flow.nodes.len());
+        let successors = std::mem::replace(&mut flow.nodes[evaluated].successors, vec![extra]);
+        flow.nodes.push(FlowNode {
+            action: write.action,
+            span: write.span,
+            successors,
+        });
+        let origins = flow.staged_store_loan_origins(body);
+        let groups = flow.parameter_store_variant_summaries(body, &origins);
+        assert!(
+            groups[&ready].iter().any(|store| !store.sources.is_empty()),
+            "constructor snapshots must not hide later writes"
+        );
+    }
+
+    #[test]
+    fn staged_return_variant_store_contracts_preserve_unknown_and_same_variant_paths() {
+        for mode in [
+            "explicit-returns",
+            "nested-result",
+            "loop-result",
+            "unknown-result",
+            "unknown-written",
+            "same-variant",
+        ] {
+            let clear = "(#deref-set target (Empty))";
+            let write = "(#deref-set target (Full value))";
+            let body = match mode {
+                "explicit-returns" => format!("(#if selected (#block {clear} (#return (Ready))) (#block {write} (#return (Pending)))) (#return unknown)"),
+                "nested-result" => format!("(#return (#if selected (#block {clear} (Ready)) (#block {write} (Pending))))"),
+                "loop-result" => format!("(#return (#loop (#if selected (#block {clear} (#break (Ready))) (#block {write} (#break (Pending))))))"),
+                "unknown-result" => format!("(#return (#if selected (#block {clear} (Ready)) unknown))"),
+                "unknown-written" => format!("(#return (#if selected (#block {clear} (Ready)) (#block {write} unknown)))"),
+                "same-variant" => format!("(#return (#if selected (#block {clear} (Ready)) (#block {write} (Ready))))"),
+                _ => unreachable!(),
+            };
+            let source = format!("(#enum Choice ((Empty) (Full (#ref u64))))
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn choose (: target (#ref-mut Choice) : value (#ref u64) : selected bool : unknown Outcome) Outcome {body})");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["choose"];
+            let groups = &body.call_store_variants[&declarations.function_id("choose").unwrap()];
+            let outcome = crate::Type::Named("Outcome".into());
+            let ready = declarations.variant_id(&outcome, "Ready").unwrap();
+            let pending = declarations.variant_id(&outcome, "Pending").unwrap();
+            let stores = &groups[&ready];
+            assert_eq!(stores.len(), 1, "{mode}: {stores:?}");
+            assert_eq!(
+                stores[0].definitely_written,
+                mode != "unknown-result",
+                "{mode}: {stores:?}"
+            );
+            assert_eq!(
+                !stores[0].sources.is_empty(),
+                matches!(mode, "unknown-written" | "same-variant"),
+                "{mode}: {stores:?}"
+            );
+            if matches!(mode, "explicit-returns" | "nested-result" | "loop-result") {
+                let stores = &groups[&pending];
+                assert_eq!(stores.len(), 1, "{mode}: {stores:?}");
+                assert!(
+                    stores[0].definitely_written && !stores[0].sources.is_empty(),
+                    "{mode}: {stores:?}"
+                );
+            } else {
+                assert!(
+                    !groups.contains_key(&pending),
+                    "unknown outcomes are not explicit constructor proofs"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn staged_final_store_sources_follow_callee_updates_to_local_storage() {
         let source = "(#struct Holder (: view (#ref u64)))
             (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()

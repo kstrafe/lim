@@ -374,3 +374,4 @@ exit 42 borrowed_variant.lim - -
 exit 42 pinned_holder_restore.lim - -
 exit 42 callee_reference_store.lim - -
 exit 42 callee_reference_clear.lim - -
+exit 42 callee_variant_clear.lim - -

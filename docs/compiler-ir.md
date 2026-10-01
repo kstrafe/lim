@@ -355,6 +355,13 @@ and block-local escape cases currently missed by production return-only
 summaries. Conversely, possible stores alone cannot establish that Ready or
 cancellation cleared a self-reference: explicit regressions preserve the
 resulting migration failures for all three self-reference async examples.
+Test-only summaries now distinguish final stores for known returned enum
+variants, including nested branches and loop breaks. Unknown returns remain
+possible in every variant summary; writes after constructor evaluation are
+included. The three self-reference poll examples have clearing Ready summaries
+and retaining Pending summaries. Caller refinement is still absent: conditional
+facts must be tied to the original call and invalidated by intervening writes.
+`examples/callee_variant_clear.lim` preserves that staged caller limitation.
 Return-variant-conditioned clearing, storage contents after parameter writes,
 and definite restoration must be integrated before replacing production checking.
 
