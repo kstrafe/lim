@@ -950,8 +950,13 @@ impl Declarations {
                 );
                 let (mut entry_reads, _) = flow.referent_reads(body);
                 entry_reads.extend(call_entry_reads);
-                summary.entry_reads =
-                    flow.filter_referent_entry_reads_with_calls(body, types, entry_reads, &calls);
+                summary.entry_reads = flow.filter_referent_entry_reads_with_restorations(
+                    body,
+                    types,
+                    entry_reads,
+                    &calls,
+                    &restorations,
+                );
                 summary.restored_from_consumed_entry = flow
                     .referent_restoration_guarantees_with_calls(body, types, &calls, &restorations);
                 summary.reads.extend(call_reads);

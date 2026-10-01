@@ -1655,6 +1655,18 @@ impl FlowGraph {
         reads: Vec<ReferentRead>,
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
     ) -> Vec<ReferentRead> {
+        self.filter_referent_entry_reads_with_restorations(body, types, reads, calls, &[])
+    }
+
+    #[cfg(test)]
+    pub fn filter_referent_entry_reads_with_restorations(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        reads: Vec<ReferentRead>,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+    ) -> Vec<ReferentRead> {
         let mut candidates = Vec::new();
         for read in &reads {
             if matches!(
@@ -1665,8 +1677,13 @@ impl FlowGraph {
                 candidates.push(read.place.clone());
             }
         }
-        let moves =
-            self.referent_consumptions_with_calls_from_entry(body, types, calls, &candidates);
+        let moves = self.referent_consumptions_with_restorations(
+            body,
+            types,
+            calls,
+            restorations,
+            &candidates,
+        );
         let requirements = reads
             .into_iter()
             .filter(|read| {

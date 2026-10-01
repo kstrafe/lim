@@ -10143,6 +10143,37 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_callee_restoration_satisfies_later_read_requirements() {
+        for definite in [false, true] {
+            let initialize = if definite {
+                "(#call initialize (: value value))"
+            } else {
+                "(#if choice (#call initialize (: value value)) ())"
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource))) ()
+                (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+              (#fn read-after ((value (#ref-mut Resource)) (choice bool)) u64
+                {initialize} (#return (#get value number)))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let summaries = declarations
+                .staged_referent_function_effects(&types)
+                .unwrap();
+            let helper = &summaries[&declarations.function_id("read-after").unwrap()];
+            assert_eq!(helper.entry_reads.is_empty(), definite);
+            if !definite {
+                assert_eq!(helper.entry_reads.len(), 1);
+                let span = helper.entry_reads[0].span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#get value number)");
+            }
+        }
+    }
+
+    #[test]
     fn staged_restoration_postconditions_forward_through_helper_calls() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
