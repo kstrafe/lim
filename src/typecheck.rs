@@ -9809,6 +9809,51 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_callee_consumption_restoration_is_path_sensitive() {
+        for (replacement, remaining) in [
+            ("(#deref-set value (#struct-literal Resource ((number 2u64))))", false),
+            ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", true),
+            ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", false),
+        ] {
+            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+              (#fn consume ((value (#ref-mut Resource))) ()
+                (#forget (#deref value)) (#return ()))
+              (#fn restore ((value (#ref-mut Resource)) (choice bool)) ()
+                (#call consume (: value value)) {replacement} (#return ()))");
+            let program = crate::parse_program(&source).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let summary = declarations.flows["consume"]
+                .referent_function_effects(&declarations.bodies["consume"], &types);
+            let body = &declarations.bodies["restore"];
+            let flow = &declarations.flows["restore"];
+            let (event, call) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+                match node.action {
+                    crate::typed_flow::FlowAction::Evaluate(value)
+                        if matches!(&body.nodes[value.0].kind,
+                            crate::typed_body::NodeKind::Form { callee: Some(_), .. }) =>
+                        Some((crate::typed_flow::FlowNodeId(index), value)),
+                    _ => None,
+                }
+            }).unwrap();
+            let (effects, unknown) = flow.map_referent_call_effects(body, event, call, &summary);
+            assert!(!unknown);
+            let restored = flow.referent_function_effects_with_calls(
+                body, &types, &[(event, effects, unknown)],
+            );
+            assert!(restored.has_normal_return);
+            assert!(restored.unresolved.is_empty());
+            assert_eq!(!restored.effects.is_empty(), remaining, "{replacement}");
+            if remaining {
+                assert_eq!(restored.effects.len(), 1);
+                assert!(!restored.effects[0].definitely_consumed);
+                assert_eq!(restored.effects[0].consumption_spans,
+                    summary.effects[0].consumption_spans);
+            }
+        }
+    }
+
+    #[test]
     fn staged_callee_consumption_maps_to_caller_owned_storage() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) () (#forget (#deref value)) (#return ()))
