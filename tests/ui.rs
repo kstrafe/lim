@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "anchor-only-linear-referent-consumption",
+            diagnostic_code: "E4200",
+            offending_line: "  (#forget (#deref target))",
+            line_number: 7,
+        },
+        Case {
             name: "shared-linear-referent-consumption",
             diagnostic_code: "E4200",
             offending_line: "  (#forget (#deref reference))",
@@ -838,6 +844,10 @@ fn compilation_errors_render_the_offending_source_line() {
                     "type mismatch underline is not aligned under the offending value:\n{stderr}"
                 );
             }
+            if case.name == "anchor-only-linear-referent-consumption" {
+                assert!(stderr.contains("cannot prove storage identity"), "{stderr}");
+                assert!(stderr.contains("lifetime-only anchor"), "{stderr}");
+            }
             if case.name == "top-level-mismatch" {
                 let source_row = stderr
                     .lines()
@@ -960,6 +970,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "out-of-range-match-range" => Some("(#range 2 300)"),
             "reversed-match-range" => Some("2"),
             "non-reference-deref-set" => Some("value"),
+            "anchor-only-linear-referent-consumption" => Some("(#forget (#deref target))"),
             "shared-linear-referent-consumption" => Some("(#forget (#deref reference))"),
             "pinned-linear-referent-move" => Some("(#deref reference)"),
             "thread-worker-missing" => Some("missing-worker"),

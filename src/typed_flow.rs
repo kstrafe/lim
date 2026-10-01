@@ -1622,9 +1622,11 @@ impl FlowGraph {
                 })
             {
                 return Err(ReleaseConflict {
-                    message:
+                    message: if loans.iter().any(|loan| loan.lifetime_only) {
+                        "cannot prove storage identity for consuming a linear referent through a lifetime-only anchor"
+                    } else {
                         "consuming a linear referent requires a resolved mutable unpinned reference"
-                            .into(),
+                    }.into(),
                     span: node.span,
                     labels: loans
                         .iter()

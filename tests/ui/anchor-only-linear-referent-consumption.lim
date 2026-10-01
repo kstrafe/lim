@@ -1,0 +1,8 @@
+(#struct Resource ((number u64)))
+(#linear Resource)
+(#fn raw ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) (#ref-mut Resource)
+  (#return (#unsafe (#ptr-borrow-mut anchor pointer))))
+(#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) ()
+  (#let target (#ref-mut Resource) (#call raw (: anchor anchor : pointer pointer)))
+  (#forget (#deref target))
+  (#return ()))
