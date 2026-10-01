@@ -934,6 +934,7 @@ impl Declarations {
             .iter()
             .map(|name| (self.function_id(name).unwrap(), name.clone()))
             .collect::<HashMap<_, _>>();
+        let thread_workers = self.thread_operation_workers();
         let mut summaries = HashMap::new();
         // This is a referent contract, not a purity claim about unsafe code.
         // Scalars and raw pointers carry no checked parameter referents. Raw
@@ -977,7 +978,10 @@ impl Declarations {
                 if body.nodes.iter().any(|node| {
                     matches!(&node.kind,
                     NodeKind::Form { callee: Some(callee), .. }
-                    if body_ids.contains(callee) && !summaries.contains_key(callee))
+                    if {
+                        let dependency = thread_workers.get(callee).unwrap_or(callee);
+                        body_ids.contains(dependency) && !summaries.contains_key(dependency)
+                    })
                 }) {
                     return true;
                 }
@@ -1330,6 +1334,8 @@ impl Declarations {
             .collect::<HashMap<_, _>>();
         let mut remaining_dependencies = HashMap::new();
         let mut callers = HashMap::<String, Vec<String>>::new();
+        #[cfg(test)]
+        let thread_workers = self.thread_operation_workers();
         for name in &names {
             let body = &self.bodies[name];
             let dependencies = body
@@ -1339,9 +1345,13 @@ impl Declarations {
                     crate::typed_body::NodeKind::Form {
                         callee: Some(callee),
                         ..
-                    } => names_by_id
-                        .get(callee)
-                        .filter(|name| self.bodies.contains_key(*name)),
+                    } => {
+                        #[cfg(test)]
+                        let callee = thread_workers.get(callee).unwrap_or(callee);
+                        names_by_id
+                            .get(callee)
+                            .filter(|name| self.bodies.contains_key(*name))
+                    }
                     _ => None,
                 })
                 .cloned()
@@ -1640,6 +1650,19 @@ impl Declarations {
                 body.call_return_variant_bounds = shared_return_bounds.clone();
             }
         }
+    }
+
+    #[cfg(test)]
+    fn thread_operation_workers(&self) -> HashMap<FunctionId, FunctionId> {
+        self.thread_capture_schemas
+            .iter()
+            .flat_map(|(name, captures)| {
+                ["spawn", "join"].into_iter().filter_map(move |operation| {
+                    self.function_id(&format!("{name}-{operation}"))
+                        .map(|id| (id, captures.worker))
+                })
+            })
+            .collect()
     }
 
     #[cfg(test)]

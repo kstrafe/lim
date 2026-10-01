@@ -18117,6 +18117,42 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_thread_worker_errors_precede_caller_contracts() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn z-worker ((owner (#ref-mut Resource))) u64
+            (#forget (#deref owner)) (#return (#get owner number)))
+          (@thread-spawn (: task Task : worker z-worker))
+          (#fn a-caller ((owner (#ref-mut Resource))) u64
+            (#return (#match (#call Task-spawn (: owner owner))
+              (#case (Task-spawn-ok task)
+                (#match (#call Task-join (: task task))
+                  (#case (Task-join-ok result) result)
+                  (#case (Task-join-error (#tuple retry error)) (#panic))))
+              (#case (Task-spawn-error error) (#panic)))))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap_err();
+        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+            panic!("unexpected error: {error:?}");
+        };
+        assert_eq!(function, "z-worker");
+        assert!(
+            conflict.message.contains("used more than once"),
+            "{conflict:?}"
+        );
+        let span = conflict.span.unwrap();
+        assert_eq!(span.source_id, 0);
+        assert_eq!(&source[span.start..span.end], "(#get owner number)");
+        assert!(conflict
+            .labels
+            .iter()
+            .any(|(span, _)| &source[span.start..span.end] == "(#forget (#deref owner))"));
+    }
+
+    #[test]
     fn staged_thread_call_results_preserve_capture_and_retry_origins() {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/thread_spawn.lim");
