@@ -1791,8 +1791,7 @@ impl FlowGraph {
         self.check_linear_consumptions_with_moves(body, &moves)
     }
 
-    /// Staged checks for direct owner accesses after inferred call effects.
-    /// Reference-projected accesses still need resolved access identities.
+    /// Staged owner and known reference-projection checks after call effects.
     #[cfg(test)]
     pub fn check_owner_consumptions_with_calls(
         &self,
@@ -1801,13 +1800,23 @@ impl FlowGraph {
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
     ) -> Result<(), ReleaseConflict> {
         let moves = self.referent_consumptions_with_calls(body, types, calls);
-        self.check_linear_consumptions_with_moves(body, &moves)
+        let origins = self.loan_origins(body);
+        self.check_linear_consumptions_with_origins(body, &moves, Some(&origins))
     }
 
     fn check_linear_consumptions_with_moves(
         &self,
         body: &Body,
         moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
+        self.check_linear_consumptions_with_origins(body, moves, None)
+    }
+
+    fn check_linear_consumptions_with_origins(
+        &self,
+        body: &Body,
+        moves: &FlowConsumptions,
+        origins: Option<&FlowLoanOrigins>,
     ) -> Result<(), ReleaseConflict> {
         for (index, node) in self.nodes.iter().enumerate() {
             let place = match &node.action {
@@ -1824,9 +1833,31 @@ impl FlowGraph {
             let Some(state) = moves.before[index].as_ref() else {
                 continue;
             };
+            let resolved = match (origins, &place.root) {
+                (Some(origins), PlaceRoot::Local(binding))
+                    if place.segments.contains(&Segment::Dereference)
+                        && !origins
+                            .before(FlowNodeId(index), *binding)
+                            .iter()
+                            .any(|origin| origin.lifetime_only) =>
+                {
+                    origins.projected_referents_with_slots(
+                        FlowNodeId(index),
+                        *binding,
+                        &place.segments,
+                        true,
+                    )
+                }
+                _ => Vec::new(),
+            };
+            let accessed = if resolved.is_empty() {
+                std::slice::from_ref(place)
+            } else {
+                &resolved
+            };
             let previous = state
                 .iter()
-                .filter(|(moved, _)| moved.overlaps(place))
+                .filter(|(moved, _)| accessed.iter().any(|place| moved.overlaps(place)))
                 .flat_map(|(_, spans)| spans)
                 .flatten()
                 .min_by_key(|span| (span.source_id, span.start));

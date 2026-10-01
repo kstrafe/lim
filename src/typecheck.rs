@@ -10142,6 +10142,29 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_reference_alias_uses_resolve_to_consumed_storage() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn inspect ((value (#ref-mut Resource))) ()
+            (#let alias (#ref-mut Resource) value)
+            (#forget (#deref value))
+            (#forget (#deref alias)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let conflict = declarations.flows["inspect"]
+            .check_owner_consumptions_with_calls(&declarations.bodies["inspect"], &types, &[])
+            .unwrap_err();
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#forget (#deref alias))");
+        assert_eq!(conflict.labels.len(), 1);
+        let original = conflict.labels[0].0;
+        assert_eq!(
+            &source[original.start..original.end],
+            "(#forget (#deref value))"
+        );
+    }
+
+    #[test]
     fn staged_diverging_branch_does_not_weaken_returning_consumption() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#fn diverge () () (#unreachable) (#return ()))
