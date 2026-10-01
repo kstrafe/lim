@@ -1227,6 +1227,8 @@ impl FlowGraph {
                             state.insert(place, variant);
                         }
                     }
+                    let incoming = value_variant_facts(body, *value, &state);
+                    distribute_pattern_variants(body, *pattern, &incoming, &mut state);
                 }
                 FlowAction::Bind { binding, value } => {
                     let target = Place::root(PlaceRoot::Local(*binding));
@@ -8693,6 +8695,9 @@ fn value_variant_facts(
     value: NodeId,
     state: &HashMap<Place, VariantId>,
 ) -> HashMap<Place, VariantId> {
+    if let NodeKind::Declaration(DeclarationId::Variant(variant)) = body.nodes[value.0].kind {
+        return HashMap::from([(Place::root(PlaceRoot::Local(BindingId(0))), variant)]);
+    }
     // Enum facts describe owned value storage, not a reference's address slot.
     // Borrowing an enum must not turn its discriminant into a pointer fact.
     if matches!(
@@ -8771,6 +8776,56 @@ fn value_variant_facts(
         }
     }
     result
+}
+
+#[cfg(test)]
+fn distribute_pattern_variants(
+    body: &Body,
+    pattern: NodeId,
+    incoming: &HashMap<Place, VariantId>,
+    state: &mut HashMap<Place, VariantId>,
+) {
+    match &body.nodes[pattern.0].kind {
+        NodeKind::Symbol {
+            binding: Some(binding),
+            ..
+        } => {
+            let root = PlaceRoot::Local(*binding);
+            state.retain(|place, _| place.root != root);
+            for (place, variant) in incoming {
+                state.insert(
+                    Place {
+                        root: root.clone(),
+                        segments: place.segments.clone(),
+                    },
+                    *variant,
+                );
+            }
+        }
+        NodeKind::Form { head, children, .. } => {
+            for (index, child) in children.iter().skip(1).enumerate() {
+                let Some(slot) = aggregate_slot(body, head, children, index) else {
+                    continue;
+                };
+                let nested = incoming
+                    .iter()
+                    .filter_map(|(place, variant)| {
+                        (place.segments.first() == Some(&slot)).then(|| {
+                            (
+                                Place {
+                                    root: PlaceRoot::Local(BindingId(0)),
+                                    segments: place.segments[1..].to_vec(),
+                                },
+                                *variant,
+                            )
+                        })
+                    })
+                    .collect();
+                distribute_pattern_variants(body, *child, &nested, state);
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]

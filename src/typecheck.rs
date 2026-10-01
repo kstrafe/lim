@@ -12172,6 +12172,74 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn owned_variant_facts_follow_nested_enum_payload_bindings() {
+        let source = "(#fn touch () () (#return ()))
+          (#enum Choice (Empty (Full u64)))
+          (#enum Wrapper (Absent (Wrapped Choice)))
+          (#fn inspect () ()
+            (#let wrapper Wrapper (Wrapped (Full 1u64)))
+            (#match wrapper
+              (#case (Wrapped inner)
+                (#block (#let snapshot Choice inner) (#forget snapshot) ()))
+              (#case Absent ()))
+            (#return ()))";
+        let opaque = source.replace("(#let snapshot", "(#call touch ()) (#let snapshot");
+        let overwritten = source.replace(
+            "(#let snapshot Choice inner)",
+            "(#let-mut changed Choice inner) (#set changed Empty) (#let snapshot Choice changed)",
+        );
+        let nested = source
+            .replace("(Wrapped Choice)", "(Wrapped (#tuple Choice Choice))")
+            .replace(
+                "(Wrapped (Full 1u64))",
+                "(Wrapped (#tuple (Full 1u64) Empty))",
+            )
+            .replace("(Wrapped inner)", "(Wrapped (#tuple inner other))")
+            .replace(
+                "(#block (#let snapshot",
+                "(#block (#forget other) (#let snapshot",
+            );
+        for (source, owner, expected) in [
+            (source.to_owned(), "inner", Some("Full")),
+            (opaque, "inner", None),
+            (overwritten, "changed", Some("Empty")),
+            (nested, "inner", Some("Full")),
+        ] {
+            let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            let declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
+            let binding = |name: &str| {
+                crate::typed_body::BindingId(
+                    body.bindings
+                        .iter()
+                        .position(|binding| binding.name == name)
+                        .unwrap(),
+                )
+            };
+            let event = flow.nodes.iter().position(|node| matches!(node.action,
+            crate::typed_flow::FlowAction::Bind { binding: found, .. } if found == binding("snapshot"))).unwrap();
+            let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(
+                binding(owner),
+            ));
+            let expected = expected.map(|name| {
+                declarations
+                    .variant_id(&crate::Type::Named("Choice".into()), name)
+                    .unwrap()
+            });
+            assert_eq!(
+                flow.variant_facts(body)[event]
+                    .as_ref()
+                    .unwrap()
+                    .get(&place)
+                    .copied(),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn owned_variant_facts_intersect_branches_and_invalidate_unknown_calls() {
         let source = "(#enum Choice ((Empty) (Full u64)))
             (#struct Holder (: choice Choice))
