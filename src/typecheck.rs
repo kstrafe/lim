@@ -10143,6 +10143,71 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_call_restoration_clears_consumed_caller_referents() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+          (#fn initialize ((value (#ref-mut Resource))) ()
+            (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
+          (#fn caller ((value (#ref-mut Resource))) ()
+            (#forget (#deref value)) (#call initialize (: value value)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let callee = &declarations.bodies["initialize"];
+        let restored =
+            declarations.flows["initialize"].referent_restoration_guarantees(callee, &types, &[]);
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Evaluate(value) = node.action else {
+                    return None;
+                };
+                if matches!(
+                    body.nodes[value.0].kind,
+                    crate::typed_body::NodeKind::Form {
+                        callee: Some(_),
+                        ..
+                    }
+                ) {
+                    Some((crate::typed_flow::FlowNodeId(index), value))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let (mapped, unknown) =
+            flow.map_referent_call_restorations(body, event, call, callee, &restored);
+        assert!(!unknown);
+        let unresolved = flow.referent_consumptions_with_restorations(
+            body,
+            &types,
+            &[(event, Vec::new(), true)],
+            &[(event, mapped.clone())],
+            &[],
+        );
+        let moves = flow.referent_consumptions_with_restorations(
+            body,
+            &types,
+            &[(event, Vec::new(), false)],
+            &[(event, mapped)],
+            &[],
+        );
+        let place = crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+            crate::typed_body::BindingId(0),
+        ));
+        assert!(moves.before(event, &place).is_some());
+        assert!(moves.definitely_consumed_before(event, &place));
+        let after_call = flow.nodes[event.0].successors[0];
+        assert!(moves.before(after_call, &place).is_none());
+        assert!(!moves.definitely_consumed_before(after_call, &place));
+        assert!(unresolved.before(after_call, &place).is_some());
+        assert!(!unresolved.definitely_consumed_before(after_call, &place));
+    }
+
+    #[test]
     fn staged_restoration_mapping_requires_one_caller_destination() {
         for ambiguous in [false, true] {
             let reference = if ambiguous {

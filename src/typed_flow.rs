@@ -192,10 +192,12 @@ pub(crate) struct ReferentRead {
     pub span: Option<Span>,
 }
 
+#[derive(Default)]
 struct CallConsumptionFacts {
     possible: Vec<(Place, Vec<Option<Span>>)>,
     definite: Vec<Place>,
     unresolved: bool,
+    restored: Vec<Place>,
 }
 
 impl FlowConsumptions {
@@ -1472,7 +1474,21 @@ impl FlowGraph {
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
         entry_consumed: &[Place],
     ) -> FlowConsumptions {
-        let calls = calls
+        self.referent_consumptions_with_restorations(body, types, calls, &[], entry_consumed)
+    }
+
+    /// Transfer exact restoration proofs supplied by staging. Call-entry
+    /// preconditions must be validated independently before production use.
+    #[cfg(test)]
+    pub fn referent_consumptions_with_restorations(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        entry_consumed: &[Place],
+    ) -> FlowConsumptions {
+        let mut calls = calls
             .iter()
             .map(|(event, effects, unresolved)| {
                 (
@@ -1488,10 +1504,18 @@ impl FlowGraph {
                             .map(|effect| effect.place.clone())
                             .collect(),
                         unresolved: *unresolved,
+                        restored: Vec::new(),
                     },
                 )
             })
-            .collect();
+            .collect::<HashMap<FlowNodeId, CallConsumptionFacts>>();
+        for (event, restored) in restorations {
+            calls
+                .entry(*event)
+                .or_default()
+                .restored
+                .extend(restored.iter().cloned());
+        }
         let origins = self.loan_origins(body);
         self.consumptions_with_origins_and_calls(
             body,
@@ -1986,6 +2010,12 @@ impl FlowGraph {
                 }
                 if call.unresolved {
                     unresolved.insert(id);
+                } else {
+                    for restored in &call.restored {
+                        if !restored.segments.contains(&Segment::DynamicIndex) {
+                            state.retain(|moved, _| !place_covers(restored, moved));
+                        }
+                    }
                 }
             }
             if let [place] = targets_for(id) {
@@ -2057,6 +2087,11 @@ impl FlowGraph {
                 .is_some_and(|call| call.unresolved)
             {
                 state.clear();
+            }
+            if let Some(call) = calls.and_then(|calls| calls.get(&id)) {
+                for restored in &call.restored {
+                    state.retain(|moved| !restored.overlaps(moved));
+                }
             }
             for place in targets_for(id) {
                 if origins.is_some() {
