@@ -2901,10 +2901,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             origins
         }
         NodeKind::Form { head, children, .. }
-            if matches!(
-                head.as_str(),
-                "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
-            ) =>
+            if matches!(head.as_str(), "get" | "get-payload" | "index") =>
         {
             let Some(base) = children.get(1) else {
                 return Vec::new();
@@ -2932,12 +2929,6 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             let Some(place) = Place::from_expression(body, id) else {
                 return Vec::new();
             };
-            let lifetime_only = match place.root {
-                PlaceRoot::Local(binding) => {
-                    state[binding.0].iter().any(|origin| origin.lifetime_only)
-                }
-                _ => false,
-            };
             let borrowed_from = match &place.root {
                 PlaceRoot::Local(binding)
                     if matches!(
@@ -2952,17 +2943,15 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 }
                 _ => None,
             };
-            resolve_known_referents(body, &place, state, &mut HashSet::new())
+            reborrow_source_origins(&place, state, &mut HashSet::new())
                 .into_iter()
-                .map(|place| LoanOrigin {
-                    borrowed_from,
-                    place,
-                    mutable: matches!(node.ty, Some(Type::PinnedReference { mutable: true, .. })),
-                    pinned: true,
-                    span: node.span,
-                    storage: Vec::new(),
-                    parameter_storage: None,
-                    lifetime_only,
+                .map(|mut origin| {
+                    origin.borrowed_from = borrowed_from;
+                    origin.mutable =
+                        matches!(node.ty, Some(Type::PinnedReference { mutable: true, .. }));
+                    origin.pinned = true;
+                    origin.span = node.span;
+                    origin
                 })
                 .collect()
         }
@@ -3231,10 +3220,7 @@ fn value_loan_origins_at_events(
             }
             return result;
         }
-        if matches!(
-            head.as_str(),
-            "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
-        ) {
+        if matches!(head.as_str(), "get" | "get-payload" | "index") {
             let Some(base) = children.get(1) else {
                 return Vec::new();
             };

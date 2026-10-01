@@ -9239,6 +9239,45 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn pinned_payload_reborrows_retain_parameter_origins() {
+        let source = "(#enum Slot ((Full u64) Empty))
+          (#fn inspect ((slot (#pin-ref Slot))) ()
+            (#let view (#pin-ref u64) (#pin-get-payload slot Full 0))
+            (#forget view) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let view = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap(),
+        );
+        let release = crate::typed_flow::FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action, crate::typed_flow::FlowAction::Release { .. })
+                })
+                .unwrap(),
+        );
+        let origins = flow.loan_origins(body);
+        let held = origins.before(release, view);
+        assert_eq!(held.len(), 1);
+        assert!(held[0].pinned);
+        assert_eq!(
+            held[0].place.root,
+            crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+        );
+        assert!(matches!(
+            held[0].place.segments.as_slice(),
+            [crate::typed_place::Segment::Payload(_, 0)]
+        ));
+        assert_eq!(held[0].parameter_storage, Some(Vec::new()));
+    }
+
+    #[test]
     fn computed_reference_targets_restore_known_referents() {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
