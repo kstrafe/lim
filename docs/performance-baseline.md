@@ -843,3 +843,26 @@ format, including an unknown helper and repeated dependency paths. No
 end-to-end timing improvement has been established for this change. The
 separate in-progress ownership-checker migration currently has nine failing
 async tests (174 pass); these changes are not included in this optimization.
+
+## Move ordinary declarations through generator expansion
+
+Ordinary top-level forms now move directly into the expansion output instead
+of cloning the complete expression and nested source-span trees, comparing
+the result, and cloning the spans again. Generator invocations and collection
+validation retain their existing path. A regression checks nested spans;
+all 20 generator/cache tests and all three UI test harnesses pass.
+
+Baseline: fcd05fd with identical pending ownership-checker edits in both
+release builds. Warm CLI, two warmups and 30 samples per compiler, no
+concurrent builds/tests during the recorded measurements:
+
+| Workload / measurement order | Before median | After median |
+| --- | ---: | ---: |
+| Reference-heavy, baseline first | 163.18 ms | 159.27 ms |
+| Reference-heavy, optimized first | 169.63 ms | 165.16 ms |
+| async_fn, baseline first | 53.35 ms | 53.81 ms |
+
+Reference-heavy improves by 2.4–2.6%; async's 0.9% slowdown is small and
+does not establish a general improvement or regression. Executable bytes
+are identical for every comparison. The allocation reduction is deterministic.
+The much larger pending semantic-analysis migration is outside this commit.

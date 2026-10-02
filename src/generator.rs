@@ -392,6 +392,16 @@ fn expand_with_generated_cached_and_hits(
     let mut output = Vec::new();
     let mut generated = Vec::new();
     for expression in remaining {
+        // Ordinary forms pass through intact, including every nested source span.
+        // Only invocations and collection declarations need expansion/validation.
+        let needs_expansion = matches!(&expression.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::At))
+                || matches!(items.first(), Some(Expr::Symbol(head))
+                    if head == "#syntax-collection" || head == "#syntax-contribute"));
+        if !needs_expansion {
+            output.push(expression);
+            continue;
+        }
         context.invocation_span = Some(expression.span);
         let is_user_invocation = match &expression.expr {
             Expr::List(items) if matches!(items.first(), Some(Expr::At)) => items
@@ -1645,6 +1655,20 @@ fn expression_nodes(expression: &Expr) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ordinary_forms_preserve_nested_spans_without_expansion() {
+        let forms = crate::parse(
+            "(#fn main () u64\n  (#let value u64 (#u64.+.wrap 1u64 2u64))\n  (#return value))",
+        )
+        .unwrap();
+        let expected = format!("{forms:?}");
+        let ((output, generated), hits) =
+            expand_with_generated_cached_and_hits(forms, None, "").unwrap();
+        assert_eq!(format!("{output:?}"), expected);
+        assert!(generated.is_empty());
+        assert_eq!(hits, 0);
+    }
 
     #[test]
     fn helper_digest_lookup_preserves_shared_dependency_material() {
