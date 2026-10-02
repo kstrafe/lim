@@ -1318,6 +1318,14 @@ use the child's own reference; explicitly release the child holder before
 lending the parent again. `examples/reference_parent_call.lim` demonstrates
 that order, and `tests/ui/call-suspended-parent.lim` shows a rejected parent call.
 
+The same access restriction applies when a function returns the child reference,
+directly or inside an aggregate. A returned call reborrow retains the referent's
+loan even if its temporary parent handle is released; it does not require that
+handle's storage to stay alive. See `examples/returned_reference_parent.lim` for
+a returned reference carried out of a labeled loop and used after parent-handle
+cleanup. `tests/ui/call-returned-parent.lim` rejects lending the parent again
+while its returned child is live.
+
 Struct types are not constructors. Create a value with `#struct-literal`, or
 write a named free-standing constructor function that returns one. Every field
 must be supplied exactly once; fields may appear in any order, and omitted

@@ -9509,6 +9509,229 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn typed_returned_field_references_suspend_caller_parent_calls() {
+        for pinned in [false, true] {
+            for mutable in [false, true] {
+                for aggregate in [false, true] {
+                    for release in [false, true] {
+                        for argument in
+                            ["parent", "(#block parent)", "(#if selected parent parent)"]
+                        {
+                            let parent_type = if pinned { "#pin-ref-mut" } else { "#ref-mut" };
+                            let child_type = match (pinned, mutable) {
+                                (false, false) => "#ref",
+                                (false, true) => "#ref-mut",
+                                (true, false) => "#pin-ref",
+                                (true, true) => "#pin-ref-mut",
+                            };
+                            let result_type = if aggregate {
+                                "View".into()
+                            } else {
+                                format!("({child_type} u64)")
+                            };
+                            let field_borrow = format!(
+                                "({} (#get owner value))",
+                                if mutable { "#borrow-mut" } else { "#borrow" }
+                            );
+                            let result = if aggregate {
+                                format!("(#struct-literal View (: child {field_borrow}))")
+                            } else {
+                                field_borrow
+                            };
+                            let child = if aggregate {
+                                "(#get held child)"
+                            } else {
+                                "held"
+                            };
+                            let release_held = if aggregate {
+                                "(#forget held)"
+                            } else {
+                                "(#drop held)"
+                            };
+                            let source = format!("(#struct Owner (: value u64))
+                              (#struct View (: child ({child_type} u64)))
+                              (#fn child-of (: owner ({parent_type} Owner)) {result_type} (#return {result}))
+                              (#fn forward (: owner ({parent_type} Owner)) {result_type}
+                                (#return (#call child-of (: owner owner))))
+                              (#fn overwrite (: owner ({parent_type} Owner)) ()
+                                {} (#return ()))
+                              (#fn inspect (: parent ({parent_type} Owner) : selected bool) ()
+                                (#let held {result_type} (#call forward (: owner {argument})))
+                                {} (#call overwrite (: owner parent))
+                                {} (#return ()))",
+                                if pinned { "(#unsafe (#pin-set-field owner value 99u64))" } else { "(#deref-set owner (#struct-literal Owner (: value 99u64)))" },
+                                if release { release_held } else { "" },
+                                if release { "".into() } else { format!("(#let observed u64 (#deref {child})) {release_held}") }
+                            );
+                            let program = crate::parse_program(&source).unwrap();
+                            let mut declarations =
+                                resolve_program_for_analysis(&program, false).unwrap();
+                            let types = crate::linearcheck::LinearTypes::from_program(&program);
+                            declarations.check_referent_entry_contracts(&types).unwrap();
+                            let body = &declarations.bodies["inspect"];
+                            let flow = &declarations.flows["inspect"];
+                            let binding = crate::typed_body::BindingId(
+                                body.bindings
+                                    .iter()
+                                    .position(|binding| binding.name == "held")
+                                    .unwrap(),
+                            );
+                            let bind = flow.nodes.iter().position(|node| matches!(node.action, crate::typed_flow::FlowAction::Bind { binding: id, .. } if id == binding)).unwrap();
+                            let origins = flow.loan_origins(body);
+                            let held = origins.after(crate::typed_flow::FlowNodeId(bind), binding);
+                            assert_eq!(held.len(), 1, "{source}");
+                            assert_eq!(
+                                held[0].borrowed_from,
+                                Some(crate::typed_body::BindingId(0)),
+                                "{source}"
+                            );
+                            assert!(held[0].call_reborrow, "{source}");
+                            let checked = crate::typed_borrow::check_live_direct_loans_with_types(
+                                body, flow, &types,
+                            );
+                            if release {
+                                checked.unwrap();
+                            } else {
+                                let error = checked.expect_err(
+                                    "returned child must independently suspend parent calls",
+                                );
+                                let span = error.span.unwrap();
+                                assert_eq!(&source[span.start..span.end], "parent", "{error:?}");
+                                assert!(error.message.contains("overwrite"), "{error:?}");
+                            }
+                            if argument == "parent" {
+                                assert_eq!(
+                                    crate::check_types(&program).is_ok(),
+                                    release,
+                                    "{source}"
+                                );
+                            } else if !release {
+                                assert!(crate::check_types(&program).is_err(), "{source}");
+                            } else {
+                                // Typed provenance accepts these transparent
+                                // results, but the syntax loan-retirement bridge
+                                // still double-borrows some shared call results.
+                                // Keep that production parity gate explicit.
+                                let production = crate::check_types(&program);
+                                if let Err(error) = production {
+                                    assert!(error.contains("already borrowed mutably"), "{error}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn returned_reborrows_allow_parent_handle_release_but_not_owner_destruction() {
+        for destroy_owner in [false, true] {
+            for result in [
+                "(#call child-of (: owner parent))",
+                "(#loop (#break (#call child-of (: owner parent))))",
+                "(#label result (#loop (#break-to result (#call child-of (: owner parent)))))",
+            ] {
+                let source = format!(
+                    "(#struct Owner (: value u64))
+                  (#linear Owner)
+                  (#fn child-of (: owner (#ref-mut Owner)) (#ref-mut u64)
+                    (#return (#borrow-mut (#get owner value))))
+                  (#fn main () u64
+                    (#let-mut owner Owner (#struct-literal Owner (: value 42u64)))
+                    (#let parent (#ref-mut Owner) (#borrow-mut owner))
+                    (#let child (#ref-mut u64) {result})
+                    (#drop parent)
+                    {} (#let answer u64 (#deref child))
+                    (#drop child) {} (#return answer))",
+                    if destroy_owner { "(#forget owner)" } else { "" },
+                    if destroy_owner { "" } else { "(#forget owner)" }
+                );
+                let program = crate::parse_program(&source).unwrap();
+                let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+                let types = crate::linearcheck::LinearTypes::from_program(&program);
+                let body = &declarations.bodies["main"];
+                let flow = &declarations.flows["main"];
+                let origins = flow.loan_origins(body);
+                let child = crate::typed_body::BindingId(
+                    body.bindings
+                        .iter()
+                        .position(|binding| binding.name == "child")
+                        .unwrap(),
+                );
+                let bind = flow.nodes.iter().position(|node| matches!(node.action, crate::typed_flow::FlowAction::Bind { binding, .. } if binding == child)).unwrap();
+                assert!(
+                    !origins
+                        .after(crate::typed_flow::FlowNodeId(bind), child)
+                        .is_empty(),
+                    "lost returned child: {source}\n{:?}\n{:?}",
+                    body.nodes,
+                    flow.nodes
+                );
+                let contracts = declarations.check_referent_entry_contracts(&types);
+                if destroy_owner {
+                    let error = match contracts {
+                        Err(error) => error,
+                        Ok(effects) => panic!("returned child must not survive owner consumption: {source}\n{effects:?}"),
+                    };
+                    let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                        panic!("{error:?}")
+                    };
+                    let span = conflict.span.unwrap();
+                    assert_eq!(
+                        &source[span.start..span.end],
+                        "(#deref child)",
+                        "{conflict:?}"
+                    );
+                    assert!(crate::check_types(&program).is_err(), "{source}");
+                    continue;
+                }
+                contracts.unwrap();
+                let checked = crate::typed_borrow::check_live_direct_loans_with_types(
+                    &declarations.bodies["main"],
+                    &declarations.flows["main"],
+                    &types,
+                );
+                checked.unwrap();
+                assert_eq!(
+                    crate::check_types(&program).is_ok(),
+                    !destroy_owner,
+                    "{source}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn returned_pointer_contents_do_not_borrow_the_container_handle() {
+        let source = "(#struct Holder (: value (#ref u64)))
+          (#fn read-value (: holder (#ref-mut Holder)) (#ref u64)
+            (#return (#get holder value)))
+          (#fn replace (: holder (#ref-mut Holder) : value (#ref u64)) ()
+            (#deref-set holder (#struct-literal Holder (: value value))) (#return ()))
+          (#fn main () u64
+            (#let owner u64 42u64)
+            (#let other u64 99u64)
+            (#let-mut holder Holder (#struct-literal Holder (: value (#borrow owner))))
+            (#let parent (#ref-mut Holder) (#borrow-mut holder))
+            (#let value (#ref u64) (#call read-value (: holder parent)))
+            (#call replace (: holder parent : value (#borrow other)))
+            (#drop parent) (#forget holder)
+            (#return (#deref value)))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations.check_referent_entry_contracts(&types).unwrap();
+        crate::typed_borrow::check_live_direct_loans_with_types(
+            &declarations.bodies["main"],
+            &declarations.flows["main"],
+            &types,
+        )
+        .unwrap();
+        crate::check_types(&program).unwrap();
+    }
+
+    #[test]
     fn typed_child_calls_use_their_own_permission_and_suspend_only_ancestors() {
         for argument in [
             "(#get view child)",

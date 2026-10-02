@@ -1,0 +1,22 @@
+; A returned child retains the owner's loan, not the temporary handle's life.
+(#struct Owner (: value u64))
+(#linear Owner)
+
+(#fn child-of (: owner (#ref-mut Owner)) (#ref-mut u64)
+  (#return (#borrow-mut (#get owner value))))
+
+(#fn increment (: target (#ref-mut u64)) u64
+  (#deref-set target (#u64.+.wrap (#deref target) 1u64))
+  (#return (#deref target)))
+
+(#fn main () u64
+  (#let-mut owner Owner (#struct-literal Owner (: value 41u64)))
+  (#let parent (#ref-mut Owner) (#borrow-mut owner))
+  (#let child (#ref-mut u64)
+    (#label result
+      (#loop (#break-to result (#call child-of (: owner parent))))))
+  (#drop parent)
+  (#let answer u64 (#call increment (: target child)))
+  (#drop child)
+  (#forget owner)
+  (#return answer))

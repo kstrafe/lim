@@ -236,7 +236,7 @@ pub(crate) fn check_live_direct_loans_cached(
                             PlaceRoot::Local(parent),
                             true,
                             AccessKind::Write | AccessKind::Release,
-                        ) => held.borrowed_from == Some(*parent),
+                        ) => held.borrowed_from == Some(*parent) && !held.call_reborrow,
                         _ => false,
                     };
                 if releasing_reborrow_parent {
@@ -3564,6 +3564,7 @@ mod tests {
                 pinned: false,
                 span: None,
                 borrowed_from: None,
+                call_reborrow: false,
                 storage: Vec::new(),
                 parameter_storage: None,
                 storage_inputs: Vec::new(),
@@ -3575,6 +3576,7 @@ mod tests {
                 pinned: false,
                 span: None,
                 borrowed_from: None,
+                call_reborrow: false,
                 storage: Vec::new(),
                 parameter_storage: None,
                 storage_inputs: Vec::new(),
@@ -3622,6 +3624,7 @@ mod tests {
             pinned: false,
             span: None,
             borrowed_from: None,
+            call_reborrow: false,
             storage: vec![crate::typed_place::Segment::Payload(variant, field)],
             parameter_storage: None,
             storage_inputs: Vec::new(),

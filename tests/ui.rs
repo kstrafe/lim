@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "call-returned-parent",
+            diagnostic_code: "E4100",
+            offending_line: "  (#call overwrite (: owner parent))",
+            line_number: 10,
+        },
+        Case {
             name: "call-suspended-parent",
             diagnostic_code: "E4100",
             offending_line: "  (#let observed u64 (#call observe (: target parent)))",
@@ -992,6 +998,7 @@ fn compilation_errors_render_the_offending_source_line() {
             }
             let precise_fragment = match case.name {
             "call-suspended-parent" => Some("parent"),
+            "call-returned-parent" => Some("parent"),
             "exclusive-handle-duplicate" => Some("reference"),
             "callee-store-retained-borrow" => Some("#set"),
             "callee-store-scope-escape" => Some("(#borrow local)"),

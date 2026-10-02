@@ -50,9 +50,30 @@ names as referent projections. Independent typed regressions verify ordinary
 and pinned parent rejection, cleanup, child calls and restored holder loans;
 a UI fixture checks the offending argument and original child-borrow spans.
 
+Reference-return summaries also retain the caller's immediate exclusive
+reference handle as the reborrow parent. This covers returned field references
+and references retained inside returned aggregates, including forwarded calls.
+The parent is selected from the argument's result-producing bindings, not from
+references merely stored in its borrowed pointee. Shared Copy arguments and
+loaded pointer slots keep their existing provenance.
+
+Call reborrows restrict access to a retained referent, not destruction of a
+temporary parent handle. The origin records this distinction separately from
+ordinary handle-dependent reborrows: releasing the handle does not destroy its
+pointee or retire a live returned loan. This matters when generated pinned
+poll functions release temporary projection handles before restoring the frame
+state. Referent consumption and scope escape remain independently checked.
+Labeled value-loops resolve to the inner loop's checked break-result identity
+for both cached and event-specific loan queries; erasing the label without
+resolving its result previously lost returned-reference origins.
+
 This closes the known moved/restored child-parent call gap, not the complete
 loan-retention migration. The broader ordinary-reference lifetime/retirement
 rules still need parity before the syntax-based borrow checker can be removed.
+In particular, the syntax loan-retirement bridge still rejects some shared
+call results whose exclusive input is a block or conditional result; the typed
+provenance matrix records those cases without treating production parity as
+complete.
 
 This does not finish the borrow-checker migration. Production still runs the
 syntax-based borrow checker and separate typed borrowed-storage entry contracts.

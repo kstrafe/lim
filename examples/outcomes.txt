@@ -389,6 +389,7 @@ exit 40 async_while_let_dependencies.lim - -
 exit 42 reference_assignment.lim - -
 exit 42 exclusive_reference_move.lim - -
 exit 42 reference_parent_call.lim - -
+exit 42 returned_reference_parent.lim - -
 exit 42 async_pattern_payloads.lim - -
 exit 42 async_struct_patterns.lim - -
 exit 42 async_destructure.lim - -
