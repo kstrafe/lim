@@ -9208,6 +9208,16 @@ impl FunctionContext<'_> {
                 if local_type.is_some_and(|ty| matches!(ty, Type::Unit | Type::Never)) {
                     return Ok(());
                 }
+                if local_storage.is_some()
+                    && local_type.is_some_and(|ty| {
+                        storage_word_count(ty, &self.structs, &self.enums)
+                            .is_ok_and(|words| words == 0)
+                    })
+                {
+                    // Empty aggregates still have a checked binding and
+                    // storage identity, but reading them needs no registers.
+                    return Ok(());
+                }
                 if let Some(Storage::Wide { low, high }) = local_storage {
                     self.output.push_str(&format!(
                         "    mov rax, QWORD PTR [rbp-{}]\n    mov rdx, QWORD PTR [rbp-{}]\n",
