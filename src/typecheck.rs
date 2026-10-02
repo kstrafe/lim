@@ -18416,43 +18416,66 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_worker_conditionally_constructed_operands_preserve_outcomes() {
-        for slot in [0, 1] {
-            let source = format!(
+        for shape in ["tuple", "struct", "payload"] {
+            for slot in [0, 1] {
+                for unknown in [false, true] {
+                    let fallback = if unknown { "fallback" } else { "(Consumed)" };
+                    let operand = format!("(#if choose
+                    (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Restored))
+                    {fallback})");
+                    let field = if slot == 0 { "first" } else { "second" };
+                    let packet =
+                        format!("(#struct-literal Packet (: first {operand} : second (Restored)))");
+                    let (output_type, constructor, selector) = match shape {
+                        "tuple" => (
+                            "(#tuple Outcome Outcome)",
+                            format!("(#tuple {operand} (Restored))"),
+                            format!("(#get output {slot})"),
+                        ),
+                        "struct" => ("Packet", packet, format!("(#get output {field})")),
+                        "payload" => (
+                            "Wrapped",
+                            format!("(PacketValue {packet})"),
+                            format!("(#get (#get-payload output PacketValue 0) {field})"),
+                        ),
+                        _ => unreachable!(),
+                    };
+                    let source = format!(
                 "(#struct Resource ((number u64))) (#linear Resource)
                  (#enum Outcome ((Restored) (Consumed)))
-                 (#fn worker ((target (#ref-mut Resource)) (choose bool)) (#tuple Outcome Outcome)
+                 (#struct Packet ((first Outcome) (second Outcome)))
+                 (#enum Wrapped ((PacketValue Packet)))
+                 (#fn worker ((target (#ref-mut Resource)) (choose bool) (fallback Outcome)) {output_type}
                    (#forget (#deref target))
-                   (#return (#tuple
-                     (#if choose
-                       (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Restored))
-                       (Consumed))
-                     (Restored))))
+                   (#return {constructor}))
                  (@thread-spawn (: task Task : worker worker))
-                 (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
-                   (#return (#match (#call Task-spawn (: target target : choose choose))
+                 (#fn caller ((target (#ref-mut Resource)) (choose bool) (fallback Outcome)) ()
+                   (#return (#match (#call Task-spawn (: target target : choose choose : fallback fallback))
                      (#case (Task-spawn-ok task)
                        (#match (#call Task-join (: task task))
                          (#case (Task-join-ok output)
-                           (#match (#get output {slot})
+                           (#match {selector}
                              (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
                              (#case (Consumed) (#panic))))
                          (#case (Task-join-error (#tuple retry error)) (#panic))))
                      (#case (Task-spawn-error error) (#panic)))))"
             );
-            let program = crate::parse_program(&source).unwrap();
-            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
-            let types = crate::linearcheck::LinearTypes::from_program(&program);
-            let result = declarations.staged_contents_referent_entry_contracts(&types);
-            if slot == 0 {
-                result.unwrap();
-            } else {
-                let crate::typed_ir::StagedReferentError::Use { conflict, .. } =
-                    result.unwrap_err()
-                else {
-                    panic!("the unrelated constant tag must not restore the referent");
-                };
-                let span = conflict.span.unwrap();
-                assert_eq!(&source[span.start..span.end], "(#get target number)");
+                    let program = crate::parse_program(&source).unwrap();
+                    let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+                    let types = crate::linearcheck::LinearTypes::from_program(&program);
+                    let result = declarations.staged_contents_referent_entry_contracts(&types);
+                    if slot == 0 && !unknown {
+                        result.unwrap();
+                    } else {
+                        let crate::typed_ir::StagedReferentError::Use { conflict, .. } =
+                            result.unwrap_err()
+                        else {
+                            panic!("unrelated or unknown tags must not restore the referent");
+                        };
+                        let span = conflict.span.unwrap();
+                        assert_eq!(&source[span.start..span.end], "(#get target number)");
+                    }
+                }
             }
         }
     }
