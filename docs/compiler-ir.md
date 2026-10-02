@@ -24,6 +24,16 @@ syntax-based borrow checker and separate typed borrowed-storage entry contracts.
 Several sections below document earlier staging milestones; those experiments
 are not evidence that every reference-store or async integration gate is closed.
 
+Borrowed-storage contracts are now prepared before production live-loan,
+scope-escape, returned-reference and argument-alias checks. Their contents-aware
+loan solution retains references installed by callees and uses result-conditioned
+clearing for Ready/cancellation paths. Preparing contracts after these checks
+previously left them using returned-reference-only summaries and accepting
+mutation of a callee-stored referent. Contract errors are still reported at
+their existing ownership diagnostic boundary. The naive may-store-only solver
+remains an audit tool, not the production loan solution: its unions alone
+cannot prove that a Ready result released a pinned self-reference.
+
 ## Why retain an IR?
 
 An intermediate representation is the compiler's checked model of the program,
@@ -39,7 +49,11 @@ Frozen syntax collections do not require it, and manually declared task states
 can already use the existing checker. It is a foundation for richer lowering,
 not a prerequisite imposed on every generator.
 
-### Staging borrowed-storage ownership facts
+### Earlier borrowed-storage staging milestones
+
+The following records the experiments leading to the production boundary
+above. Its staging descriptions are historical, not the current activation
+status of borrowed-storage entry contracts or contents-aware live-loan checks.
 
 Typed consumption analysis has a referent-resolved staging mode exercised by
 tests. Independently, production ownership validation checks permission for
@@ -74,11 +88,11 @@ clear possible moves. An unresolved write also invalidates definite facts,
 since it may have restored any one of their targets. Reachable unresolved
 events appear in the consumption dump; unreachable events do not.
 
-The ordinary production mode keeps its existing identities and does not
-allocate the extra referent tables. Before changing validation to this mode,
-the compiler must enforce access permissions, handle unresolved provenance,
-propagate call effects, check referent initialization at exits, and preserve
-precise diagnostics. Staging facts alone do not establish those properties.
+At that stage, ordinary production mode kept its existing identities without
+the extra referent tables. Promotion required access permissions, unresolved
+provenance handling, call effects, referent initialization checks and precise
+diagnostics. Staging facts alone did not establish those properties; see the
+production boundary above for the checks now activated.
 
 ## Implemented: resolved declarations
 

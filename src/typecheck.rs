@@ -1558,6 +1558,13 @@ fn check_types_inner(
         *diagnostic_labels = error.labels;
         return Err(error.message);
     }
+    // Prepare actual callee storage effects and result-conditioned clearing
+    // before solving live loans. Keep the ownership error until its existing
+    // diagnostic boundary, but never validate successful programs against the
+    // older returned-reference-only summaries.
+    let referent_contracts = declarations
+        .check_referent_entry_contracts(&linear_types)
+        .map(|_| ());
     *diagnostic_code = crate::DiagnosticCode::Borrow;
     // These checks inspect the same immutable body/graph pair. Keep their
     // diagnostic ordering while solving provenance only once per function.
@@ -1671,22 +1678,20 @@ fn check_types_inner(
         message
     })?;
     *diagnostic_code = crate::DiagnosticCode::Linear;
-    declarations
-        .check_referent_entry_contracts(&linear_types)
-        .map_err(|error| match error {
-            crate::typed_ir::StagedReferentError::Dependency => {
-                "cannot resolve ownership contracts for function dependencies".to_owned()
-            }
-            crate::typed_ir::StagedReferentError::Use { function, conflict }
-            | crate::typed_ir::StagedReferentError::Replacement { function, conflict } => {
-                *diagnostic_span = conflict
-                    .span
-                    .or_else(|| program.declaration_spans.get(&function).copied());
-                *diagnostic_labels = conflict.labels;
-                record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                conflict.message
-            }
-        })?;
+    referent_contracts.map_err(|error| match error {
+        crate::typed_ir::StagedReferentError::Dependency => {
+            "cannot resolve ownership contracts for function dependencies".to_owned()
+        }
+        crate::typed_ir::StagedReferentError::Use { function, conflict }
+        | crate::typed_ir::StagedReferentError::Replacement { function, conflict } => {
+            *diagnostic_span = conflict
+                .span
+                .or_else(|| program.declaration_spans.get(&function).copied());
+            *diagnostic_labels = conflict.labels;
+            record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+            conflict.message
+        }
+    })?;
     Ok(declarations)
 }
 
@@ -15250,7 +15255,32 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_callee_store_into_outer_storage_cannot_hide_a_block_local_escape() {
+    fn typed_contents_borrow_checks_preserve_checked_pinned_async_frames() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        for name in [
+            "async_fn_local_self_reference",
+            "async_fn_self_reference",
+            "async_fn_enum_self_reference",
+        ] {
+            let path = root.join("examples").join(format!("{name}.lim"));
+            let source = std::fs::read_to_string(&path).unwrap();
+            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let declarations = checked.declarations();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            assert!(body.staged_parameter_contents);
+            let cache = std::cell::OnceCell::new();
+            crate::typed_borrow::check_scope_escapes_cached(body, flow, &cache)
+                .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+            crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
+                .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+        }
+    }
+
+    #[test]
+    fn production_callee_store_into_outer_storage_cannot_hide_a_block_local_escape() {
         let source = "(#struct Holder (: view (#ref u64)))
             (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
               (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
@@ -15277,6 +15307,16 @@ mod typed_ownership_tests {
         );
         let span = error.labels.first().map(|(span, _)| *span).unwrap();
         assert_eq!(&source[span.start..span.end], "(#borrow local)");
+        let (error, code, _, labels) = check_types_with_span(&program).unwrap_err();
+        assert!(
+            error.contains("local") && error.contains("scope"),
+            "{error}"
+        );
+        assert_eq!(code, crate::DiagnosticCode::Borrow);
+        assert!(labels
+            .iter()
+            .any(|(span, _)| &source[span.start..span.end] == "#borrow"
+                && span.start == source.find("#borrow local").unwrap()));
     }
 
     #[test]
@@ -15498,11 +15538,16 @@ mod typed_ownership_tests {
                 crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
                     .unwrap_err();
             assert!(conflict.message.contains("value"), "{mode}: {conflict:?}");
+            let error = crate::check_types(&program).unwrap_err();
+            assert!(
+                error.contains("value") && error.contains("borrow"),
+                "{mode}: {error}"
+            );
         }
     }
 
     #[test]
-    fn staged_callee_reference_store_retains_the_callers_rhs_loan() {
+    fn production_callee_reference_store_retains_the_callers_rhs_loan() {
         let source = "(#struct Holder (: view (#ref u64)))
             (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
               (#deref-set target (#struct-literal Holder (: view value)))
@@ -15527,9 +15572,18 @@ mod typed_ownership_tests {
             error.message.contains("value") && error.message.contains("borrow"),
             "{error:?}"
         );
-        // This remains an explicit production migration gap. May-store
-        // unions cannot yet replace variant-conditioned clearing contracts.
-        crate::check_types(&program).unwrap();
+        let (error, code, span, labels) = check_types_with_span(&program).unwrap_err();
+        assert!(
+            error.contains("value") && error.contains("borrow"),
+            "{error}"
+        );
+        assert_eq!(code, crate::DiagnosticCode::Borrow);
+        let span = span.unwrap();
+        assert_eq!(&source[span.start..span.end], "#set");
+        assert!(labels
+            .iter()
+            .any(|(span, _)| &source[span.start..span.end] == "#borrow"
+                && span.start == source.find("#borrow value").unwrap()));
     }
 
     #[test]

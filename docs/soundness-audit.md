@@ -45,21 +45,20 @@ reaping the immediate child. Test programs must not escape that process group;
 this is a regression-test resource guard, not a hostile-program sandbox.
 Scratch directories are exclusively created and removed only by their owner.
 
-## Known interprocedural reference-store gap
+## Interprocedural reference-store checking
 
-Production loan summaries track returned references but do not yet retain
-references written by a callee into caller-owned storage. Consequently the
-checker can miss a mutation of the new referent, or a block-local reference
-escaping through such a write. This is a known checking gap, not permission
-to invalidate a live reference.
+Production prepares contents-aware callee contracts before solving live loans.
+References written into caller-owned storage therefore retain their pointees'
+loans after the call and cannot hide a block-local escape. Dropping the call's
+temporary destination reference does not release the loan held by its container.
 
-`staged_callee_reference_store_retains_the_callers_rhs_loan` reproduces a
-production-accepted mutation and demonstrates its rejection with the test-only
-staged store solver.
-`staged_callee_store_into_outer_storage_cannot_hide_a_block_local_escape`
-covers the scope escape and causal source span. Forwarded, conditional,
-computed, pinned, and field-wise stores have additional staged regressions.
-The staged solver now intersects physical-write guarantees across normal
+`production_callee_reference_store_retains_the_callers_rhs_loan` rejects mutation
+of a callee-stored referent and checks its exact mutation and loan-origin spans.
+`production_callee_store_into_outer_storage_cannot_hide_a_block_local_escape`
+covers scope escape and the causal origin span. Both have executable compiler
+UI fixtures. Forwarded, conditional, computed and pinned store regressions also
+require production mutation rejection. The contents solver intersects
+physical-write guarantees across normal
 returns and summarizes final contents rather than all intermediate writes.
 `staged_store_contracts_distinguish_all_return_paths_and_final_contents` checks
 sequential replacement, branches, loops, early returns, and forwarding;
@@ -69,9 +68,12 @@ covers whole/field overlap and ambiguous/dynamic targets.
 post-write snapshots from releasing references returned from entry storage.
 These facts do not prove linear ownership restoration.
 
-The experiment must not replace production checking until
-return-variant-conditioned clearing and restoration preserve valid async
-Ready/cancellation paths;
-`staged_store_unions_do_not_claim_ready_path_self_reference_clearing` preserves
-the remaining explicit Ready-path integration failures. The audit is incomplete
-while this gap remains.
+`typed_contents_borrow_checks_preserve_checked_pinned_async_frames` verifies
+the contents-aware production contracts on all three pinned self-reference
+examples. `staged_store_unions_do_not_claim_ready_path_self_reference_clearing`
+keeps the naive may-store-only solver's false Ready-path conflicts explicit;
+plain unions must not replace result-conditioned clearing. The full async
+integration suite separately exercises Pending, Ready and cancellation.
+Syntax-based borrow checking remains a production boundary; removing it still
+requires a broader parity audit. This coverage is not a proof of all ownership
+or arbitrary-body async lowering.

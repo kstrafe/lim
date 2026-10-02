@@ -11,6 +11,18 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "callee-store-retained-borrow",
+            diagnostic_code: "E4100",
+            offending_line: "  (#set value 1u64)",
+            line_number: 12,
+        },
+        Case {
+            name: "callee-store-scope-escape",
+            diagnostic_code: "E4100",
+            offending_line: "    (#call replace (: target target : value (#borrow local)))",
+            line_number: 11,
+        },
+        Case {
             name: "local-store-retained-borrow",
             diagnostic_code: "E4100",
             offending_line: "  (#set value 1u64)",
@@ -967,6 +979,8 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "callee-store-retained-borrow" => Some("#set"),
+            "callee-store-scope-escape" => Some("(#borrow local)"),
             "local-store-retained-borrow" => Some("#set"),
             "external-store-local-reference" | "external-pin-store-local-reference" => Some("temporary"),
             "outer-storage-scope-escape" => Some("(#borrow local)"),
