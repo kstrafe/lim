@@ -7974,6 +7974,67 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_struct_payload_patterns_preserve_declared_field_order() {
+    let source = include_str!("../examples/async_struct_patterns.lim");
+    build_and_run(source, 42);
+    let aliased = format!(
+        "(#type ValuesAlias Values)\n{}",
+        source.replace("(Chosen Values)", "(Chosen ValuesAlias)")
+    );
+    build_and_run(&aliased, 42);
+    let nested = format!(
+        "(#struct Bias ((only u64)))\n{}",
+        source
+            .replace("(a u64)", "(a Bias)")
+            .replace("(Values value bias)", "(Values value (Bias bias))")
+            .replace(": a 22u64", ": a (#struct-literal Bias (: only 22u64))")
+    );
+    build_and_run(&nested, 42);
+    let referenced = source
+        .replace("(z u16)", "(z (#ref u64))")
+        .replace("(#as value u64)", "(#deref value)")
+        .replace(
+            "\n          bias))",
+            "\n          (#u64.+.wrap bias (#deref value))))",
+        )
+        .replace("(#let waker u64", "(#let owner u64 20u64) (#let waker u64")
+        .replace(": z 20u16", ": z (#borrow owner)");
+    build_and_run(&referenced, 62);
+    let invalid = referenced
+        .replace("(#let owner u64", "(#let-mut owner u64")
+        .replace(
+            "(#block (#set task next) ())",
+            "(#block (#set owner 100u64) (#set task next) ())",
+        );
+    assert_ne!(invalid, referenced);
+    let scratch = support::Scratch::new("async-struct-pattern-borrow");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("a struct pattern's shared field must stay borrowed through Pending");
+    assert!(
+        error.message.contains("owner") && error.message.contains("borrow"),
+        "{error:?}"
+    );
+    let span = error
+        .span
+        .expect("the owner assignment must retain its source span");
+    assert!(
+        invalid
+            .lines()
+            .nth(span.line - 1)
+            .unwrap()
+            .contains("#set owner 100u64"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn async_while_let_aggregate_payloads_use_declared_capture_types() {
     let source = include_str!("../examples/async_while_let_dependencies.lim")
         .replace(

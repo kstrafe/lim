@@ -158,6 +158,8 @@ pub(crate) struct AsyncTypeEnvironment {
     pub functions: HashMap<String, HashMap<String, String>>,
     pub function_results: HashMap<String, String>,
     pub struct_fields: HashMap<String, HashMap<String, String>>,
+    /// Positional struct patterns follow declaration order, never hash order.
+    pub struct_field_order: HashMap<String, Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -9627,7 +9629,7 @@ fn collect_enum_pattern_bindings(
             )))?;
             let structural_fields = match ty {
                 Type::Tuple(fields) if matches!(variant_name.as_str(), "#tuple" | "tuple") => {
-                    Some(fields)
+                    Some(fields.iter().map(crate::type_source).collect::<Vec<_>>())
                 }
                 Type::Array(element, length)
                     if matches!(variant_name.as_str(), "#array" | "array") =>
@@ -9635,24 +9637,37 @@ fn collect_enum_pattern_bindings(
                     if length != items.len() - 1 {
                         return Err(format!("@async-fn array pattern expects {length} elements"));
                     }
-                    Some(vec![*element; length])
+                    Some(vec![crate::type_source(&element); length])
+                }
+                Type::Named(name)
+                    if variant_name == &name && environment.struct_fields.contains_key(&name) =>
+                {
+                    let order = environment.struct_field_order.get(&name).ok_or_else(|| {
+                        format!("@async-fn missing declared field order for '{name}'")
+                    })?;
+                    let fields = &environment.struct_fields[&name];
+                    Some(
+                        order
+                            .iter()
+                            .map(|field| {
+                                fields.get(field).cloned().ok_or_else(|| {
+                                    format!("@async-fn missing declared field '{name}.{field}'")
+                                })
+                            })
+                            .collect::<Result<Vec<_>, _>>()?,
+                    )
                 }
                 _ => None,
             };
             if let Some(fields) = structural_fields {
                 if fields.len() != items.len() - 1 {
                     return Err(format!(
-                        "@async-fn tuple pattern expects {} elements",
+                        "@async-fn aggregate pattern '{variant_name}' expects {} fields",
                         fields.len()
                     ));
                 }
                 for (pattern, field_type) in items[1..].iter().zip(&fields) {
-                    collect_enum_pattern_bindings(
-                        pattern,
-                        &crate::type_source(field_type),
-                        environment,
-                        bindings,
-                    )?;
+                    collect_enum_pattern_bindings(pattern, field_type, environment, bindings)?;
                 }
                 return Ok(());
             }

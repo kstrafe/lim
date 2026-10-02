@@ -552,8 +552,14 @@ cancellation consumption releases them. See
 `examples/async_while_let_dependencies.lim` for repeated factory calls,
 two body awaits, and once-per-construction mutations (exit 40).
 
-Those capture declarations also support tuple and array payload patterns,
-aliases to structural types, and nesting. Ready helpers use explicit tuple
+Those capture declarations also support tuple, array, and struct payload
+patterns, aliases to structural types, and nesting. Struct pattern positions
+follow field declaration order, even when construction uses reordered named
+fields. The generated-source cache includes that declaration order.
+Ready helpers use explicit tuple
 destructuring to restore mutable outputs via ordinary binding assignments.
 `examples/async_pattern_payloads.lim` demonstrates carrying one destructured
 field across a suspension while awaiting another field's computation.
+`examples/async_struct_patterns.lim` uses differently sized fields declared
+in nonalphabetical order. Shared-reference fields retain their source loans
+while suspended; mutating the referent before completion is rejected.

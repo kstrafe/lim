@@ -2336,6 +2336,10 @@ fn async_type_environment(expressions: &[SpannedExpr]) -> async_fn::AsyncTypeEnv
                 environment.aliases.insert(name, type_source(&target));
             }
             Item::Struct { name, fields, .. } => {
+                environment.struct_field_order.insert(
+                    name.clone(),
+                    fields.iter().map(|field| field.name.clone()).collect(),
+                );
                 environment.struct_fields.insert(
                     name,
                     fields
@@ -2466,7 +2470,10 @@ fn async_type_environment_identity(environment: &async_fn::AsyncTypeEnvironment)
                 .map(|(name, ty)| format!("{name}:{ty}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            format!("{name}{{{fields}}}")
+            format!(
+                "{name}[order={:?}]{{{fields}}}",
+                environment.struct_field_order.get(name)
+            )
         })
         .collect::<Vec<_>>()
         .join(";");
@@ -12026,6 +12033,25 @@ mod tests {
         assert_eq!(
             async_type_environment_identity(&scalar),
             async_type_environment_identity(&environment("u64"))
+        );
+    }
+
+    #[test]
+    fn async_environment_identity_preserves_struct_pattern_field_order() {
+        let environment = |fields| {
+            async_type_environment(&parse(&format!("(#struct Values ({fields}))")).unwrap())
+        };
+        let first = environment("(z u16) (a u64)");
+        let swapped = environment("(a u64) (z u16)");
+        assert_eq!(first.struct_fields, swapped.struct_fields);
+        assert_eq!(first.struct_field_order["Values"], ["z", "a"]);
+        assert_ne!(
+            async_type_environment_identity(&first),
+            async_type_environment_identity(&swapped)
+        );
+        assert_eq!(
+            async_type_environment_identity(&first),
+            async_type_environment_identity(&environment("(z u16) (a u64)"))
         );
     }
 

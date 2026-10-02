@@ -1,0 +1,30 @@
+; Struct pattern positions follow declaration order, not alphabetical order.
+(#struct Values ((z u16) (a u64)))
+(#enum Choice ((Chosen Values) Empty))
+(#enum Step ((Start u64) (Resume u64)))
+(#enum StepPoll ((StepPending Step) (StepReady u64)))
+(#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+  (#return (#match task
+    (#case (Start value) (StepPending (Resume value)))
+    (#case (Resume value) (StepReady value)))))
+
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+  (#fn work ((choice Choice)) u64
+    (#return (#match choice
+      (#case (Chosen (Values value bias))
+        (#u64.+.wrap
+          (#await u64 Step StepPending StepReady step-poll (Start (#as value u64)))
+          bias))
+      (#case Empty 0u64))))))
+
+(#fn main () u64
+  (#let waker u64 0u64)
+  (#let-mut task Frame
+    (#call work (: choice (Chosen (#struct-literal Values (: a 22u64 : z 20u16))))))
+  (#for-range (attempt u64) 0u64 3u64
+    (#let result Poll (#call poll (: task task : waker (#borrow waker))))
+    (#match result
+      (#case (Pending next) (#block (#set task next) ()))
+      (#case (Ready value) (#block (#return value)))))
+  (#forget task)
+  (#return (#unreachable)))
