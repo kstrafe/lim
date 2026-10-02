@@ -553,6 +553,36 @@ pub(crate) struct FlowConsumptions {
     unresolved: HashSet<FlowNodeId>,
 }
 
+/// Ownership and provenance from the same body and call-contract solution.
+/// Keep the divergence-adjusted graph with its facts: an event following a
+/// nonreturning callee must not become a reachable storage candidate.
+pub(crate) struct StorageFacts {
+    pub flow: FlowGraph,
+    pub origins: FlowLoanOrigins,
+    pub moves: FlowConsumptions,
+    pub entry_only: bool,
+}
+
+impl StorageFacts {
+    /// Entry capture planning precedes every body effect. It need not stage
+    /// callee ownership contracts, but cannot authorize any later snapshot.
+    pub fn for_entry(body: &Body, flow: &FlowGraph, types: &LinearTypes) -> Self {
+        Self {
+            flow: flow.clone(),
+            origins: flow.loan_origins(body),
+            moves: flow.consumptions(body, types),
+            entry_only: true,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn local_for_test(body: &Body, flow: &FlowGraph, types: &LinearTypes) -> Self {
+        let mut facts = Self::for_entry(body, flow, types);
+        facts.entry_only = false;
+        facts
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ReferentExitEffect {
     pub place: Place,
@@ -808,6 +838,48 @@ fn refine_outcome_must(
 }
 
 impl FlowConsumptions {
+    /// Reuse the ownership solution for frame/storage planning. A missing
+    /// snapshot is unreachable, never evidence of an initialized value.
+    pub(crate) fn possible_regions_before(
+        &self,
+        node: FlowNodeId,
+    ) -> Option<&HashMap<Place, Vec<Option<Span>>>> {
+        self.before.get(node.0)?.as_ref()
+    }
+
+    pub(crate) fn definite_regions_before(&self, node: FlowNodeId) -> Option<&HashSet<Place>> {
+        self.definitely_before.get(node.0)?.as_ref()
+    }
+
+    pub(crate) fn unresolved_at(&self, node: FlowNodeId) -> bool {
+        self.unresolved.contains(&node)
+    }
+
+    /// Unknown ownership effects remain unknown at every reachable
+    /// continuation, not just at the call that produced them. A later local
+    /// write is not proof that every possibly affected owner was restored.
+    pub(crate) fn unresolved_before(&self, flow: &FlowGraph) -> Vec<bool> {
+        let mut unknown = vec![false; flow.nodes.len()];
+        let mut queue = VecDeque::new();
+        for event in &self.unresolved {
+            for next in &flow.nodes[event.0].successors {
+                if !unknown[next.0] {
+                    unknown[next.0] = true;
+                    queue.push_back(*next);
+                }
+            }
+        }
+        while let Some(event) = queue.pop_front() {
+            for next in &flow.nodes[event.0].successors {
+                if !unknown[next.0] {
+                    unknown[next.0] = true;
+                    queue.push_back(*next);
+                }
+            }
+        }
+        unknown
+    }
+
     #[cfg(test)]
     pub fn unresolved_nodes(&self) -> &HashSet<FlowNodeId> {
         &self.unresolved
@@ -907,6 +979,17 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
+    pub(crate) fn variants_before<'a>(
+        &'a self,
+        body: &Body,
+        flow: &FlowGraph,
+        event: FlowNodeId,
+    ) -> Option<&'a HashMap<Place, VariantId>> {
+        self.variants
+            .get_or_init(|| flow.variant_facts_with_origins(body, self))
+            .get(event.0)?
+            .as_ref()
+    }
     fn reachable_loop_breaks(&self, flow: &FlowGraph, result: NodeId) -> Vec<(FlowNodeId, NodeId)> {
         self.events_by_value[result.0]
             .iter()
@@ -8180,7 +8263,7 @@ impl FlowGraph {
         (before, after)
     }
 
-    fn active_bindings_before(&self, body: &Body) -> Vec<Option<HashSet<BindingId>>> {
+    pub(crate) fn active_bindings_before(&self, body: &Body) -> Vec<Option<HashSet<BindingId>>> {
         let mut before: Vec<Option<HashSet<BindingId>>> = vec![None; self.nodes.len()];
         let mut queued = vec![false; self.nodes.len()];
         let mut pending = VecDeque::from([self.entry]);
@@ -9050,7 +9133,7 @@ pub(crate) fn split_referent_effect_place(
     }
 }
 
-fn linear_obligation_place(
+pub(crate) fn linear_obligation_place(
     declarations: &crate::typed_ir::Declarations,
     binding: BindingId,
     ty: &Type,
@@ -9093,7 +9176,7 @@ fn linear_obligation_place(
     Some(place)
 }
 
-fn place_covers(ancestor: &Place, descendant: &Place) -> bool {
+pub(crate) fn place_covers(ancestor: &Place, descendant: &Place) -> bool {
     ancestor.root == descendant.root && descendant.segments.starts_with(&ancestor.segments)
 }
 

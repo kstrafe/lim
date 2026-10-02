@@ -548,7 +548,7 @@ fn diagnostic_place_name(body: &Body, place: &Place) -> String {
 /// the original holder. Parameters and pattern-produced copies use ordinary
 /// liveness from the outset. Slot consumption remains authoritative for moves
 /// and explicit release, including moves through a local pinned reference.
-fn unread_loan_bindings(
+pub(crate) fn unread_loan_bindings(
     body: &Body,
     flow: &FlowGraph,
     types: &LinearTypes,
@@ -667,7 +667,7 @@ fn unread_loan_bindings(
         .collect()
 }
 
-fn visible_loan_bindings(
+pub(crate) fn visible_loan_bindings(
     live: &crate::typed_flow::FlowLiveness,
     unread: &[Vec<u64>],
     event: FlowNodeId,

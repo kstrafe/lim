@@ -36,6 +36,37 @@ state. The legacy lowering still emits inspectable ordinary Lim declarations;
 the normal typed checkers validate those generated functions. General graph
 emission and delayed initialization of stable frame-owned storage remain open.
 
+### Suspension storage facts
+
+`async_storage.rs` queries the ordinary typed-flow ownership and loan solvers.
+It separates future data reads, explicit linear cleanup obligations, address
+dependencies and lifetime-only dependencies. Each linear leaf is Empty, Full
+or Conditional; a partly consumed aggregate is not a loadable whole value.
+Snapshots use resolved binding/place identities, including fields whose names
+contain dots, rather than parsing names into paths.
+
+`Declarations::suspension_storage_facts` collects the ordinary contents-aware
+callee staging solution for selected bodies. Its graph, provenance and
+consumption facts belong together. Callee consumption, forwarded initializer
+restoration, selected result outcomes and cleared reference contents affect
+storage retention. A nonreturning callee cuts off following events. Unresolved
+effects propagate to continuations and cannot establish initialized storage;
+opaque checked-reference contracts fail staging instead of manufacturing facts.
+
+Loan retention reuses production NLL plus fresh unread-holder retention.
+Releasing one reference field retires its loan, not its sibling's loan. A
+lifetime-only raw-pointer anchor retains lifetime without claiming the pointer
+addresses the anchor. Call reborrow permission is not a dependency on a
+temporary parent handle's storage.
+
+The existing async capture probe now retains linear cleanup requirements even
+when a resume parameter has no subsequent data read. This cheap preliminary
+mode is explicitly entry-only: without callee staging it cannot supply snapshots
+at later events. The source suspension graph still needs mapping to checked
+typed bodies and computed temporary storage before general frame emission can
+use these facts. Staging snapshots are not a successful `CheckedProgram`
+boundary and cannot waive ordinary owned-exit, borrowing or unsafe validation.
+
 ## Production ownership boundary
 
 Typed flow now decides owned-value validity without a syntax-only rejection

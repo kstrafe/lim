@@ -282,6 +282,25 @@ mod checked_program_tests {
     }
 
     #[test]
+    fn async_capture_requirements_include_cleanup_but_not_dead_parameter_loans() {
+        let program = crate::parse_program(
+            "(#struct Token ((value u64))) (#linear Token)
+             (#fn poll-resume-0 ((live u64) (unused Token) (dead (#ref u64))) u64
+               (#return live))
+             (#fn unrelated ((unused Token)) () (#return ()))",
+        )
+        .unwrap();
+        let requirements =
+            typed_async_capture_requirements(&program, &["poll-resume-".into()]).unwrap();
+        assert_eq!(requirements["poll-resume-0"], HashSet::from([0, 1]));
+        assert!(!requirements.contains_key("unrelated"));
+        let error = CheckedProgram::validate(&program)
+            .err()
+            .expect("staging cannot authorize lost owners");
+        assert!(error.contains("unused"), "{error}");
+    }
+
+    #[test]
     fn generic_programmatic_declarations_are_rejected_at_the_checked_boundary() {
         let mut function_program =
             crate::parse_program("(#fn identity ((value u64)) u64 (#return value))").unwrap();
@@ -696,6 +715,7 @@ fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
 /// Build checked typed bodies and CFG liveness before ownership enforcement.
 /// This is for compiler staging analyses (such as async frame capture
 /// discovery); it is not a successful program-validation boundary.
+#[cfg(test)]
 pub(crate) fn typed_live_parameters(
     program: &Program,
 ) -> Result<HashMap<String, HashSet<usize>>, AnalysisError> {
@@ -714,7 +734,45 @@ pub(crate) fn typed_live_parameters(
     Ok(live_parameters)
 }
 
-fn resolve_program_for_analysis(
+/// Capture discovery also retains owned cleanup obligations and held loans.
+/// Restrict analysis to actual generated resume helpers: solving storage for
+/// unrelated imported functions would be needless whole-program work.
+pub(crate) fn typed_async_capture_requirements(
+    program: &Program,
+    prefixes: &[String],
+) -> Result<HashMap<String, HashSet<usize>>, AnalysisError> {
+    let declarations = resolve_program_for_analysis(program, false)?;
+    let types = crate::linearcheck::LinearTypes::from_program(program);
+    let mut requirements = HashMap::new();
+    for (name, body) in &declarations.bodies {
+        if !prefixes.iter().any(|prefix| {
+            name.strip_prefix(prefix)
+                .is_some_and(|suffix| suffix.parse::<usize>().is_ok())
+        }) {
+            continue;
+        }
+        let flow = &declarations.flows[name];
+        let facts = crate::typed_flow::StorageFacts::for_entry(body, flow, &types);
+        let storage = crate::async_storage::Analysis::new(body, &facts, &types, &declarations);
+        let snapshot = storage
+            .before(flow.entry)
+            .expect("checked function entry is reachable");
+        debug_assert!(
+            !snapshot.unresolved_effects,
+            "function entry precedes all effects"
+        );
+        let parameters = snapshot
+            .slots
+            .into_iter()
+            .filter(|slot| slot.binding.0 < body.parameter_count && slot.retain())
+            .map(|slot| slot.binding.0)
+            .collect();
+        requirements.insert(name.clone(), parameters);
+    }
+    Ok(requirements)
+}
+
+pub(crate) fn resolve_program_for_analysis(
     program: &Program,
     enforce_ownership: bool,
 ) -> Result<Declarations, AnalysisError> {

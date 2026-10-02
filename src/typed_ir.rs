@@ -853,7 +853,7 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, &'static str> {
-        self.staged_referent_analysis(types, false, false, false)
+        self.staged_referent_analysis(types, false, false, false, None)
             .map_err(|_| "cyclic or unresolved internal ownership summary dependencies")
     }
 
@@ -862,7 +862,7 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<(), StagedReferentError> {
-        self.staged_referent_analysis(types, true, false, false)
+        self.staged_referent_analysis(types, true, false, false, None)
             .map(|_| ())
     }
 
@@ -871,7 +871,7 @@ impl Declarations {
         &self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<(), StagedReferentError> {
-        self.staged_referent_analysis(types, true, true, false)
+        self.staged_referent_analysis(types, true, true, false, None)
             .map(|_| ())
     }
 
@@ -883,7 +883,7 @@ impl Declarations {
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
     {
-        self.staged_referent_analysis(types, false, false, true)
+        self.staged_referent_analysis(types, false, false, true, None)
     }
 
     /// Prepare actual parameter contents and interprocedural store/clear
@@ -897,7 +897,7 @@ impl Declarations {
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
     {
         self.summarize_parameter_loans_with_contents(true);
-        self.staged_referent_analysis(types, false, false, true)
+        self.staged_referent_analysis(types, false, false, true, None)
     }
 
     #[cfg(test)]
@@ -909,12 +909,33 @@ impl Declarations {
         self.check_referent_entry_contracts(types)
     }
 
+    /// Reuse ordinary contents-aware call staging for suspension storage.
+    /// Snapshot selection is not a successful program-validation boundary;
+    /// callers must still enforce the ordinary ownership and borrowing gates.
+    /// Collect only requested bodies, avoiding a new per-body storage solve
+    /// for unrelated imports or ordinary compilation without async lowering.
+    #[cfg_attr(not(test), allow(dead_code))] // General frame emission will consume these facts.
+    pub fn suspension_storage_facts(
+        &mut self,
+        types: &crate::linearcheck::LinearTypes,
+        names: &HashSet<String>,
+    ) -> Result<HashMap<String, crate::typed_flow::StorageFacts>, StagedReferentError> {
+        self.summarize_parameter_loans_with_contents(true);
+        let mut storage = HashMap::new();
+        self.staged_referent_analysis(types, false, false, true, Some((names, &mut storage)))?;
+        Ok(storage)
+    }
+
     fn staged_referent_analysis(
         &self,
         types: &crate::linearcheck::LinearTypes,
         validate_replacements: bool,
         validate_uses: bool,
         infer_entry_contracts: bool,
+        mut storage: Option<(
+            &HashSet<String>,
+            &mut HashMap<String, crate::typed_flow::StorageFacts>,
+        )>,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
     {
         use crate::typed_body::NodeKind;
@@ -1325,6 +1346,24 @@ impl Declarations {
                 summary.reads.extend(call_reads);
                 summary.consuming_accesses.extend(consuming_accesses);
                 summary.unresolved_reads.extend(unresolved_reads);
+                if let Some((requested, snapshots)) = storage.as_mut() {
+                    if requested.contains(name) {
+                        let moves = flow.referent_consumptions_with_partial_restorations(
+                            body,
+                            types,
+                            &calls,
+                            &restorations,
+                            &summary.consumed_entry,
+                            &possible_restorations,
+                        );
+                        snapshots.insert(name.clone(), crate::typed_flow::StorageFacts {
+                            flow,
+                            origins,
+                            moves,
+                            entry_only: false,
+                        });
+                    }
+                }
                 summaries.insert(self.function_id(name).unwrap(), summary);
                 false
             });

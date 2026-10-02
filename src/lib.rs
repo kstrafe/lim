@@ -12,6 +12,7 @@ mod analysis_error;
 mod async_cfg;
 mod async_contract;
 mod async_fn;
+mod async_storage;
 // Retain the lexical model only for differential regression tests. Production
 // borrowing is decided by checked places, callee contracts and typed flow.
 #[cfg(test)]
@@ -2665,7 +2666,17 @@ fn parse_prepared_program_with_capture_plans(
     if invocations.is_empty() {
         return Ok((probe, AsyncCapturePlans::new()));
     }
-    let live_parameters = match typecheck::typed_live_parameters(&probe) {
+    let prefixes = invocations
+        .iter()
+        .map(|invocation| {
+            format!(
+                "{}{}-resume-",
+                invocation.poll_name,
+                if invocation.pinned { "-move" } else { "" }
+            )
+        })
+        .collect::<Vec<_>>();
+    let live_parameters = match typecheck::typed_async_capture_requirements(&probe, &prefixes) {
         Ok(live_parameters) => live_parameters,
         Err(_) => {
             // Keep parsing semantically invalid programs so callers can ask
