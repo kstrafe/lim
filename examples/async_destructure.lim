@@ -1,0 +1,30 @@
+; All nested pattern bindings have explicit types from the Values declaration.
+(#struct Values ((z (#tuple u16 u16)) (a u64)))
+(#enum Step ((Start u64) (Resume u64)))
+(#enum StepPoll ((StepPending Step) (StepReady u64)))
+(#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+  (#return (#match task
+    (#case (Start value) (StepPending (Resume value)))
+    (#case (Resume value) (StepReady value)))))
+
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+  (#fn work ((values Values)) u64
+    (#let (Values (#tuple left right) bias) Values values)
+    (#let first u64
+      (#await u64 Step StepPending StepReady step-poll (Start (#as left u64))))
+    (#let second u64
+      (#await u64 Step StepPending StepReady step-poll (Start (#as right u64))))
+    (#return (#u64.+.wrap (#u64.+.wrap first second) bias)))))
+
+(#fn main () u64
+  (#let waker u64 0u64)
+  (#let-mut task Frame
+    (#call work (: values
+      (#struct-literal Values (: a 22u64 : z (#tuple (#tuple u16 u16) 9u16 11u16))))))
+  (#for-range (attempt u64) 0u64 4u64
+    (#let result Poll (#call poll (: task task : waker (#borrow waker))))
+    (#match result
+      (#case (Pending next) (#block (#set task next) ()))
+      (#case (Ready value) (#block (#return value)))))
+  (#forget task)
+  (#return (#unreachable)))

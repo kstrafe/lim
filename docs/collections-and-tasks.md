@@ -563,3 +563,10 @@ field across a suspension while awaiting another field's computation.
 `examples/async_struct_patterns.lim` uses differently sized fields declared
 in nonalphabetical order. Shared-reference fields retain their source loans
 while suspended; mutating the referent before completion is rejected.
+
+Ordinary `#let` and `#let-mut` destructuring can appear before or between
+awaits too. Every nested leaf gets its type from the explicit binding type,
+including aliased array elements and nested struct fields. Mutable patterns
+keep their mutable slots across suspension, and linear fields still require
+explicit consumption. `examples/async_destructure.lim` destructures a nested
+tuple in a struct and awaits each element in turn (exit 42).

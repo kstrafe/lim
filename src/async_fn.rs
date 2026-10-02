@@ -258,7 +258,7 @@ fn inline_stage_task_temporary(prefix: &mut Vec<String>, task: &str) -> Result<S
     let Some(binding) = form(statement, "#let").or_else(|| form(statement, "#let-mut")) else {
         return Ok(task.to_owned());
     };
-    if binding.len() != 4 || symbol(&binding[1], "async task temporary")? != task {
+    if binding.len() != 4 || !matches!(&binding[1], Expr::Symbol(name) if name == task) {
         return Ok(task.to_owned());
     }
     for preceding in &prefix[..prefix.len() - 1] {
@@ -11040,6 +11040,41 @@ fn binding(expr: &Expr, context: &str) -> Result<Binding, String> {
     })
 }
 
+/// Resolve every leaf of a local pattern from its explicit declaration.
+/// Preserve pattern order, mutability, and aliases; no body-use inference.
+fn declared_local_bindings(
+    expression: &Expr,
+    environment: &AsyncTypeEnvironment,
+) -> Result<Option<Vec<Binding>>, String> {
+    let Some(items) = form(expression, "#let")
+        .or_else(|| form(expression, "#let-mut"))
+        .or_else(|| form(expression, "let"))
+        .or_else(|| form(expression, "let-mut"))
+    else {
+        return Ok(None);
+    };
+    if items.len() != 4 {
+        return Err("@async-fn local declaration requires a pattern, type, and value".into());
+    }
+    if matches!(&items[1], Expr::Symbol(_)) {
+        return binding(expression, "local declaration").map(|binding| Some(vec![binding]));
+    }
+    parse_type(Some(&normalize_keywords(items[2].clone())))?;
+    let ty = expression_source(&items[2])?;
+    let mut fields = Vec::new();
+    collect_enum_pattern_bindings(&items[1], &ty, environment, &mut fields)?;
+    let mutable = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let-mut" | "let-mut"));
+    let mut seen = HashSet::new();
+    let mut bindings = Vec::with_capacity(fields.len());
+    for (name, ty) in fields {
+        if !seen.insert(name.clone()) {
+            return Err(format!("@async-fn duplicate pattern binding '{name}'"));
+        }
+        bindings.push(Binding { name, ty, mutable });
+    }
+    Ok(Some(bindings))
+}
+
 fn pinned_self_references(
     params: &[Binding],
     body: &[Expr],
@@ -11941,12 +11976,40 @@ fn generated_source_with_capture_selection(
         .map_err(|error| format!("async statement {source_index}: {error}"))?;
         lowered_statements.extend(generated);
         lowered_statements.push(statement.clone());
-        if let Ok(local) = binding(&statement, "source local") {
-            lowering_known_order.push(local.name.clone());
-            lowering_known.insert(local.name.clone(), local);
+        if let Some(locals) = declared_local_bindings(&statement, type_environment)? {
+            for local in locals {
+                lowering_known_order.push(local.name.clone());
+                lowering_known.insert(local.name.clone(), local);
+            }
         }
     }
     statements = lowered_statements;
+    // Loop adapters introduce output aggregate declarations alongside their
+    // helpers. Pattern captures must use those actual declarations too, not
+    // guess fields from names already seen in the enclosing body.
+    let pattern_environment = if !generated_helpers.is_empty()
+        && statements.iter().any(|statement| {
+            form(statement, "#let")
+                .or_else(|| form(statement, "#let-mut"))
+                .or_else(|| form(statement, "let"))
+                .or_else(|| form(statement, "let-mut"))
+                .is_some_and(|items| matches!(items.get(1), Some(Expr::List(_))))
+        }) {
+        let mut environment = type_environment.clone();
+        for helper in &generated_helpers {
+            let declarations = crate::parse(helper)?;
+            let metadata = crate::async_type_environment(&declarations);
+            environment.aliases.extend(metadata.aliases);
+            environment.enums.extend(metadata.enums);
+            environment.struct_fields.extend(metadata.struct_fields);
+            environment
+                .struct_field_order
+                .extend(metadata.struct_field_order);
+        }
+        Cow::Owned(environment)
+    } else {
+        Cow::Borrowed(type_environment)
+    };
     for statement in &mut statements {
         rewrite_async_let_else_returns(statement, &ready)?;
         resolve_generated_async_returns(statement, &ready);
@@ -12021,43 +12084,13 @@ fn generated_source_with_capture_selection(
                 .is_some()
             {
                 let Some(mut local) = binding(statement, "between #await forms").ok() else {
-                    let items = form(statement, "#let")
-                        .or_else(|| form(statement, "#let-mut"))
-                        .or_else(|| form(statement, "let"))
-                        .or_else(|| form(statement, "let-mut"))
+                    let locals = declared_local_bindings(statement, &pattern_environment)?
                         .expect("binding form was checked");
-                    let Some(Expr::List(pattern)) = items.get(1) else {
-                        return Err("@async-fn destructuring pattern must be a list".into());
-                    };
-                    let names = pattern
-                        .iter()
-                        .skip(1)
-                        .filter_map(|item| match item {
-                            Expr::Symbol(name) if name != "_" => Some(name.clone()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>();
-                    if names.is_empty() {
-                        return Err("@async-fn cannot infer destructured bindings".into());
-                    }
-                    // Expansion may introduce a tuple destructuring after
-                    // the original body was checked. Its explicit annotation
-                    // still supplies every generated binding's type.
-                    let declared_type = items.get(2).map(expression_source).transpose()?;
-                    let declared_scope =
-                        async_pattern_scope(&items[1], declared_type.as_deref(), &HashMap::new());
-                    for name in names {
-                        if known.contains_key(&name) {
+                    for local in locals {
+                        let name = local.name.clone();
+                        if known.insert(name.clone(), local).is_some() {
                             return Err(format!("@async-fn duplicate binding '{name}'"));
                         }
-                        let local = lowering_known
-                            .get(&name)
-                            .or_else(|| declared_scope.get(&name))
-                            .cloned()
-                            .ok_or_else(|| {
-                                format!("@async-fn cannot resolve destructured binding '{name}'")
-                            })?;
-                        known.insert(name.clone(), local);
                         known_order.push(name);
                     }
                     prefix.push(expression_source(statement)?);
@@ -13101,6 +13134,62 @@ fn apply_async_output_renames(
 #[cfg(test)]
 mod async_lowering_tests {
     use super::*;
+
+    #[test]
+    fn local_pattern_bindings_preserve_nested_order_aliases_and_mutability() {
+        let environment = crate::async_type_environment(
+            &crate::parse("(#type Narrow u16) (#struct Parts ((z (#array Narrow 2)) (a u64)))")
+                .unwrap(),
+        );
+        let expression = |source| crate::parse(source).unwrap().remove(0).expr;
+        let bindings = declared_local_bindings(
+            &expression("(#let-mut (Parts (#array first second) tail) Parts parts)"),
+            &environment,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|binding| (binding.name.as_str(), binding.ty.as_str(), binding.mutable))
+                .collect::<Vec<_>>(),
+            [
+                ("first", "Narrow", true),
+                ("second", "Narrow", true),
+                ("tail", "u64", true)
+            ]
+        );
+        let ignored = declared_local_bindings(
+            &expression("(#let (Parts (#array _ only) _) Parts parts)"),
+            &environment,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(ignored.len(), 1);
+        assert_eq!(ignored[0].name, "only");
+        assert!(!ignored[0].mutable);
+        let duplicate = declared_local_bindings(
+            &expression("(#let (Parts (#array repeated repeated) tail) Parts parts)"),
+            &environment,
+        )
+        .err()
+        .expect("duplicate leaves must fail before capture layout");
+        assert!(
+            duplicate.contains("duplicate pattern binding 'repeated'"),
+            "{duplicate}"
+        );
+    }
+
+    #[test]
+    fn stage_task_inlining_leaves_pattern_declarations_intact() {
+        let mut prefix = vec!["(#let (#tuple left right) (#tuple u64 u64) pair)".into()];
+        let original = prefix.clone();
+        assert_eq!(
+            inline_stage_task_temporary(&mut prefix, "child").unwrap(),
+            "child"
+        );
+        assert_eq!(prefix, original);
+    }
 
     #[test]
     fn suspension_detection_walks_structured_control_flow() {
