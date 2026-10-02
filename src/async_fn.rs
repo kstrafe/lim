@@ -1077,13 +1077,12 @@ fn conditional_block_continuation(
                     .into(),
             );
         }
-        if form(statement, "#let").is_some() || form(statement, "#let-mut").is_some() {
-            let local = binding(statement, "conditional await prefix")?;
-            continuation_names.remove(&local.name);
-            let binding_form = form(statement, "#let")
-                .or_else(|| form(statement, "#let-mut"))
-                .expect("validated prefix binding");
-            prefix_bindings.push((local, binding_form[2].clone()));
+        if let Some(locals) = current_local_bindings(statement)? {
+            for local in locals {
+                continuation_names.remove(&local.name);
+                let ty = crate::parse(&local.ty)?.remove(0).expr;
+                prefix_bindings.push((local, ty));
+            }
         }
     }
     let mut captured_bindings = continuation_names
@@ -1396,8 +1395,10 @@ fn async_expression_type(expression: &Expr, known: &HashMap<String, Binding>) ->
                 "block" => {
                     let mut scope = known.clone();
                     for statement in items.iter().skip(1).take(items.len().saturating_sub(2)) {
-                        if let Ok(local) = binding(statement, "expression block") {
-                            scope.insert(local.name.clone(), local);
+                        if let Some(locals) = current_local_bindings(statement).ok()? {
+                            for local in locals {
+                                scope.insert(local.name.clone(), local);
+                            }
                         }
                     }
                     async_expression_type(items.last()?, &scope)
@@ -1422,10 +1423,8 @@ fn async_loop_break_value(
         {
             return;
         }
-        if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
-            && items.len() == 4
-        {
-            if let Ok(local) = binding(expression, "loop result declaration") {
+        if let Ok(Some(locals)) = current_local_bindings(expression) {
+            for local in locals {
                 known.insert(local.name.clone(), local);
             }
         }
@@ -2702,20 +2701,15 @@ fn extract_nested_awaits(
             for (original, renamed) in &renamed_prefixes {
                 replace_await_local(statement, original, renamed);
             }
-            let binding = form(statement, "#let").or_else(|| form(statement, "#let-mut"));
-            if let Some(binding) = binding {
-                if binding.len() != 4 {
-                    return Err(
-                        "@async-fn awaited block bindings require a name, type, and value".into(),
-                    );
+            if let Some(locals) = current_local_bindings(statement)? {
+                for local in locals {
+                    let renamed = nested_await_name(source, next_name);
+                    let Expr::List(items) = statement else {
+                        unreachable!()
+                    };
+                    rename_pattern_binding(&mut items[1], &local.name, &renamed);
+                    renamed_prefixes.push((local.name, renamed));
                 }
-                let original = symbol(&binding[1], "block binding name")?.to_owned();
-                let renamed = nested_await_name(source, next_name);
-                let Expr::List(items) = statement else {
-                    unreachable!()
-                };
-                items[1] = Expr::Symbol(renamed.clone());
-                renamed_prefixes.push((original, renamed));
             } else if has_await(statement)
                 || contains_loop_control(statement)
                 || contains_return(statement)
@@ -3628,20 +3622,22 @@ fn extract_nested_block_awaits(
         for (original, replacement) in &renamed {
             replace_await_local(&mut statement, original, replacement);
         }
-        if let Some(local) = binding(&statement, "nested block prefix").ok() {
-            let replacement = nested_await_name(source, next_name);
-            let Expr::List(items) = &mut statement else {
-                unreachable!()
-            };
-            items[1] = Expr::Symbol(replacement.clone());
-            block_known.insert(
-                replacement.clone(),
-                Binding {
-                    name: replacement.clone(),
-                    ..local
-                },
-            );
-            renamed.push((local.name, replacement));
+        if let Some(locals) = current_local_bindings(&statement)? {
+            for local in locals {
+                let replacement = nested_await_name(source, next_name);
+                let Expr::List(items) = &mut statement else {
+                    unreachable!()
+                };
+                rename_pattern_binding(&mut items[1], &local.name, &replacement);
+                block_known.insert(
+                    replacement.clone(),
+                    Binding {
+                        name: replacement.clone(),
+                        ..local.clone()
+                    },
+                );
+                renamed.push((local.name, replacement));
+            }
         }
         generated.push(statement);
     }
@@ -11097,6 +11093,16 @@ fn declared_local_bindings(
     Ok(Some(bindings))
 }
 
+fn current_local_bindings(expression: &Expr) -> Result<Option<Vec<Binding>>, String> {
+    ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
+        let stack = stack.borrow();
+        match stack.last() {
+            Some(environment) => declared_local_bindings(expression, environment),
+            None => declared_local_bindings(expression, &AsyncTypeEnvironment::default()),
+        }
+    })
+}
+
 fn pinned_self_references(
     params: &[Binding],
     body: &[Expr],
@@ -12839,6 +12845,26 @@ fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
             };
             match head.as_str() {
                 "#literal" => {}
+                "#as" | "as" if items.len() == 3 => {
+                    collect_value_names(&items[1], names);
+                }
+                "#size-of" | "size-of" | "#align-of" | "align-of" => {}
+                "#tuple" | "tuple" | "#array-of" | "array-of" => {
+                    for value in items.iter().skip(2) {
+                        collect_value_names(value, names);
+                    }
+                }
+                "#asm" | "asm" if items.len() >= 3 => {
+                    if let Expr::List(registers) = &items[2] {
+                        for register in registers {
+                            if let Expr::List(pair) = register {
+                                if let Some(value) = pair.get(1) {
+                                    collect_value_names(value, names);
+                                }
+                            }
+                        }
+                    }
+                }
                 "#async-terminal-return" if items.len() == 3 => {
                     collect_value_names(&items[2], names);
                 }
@@ -13183,6 +13209,29 @@ mod async_lowering_tests {
         assert_eq!(
             values,
             ["input", "fallback", "failed"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
+    }
+
+    #[test]
+    fn capture_walk_ignores_type_annotations_and_assembly_register_labels() {
+        let expression = crate::parse(
+            "(#block (#as byte u64)
+          (#tuple (#tuple u64 bool) number decision)
+          (#array-of (#array u32 2) left right)
+          (#size-of Layout) (#align-of Layout)
+          (#unsafe (#asm u64 ((rax input) (rdi (#as count usize))) \"syscall\")))",
+        )
+        .unwrap()
+        .remove(0)
+        .expr;
+        let mut names = HashSet::new();
+        collect_value_names(&expression, &mut names);
+        assert_eq!(
+            names,
+            ["byte", "number", "decision", "left", "right", "input", "count"]
                 .into_iter()
                 .map(str::to_owned)
                 .collect()

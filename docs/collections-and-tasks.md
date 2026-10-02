@@ -591,3 +591,14 @@ there, with or without a redundant result type before the child protocol.
 See `examples/async_await_destructure.lim` (exit 42). Linear payloads still
 require explicit consumption; a plain-data test payload must be marked
 `#linear` to exercise this constraint.
+
+Nested destructuring also works in the prefix of a suspending value `#block`
+or a selected `#if` branch. Each leaf keeps its explicitly declared type and
+mutability; branch-local names do not escape into the other branch. A block's
+result type comes from its tail, not its first awaited value. Type names in
+casts, aggregate constructors, layout queries, and assembly declarations
+are not captured as local values. Reference leaves retain their loans while
+Pending, and linear leaves require explicit consumption on every path.
+`examples/async_pattern_blocks.lim` runs both the selected and skipped branch
+and exits with 47. These extensions do not remove the remaining general
+control-flow and pinned-frame restrictions.

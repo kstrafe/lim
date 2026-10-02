@@ -7974,6 +7974,111 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_scoped_blocks_keep_nested_pattern_captures() {
+    let source = include_str!("../examples/async_destructure.lim");
+    let block = source
+        .replace(
+            "(#let (Values (#tuple left right) bias) Values values)",
+            "(#let result u64 (#block (#let (Values (#tuple left right) bias) Values values)",
+        )
+        .replace(
+            "(#return (#u64.+.wrap (#u64.+.wrap first second) bias))",
+            "(#u64.+.wrap (#u64.+.wrap first second) bias))) (#return result)",
+        );
+    build_and_run(&block, 42);
+    let branch = include_str!("../examples/async_pattern_blocks.lim");
+    build_and_run(branch, 47);
+    let immediate = branch.replace("(StepPending (Resume value))", "(StepReady value)");
+    build_and_run(&immediate, 47);
+    let skipped = branch
+        .replace("(StepPending (Resume value))", "(#panic)")
+        .replace(": choose true : waker", ": choose false : waker");
+    build_and_run(&skipped, 10);
+    let mutable = branch
+        .replace("(#let (Values", "(#let-mut (Values")
+        .replace(
+            "(#let second u64",
+            "(#set bias (#u64.+.wrap bias 2u64)) (#let second u64",
+        );
+    build_and_run(&mutable, 49);
+    let bool_tail = block
+        .replace("(a u64)", "(a bool)")
+        .replace(": a 22u64", ": a true")
+        .replace(
+            "(#fn work ((values Values)) u64",
+            "(#fn work ((values Values)) bool",
+        )
+        .replace("(#let result u64", "(#let result bool")
+        .replace("(#u64.+.wrap (#u64.+.wrap first second) bias)", "bias")
+        .replace("(#return value)", "(#return (#if value 42u64 0u64))");
+    build_and_run(&bool_tail, 42);
+    let owned = format!("(#struct Token ((value u64))) (#linear Token)\n{}", branch
+        .replace("(a u64)", "(a Token)")
+        .replace(": a 22u64", ": a (#struct-literal Token (: value 22u64))")
+        .replace("(#u64.+.wrap (#u64.+.wrap first second) bias))", "(#let total u64 (#u64.+.wrap (#u64.+.wrap first second) (#get bias value))) (#forget bias) total)"));
+    build_and_run(&owned, 47);
+    let referenced = branch
+        .replace("(#tuple u16 u16)", "(#tuple u16 (#ref u64))")
+        .replace("(#as right u64)", "(#deref right)")
+        .replace(
+            "(#let-mut task Frame",
+            "(#let-mut owner u64 11u64) (#let-mut task Frame",
+        )
+        .replace("9u16 11u16", "9u16 (#borrow owner)");
+    build_and_run(&referenced, 47);
+    let exclusive = referenced
+        .replace("(#tuple u16 (#ref u64))", "(#tuple u16 (#ref-mut u64))")
+        .replace("(#borrow owner)", "(#borrow-mut owner)");
+    build_and_run(&exclusive, 47);
+    let scratch = support::Scratch::new("async-block-pattern-errors");
+    let error_for = |source: &str| {
+        lim::compile_source_to_assembly(
+            source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err()
+    };
+    let invalid = referenced.replace(
+        "(#block (#set task next) ())",
+        "(#block (#set owner 99u64) (#set task next) ())",
+    );
+    let conflict = error_for(&invalid);
+    assert!(
+        conflict.message.contains("owner") && conflict.message.contains("borrow"),
+        "{conflict:?}"
+    );
+    let span = conflict
+        .span
+        .expect("conditional pattern loan retains its exact origin");
+    assert_eq!(&invalid[span.start..span.end], "#set", "{conflict:?}");
+    assert_eq!(span.start, invalid.find("#set owner 99u64").unwrap());
+    let missing_cleanup = error_for(&owned.replace("(#forget bias)", "()"));
+    assert_eq!(
+        missing_cleanup.code,
+        lim::DiagnosticCode::Linear,
+        "{missing_cleanup:?}"
+    );
+    assert!(
+        missing_cleanup.message.contains("bias") && missing_cleanup.message.contains("consum"),
+        "{missing_cleanup:?}"
+    );
+    let leaked_scope = error_for(&branch.replace(
+        "(#block (#forget values) 5u64)",
+        "(#block (#forget values) (#as left u64))",
+    ));
+    assert!(
+        leaked_scope.message.contains("left")
+            && (leaked_scope.message.contains("unknown")
+                || leaked_scope.message.contains("captures")),
+        "{leaked_scope:?}"
+    );
+    assert!(leaked_scope.span.is_some(), "{leaked_scope:?}");
+}
+
+#[test]
 fn async_awaited_aggregate_can_be_destructured_directly() {
     let source = include_str!("../examples/async_await_destructure.lim");
     build_and_run(source, 42);
