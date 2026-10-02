@@ -37,6 +37,23 @@ counts. Tests distinguish handle use-after-move from returning a reference to
 a consumed pointee; the latter audit uses explicit forwarding calls to keep
 source handles available while retaining a reference snapshot.
 
+Typed call validation also checks known child reborrows against reference
+arguments. Reading a parent pointer as an argument grants the callee referent
+access; it must not bypass a live child retained through aggregate moves or
+referent restoration. The argument's own owned slot and its reborrow ancestors
+supply permission for calls through the child. Borrowed pointee contents are
+not extra references lent by the argument, and separate pointer slots in one
+parameter keep distinct symbolic referent identities. Call-site origins map
+those slots back to caller places. Shared result traversal covers conditional,
+matched, block and labeled/unlabeled loop arguments without interpreting field
+names as referent projections. Independent typed regressions verify ordinary
+and pinned parent rejection, cleanup, child calls and restored holder loans;
+a UI fixture checks the offending argument and original child-borrow spans.
+
+This closes the known moved/restored child-parent call gap, not the complete
+loan-retention migration. The broader ordinary-reference lifetime/retirement
+rules still need parity before the syntax-based borrow checker can be removed.
+
 This does not finish the borrow-checker migration. Production still runs the
 syntax-based borrow checker and separate typed borrowed-storage entry contracts.
 Several sections below document earlier staging milestones; those experiments

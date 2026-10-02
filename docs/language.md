@@ -1311,6 +1311,13 @@ its owner. See `examples/exclusive_reference_move.lim`. References need no
 mandatory destruction at function exit, and passing a reference directly to a
 function is a call-duration reborrow rather than a handle transfer.
 
+A derived field reference also suspends overlapping parent access through
+function calls. Moving the child into another aggregate, or moving and restoring
+its holder through pinned storage, does not erase that restriction. Calls may
+use the child's own reference; explicitly release the child holder before
+lending the parent again. `examples/reference_parent_call.lim` demonstrates
+that order, and `tests/ui/call-suspended-parent.lim` shows a rejected parent call.
+
 Struct types are not constructors. Create a value with `#struct-literal`, or
 write a named free-standing constructor function that returns one. Every field
 must be supplied exactly once; fields may appear in any order, and omitted

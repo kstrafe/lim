@@ -9425,6 +9425,121 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn typed_parent_calls_preserve_transferred_child_reborrows() {
+        for pinned in [false, true] {
+            for mutable in [false, true] {
+                for release in [false, true] {
+                    for argument in [
+                        "parent",
+                        "(#if selected parent parent)",
+                        "(#block parent)",
+                        "(#loop (#break parent))",
+                    ] {
+                        let source = format!(
+                            "(#struct Owner (: value u64))
+                        (#struct View (: child ({} u64)))
+                        (#struct Wrapped (: view View))
+                        (#fn overwrite (: target ({} Owner)) ()
+                          {} (#return ()))
+                        (#fn inspect (: parent ({} Owner) : selected bool) ()
+                          (#let view View (#struct-literal View
+                            (: child ({} (#get parent value)))))
+                          (#let moved View view)
+                          (#let wrapped Wrapped (#struct-literal Wrapped (: view moved)))
+                          {}
+                          (#call overwrite (: target {argument}))
+                          {} (#return ()))",
+                            match (pinned, mutable) {
+                                (true, true) => "#pin-ref-mut",
+                                (true, false) => "#pin-ref",
+                                (false, true) => "#ref-mut",
+                                (false, false) => "#ref",
+                            },
+                            if pinned { "#pin-ref-mut" } else { "#ref-mut" },
+                            if pinned {
+                                "(#unsafe (#pin-set-field target value 43u64))"
+                            } else {
+                                "(#deref-set target (#struct-literal Owner (: value 43u64)))"
+                            },
+                            if pinned { "#pin-ref-mut" } else { "#ref-mut" },
+                            if mutable { "#borrow-mut" } else { "#borrow" },
+                            if release { "(#forget wrapped)" } else { "" },
+                            if release {
+                                ""
+                            } else {
+                                "(#let observed u64 (#deref (#get (#get wrapped view) child))) (#forget wrapped)"
+                            }
+                        );
+                        let program = crate::parse_program(&source).unwrap();
+                        let mut declarations =
+                            resolve_program_for_analysis(&program, false).unwrap();
+                        let types = crate::linearcheck::LinearTypes::from_program(&program);
+                        declarations.check_referent_entry_contracts(&types).unwrap();
+                        let checked = crate::typed_borrow::check_live_direct_loans_with_types(
+                            &declarations.bodies["inspect"],
+                            &declarations.flows["inspect"],
+                            &types,
+                        );
+                        if release {
+                            checked.unwrap();
+                        } else {
+                            let error = checked.unwrap_err();
+                            let span = error.span.unwrap();
+                            assert_eq!(&source[span.start..span.end], argument, "{error:?}");
+                            assert!(
+                                error.message.contains("parent")
+                                    && error.message.contains("borrow"),
+                                "{error:?}"
+                            );
+                            assert!(
+                                error
+                                    .labels
+                                    .iter()
+                                    .any(|(span, _)| source[span.start..span.end].starts_with(
+                                        if mutable { "(#borrow-mut" } else { "(#borrow" }
+                                    )),
+                                "{error:?}"
+                            );
+                        }
+                        assert_eq!(crate::check_types(&program).is_ok(), release, "{source}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn typed_child_calls_use_their_own_permission_and_suspend_only_ancestors() {
+        for argument in [
+            "(#get view child)",
+            "(#block (#get view child))",
+            "(#loop (#break (#get view child)))",
+            "(#label done (#loop (#break-to done (#get view child))))",
+        ] {
+            let source = format!("(#struct Owner (: value u64 : other u64))
+                (#struct View (: child (#ref-mut u64)))
+                (#fn increment (: target (#ref-mut u64)) u64
+                  (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return (#deref target)))
+                (#fn inspect (: parent (#ref-mut Owner)) u64
+                  (#let view View (#struct-literal View (: child (#borrow-mut (#get parent value)))))
+                  (#let answer u64 (#call increment (: target {argument})))
+                  (#let sibling u64 (#get parent other))
+                  (#forget view) (#return answer))");
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations.check_referent_entry_contracts(&types).unwrap();
+            crate::typed_borrow::check_live_direct_loans_with_types(
+                &declarations.bodies["inspect"],
+                &declarations.flows["inspect"],
+                &types,
+            )
+            .unwrap();
+            crate::check_types(&program).unwrap();
+        }
+    }
+
+    #[test]
     fn typed_reference_release_invalidates_handles_without_linear_owners() {
         for release in ["#drop", "#forget"] {
             for (use_after, offending) in [
@@ -15877,6 +15992,15 @@ mod typed_ownership_tests {
                   (#forget view) (#drop parent)
                   (#let result u64 (#get owner number)) (#forget owner) (#return result))");
             let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations.check_referent_entry_contracts(&types).unwrap();
+            let typed = crate::typed_borrow::check_live_direct_loans_with_types(
+                &declarations.bodies["main"],
+                &declarations.flows["main"],
+                &types,
+            );
+            assert_eq!(typed.is_ok(), !premature, "{source}: {typed:?}");
             if premature {
                 let error = crate::check_types(&program).unwrap_err();
                 assert!(

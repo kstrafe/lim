@@ -1,0 +1,22 @@
+; A child can lend its own reference. Release it before lending the parent.
+(#struct Owner (: value u64))
+(#struct View (: child (#ref-mut u64)))
+
+(#fn increment (: target (#ref-mut u64)) u64
+  (#deref-set target (#u64.+.wrap (#deref target) 1u64))
+  (#return (#deref target)))
+
+(#fn observe (: target (#ref-mut Owner)) u64
+  (#return (#get target value)))
+
+(#fn main () u64
+  (#let-mut owner Owner (#struct-literal Owner (: value 41u64)))
+  (#let parent (#ref-mut Owner) (#borrow-mut owner))
+  (#let view View
+    (#struct-literal View (: child (#borrow-mut (#get parent value)))))
+  (#let child-value u64 (#call increment (: target (#get view child))))
+  (#forget view)
+  (#let answer u64 (#call observe (: target parent)))
+  (#drop parent)
+  (#forget owner)
+  (#return answer))

@@ -449,7 +449,213 @@ pub(crate) fn check_live_direct_loans_cached(
             });
         }
     }
+    check_call_reborrow_parents(body, flow, origins, &live, &consumptions)
+}
+
+/// A reference argument grants callee access to its referent, even when the
+/// argument expression only reads the pointer slot. Check that access against
+/// retained child reborrows; the argument's own slot and reborrow ancestors
+/// supply its permission, rather than conflicting with themselves. Independent
+/// argument aliasing and opaque/borrowed-storage lifetimes have separate checks.
+fn check_call_reborrow_parents(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    live: &crate::typed_flow::FlowLiveness,
+    consumptions: &crate::typed_flow::FlowConsumptions,
+) -> Result<(), BorrowConflict> {
+    for (index, node) in flow.nodes.iter().enumerate() {
+        let FlowAction::Evaluate(value) = node.action else {
+            continue;
+        };
+        let NodeKind::Form {
+            head,
+            children,
+            callee: Some(_),
+            ..
+        } = &body.nodes[value.0].kind
+        else {
+            continue;
+        };
+        let event = FlowNodeId(index);
+        for argument in children.iter().skip(1) {
+            // References stored inside a borrowed pointee describe its
+            // contents, not additional references lent by this argument.
+            let incoming = origins
+                .value_before(body, flow, event, *argument)
+                .into_iter()
+                .filter(|origin| {
+                    !origin
+                        .storage
+                        .contains(&crate::typed_place::Segment::Dereference)
+                })
+                .collect::<Vec<_>>();
+            if incoming.is_empty() {
+                continue;
+            }
+            let mut sources = Vec::new();
+            call_argument_slots(body, *argument, &mut sources);
+            let mut parents = HashSet::new();
+            let mut pending = incoming
+                .iter()
+                .filter_map(|origin| origin.borrowed_from)
+                .collect::<Vec<_>>();
+            while let Some(parent) = pending.pop() {
+                if parents.insert(parent) {
+                    pending.extend(
+                        origins
+                            .before(event, parent)
+                            .iter()
+                            .filter_map(|origin| origin.borrowed_from),
+                    );
+                }
+            }
+            for binding in live.before(event) {
+                if parents.contains(&binding) {
+                    continue;
+                }
+                for held in origins.before(event, binding) {
+                    if held.borrowed_from.is_none() {
+                        continue;
+                    }
+                    let slot = Place {
+                        root: PlaceRoot::Local(binding),
+                        segments: held.storage.clone(),
+                    };
+                    if consumptions.definitely_consumed_before(event, &slot)
+                        || consumptions
+                            .definitely_consumed_before(event, &Place::root(slot.root.clone()))
+                        || sources.iter().any(|source: &Place| {
+                            source.root == slot.root && slot.segments.starts_with(&source.segments)
+                        })
+                    {
+                        continue;
+                    }
+                    if !incoming.iter().any(|argument| {
+                        (argument.mutable || held.mutable) && call_referents_overlap(argument, held)
+                    }) {
+                        continue;
+                    }
+                    let source = sources
+                        .first()
+                        .map(|source| &source.root)
+                        .unwrap_or(&held.place.root);
+                    let name = match source {
+                        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
+                            body.bindings[binding.0].name.as_str()
+                        }
+                        PlaceRoot::Global(_) => "static",
+                    };
+                    return Err(BorrowConflict {
+                        message: crate::analysis_error::failure!(
+                            "cannot borrow '{name}' for call to '{head}' while another reference is live"
+                        ).message,
+                        span: body.nodes[argument.0].span.or(node.span),
+                        labels: held.span.into_iter().map(|span| (span, "conflicting reference originates here".into())).collect(),
+                    });
+                }
+            }
+        }
+    }
     Ok(())
+}
+
+fn call_referents_overlap(left: &LoanOrigin, right: &LoanOrigin) -> bool {
+    // Different pointer slots in one parameter denote different symbolic
+    // referents, not nested physical fields of the outer pointer's referent.
+    // Call-site provenance maps those slots to actual caller places, where
+    // real aliasing is checked. A derived field keeps the same input slot and
+    // adds its physical projection separately.
+    if left.place.root == right.place.root && matches!(left.place.root, PlaceRoot::Parameter(_)) {
+        if let (Some(left_slot), Some(right_slot)) =
+            (&left.parameter_storage, &right.parameter_storage)
+        {
+            if left_slot.len() != right_slot.len() {
+                return false;
+            }
+            let left_slot = Place {
+                root: left.place.root.clone(),
+                segments: left_slot.clone(),
+            };
+            let right_slot = Place {
+                root: right.place.root.clone(),
+                segments: right_slot.clone(),
+            };
+            if !left_slot.overlaps(&right_slot) {
+                return false;
+            }
+        }
+    }
+    left.referent_place().overlaps(&right.referent_place())
+}
+
+/// Owned slots supplying an argument's result. Borrow expressions are not
+/// owned slots: their parent permission is carried by loan provenance instead.
+fn call_argument_slots(body: &Body, value: NodeId, output: &mut Vec<Place>) {
+    let node = &body.nodes[value.0];
+    match &node.kind {
+        NodeKind::Symbol { .. } => {
+            if let Some(place) = Place::from_expression(body, value) {
+                output.push(place);
+            }
+        }
+        NodeKind::Form { head, .. }
+            if matches!(head.as_str(), "get" | "get-payload" | "index")
+                && !reads_through_reference(body, value) =>
+        {
+            if let Some(place) = Place::from_expression(body, value) {
+                output.push(place);
+            }
+        }
+        NodeKind::If {
+            then_value,
+            else_value,
+            ..
+        } => {
+            call_argument_slots(body, *then_value, output);
+            if let Some(value) = else_value {
+                call_argument_slots(body, *value, output);
+            }
+        }
+        NodeKind::Match { arms, .. } => {
+            for arm in arms {
+                if let NodeKind::MatchArm { values, .. } = &body.nodes[arm.0].kind {
+                    if let Some(value) = values.last() {
+                        call_argument_slots(body, *value, output);
+                    }
+                }
+            }
+        }
+        NodeKind::Block(instructions) => {
+            if let Some(crate::typed_body::Instruction {
+                control: Control::Evaluate(value),
+                ..
+            }) = instructions.last()
+            {
+                call_argument_slots(body, *value, output);
+            }
+        }
+        NodeKind::Loop(instructions) => {
+            for value in loop_result_values(body, instructions, None) {
+                call_argument_slots(body, value, output);
+            }
+        }
+        NodeKind::Labeled(label, value) => {
+            if let NodeKind::Loop(instructions) = &body.nodes[value.0].kind {
+                for value in loop_result_values(body, instructions, Some(label)) {
+                    call_argument_slots(body, value, output);
+                }
+            } else {
+                call_argument_slots(body, *value, output);
+            }
+        }
+        NodeKind::Form { head, children, .. } if head == "unsafe" => {
+            if let Some(value) = children.get(1) {
+                call_argument_slots(body, *value, output);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn scoped_borrows_before(flow: &FlowGraph, scoped_ids: &HashSet<NodeId>) -> Vec<HashSet<NodeId>> {
@@ -1102,14 +1308,11 @@ fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
     }
 }
 
-fn returned_loop_borrows(
+fn loop_result_values(
     body: &Body,
     instructions: &[crate::typed_body::Instruction],
     label: Option<&str>,
-    callee: &str,
-    bindings: &BoundBorrows,
-    span: Option<Span>,
-) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
+) -> Vec<NodeId> {
     fn expression_breaks(
         body: &Body,
         expression: NodeId,
@@ -1246,8 +1449,19 @@ fn returned_loop_borrows(
 
     let mut values = Vec::new();
     instruction_breaks(body, instructions, label, 0, &mut values);
+    values
+}
+
+fn returned_loop_borrows(
+    body: &Body,
+    instructions: &[crate::typed_body::Instruction],
+    label: Option<&str>,
+    callee: &str,
+    bindings: &BoundBorrows,
+    span: Option<Span>,
+) -> Result<Vec<Vec<DirectBorrow>>, BorrowConflict> {
     let mut alternatives = Vec::new();
-    for value in values {
+    for value in loop_result_values(body, instructions, label) {
         alternatives.extend(returned_borrows_with_bindings(
             body, value, callee, bindings,
         )?);
