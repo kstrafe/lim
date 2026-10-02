@@ -2644,7 +2644,9 @@ impl FlowGraph {
         let mut alternatives = Vec::new();
         for node in &self.nodes {
             if let FlowAction::Return(Some(value)) = node.action {
-                collect_result_alternatives(body, value, &mut alternatives);
+                let mut values = Vec::new();
+                collect_result_alternatives(body, value, &mut values);
+                alternatives.extend(values.into_iter().map(|value| (value, Vec::new())));
             }
         }
         // Loop result values live at break events rather than at the loop's
@@ -2652,8 +2654,8 @@ impl FlowGraph {
         // inventing a result for a loop with no reachable value break.
         let mut visited = HashSet::new();
         let mut constructors = HashMap::new();
-        while let Some(value) = alternatives.pop() {
-            if !visited.insert(value) {
+        while let Some((value, path)) = alternatives.pop() {
+            if !visited.insert((value, path.clone())) {
                 continue;
             }
             if matches!(body.nodes[value.0].kind, NodeKind::Loop(_)) {
@@ -2664,7 +2666,10 @@ impl FlowGraph {
                     } = node.action
                     {
                         if result == value {
-                            collect_result_alternatives(body, break_value, &mut alternatives);
+                            let mut values = Vec::new();
+                            collect_result_alternatives(body, break_value, &mut values);
+                            alternatives
+                                .extend(values.into_iter().map(|value| (value, path.clone())));
                         }
                     }
                 }
@@ -2695,10 +2700,37 @@ impl FlowGraph {
                 let variants = observed
                     .unwrap_or_else(|| value_variant_facts(body, value, &HashMap::new(), None))
                     .into_iter()
-                    .map(|(place, variant)| (place.segments, variant))
+                    .map(|(place, variant)| {
+                        let mut nested = path.clone();
+                        nested.extend(place.segments);
+                        (nested, variant)
+                    })
                     .collect::<HashMap<_, _>>();
                 if !variants.is_empty() {
-                    constructors.insert(value, variants);
+                    constructors
+                        .entry(value)
+                        .or_insert_with(HashMap::new)
+                        .extend(variants);
+                }
+                // A conditional child selects storage inside this value, not
+                // the root discriminant or a same-enum sibling's selector.
+                if let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind {
+                    let start = if matches!(head.as_str(), "tuple" | "array" | "array-of") {
+                        constructor_values_start(body.nodes[value.0].ty.as_ref(), children.len())
+                    } else {
+                        1
+                    };
+                    for (index, child) in children.iter().skip(start).enumerate() {
+                        let Some(slot) = aggregate_slot(body, head, children, index) else {
+                            continue;
+                        };
+                        let mut nested = path.clone();
+                        nested.push(slot);
+                        let mut values = Vec::new();
+                        collect_result_alternatives(body, *child, &mut values);
+                        alternatives
+                            .extend(values.into_iter().map(|value| (value, nested.clone())));
+                    }
                 }
             }
         }

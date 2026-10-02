@@ -18415,6 +18415,49 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_worker_conditionally_constructed_operands_preserve_outcomes() {
+        for slot in [0, 1] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#enum Outcome ((Restored) (Consumed)))
+                 (#fn worker ((target (#ref-mut Resource)) (choose bool)) (#tuple Outcome Outcome)
+                   (#forget (#deref target))
+                   (#return (#tuple
+                     (#if choose
+                       (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Restored))
+                       (Consumed))
+                     (Restored))))
+                 (@thread-spawn (: task Task : worker worker))
+                 (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
+                   (#return (#match (#call Task-spawn (: target target : choose choose))
+                     (#case (Task-spawn-ok task)
+                       (#match (#call Task-join (: task task))
+                         (#case (Task-join-ok output)
+                           (#match (#get output {slot})
+                             (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
+                             (#case (Consumed) (#panic))))
+                         (#case (Task-join-error (#tuple retry error)) (#panic))))
+                     (#case (Task-spawn-error error) (#panic)))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_contents_referent_entry_contracts(&types);
+            if slot == 0 {
+                result.unwrap();
+            } else {
+                let crate::typed_ir::StagedReferentError::Use { conflict, .. } =
+                    result.unwrap_err()
+                else {
+                    panic!("the unrelated constant tag must not restore the referent");
+                };
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#get target number)");
+            }
+        }
+    }
+
+    #[test]
     fn staged_direct_call_output_projections_select_nested_outcomes() {
         for slot in [0, 1] {
             let source = format!(
