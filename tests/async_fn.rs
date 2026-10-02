@@ -7974,6 +7974,145 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_while_let_can_await_its_scrutinee_task_inputs() {
+    let definitions = include_str!("../examples/async_while_let_return.lim")
+        .split_once("(#fn run")
+        .unwrap()
+        .0;
+    let factory = "(#enum Factory ((MakeChoice Choice) (ResumeChoice Choice)))
+      (#linear Factory)
+      (#enum FactoryPoll ((FactoryPending Factory) (FactoryReady ChoiceTask)))
+      (#fn factory-poll ((task Factory) (waker (#ref u64))) FactoryPoll
+        (#return (#match task
+          (#case (MakeChoice choice) (FactoryPending (ResumeChoice choice)))
+          (#case (ResumeChoice choice) (FactoryReady (ChoiceStart choice))))))";
+    let source = format!("{factory}\n{}\n
+      (#fn run ((choice Choice) (waker (#ref u64))) u64
+        (#let-mut task Frame (#call work (: choice choice)))
+        (#for-range (attempt u64) 0u64 8u64
+          (#let polled Poll (#call poll (: task task : waker waker)))
+          (#match polled
+            (#case (Pending next) (#block (#set task next) ()))
+            (#case (Ready result) (#block (#return result)))))
+        (#forget task)
+        (#return (#unreachable)))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let chosen u64 (#call run (: choice (Chosen 37u64) : waker (#borrow waker))))
+        (#let empty u64 (#call run (: choice Empty : waker (#borrow waker))))
+        (#return (#u64.+.wrap chosen empty)))", definitions.replace(
+        "choice-poll (ChoiceStart choice)",
+        "choice-poll (#await ChoiceTask Factory FactoryPending FactoryReady factory-poll (MakeChoice choice))",
+    ));
+    build_and_run(&source, 42);
+    let immediate = source.replace(
+        "(FactoryPending (ResumeChoice choice))",
+        "(FactoryReady (ChoiceStart choice))",
+    );
+    build_and_run(&immediate, 42);
+    let guarded = source.replace(
+        "(#case (Start value) (StepPending (Resume value)))",
+        "(#case (Start value) (#block (#assert (#u64.== value 37u64)) (StepPending (Resume value))))",
+    );
+    assert_ne!(guarded, source);
+    build_and_run(&guarded, 42);
+    let repeated = source
+        .replace(
+            "(#fn work ((choice Choice)) u64",
+            "(#fn work ((#mut choice Choice)) u64\n    (#let-mut total u64 0u64)",
+        )
+        .replace(
+            "(#return second)",
+            "(#set total (#u64.+.wrap total second)) (#set choice Empty)",
+        )
+        .replace("(#return 5u64)", "(#return total)");
+    build_and_run(&repeated, 37);
+    let effects = repeated.replace(
+        "factory-poll (MakeChoice choice)",
+        "factory-poll (#block (#set total (#u64.+.wrap total 1u64)) (MakeChoice choice))",
+    );
+    assert_ne!(effects, repeated);
+    build_and_run(&effects, 40);
+    let referenced = source
+        .replace(
+            "(#enum Choice ((Chosen u64) Empty))",
+            "(#enum Choice ((Chosen (#ref u64)) Empty))",
+        )
+        .replace("(Start value)", "(Start (#deref value))")
+        .replace(
+            "(#let chosen u64",
+            "(#let owner u64 37u64) (#let chosen u64",
+        )
+        .replace("(Chosen 37u64)", "(Chosen (#borrow owner))");
+    // Change only the async body's task input, not the poller's binding pattern.
+    let referenced = referenced.replace("(#case (Start (#deref value))", "(#case (Start value)");
+    build_and_run(&referenced, 42);
+    let prefix = referenced.split_once("(#fn main").unwrap().0;
+    let cancelled = format!(
+        "{prefix}
+      (#fn main () u64
+        (#let-mut owner u64 37u64) (#let waker u64 0u64)
+        (#let frame Frame (#call work (: choice (Chosen (#borrow owner)))))
+        (#let first Poll (#call poll (: task frame : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        (#forget pending)
+        (#set owner 42u64)
+        (#return owner))"
+    );
+    build_and_run(&cancelled, 42);
+    let borrowed_mutation = cancelled.replace(
+        "(#forget pending)\n        (#set owner 42u64)",
+        "(#set owner 42u64)\n        (#forget pending)",
+    );
+    assert_ne!(borrowed_mutation, cancelled);
+    let scratch = support::Scratch::new("async-while-let-nested-loans");
+    let error = lim::compile_source_to_assembly(
+        &borrowed_mutation,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("a suspended nested task must retain its owner's loan");
+    assert!(
+        error.message.contains("owner") && error.message.contains("borrow"),
+        "{error:?}"
+    );
+    let span = error
+        .span
+        .expect("the owner's mutation must retain its source span");
+    assert_eq!(
+        &borrowed_mutation[span.start..span.end],
+        "#set",
+        "{error:?}"
+    );
+    assert!(
+        borrowed_mutation
+            .lines()
+            .nth(span.line - 1)
+            .unwrap()
+            .contains("(#set owner 42u64)"),
+        "{error:?}"
+    );
+    let invalid = source.replace("(#return 5u64)", "(#return value)");
+    let scratch = support::Scratch::new("async-while-let-pattern-scope");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("the successful pattern's payload cannot escape its arm");
+    assert!(
+        error.message.contains("value") && error.message.contains("unknown"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn async_loop_conditions_can_await_their_task_inputs() {
     let source = include_str!("../examples/async_early_continue.lim");
     let definitions = source.split_once("(#fn main").unwrap().0;

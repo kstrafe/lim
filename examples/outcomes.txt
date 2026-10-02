@@ -385,4 +385,5 @@ exit 42 async_loop_breaks.lim - -
 exit 42 async_loop_results.lim - -
 exit 42 async_branch_results.lim - -
 exit 43 async_condition_dependencies.lim - -
+exit 40 async_while_let_dependencies.lim - -
 exit 42 reference_assignment.lim - -

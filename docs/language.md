@@ -1889,6 +1889,15 @@ linear updated owners belong to the child until Ready restores them. See
 constructions add one each, the first body is skipped by `#continue`, and
 the second body adds 40 after suspension.
 
+Likewise, a `#while-let` scrutinee can await a factory and then poll the task
+that factory returns. Both awaits remain inside the iteration. A successful
+pattern makes its explicitly typed payload available to the body, including
+body helpers that suspend again; a mismatch skips every body await. Shared
+references in those payloads retain their source loans while the frame is
+Pending. Consuming the cancelled frame releases those loans. The native
+`examples/async_while_let_dependencies.lim` exercises repeated conditions,
+two body suspension points, and construction side effects (exit 40).
+
 `#for-range` is shorthand with a typed binding, start, and end.  Its bounds
 are explicit and the range is half-open:
 

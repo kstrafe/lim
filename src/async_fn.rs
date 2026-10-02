@@ -1248,6 +1248,35 @@ fn has_suspending_await_input(expression: &Expr) -> bool {
     items.iter().skip(1).any(has_suspending_await_input)
 }
 
+/// Arm-local captures obtain their types from the scrutinee declaration, not
+/// from names found in a branch body. Keep them out of every other arm's scope.
+fn async_pattern_scope(
+    pattern: &Expr,
+    input_type: Option<&str>,
+    known: &HashMap<String, Binding>,
+) -> HashMap<String, Binding> {
+    let mut scope = known.clone();
+    if let Some(ty) = input_type {
+        let bindings = ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
+            let stack = stack.borrow();
+            let mut bindings = Vec::new();
+            collect_enum_pattern_bindings(pattern, ty, stack.last()?, &mut bindings).ok()?;
+            Some(bindings)
+        });
+        for (name, ty) in bindings.into_iter().flatten() {
+            scope.insert(
+                name.clone(),
+                Binding {
+                    name,
+                    ty,
+                    mutable: false,
+                },
+            );
+        }
+    }
+    scope
+}
+
 /// Select generated storage from explicit declarations and builtin contracts.
 /// This is not a replacement for expression checking: arity, operand types,
 /// ownership and agreement between branches are checked on the emitted body.
@@ -1355,31 +1384,7 @@ fn async_expression_type(expression: &Expr, known: &HashMap<String, Binding>) ->
                         let Expr::List(case) = arm else {
                             return None;
                         };
-                        let mut scope = known.clone();
-                        if let Some(ty) = &input_type {
-                            let bindings = ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
-                                let stack = stack.borrow();
-                                let mut bindings = Vec::new();
-                                collect_enum_pattern_bindings(
-                                    case.get(1)?,
-                                    ty,
-                                    stack.last()?,
-                                    &mut bindings,
-                                )
-                                .ok()?;
-                                Some(bindings)
-                            });
-                            for (name, ty) in bindings.into_iter().flatten() {
-                                scope.insert(
-                                    name.clone(),
-                                    Binding {
-                                        name,
-                                        ty,
-                                        mutable: false,
-                                    },
-                                );
-                            }
-                        }
+                        let scope = async_pattern_scope(case.get(1)?, input_type.as_deref(), known);
                         async_expression_type(case.last()?, &scope)
                     })
                 }
@@ -1889,6 +1894,8 @@ fn conditional_await_with_immediate(
         }
         condition_or_scrutinee = items[1].clone();
         is_if = false;
+        let input_type =
+            async_expression_type(&items[1], known).and_then(|ty| expression_source(&ty).ok());
         for arm in &items[2..] {
             let Some(case) = form(arm, "#case") else {
                 return Ok(None);
@@ -1901,6 +1908,7 @@ fn conditional_await_with_immediate(
             if case.len() == 4 && has_await(&case[2]) {
                 return Ok(None);
             }
+            let branch_known = async_pattern_scope(&case[1], input_type.as_deref(), known);
             let lowered = conditional_await(&case[body_index])?;
             if let Some((protocol, task)) = lowered {
                 let mut task_arm = vec![Expr::Symbol("#case".into()), case[1].clone()];
@@ -1909,9 +1917,13 @@ fn conditional_await_with_immediate(
                 }
                 task_arm.push(task);
                 branches.push((Some(protocol), Expr::List(task_arm)));
-            } else if let Some((protocol, task, helper)) =
-                conditional_block_continuation(&case[body_index], known, source, next_name, waker)?
-            {
+            } else if let Some((protocol, task, helper)) = conditional_block_continuation(
+                &case[body_index],
+                &branch_known,
+                source,
+                next_name,
+                waker,
+            )? {
                 let mut task_arm = vec![Expr::Symbol("#case".into()), case[1].clone()];
                 if body_index == 3 {
                     task_arm.push(case[2].clone());
@@ -1921,7 +1933,7 @@ fn conditional_await_with_immediate(
                 branch_helpers.push(helper);
             } else if let Some((protocol, task, helper)) = conditional_value_expression_task(
                 &case[body_index],
-                known,
+                &branch_known,
                 source,
                 next_name,
                 waker,
@@ -5960,6 +5972,53 @@ fn lower_async_while_with_transfers(
                 "@async-fn awaited #while-let requires a pattern, awaited value, and body".into(),
             );
         }
+        if has_suspending_await_input(&items[2]) {
+            let mut condition = items[2].clone();
+            let mut iteration = Vec::new();
+            let mut dependencies = Vec::new();
+            extract_nested_awaits(
+                &mut condition,
+                &mut iteration,
+                &mut dependencies,
+                known,
+                source,
+                next_name,
+                waker,
+            )?;
+            iteration.push(Expr::List(vec![
+                Expr::Symbol("#match".into()),
+                condition,
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    items[1].clone(),
+                    terminal_async_iteration_body(&items[3..], source, next_name)?,
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("#case".into()),
+                    Expr::Symbol("_".into()),
+                    Expr::List(vec![Expr::Symbol("#break".into())]),
+                ]),
+            ]));
+            let mut loop_form = vec![Expr::Symbol("#loop".into())];
+            loop_form.extend(iteration);
+            let Some((replacement, helper, renames)) = lower_async_loop_with_transfers(
+                &Expr::List(loop_form),
+                known,
+                known_order,
+                transfers,
+                following,
+                return_value,
+                return_type,
+                source,
+                next_name,
+                waker,
+            )?
+            else {
+                return Err("@async-fn failed to lower while-let task dependencies".into());
+            };
+            dependencies.push(helper);
+            return Ok(Some((replacement, dependencies.join("\n"), renames)));
+        }
         if has_await(&items[2]) {
             let (await_form, conditional_helper) = if let Some(await_form) =
                 form(&items[2], "#await")
@@ -6251,19 +6310,10 @@ fn lower_async_while_with_transfers(
             next_name,
             waker,
         )?;
-        let mut body = vec![Expr::Symbol("#loop".into())];
-        body.extend(items[2..].iter().cloned());
-        body.push(Expr::List(vec![Expr::Symbol("#continue".into())]));
-        let mut body = Expr::List(body);
-        terminalize_async_iterations(&mut body, source, next_name)?;
-        let Expr::List(mut body) = body else {
-            unreachable!()
-        };
-        body[0] = Expr::Symbol("#block".into());
         iteration.push(Expr::List(vec![
             Expr::Symbol("#if".into()),
             condition,
-            Expr::List(body),
+            terminal_async_iteration_body(&items[2..], source, next_name)?,
             Expr::List(vec![Expr::Symbol("#break".into())]),
         ]));
         let mut loop_form = vec![Expr::Symbol("#loop".into())];
@@ -9685,6 +9735,25 @@ fn exits(expression: &Expr) -> bool {
 }
 /// Move an iteration's remaining statements into its fall-through branches.
 /// Loop transfers then remain terminal even when written before a suspension.
+/// Put implicit iteration fallthrough after each continuing branch, without
+/// letting early continue, break, or return execute the rest of the body.
+fn terminal_async_iteration_body(
+    statements: &[Expr],
+    source: &str,
+    next_name: &mut usize,
+) -> Result<Expr, String> {
+    let mut body = vec![Expr::Symbol("#loop".into())];
+    body.extend_from_slice(statements);
+    body.push(Expr::List(vec![Expr::Symbol("#continue".into())]));
+    let mut body = Expr::List(body);
+    terminalize_async_iterations(&mut body, source, next_name)?;
+    let Expr::List(mut body) = body else {
+        unreachable!()
+    };
+    body[0] = Expr::Symbol("#block".into());
+    Ok(Expr::List(body))
+}
+
 fn terminalize_async_iterations(
     expression: &mut Expr,
     source: &str,

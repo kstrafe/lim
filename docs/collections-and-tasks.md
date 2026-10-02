@@ -542,3 +542,12 @@ and continues after the loop. Body helpers carry distinct continuation and
 return outcomes, preserving reference origins and linear cleanup checks.
 See `examples/async_while_let_return.lim` for two body awaits followed by
 an explicit return. The example also exercises the nonmatching path.
+
+The scrutinee's task expression may itself await another task. Dependencies
+are evaluated in order on every pattern test, never hoisted out of the loop.
+Generated body helpers obtain pattern payload types from the scrutinee's
+declaration, and those names remain scoped to the successful arm. Shared
+payload references stay borrowed through nested Pending frames; explicit
+cancellation consumption releases them. See
+`examples/async_while_let_dependencies.lim` for repeated factory calls,
+two body awaits, and once-per-construction mutations (exit 40).
