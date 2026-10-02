@@ -9485,6 +9485,167 @@ fn awaited_for_condition_runs_step_after_continue_but_not_break() {
 }
 
 #[test]
+fn async_for_initializers_register_every_declared_pattern_leaf() {
+    let source = include_str!("../examples/async_for_patterns.lim");
+    build_and_run(source, 42);
+    build_and_run(
+        &source.replace("(StepPending (Resume value))", "(StepReady value)"),
+        42,
+    );
+    build_and_run(
+        &source
+            .replace("0u64 2u64", "0u64 0u64")
+            .replace("(StepPending (Resume value))", "(#panic)"),
+        1,
+    );
+    let aliased = format!(
+        "(#type BoundsAlias Bounds)\n{}",
+        source
+            .replace("(bounds Bounds)", "(bounds BoundsAlias)")
+            .replace("bias) Bounds bounds", "bias) BoundsAlias bounds")
+    );
+    build_and_run(&aliased, 42);
+    let narrow = source
+        .replace(
+            "(z (#tuple u64 u64)) (a u64)",
+            "(z (#tuple u8 u16)) (a u32)",
+        )
+        .replace(
+            "(#u64.< iteration limit)",
+            "(#u8.< iteration (#as limit u8))",
+        )
+        .replace("(#u64.+.wrap iteration 1u64)", "(#u8.+.wrap iteration 1u8)")
+        .replace("(Start iteration)", "(Start (#as iteration u64))")
+        .replace("value bias)", "value (#as bias u64))")
+        .replace(
+            ": a 20u64 : z (#tuple (#tuple u64 u64) 0u64 2u64)",
+            ": a 20u32 : z (#tuple (#tuple u8 u16) 0u8 2u16)",
+        );
+    build_and_run(&narrow, 42);
+    let awaited =
+        format!("(#enum InitTask ((InitStart Bounds) (InitResume Bounds)))
+      (#enum InitPoll ((InitPending InitTask) (InitReady Bounds)))
+      (#fn init-poll ((task InitTask) (waker (#ref u64))) InitPoll
+        (#return (#match task
+          (#case (InitStart bounds) (InitPending (InitResume bounds)))
+          (#case (InitResume bounds) (InitReady bounds)))))\n{}", source.replace(
+            "bias) Bounds bounds)",
+            "bias) Bounds (#await InitTask InitPending InitReady init-poll (InitStart bounds)))"));
+    build_and_run(&awaited, 42);
+    build_and_run(
+        &awaited.replace("(#await InitTask", "(#await Bounds InitTask"),
+        42,
+    );
+    let condition = format!("(#struct TestTask ((decision bool) (resume bool)))
+      (#enum TestPoll ((TestPending TestTask) (TestReady bool)))
+      (#fn test-poll ((task TestTask) (waker (#ref u64))) TestPoll
+        (#return (#if (#get task resume) (TestReady (#get task decision))
+          (TestPending (#struct-literal TestTask (: decision (#get task decision) : resume true))))))\n{}", source
+        .replace("(#u64.< iteration limit)", "(#await bool TestTask TestPending TestReady test-poll (#struct-literal TestTask (: decision (#u64.< iteration limit) : resume false)))")
+        .replace("0u64 4u64", "0u64 12u64"));
+    build_and_run(&condition, 42);
+    let step = source.replace(
+        "(#set iteration (#u64.+.wrap iteration 1u64))",
+        "(#set iteration (#await u64 Step StepPending StepReady step-poll (Start (#u64.+.wrap iteration 1u64))))",
+    ).replace("0u64 4u64", "0u64 12u64");
+    build_and_run(&step, 42);
+    let all_phases = condition.replace(
+        "(#set iteration (#u64.+.wrap iteration 1u64))",
+        "(#set iteration (#await u64 Step StepPending StepReady step-poll (Start (#u64.+.wrap iteration 1u64))))",
+    );
+    build_and_run(&all_phases, 42);
+    let referenced = source
+        .replace("(a u64)", "(a (#ref u64))")
+        .replace("value bias)", "value (#deref bias))")
+        .replace(
+            "(#let waker u64",
+            "(#let-mut owner u64 20u64) (#let waker u64",
+        )
+        .replace(": a 20u64", ": a (#borrow owner)");
+    build_and_run(&referenced, 42);
+    build_and_run(
+        &referenced
+            .replace("(a (#ref u64))", "(a (#ref-mut u64))")
+            .replace("(#borrow owner)", "(#borrow-mut owner)"),
+        42,
+    );
+    build_and_run(
+        &referenced.replace(
+            "(#block (#return value))",
+            "(#block (#set owner 99u64) (#return value))",
+        ),
+        42,
+    );
+    build_and_run(
+        &referenced.replace(
+            "(#block (#set task next) ())",
+            "(#block (#forget next) (#set owner 99u64) (#return owner))",
+        ),
+        99,
+    );
+    let scratch = support::Scratch::new("async-for-pattern-errors");
+    let error_for = |source: &str| {
+        lim::compile_source_to_assembly(
+            source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err()
+    };
+    let immutable = error_for(&source.replace("(#for (#let-mut", "(#for (#let"));
+    assert!(
+        immutable.message.contains("mutable") && immutable.span.is_some(),
+        "{immutable:?}"
+    );
+    let duplicate = error_for(&source.replace(
+        "(#tuple iteration limit) bias",
+        "(#tuple iteration iteration) bias",
+    ));
+    assert!(
+        duplicate.message.contains("duplicate") || duplicate.message.contains("shadow"),
+        "{duplicate:?}"
+    );
+    assert!(duplicate.span.is_some(), "{duplicate:?}");
+    let conflict = error_for(&referenced.replace(
+        "(#block (#set task next) ())",
+        "(#block (#set owner 99u64) (#set task next) ())",
+    ));
+    assert!(
+        conflict.message.contains("owner") && conflict.message.contains("borrow"),
+        "{conflict:?}"
+    );
+    let span = conflict
+        .span
+        .expect("retained loop loan has an exact source operation");
+    assert_eq!(
+        &referenced.replace(
+            "(#block (#set task next) ())",
+            "(#block (#set owner 99u64) (#set task next) ())"
+        )[span.start..span.end],
+        "#set",
+        "{conflict:?}"
+    );
+    let leaked = error_for(&source.replace(
+        "(#return (#u64.+.wrap total",
+        "(#let leaked u64 limit) (#return (#u64.+.wrap total",
+    ));
+    assert!(
+        leaked.message.contains("limit") && leaked.message.contains("unknown"),
+        "{leaked:?}"
+    );
+    assert!(leaked.span.is_some(), "{leaked:?}");
+    let mismatch =
+        error_for(&condition.replace("(#await Step StepPending", "(#await u32 Step StepPending"));
+    assert!(
+        mismatch.message.contains("result type") && mismatch.message.contains("value"),
+        "{mismatch:?}"
+    );
+    assert!(mismatch.span.is_some(), "{mismatch:?}");
+}
+
+#[test]
 fn async_function_resumes_child_await_inside_for_with_local_initializer() {
     let source = "(#struct Child ((iteration u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
@@ -9668,7 +9829,7 @@ fn async_loop_body_supports_more_than_two_suspensions() {
 }
 
 #[test]
-fn async_function_rejects_loop_locals_used_after_suspension() {
+fn async_function_preserves_loop_locals_used_after_suspension() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
       (#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
@@ -9683,22 +9844,21 @@ fn async_function_rejects_loop_locals_used_after_suspension() {
             (#set child-input result)
             (#set iteration (#u64.+.wrap iteration 1u64)))
           (#return 42u64))))";
-    let scratch = support::Scratch::new("async-loop-local-after-await");
-    let input = scratch.path().join("loop.lim");
-    let diagnostic = lim::compile_source_to_assembly(
-        source,
-        &input,
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
-    assert!(
-        diagnostic
-            .message
-            .contains("is not available after suspension"),
-        "{diagnostic:?}"
+    let driver = "(#fn main () u64
+        (#let waker u64 0u64) (#let-mut task Frame (#call work (:)))
+        (#for-range (attempt u64) 0u64 4u64
+          (#let outcome Poll (#call poll (: task task : waker (#borrow waker))))
+          (#match outcome
+            (#case (Pending next) (#block (#set task next) ()))
+            (#case (Ready value) (#block (#return value)))))
+        (#forget task) (#return (#unreachable)))";
+    build_and_run(&format!("{source}\n{driver}"), 42);
+    let pending = source.replace(
+        "(#return (ChildReady 1u64))",
+        "(#return (#match task (#case (Waiting count)
+          (#if (#u64.== count 0u64) (ChildPending (Waiting 1u64)) (ChildReady 1u64)))))",
     );
+    build_and_run(&format!("{pending}\n{driver}"), 42);
 }
 
 #[test]

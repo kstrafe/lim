@@ -610,3 +610,14 @@ prefix values still require explicit consumption; using a consumed value in
 the child or continuation remains an error. `examples/async_prefix_cleanup.lim`
 calls a destruction function before awaiting and retains only its plain result
 (exit 47). The prefix runs once, not again on each Pending poll.
+
+An async `#for` initializer may use ordinary `#let`/`#let-mut` aggregate
+patterns, including nested structs, tuples, arrays and declared aliases.
+Each leaf gets its type and mutability from that declaration. Initialization
+can itself await; the initializer runs once before the first condition, while
+condition, body and step suspensions preserve the loop's local slots. The
+initializer's names remain scoped to the loop, so an independent later binding
+may reuse a name. `examples/async_for_patterns.lim` demonstrates a nested
+mutable struct pattern and exits with 42. Reference leaves retain their source
+loans while suspended; returning a reference transfers its loan rather than
+ending it at Ready.

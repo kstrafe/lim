@@ -6440,7 +6440,7 @@ fn lower_async_while_with_transfers(
             let (
                 body_binding,
                 body_form,
-                body_await,
+                mut body_await,
                 body_helper,
                 body_continuation,
                 body_outputs,
@@ -6541,6 +6541,17 @@ fn lower_async_while_with_transfers(
                         owned: !async_task_capture_is_mutable_reference(&ty),
                     });
                 }
+            }
+            if body_await.len() == 6 {
+                body_await.insert(1, body_form[2].clone());
+            } else if body_await.len() == 7
+                && parse_type(Some(&normalize_keywords(body_await[1].clone())))?
+                    != parse_type(Some(&normalize_keywords(body_form[2].clone())))?
+            {
+                return Err(format!(
+                    "@async-fn #await result type does not match binding '{}'",
+                    body_binding.name
+                ));
             }
             if body_await.len() != 7 || has_await(&body_await[6]) || has_await(&await_form[5]) {
                 return Err(
@@ -7142,7 +7153,19 @@ fn lower_async_while_with_transfers(
         };
         await_form.len() == 6 && !has_await(&await_form[5])
     });
-    if body.iter().map(await_count).sum::<usize>() > 2 || !body_awaits_are_direct_bindings {
+    let needs_scoped_body = await_indices.last().is_some_and(|last| {
+        body[..*last].iter().any(|statement| {
+            !has_await(statement)
+                && (form(statement, "#let").is_some()
+                    || form(statement, "#let-mut").is_some()
+                    || form(statement, "#let-else").is_some()
+                    || form(statement, "#set").is_some())
+        })
+    });
+    if body.iter().map(await_count).sum::<usize>() > 2
+        || !body_awaits_are_direct_bindings
+        || needs_scoped_body
+    {
         let (body_binding, mut body_form, body_helper, body_outputs, body_return) =
             async_while_body_child(
                 body,
@@ -8871,7 +8894,10 @@ fn lower_async_for(
     let mut initializer_prefix = Vec::new();
     let mut initializer_helpers = Vec::new();
     let mut initializer_value = None;
-    if awaited_initializer && form(initializer, "#let-else").is_some() {
+    let structural_initializer = form(initializer, "#let")
+        .or_else(|| form(initializer, "#let-mut"))
+        .is_some_and(|binding| matches!(binding.get(1), Some(Expr::List(_))));
+    if structural_initializer || (awaited_initializer && form(initializer, "#let-else").is_some()) {
         let mut initializer_statement = initializer.clone();
         extract_statement_awaits(
             &mut initializer_statement,
@@ -8883,23 +8909,18 @@ fn lower_async_for(
             waker,
         )?;
         if awaited_condition || awaited_step || items[4..].iter().any(has_await) {
-            let let_else = form(&initializer_statement, "#let-else").ok_or_else(|| {
-                "@async-fn lost awaited #let-else initializer during lowering".to_owned()
-            })?;
-            let mut pattern_bindings = Vec::new();
-            collect_enum_pattern_bindings(
-                &let_else[1],
-                symbol(&let_else[2], "#let-else type")?,
-                type_environment,
-                &mut pattern_bindings,
-            )?;
+            let pattern_bindings =
+                declared_local_bindings(&initializer_statement, type_environment)?.ok_or_else(
+                    || "@async-fn lost pattern initializer during lowering".to_owned(),
+                )?;
             let mut loop_known = known.clone();
             let mut loop_order = known_order.to_vec();
             let mut condition = condition;
             let mut step = items[3].clone();
             let mut body = items[4..].to_vec();
             let mut seen = HashSet::new();
-            for (name, ty) in pattern_bindings {
+            for local in pattern_bindings {
+                let name = local.name;
                 if !seen.insert(name.clone()) || known.contains_key(&name) {
                     return Err(format!(
                         "@async-fn #for initializer pattern binding '{name}' shadows an existing name"
@@ -8920,8 +8941,8 @@ fn lower_async_for(
                     generated_name.clone(),
                     Binding {
                         name: generated_name.clone(),
-                        ty,
-                        mutable: false,
+                        ty: local.ty,
+                        mutable: local.mutable,
                     },
                 );
                 loop_order.push(generated_name);
@@ -8948,7 +8969,7 @@ fn lower_async_for(
             )?
             else {
                 return Err(
-                    "@async-fn failed to lower awaited #for after #let-else initializer".into(),
+                    "@async-fn failed to lower awaited #for after pattern initializer".into(),
                 );
             };
             let mut output = initializer_prefix;
