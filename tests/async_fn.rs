@@ -7974,6 +7974,204 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_awaited_aggregate_can_be_destructured_directly() {
+    let source = include_str!("../examples/async_await_destructure.lim");
+    build_and_run(source, 42);
+    let immediate = source.replace("(InputPending (InputResume values))", "(InputReady values)");
+    build_and_run(&immediate, 42);
+    let without_result_type = source.replace("(#await Values InputTask", "(#await InputTask");
+    build_and_run(&without_result_type, 42);
+    let aliased = format!(
+        "(#type ValuesAlias Values)\n{}",
+        source
+            .replace("(values Values)", "(values ValuesAlias)")
+            .replace("bias) Values\n", "bias) ValuesAlias\n")
+            .replace("(#await Values InputTask", "(#await ValuesAlias InputTask")
+    );
+    build_and_run(&aliased, 42);
+    let mutable = source
+        .replace("(#let (Values", "(#let-mut (Values")
+        .replace("(#let second u64", "(#set bias (#u64.+.wrap bias 2u64)) (#set right (#u16.+.wrap right 1u16)) (#let second u64");
+    build_and_run(&mutable, 45);
+    let array = source
+        .replace("(#tuple u16 u16)", "(#array u16 2)")
+        .replace("(#tuple left right)", "(#array left right)")
+        .replace(
+            "(#tuple (#array u16 2) 9u16 11u16)",
+            "(#array-of (#array u16 2) 9u16 11u16)",
+        );
+    build_and_run(&array, 42);
+    let tuple = source
+        .replace(
+            "(#struct Values ((z (#tuple u16 u16)) (a u64)))",
+            "(#type Values (#tuple (#tuple u16 u16) u64))",
+        )
+        .replace(
+            "(Values (#tuple left right) bias)",
+            "(#tuple (#tuple left right) bias)",
+        )
+        .replace(
+            "(#struct-literal Values (: a 22u64 : z (#tuple (#tuple u16 u16) 9u16 11u16)))",
+            "(#tuple (#tuple (#tuple u16 u16) u64) (#tuple (#tuple u16 u16) 9u16 11u16) 22u64)",
+        );
+    build_and_run(&tuple, 42);
+    let single_variant = source
+        .replace(
+            "(#struct Values ((z (#tuple u16 u16)) (a u64)))",
+            "(#enum Values ((Only (#tuple u16 u16) u64)))",
+        )
+        .replace(
+            "(Values (#tuple left right) bias)",
+            "(Only (#tuple left right) bias)",
+        )
+        .replace("(#let (Only", "(#let-else (Only")
+        .replace(
+            "input-poll (InputStart values)))",
+            "input-poll (InputStart values)) (#unreachable))",
+        )
+        .replace(
+            "(#struct-literal Values (: a 22u64 : z (#tuple (#tuple u16 u16) 9u16 11u16)))",
+            "(Only (#tuple (#tuple u16 u16) 9u16 11u16) 22u64)",
+        );
+    build_and_run(&single_variant, 42);
+    let enum_options = single_variant
+        .replace(
+            "(#enum Values ((Only (#tuple u16 u16) u64)))",
+            "(#enum Values ((Only (#tuple u16 u16) u64) Missing))",
+        )
+        .replace(
+            "input-poll (InputStart values)) (#unreachable))",
+            "input-poll (InputStart values)) (#return 5u64))",
+        );
+    build_and_run(&enum_options, 42);
+    let mismatched = enum_options
+        .replace(
+            "(Only (#tuple (#tuple u16 u16) 9u16 11u16) 22u64)",
+            "Missing",
+        )
+        .replace("(StepPending (Resume value))", "(#panic)");
+    build_and_run(&mismatched, 5);
+    let owned = format!("(#struct Token ((value u64))) (#linear Token)\n{}", source
+        .replace("(a u64)", "(a Token)")
+        .replace(": a 22u64", ": a (#struct-literal Token (: value 22u64))")
+        .replace("(#return (#u64.+.wrap (#u64.+.wrap (#as left u64) second) bias))", "(#let total u64 (#u64.+.wrap (#u64.+.wrap (#as left u64) second) (#get bias value))) (#forget bias) (#return total)"));
+    build_and_run(&owned, 42);
+    let effect = format!(
+        "(#fn make-input ((values Values) (count (#ref-mut u64))) InputTask
+      (#deref-set count (#u64.+.wrap (#deref count) 1u64))
+      (#return (InputStart values)))\n{}",
+        source
+            .replace(
+                "(#fn work ((values Values))",
+                "(#fn work ((values Values) (counter (#ref-mut u64)))"
+            )
+            .replace(
+                "input-poll (InputStart values)",
+                "input-poll (#call make-input (: values values : count counter))"
+            )
+            .replace(
+                "(#let waker u64",
+                "(#let-mut touches u64 0u64) (#let waker u64"
+            )
+            .replace(
+                "(#call work (: values",
+                "(#call work (: counter (#borrow-mut touches) : values"
+            )
+            .replace(
+                "(#block (#return value))",
+                "(#block (#assert (#u64.== touches 1u64)) (#return value))"
+            )
+    );
+    build_and_run(&effect, 42);
+    let factory = format!("(#enum Factory ((FactoryStart Values) (FactoryResume Values)))
+      (#enum FactoryPoll ((FactoryPending Factory) (FactoryReady InputTask)))
+      (#fn factory-poll ((task Factory) (waker (#ref u64))) FactoryPoll
+        (#return (#match task
+          (#case (FactoryStart values) (FactoryPending (FactoryResume values)))
+          (#case (FactoryResume values) (FactoryReady (InputStart values))))))\n{}", source
+        .replace("input-poll (InputStart values)", "input-poll (#await InputTask Factory FactoryPending FactoryReady factory-poll (FactoryStart values))")
+        .replace("0u64 4u64", "0u64 5u64"));
+    build_and_run(&factory, 42);
+    let referenced = source
+        .replace("(#tuple u16 u16)", "(#tuple u16 (#ref u64))")
+        .replace("(#as right u64)", "(#deref right)")
+        .replace(
+            "(#let waker u64",
+            "(#let-mut owner u64 11u64) (#let waker u64",
+        )
+        .replace("9u16 11u16", "9u16 (#borrow owner)");
+    build_and_run(&referenced, 42);
+    let exclusive = referenced
+        .replace("(#tuple u16 (#ref u64))", "(#tuple u16 (#ref-mut u64))")
+        .replace("(#borrow owner)", "(#borrow-mut owner)");
+    build_and_run(&exclusive, 42);
+    let invalid = referenced.replace(
+        "(#block (#set task next) ())",
+        "(#block (#set owner 99u64) (#set task next) ())",
+    );
+    let scratch = support::Scratch::new("async-awaited-pattern-borrow");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("owner") && error.message.contains("borrow"),
+        "{error:?}"
+    );
+    let span = error
+        .span
+        .expect("awaited pattern loan must retain its source span");
+    assert_eq!(&invalid[span.start..span.end], "#set", "{error:?}");
+    assert_eq!(span.start, invalid.find("#set owner 99u64").unwrap());
+    let error_for = |source: &str| {
+        lim::compile_source_to_assembly(
+            source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err()
+    };
+    let missing_cleanup = owned.replace("(#forget bias)", "()");
+    let error = error_for(&missing_cleanup);
+    assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
+    assert!(
+        error.message.contains("bias") && error.message.contains("consum"),
+        "{error:?}"
+    );
+    assert!(error.span.is_some(), "{error:?}");
+    let duplicate = error_for(&source.replace("left right) bias", "left left) bias"));
+    assert!(
+        duplicate.message.contains("left")
+            && (duplicate.message.contains("duplicate") || duplicate.message.contains("shadow")),
+        "{duplicate:?}"
+    );
+    assert!(duplicate.span.is_some(), "{duplicate:?}");
+    let wrong_arity = error_for(&source.replace(
+        "(Values (#tuple left right) bias)",
+        "(Values (#tuple left right) bias extra)",
+    ));
+    assert!(
+        wrong_arity.message.contains("pattern") && wrong_arity.message.contains("fields"),
+        "{wrong_arity:?}"
+    );
+    assert!(wrong_arity.span.is_some(), "{wrong_arity:?}");
+    let mismatch = error_for(&source.replace("(#await Values InputTask", "(#await u64 InputTask"));
+    assert!(
+        mismatch
+            .message
+            .contains("#await result type does not match binding"),
+        "{mismatch:?}"
+    );
+    assert!(mismatch.span.is_some(), "{mismatch:?}");
+}
+
+#[test]
 fn async_nested_local_destructuring_retains_all_declared_bindings() {
     let source = include_str!("../examples/async_destructure.lim");
     build_and_run(source, 42);
@@ -8060,7 +8258,7 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
         "immutable pattern update must be source-spanned: {error:?}"
     );
     let owned = format!(
-        "(#struct Token ((value u64)))\n{}",
+        "(#struct Token ((value u64))) (#linear Token)\n{}",
         source
             .replace("(a u64)", "(a Token)")
             .replace(": a 22u64", ": a (#struct-literal Token (: value 22u64))")

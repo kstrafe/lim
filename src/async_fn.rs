@@ -3828,7 +3828,11 @@ fn extract_statement_awaits(
         .or_else(|| form(statement, "let"))
         .or_else(|| form(statement, "let-mut"))
     {
+        if items.len() != 4 {
+            return Err("@async-fn local declaration requires a pattern, type, and value".into());
+        }
         if let Some(await_form) = form(&items[3], "#await") {
+            let has_pattern = matches!(&items[1], Expr::List(_));
             let task_index = match await_form.len() {
                 6 => Some(5),
                 7 => Some(6),
@@ -3851,6 +3855,19 @@ fn extract_statement_awaits(
                     next_name,
                     waker,
                 )?;
+            }
+            if has_pattern {
+                let Expr::List(items) = statement else {
+                    unreachable!("validated local declaration is a list");
+                };
+                let temporary = nested_await_name(source, next_name);
+                let awaited = std::mem::replace(&mut items[3], Expr::Symbol(temporary.clone()));
+                generated.push(Expr::List(vec![
+                    Expr::Symbol("#let".into()),
+                    Expr::Symbol(temporary),
+                    items[2].clone(),
+                    awaited,
+                ]));
             }
             return Ok(());
         }
@@ -3879,18 +3896,17 @@ fn extract_statement_awaits(
             unreachable!()
         };
         if let Some(await_form) = form(&statement_items[3], "#await") {
-            if await_form.len() != 6 {
-                return Err(
-                    "@async-fn #let-else scrutinee #await requires (#await Child Pending Ready poll task)"
-                        .into(),
-                );
-            }
-            if has_await(&await_form[5]) {
+            let task_index = match await_form.len() {
+                6 => 5,
+                7 => 6,
+                _ => return Err("@async-fn #let-else scrutinee #await requires (#await [Type] Child Pending Ready poll task)".into()),
+            };
+            if has_await(&await_form[task_index]) {
                 let Expr::List(await_items) = &mut statement_items[3] else {
                     unreachable!()
                 };
                 extract_nested_awaits(
-                    &mut await_items[5],
+                    &mut await_items[task_index],
                     generated,
                     generated_helpers,
                     known,
@@ -11053,13 +11069,16 @@ fn declared_local_bindings(
         .or_else(|| form(expression, "#let-mut"))
         .or_else(|| form(expression, "let"))
         .or_else(|| form(expression, "let-mut"))
+        .or_else(|| form(expression, "#let-else"))
+        .or_else(|| form(expression, "let-else"))
     else {
         return Ok(None);
     };
-    if items.len() != 4 {
+    let let_else = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let-else" | "let-else"));
+    if items.len() != if let_else { 5 } else { 4 } {
         return Err("@async-fn local declaration requires a pattern, type, and value".into());
     }
-    if matches!(&items[1], Expr::Symbol(_)) {
+    if !let_else && matches!(&items[1], Expr::Symbol(_)) {
         return binding(expression, "local declaration").map(|binding| Some(vec![binding]));
     }
     parse_type(Some(&normalize_keywords(items[2].clone())))?;
@@ -11996,6 +12015,8 @@ fn generated_source_with_capture_selection(
                 .or_else(|| form(statement, "#let-mut"))
                 .or_else(|| form(statement, "let"))
                 .or_else(|| form(statement, "let-mut"))
+                .or_else(|| form(statement, "#let-else"))
+                .or_else(|| form(statement, "let-else"))
                 .is_some_and(|items| matches!(items.get(1), Some(Expr::List(_))))
         }) {
         let mut environment = type_environment.clone();
@@ -12084,6 +12105,8 @@ fn generated_source_with_capture_selection(
                 .or_else(|| form(statement, "#let-mut"))
                 .or_else(|| form(statement, "let"))
                 .or_else(|| form(statement, "let-mut"))
+                .or_else(|| form(statement, "#let-else"))
+                .or_else(|| form(statement, "let-else"))
                 .is_some()
             {
                 let Some(mut local) = binding(statement, "between #await forms").ok() else {
@@ -12833,6 +12856,10 @@ fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
                 "#let" | "#let-mut" | "let" | "let-mut" if items.len() >= 4 => {
                     collect_value_names(&items[3], names);
                 }
+                "#let-else" | "let-else" if items.len() >= 5 => {
+                    collect_value_names(&items[3], names);
+                    collect_value_names(&items[4], names);
+                }
                 "#struct-literal" if items.len() >= 3 => {
                     if let Expr::List(fields) = &items[2] {
                         for field in fields {
@@ -12936,17 +12963,12 @@ fn collect_local_binding_names(expr: &Expr, names: &mut HashSet<String>) {
                 }
                 return;
             }
-            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut" | "let" | "let-mut"))
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else"))
             {
-                if let Some(Expr::Symbol(name)) = items.get(1) {
-                    names.insert(name.clone());
-                } else if let Some(Expr::List(pattern)) = items.get(1) {
-                    names.extend(pattern.iter().skip(1).filter_map(|item| match item {
-                        Expr::Symbol(name) if name != "_" => Some(name.clone()),
-                        _ => None,
-                    }));
+                if let Some(pattern) = items.get(1) {
+                    names.extend(pattern_symbols(pattern));
                 }
-                if let Some(value) = items.get(3) {
+                for value in items.iter().skip(3) {
                     collect_local_binding_names(value, names);
                 }
                 return;
@@ -13137,6 +13159,35 @@ fn apply_async_output_renames(
 #[cfg(test)]
 mod async_lowering_tests {
     use super::*;
+
+    #[test]
+    fn nested_pattern_scope_walks_separate_declarations_from_value_uses() {
+        let expression = crate::parse(
+            "(#let-else (Some (Parts (#tuple first second) _)) Maybe input
+          (#block (#let (#array failed other) (#array u64 2) fallback) (#return failed)))",
+        )
+        .unwrap()
+        .remove(0)
+        .expr;
+        let mut locals = HashSet::new();
+        collect_local_binding_names(&expression, &mut locals);
+        assert_eq!(
+            locals,
+            ["first", "second", "failed", "other"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
+        let mut values = HashSet::new();
+        collect_value_names(&expression, &mut values);
+        assert_eq!(
+            values,
+            ["input", "fallback", "failed"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect()
+        );
+    }
 
     #[test]
     fn local_pattern_bindings_preserve_nested_order_aliases_and_mutability() {

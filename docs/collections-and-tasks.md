@@ -573,3 +573,21 @@ tuple in a struct and awaits each element in turn (exit 42).
 `examples/async_resume_destructure.lim` declares and updates nested mutable
 locals after the first await, then suspends again (exit 45). Updates write
 the existing slots; lowering must not turn them into shadowing declarations.
+
+Inside an `@async-fn` body, an awaited result may be destructured directly
+in `#let` or `#let-mut` (types and protocol from the example below):
+
+```lisp
+(#let (Values (#tuple left right) bias) Values
+  (#await Values InputTask InputPending InputReady input-poll (InputStart values)))
+```
+
+Lowering evaluates the await once into an explicitly typed temporary, then
+uses ordinary destructuring. Nested leaves can cross later awaits with the
+same ownership and borrow rules as ordinary locals. For enum patterns use
+`#let-else` with an explicit diverging failure path; a mismatch skips the
+successful continuation and its awaits. Both await spellings are accepted
+there, with or without a redundant result type before the child protocol.
+See `examples/async_await_destructure.lim` (exit 42). Linear payloads still
+require explicit consumption; a plain-data test payload must be marked
+`#linear` to exercise this constraint.
