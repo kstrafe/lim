@@ -1093,6 +1093,10 @@ pub(crate) struct Instruction {
     pub control: Control,
 }
 
+#[cfg(test)]
+pub(crate) type OutputVariantMap<T> =
+    HashMap<crate::typed_ir::FunctionId, HashMap<(Vec<crate::typed_place::Segment>, VariantId), T>>;
+
 #[derive(Default)]
 pub(crate) struct Body {
     pub nodes: Vec<Node>,
@@ -1114,6 +1118,10 @@ pub(crate) struct Body {
     #[cfg(test)]
     pub call_clear_variants:
         Arc<HashMap<crate::typed_ir::FunctionId, HashMap<VariantId, Vec<ParameterLoanSummary>>>>,
+    #[cfg(test)]
+    pub call_output_store_variants: Arc<OutputVariantMap<Vec<ParameterStoreSummary>>>,
+    #[cfg(test)]
+    pub call_output_clear_variants: Arc<OutputVariantMap<Vec<ParameterLoanSummary>>>,
     /// Direct callee outcome contracts supplied by the staged ownership pass.
     /// Replaced for each analysis run, never reused across entry assumptions.
     #[cfg(test)]
@@ -1123,6 +1131,11 @@ pub(crate) struct Body {
             HashMap<VariantId, crate::typed_flow::ReferentVariantExit>,
         >,
     >,
+    /// Actual outcomes inside owned call output storage, not task captures.
+    /// Rebuilt with the root contracts for each staged inference run.
+    #[cfg(test)]
+    pub call_output_variant_exits:
+        std::cell::RefCell<OutputVariantMap<crate::typed_flow::ReferentVariantExit>>,
     /// Keep opt-in ownership passes on the same provenance interpretation as
     /// their inferred contracts. Production bodies have no such mode flag.
     #[cfg(test)]

@@ -18,7 +18,11 @@ use crate::{Span, Type};
 pub(crate) struct FlowNodeId(pub usize);
 
 #[cfg(test)]
-type CallResultRefinement = (Vec<(FlowNodeId, NodeId)>, VariantId, Vec<FlowNodeId>);
+type CallResultRefinement = (
+    Vec<(FlowNodeId, NodeId, Vec<Segment>)>,
+    VariantId,
+    Vec<FlowNodeId>,
+);
 
 #[derive(Clone, Debug)]
 pub(crate) enum FlowAction {
@@ -1784,9 +1788,9 @@ impl FlowGraph {
                 };
                 let variant = constructor_variant_at_storage(body, pattern, &[])?;
                 let sources =
-                    self.call_result_sources(body, value, FlowNodeId(index), &predecessors)?;
+                    self.call_result_producers(body, value, FlowNodeId(index), &predecessors)?;
                 let mut calls = Vec::new();
-                for call in sources {
+                for (call, path) in sources {
                     let NodeKind::Form {
                         callee: Some(callee),
                         ..
@@ -1797,7 +1801,16 @@ impl FlowGraph {
                     // A checked ownership outcome is also a valid source of
                     // result correlation for bodyless compiler operations.
                     // It does not manufacture reference-storage transfers.
-                    if body
+                    if !path.is_empty() {
+                        if !body
+                            .call_output_variant_exits
+                            .borrow()
+                            .get(callee)
+                            .is_some_and(|groups| groups.contains_key(&(path.clone(), variant)))
+                        {
+                            return None;
+                        }
+                    } else if body
                         .call_store_variants
                         .get(callee)
                         .and_then(|variants| variants.get(&variant))
@@ -1820,19 +1833,19 @@ impl FlowGraph {
                     if evaluations.next().is_some() {
                         return None;
                     }
-                    calls.push((call_event, call));
+                    calls.push((call_event, call, path));
                 }
                 // Different alternatives must be mutually exclusive. A later
                 // call's variant is not determined by matching an earlier one.
                 if calls.len() > 1 {
-                    for (event, _) in &calls {
+                    for (event, _, _) in &calls {
                         let mut pending = self.nodes[event.0].successors.clone();
                         let mut visited = HashSet::new();
                         while let Some(next) = pending.pop() {
                             if next == FlowNodeId(index) {
                                 continue;
                             }
-                            if calls.iter().any(|(event, _)| *event == next) {
+                            if calls.iter().any(|(event, _, _)| *event == next) {
                                 return None;
                             }
                             if visited.insert(next) {
@@ -1846,7 +1859,7 @@ impl FlowGraph {
                 let mut region = Vec::new();
                 let mut reached_call = false;
                 while let Some(event) = pending.pop() {
-                    if calls.iter().any(|(call_event, _)| event == *call_event) {
+                    if calls.iter().any(|(call_event, _, _)| event == *call_event) {
                         reached_call = true;
                         continue;
                     }
@@ -2621,7 +2634,7 @@ impl FlowGraph {
         #[cfg(test)]
         for (event, refinement) in refinements.iter().enumerate() {
             if let Some((calls, _, _)) = refinement {
-                for (call_event, _) in calls {
+                for (call_event, _, _) in calls {
                     snapshot_users[call_event.0].push(FlowNodeId(event));
                 }
             }
@@ -3498,7 +3511,26 @@ impl FlowGraph {
                 (
                     variant,
                     ReferentVariantExit {
-                        restored: Vec::new(),
+                        restored: filtered
+                            .referent_restoration_guarantees_with_calls(
+                                body,
+                                types,
+                                calls,
+                                restorations,
+                            )
+                            .into_iter()
+                            .map(|place| {
+                                let (input_storage, referent_projection) =
+                                    split_referent_effect_place(body, &place);
+                                ReferentExitEffect {
+                                    place,
+                                    input_storage,
+                                    referent_projection,
+                                    definitely_consumed: true,
+                                    consumption_spans: Vec::new(),
+                                }
+                            })
+                            .collect(),
                         has_normal_return: summary.has_normal_return,
                         effects: summary.effects,
                         effects_from_consumed_entry,
@@ -4150,7 +4182,7 @@ impl FlowGraph {
             let event = FlowNodeId(index);
             let spans = sources
                 .iter()
-                .map(|(source, _)| self.nodes[source.0].span)
+                .map(|(source, _, _)| self.nodes[source.0].span)
                 .collect::<Vec<_>>();
             for clear in origins.clears_before(body, self, event) {
                 let place = clear.referent_place();
@@ -4201,7 +4233,8 @@ impl FlowGraph {
         let (sources, variant, region) = refinement;
         let contracts = body.call_variant_exits.borrow();
         let mut outcomes = Vec::new();
-        for (event, call) in sources {
+        let output_contracts = body.call_output_variant_exits.borrow();
+        for (event, call, path) in sources {
             let Some(original) = calls.get(event) else {
                 return Vec::new();
             };
@@ -4215,7 +4248,14 @@ impl FlowGraph {
             else {
                 return Vec::new();
             };
-            let Some(outcome) = contracts.get(callee).and_then(|groups| groups.get(variant)) else {
+            let outcome = if path.is_empty() {
+                contracts.get(callee).and_then(|groups| groups.get(variant))
+            } else {
+                output_contracts
+                    .get(callee)
+                    .and_then(|groups| groups.get(&(path.clone(), *variant)))
+            };
+            let Some(outcome) = outcome else {
                 return Vec::new();
             };
             if !outcome.has_normal_return || !outcome.unresolved.is_empty() {
@@ -8205,11 +8245,11 @@ fn joined_call_variant_stores(
     body: &Body,
     flow: &FlowGraph,
     before: LoanSnapshots<'_>,
-    calls: &[(FlowNodeId, NodeId)],
+    calls: &[(FlowNodeId, NodeId, Vec<Segment>)],
     variant: VariantId,
 ) -> Vec<LoanStore> {
     let mut result: Option<Vec<LoanStore>> = None;
-    for (event, call) in calls {
+    for (event, call, path) in calls {
         let Some(entry) = &before[event.0] else {
             return Vec::new();
         };
@@ -8220,11 +8260,16 @@ fn joined_call_variant_stores(
         else {
             return Vec::new();
         };
-        let Some(summaries) = body
-            .call_store_variants
-            .get(callee)
-            .and_then(|groups| groups.get(&variant))
-        else {
+        let summaries = if path.is_empty() {
+            body.call_store_variants
+                .get(callee)
+                .and_then(|groups| groups.get(&variant))
+        } else {
+            body.call_output_store_variants
+                .get(callee)
+                .and_then(|groups| groups.get(&(path.clone(), variant)))
+        };
+        let Some(summaries) = summaries else {
             return Vec::new();
         };
         let stores = substitute_call_stores(body, flow, before, *call, entry, summaries)
@@ -8358,11 +8403,11 @@ fn joined_call_variant_clears(
     body: &Body,
     flow: &FlowGraph,
     before: LoanSnapshots<'_>,
-    calls: &[(FlowNodeId, NodeId)],
+    calls: &[(FlowNodeId, NodeId, Vec<Segment>)],
     variant: VariantId,
 ) -> Vec<LoanOrigin> {
     let mut result: Option<Vec<LoanOrigin>> = None;
-    for (event, call) in calls {
+    for (event, call, path) in calls {
         let Some(entry) = &before[event.0] else {
             return Vec::new();
         };
@@ -8374,11 +8419,16 @@ fn joined_call_variant_clears(
         else {
             return Vec::new();
         };
-        let Some(summaries) = body
-            .call_clear_variants
-            .get(callee)
-            .and_then(|groups| groups.get(&variant))
-        else {
+        let summaries = if path.is_empty() {
+            body.call_clear_variants
+                .get(callee)
+                .and_then(|groups| groups.get(&variant))
+        } else {
+            body.call_output_clear_variants
+                .get(callee)
+                .and_then(|groups| groups.get(&(path.clone(), variant)))
+        };
+        let Some(summaries) = summaries else {
             return Vec::new();
         };
         let clears = substitute_call_clears(body, flow, before, entry, children, summaries);

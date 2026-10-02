@@ -925,6 +925,7 @@ impl Declarations {
         // reach if a callee fails in this entry-assumption mode.
         for body in self.bodies.values() {
             body.call_variant_exits.borrow_mut().clear();
+            body.call_output_variant_exits.borrow_mut().clear();
         }
         let body_ids = self
             .bodies
@@ -998,6 +999,61 @@ impl Declarations {
                     return true;
                 }
                 self.staged_add_thread_operation_contracts(&mut summaries, infer_entry_contracts);
+                let mut output_contracts = HashMap::new();
+                for (task, captures) in &self.thread_capture_schemas {
+                    let (
+                        Some(worker_body),
+                        Some(worker_summary),
+                        Some(join),
+                        Some(owner),
+                        Some(join_ok),
+                    ) = (
+                        self.bodies.get(&captures.worker_name),
+                        summaries.get(&captures.worker),
+                        self.function_id(&format!("{task}-join")),
+                        self.aggregate_id(&Type::Named(task.clone())),
+                        self.variant_id(
+                            &Type::Named(format!("{task}-join-result")),
+                            &format!("{task}-join-ok"),
+                        ),
+                    )
+                    else {
+                        continue;
+                    };
+                    // Require the same actual-worker operation contract as the
+                    // outer join. A missing worker never grants completion.
+                    if !summaries.contains_key(&join) || !body.nodes.iter().any(|node| {
+                        matches!(node.kind, NodeKind::Form { callee: Some(callee), .. } if callee == join)
+                    }) {
+                        continue;
+                    }
+                    let Some(captured) = crate::thread_contract::capture_worker_contract(
+                        captures.worker,
+                        owner,
+                        worker_body.parameter_count,
+                        worker_summary,
+                    ) else {
+                        continue;
+                    };
+                    output_contracts.insert(
+                        join,
+                        captured
+                            .facts
+                            .variant_exits
+                            .into_iter()
+                            .map(|(variant, exit)| {
+                                (
+                                    (
+                                        vec![crate::typed_place::Segment::Payload(join_ok, 0)],
+                                        variant,
+                                    ),
+                                    exit,
+                                )
+                            })
+                            .collect(),
+                    );
+                }
+                *body.call_output_variant_exits.borrow_mut() = output_contracts;
                 *body.call_variant_exits.borrow_mut() = body
                     .nodes
                     .iter()
@@ -1448,6 +1504,10 @@ impl Declarations {
             HashMap<VariantId, Vec<crate::typed_body::ParameterStoreSummary>>,
         >::new();
         #[cfg(test)]
+        let mut output_store_variants = crate::typed_body::OutputVariantMap::new();
+        #[cfg(test)]
+        let mut output_clear_variants = crate::typed_body::OutputVariantMap::new();
+        #[cfg(test)]
         {
             let (origins, bounds) = self.thread_call_return_metadata();
             summaries.extend(origins);
@@ -1533,6 +1593,43 @@ impl Declarations {
                     })
                     .collect();
                 self.bodies.get_mut(&name).unwrap().call_clear_variants = Arc::new(needed);
+                let callees = self.bodies[&name]
+                    .nodes
+                    .iter()
+                    .filter_map(|node| match &node.kind {
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(callee),
+                            ..
+                        } => Some(*callee),
+                        _ => None,
+                    })
+                    .collect::<HashSet<_>>();
+                self.bodies
+                    .get_mut(&name)
+                    .unwrap()
+                    .call_output_store_variants = Arc::new(
+                    callees
+                        .iter()
+                        .filter_map(|callee| {
+                            output_store_variants
+                                .get(callee)
+                                .map(|groups| (*callee, groups.clone()))
+                        })
+                        .collect(),
+                );
+                self.bodies
+                    .get_mut(&name)
+                    .unwrap()
+                    .call_output_clear_variants = Arc::new(
+                    callees
+                        .iter()
+                        .filter_map(|callee| {
+                            output_clear_variants
+                                .get(callee)
+                                .map(|groups| (*callee, groups.clone()))
+                        })
+                        .collect(),
+                );
                 let needed = self.bodies[&name]
                     .nodes
                     .iter()
@@ -1701,6 +1798,47 @@ impl Declarations {
                         join,
                         HashMap::from([(join_ok, captured_clears), (join_error, Vec::new())]),
                     );
+                    let selected_stores = store_variants[&id]
+                        .iter()
+                        .map(|(variant, stores)| {
+                            Some((
+                                (
+                                    vec![crate::typed_place::Segment::Payload(join_ok, 0)],
+                                    *variant,
+                                ),
+                                crate::thread_contract::capture_store_summaries(
+                                    owner,
+                                    captures.parameters.len(),
+                                    stores,
+                                )?,
+                            ))
+                        })
+                        .collect::<Option<HashMap<_, _>>>();
+                    let selected_clears = clear_variants[&id]
+                        .iter()
+                        .map(|(variant, clears)| {
+                            Some((
+                                (
+                                    vec![crate::typed_place::Segment::Payload(join_ok, 0)],
+                                    *variant,
+                                ),
+                                clears
+                                    .iter()
+                                    .map(|clear| {
+                                        crate::thread_contract::capture_loan_summary(
+                                            owner,
+                                            captures.parameters.len(),
+                                            clear,
+                                        )
+                                    })
+                                    .collect::<Option<Vec<_>>>()?,
+                            ))
+                        })
+                        .collect::<Option<HashMap<_, _>>>();
+                    if let (Some(stores), Some(clears)) = (selected_stores, selected_clears) {
+                        output_store_variants.insert(join, stores);
+                        output_clear_variants.insert(join, clears);
+                    }
                     // Worker output lives inside the successful join payload,
                     // not in task capture storage. Preserve full paths so two
                     // fields of the same enum type cannot share a selector.
@@ -1736,6 +1874,10 @@ impl Declarations {
         #[cfg(test)]
         let shared_clear_variants = Arc::new(clear_variants);
         #[cfg(test)]
+        let shared_output_store_variants = Arc::new(output_store_variants);
+        #[cfg(test)]
+        let shared_output_clear_variants = Arc::new(output_clear_variants);
+        #[cfg(test)]
         let shared_return_variants = Arc::new(return_variants);
         #[cfg(test)]
         let shared_return_bounds = Arc::new(return_bounds);
@@ -1747,6 +1889,8 @@ impl Declarations {
                 body.call_store_variants = shared_variants.clone();
                 body.call_parameter_clears = shared_clears.clone();
                 body.call_clear_variants = shared_clear_variants.clone();
+                body.call_output_store_variants = shared_output_store_variants.clone();
+                body.call_output_clear_variants = shared_output_clear_variants.clone();
                 body.call_return_variants = shared_return_variants.clone();
                 body.call_return_variant_bounds = shared_return_bounds.clone();
             }

@@ -18218,6 +18218,177 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_join_worker_outcome_selects_conditional_restoration() {
+        for (alias, overwrite, read_restored, succeeds) in [
+            (false, false, true, true),
+            (true, false, true, true),
+            (true, true, true, false),
+            (false, false, false, false),
+        ] {
+            let read = "(#block (#assert (#u64.== (#get target number) 42u64)) ())";
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#enum Outcome ((Restored) (Consumed)))
+                 (#fn worker ((target (#ref-mut Resource)) (choose bool)) Outcome
+                   (#forget (#deref target))
+                   (#return (#if choose
+                     (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Restored))
+                     (Consumed))))
+                 (@thread-spawn (: task Task : worker worker))
+                 (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
+                   (#return (#match (#call Task-spawn (: target target : choose choose))
+                     (#case (Task-spawn-ok task)
+                       (#match (#call Task-join (: task task))
+                         (#case (Task-join-ok outcome)
+                           (#block {}
+                           (#match {}
+                             (#case (Restored) {})
+                             (#case (Consumed) {}))))
+                         (#case (Task-join-error (#tuple retry error)) (#panic))))
+                     (#case (Task-spawn-error error) (#panic)))))",
+                if alias {
+                    if overwrite { "(#let-mut selected Outcome outcome) (#set selected (Restored))" }
+                    else { "(#let selected Outcome outcome)" }
+                } else { "" },
+                if alias { "selected" } else { "outcome" },
+                if read_restored { read } else { "(#panic)" },
+                if read_restored { "(#panic)" } else { read },
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_contents_referent_entry_contracts(&types);
+            if succeeds {
+                let summaries = result.unwrap();
+                let worker = declarations.function_id("worker").unwrap();
+                let join = declarations.function_id("Task-join").unwrap();
+                let ok = declarations
+                    .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+                    .unwrap();
+                let error = declarations
+                    .variant_id(&Type::Named("Task-join-result".into()), "Task-join-error")
+                    .unwrap();
+                let restored = declarations
+                    .variant_id(&Type::Named("Outcome".into()), "Restored")
+                    .unwrap();
+                let consumed = declarations
+                    .variant_id(&Type::Named("Outcome".into()), "Consumed")
+                    .unwrap();
+                assert_eq!(
+                    summaries[&worker].variant_exits[&restored].restored.len(),
+                    1
+                );
+                assert!(summaries[&worker].variant_exits[&consumed]
+                    .restored
+                    .is_empty());
+                {
+                    let contracts = declarations.bodies["caller"]
+                        .call_output_variant_exits
+                        .borrow();
+                    assert_eq!(contracts[&join].len(), 2);
+                    assert_eq!(
+                        contracts[&join]
+                            [&(vec![crate::typed_place::Segment::Payload(ok, 0)], restored)]
+                            .restored
+                            .len(),
+                        1
+                    );
+                    assert!(!contracts[&join].keys().any(|(path, _)| path
+                        .starts_with(&[crate::typed_place::Segment::Payload(error, 0)])));
+                }
+                declarations.bodies.remove("worker");
+                assert!(declarations
+                    .staged_contents_referent_entry_contracts(&types)
+                    .is_err());
+                assert!(declarations.bodies["caller"]
+                    .call_output_variant_exits
+                    .borrow()
+                    .is_empty());
+                assert!(declarations.bodies["caller"]
+                    .call_output_store_variants
+                    .is_empty());
+                assert!(declarations.bodies["caller"]
+                    .call_output_clear_variants
+                    .is_empty());
+            } else {
+                let crate::typed_ir::StagedReferentError::Use { conflict, .. } =
+                    result.unwrap_err()
+                else {
+                    panic!("expected invalid referent read");
+                };
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#get target number)");
+            }
+        }
+    }
+
+    #[test]
+    fn staged_join_worker_outcomes_select_reference_contents() {
+        let program = crate::parse_program(
+            "(#struct Holder ((value (#ref u64)))) (#linear Holder)
+             (#enum Outcome ((FromFirst) (FromSecond)))
+             (#fn worker ((target (#ref-mut Holder)) (first (#ref u64)) (second (#ref u64)) (choose bool)) Outcome
+               (#forget (#deref target))
+               (#return (#if choose
+                 (#block (#deref-set target (#struct-literal Holder (: value first))) (FromFirst))
+                 (#block (#deref-set target (#struct-literal Holder (: value second))) (FromSecond)))))
+             (@thread-spawn (: task Task : worker worker))
+             (#fn caller ((target (#ref-mut Holder)) (first (#ref u64)) (second (#ref u64)) (choose bool)) ()
+               (#return (#match (#call Task-spawn (: target target : first first : second second : choose choose))
+                 (#case (Task-spawn-ok task)
+                   (#match (#call Task-join (: task task))
+                     (#case (Task-join-ok outcome)
+                       (#match outcome
+                         (#case (FromFirst) (#block (#let observed-first (#ref u64) (#get target value)) ()))
+                         (#case (FromSecond) (#block (#let observed-second (#ref u64) (#get target value)) ()))))
+                     (#case (Task-join-error (#tuple retry error)) (#panic))))
+                 (#case (Task-spawn-error error) (#panic)))))",
+        ).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        let join = declarations.function_id("Task-join").unwrap();
+        let ok = declarations
+            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .unwrap();
+        assert_eq!(body.call_output_store_variants[&join].len(), 2);
+        assert_eq!(body.call_output_clear_variants[&join].len(), 2);
+        for (path, _) in body.call_output_store_variants[&join]
+            .keys()
+            .chain(body.call_output_clear_variants[&join].keys())
+        {
+            assert_eq!(path, &[crate::typed_place::Segment::Payload(ok, 0)]);
+        }
+        for (name, source_parameter) in [("observed-first", 1), ("observed-second", 2)] {
+            let (event, value) = flow
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    let crate::typed_flow::FlowAction::Bind { binding, value } = node.action else {
+                        return None;
+                    };
+                    (body.bindings[binding.0].name == name)
+                        .then_some((crate::typed_flow::FlowNodeId(index), value))
+                })
+                .unwrap();
+            let loaded = origins.value_before(body, flow, event, value);
+            assert_eq!(loaded.len(), 1, "{name}: {loaded:?}");
+            assert_eq!(
+                loaded[0].place,
+                crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+                    crate::typed_body::BindingId(source_parameter)
+                ))
+            );
+        }
+    }
+
+    #[test]
     fn staged_thread_completion_distinguishes_consumption_from_restoration() {
         for restores in [false, true] {
             let restore = if restores {
