@@ -9418,73 +9418,18 @@ impl FunctionContext<'_> {
     }
 
     fn borrow_expression(&mut self, items: &[Expr]) -> Result<(), String> {
-        if let Some(Expr::List(place)) = items.get(1) {
-            if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")
-                && place.len() == 4
-            {
-                let base_type = self.expression_type(&place[1]).ok_or_else(|| {
-                    "cannot determine reference type for enum payload borrow".to_owned()
-                })?;
-                let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
-                    base_type
-                else {
-                    return Err("enum payload borrow requires a reference".into());
-                };
-                let Type::Named(enum_name) = *target else {
-                    return Err("enum payload borrow requires a reference to an enum".into());
-                };
-                let Expr::Symbol(variant_name) = &place[2] else {
-                    return Err("enum payload borrow requires a variant name".into());
-                };
-                let index = match &place[3] {
-                    Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
-                        .map_err(|_| "enum payload index is too large".to_owned())?,
-                    Expr::UnsignedInteger(index) => usize::try_from(*index)
-                        .map_err(|_| "enum payload index is too large".to_owned())?,
-                    _ => return Err("enum payload borrow requires a non-negative index".into()),
-                };
-                let (variant_owner, discriminant, fields) = self
-                    .enum_variant_info(&place[2], variant_name)?
-                    .ok_or_else(|| format!("unknown enum variant '{variant_name}'"))?;
-                if variant_owner != enum_name {
-                    return Err(
-                        "internal error: checked payload-borrow variant owner changed".into(),
-                    );
-                }
-                let _field_type = fields.get(index).ok_or_else(|| {
-                    format!("variant '{variant_name}' has no payload field at index {index}")
-                })?;
-                let payload_offset = 1 + fields[..index]
-                    .iter()
-                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .sum::<usize>();
-                let inactive = self.label("inactive_enum_payload_borrow");
-                let done = self.label("inactive_enum_payload_borrow_done");
-                self.expression(&place[1])?;
-                self.output.push_str(&format!(
-                    "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
-                    discriminant
-                ));
-                self.emit_reference_field_address(&place[1], payload_offset, true)?;
-                self.output
-                    .push_str(&format!("    jmp {done}\n{inactive}:\n    ud2\n{done}:\n"));
-                return Ok(());
-            }
-            if matches!(place.first(), Some(Expr::Symbol(name)) if name == "get")
-                && place.len() == 3
-            {
-                let (root, offset_words) = self.reference_field_projection(&items[1])?;
-                self.emit_reference_field_address(&root, offset_words, true)?;
-                return Ok(());
-            }
+        self.borrow_place_address(&items[1])
+    }
+
+    /// Address original storage directly, without materializing a by-value
+    /// aggregate or cloning syntax away from its checked binding identities.
+    fn borrow_place_address(&mut self, owner_expression: &Expr) -> Result<(), String> {
+        if let Expr::List(place) = owner_expression {
+            return self.borrow_projection_address(place);
         }
-        let owner = match items.get(1) {
-            Some(Expr::Symbol(name)) => name,
-            _ => return Err("borrow requires a variable or struct field place".into()),
+        let Expr::Symbol(owner) = owner_expression else {
+            return Err("borrow requires a variable-rooted place".into());
         };
-        let owner_expression = &items[1];
         if self.is_local_symbol_expression(owner_expression, owner) {
             let slot = self
                 .local_slots_for_symbol(owner_expression, owner)?
@@ -9493,8 +9438,7 @@ impl FunctionContext<'_> {
                 .ok_or_else(|| format!("cannot borrow zero-sized variable '{owner}'"))?;
             self.output
                 .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
-            if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"))
-                && self
+            if self
                     .expression_type(owner_expression)
                     .or_else(|| self.local_type(owner).cloned())
                     .is_some_and(
@@ -9514,6 +9458,121 @@ impl FunctionContext<'_> {
         Err(format!("unknown variable '{owner}'"))
     }
 
+    fn borrow_projection_address(&mut self, place: &[Expr]) -> Result<(), String> {
+        let Some(Expr::Symbol(head)) = place.first() else {
+            return Err("borrow projection requires a checked operator".into());
+        };
+        if !matches!(head.as_str(), "get" | "index" | "get-payload") || place.len() < 3 {
+            return Err("borrow requires a variable-rooted projection".into());
+        }
+        let base_type = self
+            .expression_type(&place[1])
+            .ok_or_else(|| "borrow projection has no checked base type".to_owned())?;
+        let (target, indirect) = match base_type {
+            Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                (*target, true)
+            }
+            target => (target, false),
+        };
+        let offset = match (head.as_str(), &target) {
+            ("get", Type::Named(name)) if place.len() == 3 => {
+                let fields = self
+                    .structs
+                    .get(name)
+                    .ok_or_else(|| format!("unknown projected struct '{name}'"))?;
+                let index = self.checked_field_index(&place[2], name, fields)?;
+                fields[..index]
+                    .iter()
+                    .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum()
+            }
+            ("get", Type::Tuple(fields)) if place.len() == 3 => {
+                let Expr::Integer(index) = &place[2] else {
+                    return Err("tuple borrow requires a checked integer field".into());
+                };
+                let index = usize::try_from(*index).map_err(|_| "invalid tuple borrow field")?;
+                if index >= fields.len() {
+                    return Err("tuple borrow field is out of bounds".into());
+                }
+                fields[..index]
+                    .iter()
+                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum()
+            }
+            ("index", Type::Array(_, _)) if place.len() == 3 => 0,
+            ("get-payload", Type::Named(name)) if place.len() == 4 => {
+                let Expr::Symbol(variant) = &place[2] else {
+                    return Err("payload borrow requires a checked variant".into());
+                };
+                let index = match &place[3] {
+                    Expr::Integer(index) => usize::try_from(*index).ok(),
+                    Expr::UnsignedInteger(index) => usize::try_from(*index).ok(),
+                    _ => None,
+                }
+                .ok_or_else(|| "payload borrow requires a checked index".to_owned())?;
+                let (owner, _, fields) = self
+                    .enum_variant_info(&place[2], variant)?
+                    .ok_or_else(|| format!("unknown enum variant '{variant}'"))?;
+                if owner != *name || index >= fields.len() {
+                    return Err("invalid checked payload borrow".into());
+                }
+                1 + fields[..index]
+                    .iter()
+                    .map(|field| storage_word_count(field, &self.structs, &self.enums))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .sum::<usize>()
+            }
+            _ => return Err("unsupported checked borrow projection".into()),
+        };
+        if indirect {
+            // Load/snapshot the handle before evaluating a later dynamic index.
+            self.expression(&place[1])?;
+        } else {
+            self.borrow_place_address(&place[1])?;
+        }
+        if head == "index" {
+            let Type::Array(element, length) = target else {
+                unreachable!()
+            };
+            let stride = storage_word_count(&element, &self.structs, &self.enums)? * 8;
+            self.output.push_str("    push rax\n");
+            self.stack_depth += 1;
+            self.expression(&place[2])?;
+            self.output.push_str("    pop rcx\n");
+            self.stack_depth -= 1;
+            let failure = self.label("borrow_array_bounds_failure");
+            let done = self.label("borrow_array_bounds_done");
+            self.output.push_str(&format!(
+                "    cmp rax, {length}\n    jae {failure}\n    imul rax, {stride}\n"
+            ));
+            self.offset_slice_pointer("rcx", "rax");
+            self.output.push_str(&format!(
+                "    mov rax, rcx\n    jmp {done}\n{failure}:\n    ud2\n{done}:\n"
+            ));
+        } else if head == "get-payload" {
+            let Expr::Symbol(variant) = &place[2] else {
+                unreachable!()
+            };
+            let (_, discriminant, _) = self
+                .enum_variant_info(&place[2], variant)?
+                .ok_or_else(|| "checked payload variant was lost".to_owned())?;
+            let failure = self.label("inactive_enum_payload_borrow");
+            let done = self.label("inactive_enum_payload_borrow_done");
+            self.output.push_str(&format!("    mov rcx, rax\n    and rcx, -2\n    cmp QWORD PTR [rcx], {discriminant}\n    jne {failure}\n"));
+            self.offset_reference_field_address(offset, true);
+            self.output
+                .push_str(&format!("    jmp {done}\n{failure}:\n    ud2\n{done}:\n"));
+        } else {
+            self.offset_reference_field_address(offset, true);
+        }
+        Ok(())
+    }
+
     fn emit_reference_field_address(
         &mut self,
         reference: &Expr,
@@ -9524,12 +9583,17 @@ impl FunctionContext<'_> {
         // out toward higher addresses. Struct references use the aligned pointer's
         // low bit to carry that distinction across calls and reference storage.
         self.expression(reference)?;
+        self.offset_reference_field_address(offset_words, preserve_layout_tag);
+        Ok(())
+    }
+
+    fn offset_reference_field_address(&mut self, offset_words: usize, preserve_layout_tag: bool) {
         let offset = offset_words * 8;
         if offset == 0 {
             if !preserve_layout_tag {
                 self.output.push_str("    and rax, -2\n");
             }
-            return Ok(());
+            return;
         }
         let global_layout = self.label("reference_global_layout");
         let done = self.label("reference_field_address_done");
@@ -9542,58 +9606,52 @@ impl FunctionContext<'_> {
         self.output.push_str(&format!(
             "    jmp {done}\n{global_layout}:\n    add rax, {offset}\n{done}:\n"
         ));
-        Ok(())
     }
 
-    fn reference_field_projection(&self, expression: &Expr) -> Result<(Expr, usize), String> {
-        match expression {
-            Expr::Symbol(_) => {
-                let base_type = self
-                    .expression_type(expression)
-                    .ok_or_else(|| "cannot determine reference type for field borrow".to_owned())?;
-                let target = match base_type {
-                    Type::Reference { target, .. } | Type::PinnedReference { target, .. } => target,
-                    _ => return Err("field borrow requires a reference to a struct".into()),
-                };
-                if !matches!(*target, Type::Named(_)) {
-                    return Err("field borrow requires a reference to a struct".into());
+    /// Load a checked target from the tagged reference already in rax.
+    fn load_reference_value(&mut self, target: &Type) -> Result<(), String> {
+        match target {
+            Type::F32 => self
+                .output
+                .push_str("    and rax, -2\n    movss xmm0, DWORD PTR [rax]\n"),
+            Type::F64 => self
+                .output
+                .push_str("    and rax, -2\n    movq xmm0, QWORD PTR [rax]\n"),
+            Type::I128 | Type::U128 => {
+                let ascending = self.label("wide_reference_global_layout");
+                let done = self.label("wide_reference_done");
+                self.output.push_str(&format!(
+                    "    test al, 1\n    jz {ascending}\n    and rax, -2\n    mov rdx, QWORD PTR [rax-8]\n    jmp {done}\n{ascending}:\n    and rax, -2\n    mov rdx, QWORD PTR [rax+8]\n{done}:\n    mov rax, QWORD PTR [rax]\n"
+                ));
+            }
+            _ => {
+                let words = storage_word_count(target, &self.structs, &self.enums)?;
+                if words > VALUE_REGISTERS.len() {
+                    return Err("deref aggregate target exceeds native value registers".into());
                 }
-                Ok((expression.clone(), 0))
+                let ascending = self.label("aggregate_reference_global_layout");
+                let done = self.label("aggregate_reference_done");
+                self.output.push_str(&format!(
+                    "    mov r11, rax\n    and r11, -2\n    test al, 1\n    jz {ascending}\n"
+                ));
+                for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
+                    self.output.push_str(&format!(
+                        "    mov {register}, QWORD PTR [r11-{}]\n",
+                        index * 8
+                    ));
+                }
+                self.output
+                    .push_str(&format!("    jmp {done}\n{ascending}:\n"));
+                for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
+                    self.output.push_str(&format!(
+                        "    mov {register}, QWORD PTR [r11+{}]\n",
+                        index * 8
+                    ));
+                }
+                self.output.push_str(&format!("{done}:\n"));
             }
-            Expr::List(items)
-                if items.len() == 3
-                    && matches!(items.first(), Some(Expr::Symbol(head)) if head == "get") =>
-            {
-                let base_type = self
-                    .expression_type(&items[1])
-                    .ok_or_else(|| "cannot determine projected struct type".to_owned())?;
-                let (root, base_offset, base_type) = match base_type {
-                    Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
-                        (items[1].clone(), 0, *target)
-                    }
-                    ty => {
-                        let (root, base_offset) = self.reference_field_projection(&items[1])?;
-                        (root, base_offset, ty)
-                    }
-                };
-                let Type::Named(struct_name) = base_type else {
-                    return Err("field borrow requires a reference to a struct".into());
-                };
-                let fields = self
-                    .structs
-                    .get(&struct_name)
-                    .ok_or_else(|| format!("unknown struct '{struct_name}'"))?;
-                let index = self.checked_field_index(&items[2], &struct_name, fields)?;
-                let field_offset = fields[..index]
-                    .iter()
-                    .map(|field| storage_word_count(&field.ty, &self.structs, &self.enums))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .into_iter()
-                    .sum::<usize>();
-                Ok((root, base_offset + field_offset))
-            }
-            _ => Err("field borrow requires a reference to a struct".into()),
         }
+        Ok(())
     }
 
     fn normalize_asm_result(&mut self, result_type: Type) {
@@ -10170,6 +10228,11 @@ impl FunctionContext<'_> {
             "if" => self.if_expression(items),
             "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" => {
                 if items.len() == 3 {
+                    if matches!(&items[1], Expr::List(_)) {
+                        // Scoped projection borrows still evaluate dynamic
+                        // indices and perform bounds/variant checks first.
+                        self.borrow_place_address(&items[1])?;
+                    }
                     return self.expression(&items[2]);
                 }
                 if items.len() != 2 {
@@ -10190,54 +10253,7 @@ impl FunctionContext<'_> {
                         })
                         .ok_or_else(|| format!("{operator} requires a reference"))?;
                 self.expression(&items[1])?;
-                match &target {
-                    Type::F32 => self
-                        .output
-                        .push_str("    and rax, -2\n    movss xmm0, DWORD PTR [rax]\n"),
-                    Type::F64 => self
-                        .output
-                        .push_str("    and rax, -2\n    movq xmm0, QWORD PTR [rax]\n"),
-                    Type::I128 | Type::U128 => {
-                        let global_layout = self.label("wide_reference_global_layout");
-                        let done = self.label("wide_reference_done");
-                        self.output.push_str(&format!(
-                            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n    mov rdx, QWORD PTR [rax-8]\n    jmp {done}\n{global_layout}:\n    and rax, -2\n    mov rdx, QWORD PTR [rax+8]\n{done}:\n    mov rax, QWORD PTR [rax]\n"
-                        ));
-                    }
-                    _ => {
-                        let words = storage_word_count(&target, &self.structs, &self.enums)?;
-                        if words > VALUE_REGISTERS.len() {
-                            return Err(
-                                "deref aggregate target exceeds native value registers".into()
-                            );
-                        }
-                        let global_layout = self.label("aggregate_reference_global_layout");
-                        let done = self.label("aggregate_reference_done");
-                        self.output.push_str(&format!(
-                            "    mov r11, rax\n    and r11, -2\n    test al, 1\n    jz {global_layout}\n"
-                        ));
-                        for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
-                            let offset = index * 8;
-                            let address = if offset == 0 {
-                                "r11".to_owned()
-                            } else {
-                                format!("r11-{offset}")
-                            };
-                            self.output
-                                .push_str(&format!("    mov {register}, QWORD PTR [{address}]\n"));
-                        }
-                        self.output
-                            .push_str(&format!("    jmp {done}\n{global_layout}:\n"));
-                        for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
-                            self.output.push_str(&format!(
-                                "    mov {register}, QWORD PTR [r11+{}]\n",
-                                index * 8
-                            ));
-                        }
-                        self.output.push_str(&format!("{done}:\n"));
-                    }
-                }
-                Ok(())
+                self.load_reference_value(&target)
             }
             "deref-set" | "pin-write" => {
                 if items.len() != 3 {
@@ -10664,6 +10680,14 @@ impl FunctionContext<'_> {
     fn index_expression(&mut self, items: &[Expr]) -> Result<(), String> {
         if items.len() != 3 {
             return Err("index requires an array and index".into());
+        }
+        if let Some(Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
+            self.expression_type(&items[1])
+        {
+            if let Type::Array(element, _) = *target {
+                self.borrow_projection_address(items)?;
+                return self.load_reference_value(&element);
+            }
         }
         if let Expr::String(string) = &items[1] {
             let characters = string.chars().collect::<Vec<_>>();

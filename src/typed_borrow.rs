@@ -1090,21 +1090,18 @@ pub(crate) fn check_call_arguments_cached(
 }
 
 /// Enforce return-reference lifetimes from checked places and loan origins.
-/// Function parameters are the only local roots permitted to outlive the body;
-/// globals are represented as global places and do not enter this condition.
+/// Incoming referents have Parameter roots and globals have Global roots. Local
+/// roots always name this function's storage, including by-value parameter
+/// slots: their addresses cannot outlive the body. Loading a reference stored in
+/// a parameter must preserve its incoming referent, not the slot's address.
 #[cfg(test)]
-pub(crate) fn check_return_escapes(
-    body: &Body,
-    flow: &FlowGraph,
-    parameter_count: usize,
-) -> Result<(), BorrowConflict> {
-    check_return_escapes_cached(body, flow, parameter_count, &OnceCell::new())
+pub(crate) fn check_return_escapes(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
+    check_return_escapes_cached(body, flow, &OnceCell::new())
 }
 
 pub(crate) fn check_return_escapes_cached(
     body: &Body,
     flow: &FlowGraph,
-    parameter_count: usize,
     cache: &OnceCell<FlowLoanOrigins>,
 ) -> Result<(), BorrowConflict> {
     let origins = cache.get_or_init(|| flow.loan_origins(body));
@@ -1116,9 +1113,6 @@ pub(crate) fn check_return_escapes_cached(
             let PlaceRoot::Local(binding) = origin.place.root else {
                 continue;
             };
-            if binding.0 < parameter_count {
-                continue;
-            }
             let name = &body.bindings[binding.0].name;
             return Err(BorrowConflict {
                 message: format!("cannot return a value retaining a reference to local '{name}'"),
@@ -2134,7 +2128,7 @@ mod tests {
         assert!(cache.get().is_none());
         super::check_scope_escapes_cached(body, flow, &cache).unwrap();
         let first = cache.get().unwrap() as *const _;
-        super::check_return_escapes_cached(body, flow, 0, &cache).unwrap();
+        super::check_return_escapes_cached(body, flow, &cache).unwrap();
         super::check_live_direct_loans_cached(
             body,
             flow,
@@ -2145,9 +2139,65 @@ mod tests {
         super::check_call_arguments_cached(body, flow, &cache).unwrap();
         assert_eq!(first, cache.get().unwrap() as *const _);
         check_scope_escapes(body, flow).unwrap();
-        super::check_return_escapes(body, flow, 0).unwrap();
+        super::check_return_escapes(body, flow).unwrap();
         check_live_direct_loans(body, flow).unwrap();
         check_call_arguments(body, flow).unwrap();
+    }
+
+    #[test]
+    fn loaded_reference_origins_distinguish_incoming_referents_from_parameter_slots() {
+        for (operator, handle) in [("#borrow", "#ref"), ("#pin-borrow", "#pin-ref")] {
+            for external in [true, false] {
+                let (parameter, initializer) = if external {
+                    ("(outside (#ref u64))", "outside")
+                } else {
+                    ("(seed u64)", "(#borrow seed)")
+                };
+                let source = format!(
+                    "(#struct Holder ((view (#ref u64))))
+                     (#fn read ({parameter}) (#ref u64)
+                       (#let owner Holder (#struct-literal Holder (: view {initializer})))
+                       (#let view ({handle} (#ref u64)) ({operator} (#get owner view)))
+                       (#return (#deref view)))"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                let declarations =
+                    crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+                let body = &declarations.bodies["read"];
+                let flow = &declarations.flows["read"];
+                let origins = flow.loan_origins(body);
+                let (event, value) = flow
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, node)| match node.action {
+                        FlowAction::Return(Some(value)) => Some((FlowNodeId(index), value)),
+                        _ => None,
+                    })
+                    .unwrap();
+                let returned = origins.value_before(body, flow, event, value);
+                let expected = if external {
+                    PlaceRoot::Parameter(BindingId(0))
+                } else {
+                    PlaceRoot::Local(BindingId(0))
+                };
+                assert!(
+                    !returned.is_empty(),
+                    "missing loaded reference origin: {source}"
+                );
+                assert!(
+                    returned.iter().all(|origin| origin.place.root == expected),
+                    "{returned:?}\n{source}"
+                );
+                let result = super::check_return_escapes(body, flow);
+                assert_eq!(result.is_ok(), external, "{result:?}\n{source}");
+                if let Err(error) = result {
+                    let span = error.span.unwrap();
+                    assert_eq!(&source[span.start..span.end], "(#return (#deref view))");
+                    assert!(error.message.contains("local 'seed'"), "{error:?}");
+                }
+            }
+        }
     }
 
     #[test]

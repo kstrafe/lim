@@ -309,6 +309,70 @@ mod checked_program_tests {
     use super::*;
 
     #[test]
+    fn owned_nested_projection_borrows_retain_the_original_binding_and_loan_path() {
+        let source = "(#struct Inner ((value u64)))
+          (#struct Owner ((inner Inner))) (#linear Owner)
+          (#fn main () u64
+            (#let owner Owner (#struct-literal Owner
+              (: inner (#struct-literal Inner (: value 42u64)))))
+            (#let view (#pin-ref u64) (#pin-borrow (#get (#get owner inner) value)))
+            (#let result u64 (#deref view))
+            (#drop view) (#forget owner) (#return result))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let owner = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "owner")
+                .unwrap(),
+        );
+        let view = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap(),
+        );
+        let release = crate::typed_flow::FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| {
+                    matches!(&node.action, crate::typed_flow::FlowAction::Release { place, .. }
+                if place.root == crate::typed_body::PlaceRoot::Local(view))
+                })
+                .unwrap(),
+        );
+        let origins = flow.loan_origins(body);
+        let loans = origins.before(release, view);
+        assert_eq!(loans.len(), 1);
+        assert_eq!(
+            loans[0].place.root,
+            crate::typed_body::PlaceRoot::Local(owner)
+        );
+        assert!(loans[0].pinned && !loans[0].mutable && !loans[0].lifetime_only);
+        let inner = declarations
+            .field_id(&Type::Named("Owner".into()), "inner")
+            .unwrap();
+        let value = declarations
+            .field_id(&Type::Named("Inner".into()), "value")
+            .unwrap();
+        assert_eq!(
+            loans[0].place.segments,
+            vec![
+                crate::typed_place::Segment::Field(inner),
+                crate::typed_place::Segment::Field(value)
+            ]
+        );
+        assert_eq!(
+            body.bindings.len(),
+            3,
+            "no synthetic reference/frame bindings"
+        );
+    }
+
+    #[test]
     fn staged_typed_liveness_is_available_before_linear_enforcement() {
         let program = crate::parse_program(
             "(#struct Token ((value u64)))
@@ -2106,7 +2170,6 @@ fn check_types_inner(
                 crate::typed_borrow::check_return_escapes_cached(
                     body,
                     flow,
-                    function.parameters.len(),
                     &loan_caches[function.name.as_str()],
                 )
                 .map_err(|error| {
@@ -7357,22 +7420,9 @@ fn list_expression(
                             || (place.len() == 4
                                 && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")) =>
                     {
-                        let root = projection_root(&place[1]).ok_or_else(|| {
-                            format!("{operator} projection borrowing requires a reference")
-                        })?;
-                        let base_type = expression(
-                            root, variables, functions, structs, enums, mutable, aliases, None,
+                        let (reference_mutable, inherited_pin) = borrow_projection_permissions(
+                            &items[1], variables, functions, structs, enums, mutable, aliases,
                         )?;
-                        let (reference_mutable, inherited_pin, target) = match base_type {
-                            Type::Reference { mutable, target } => (mutable, false, target),
-                            Type::PinnedReference { mutable, target } => (mutable, true, target),
-                            _ => {
-                                return Err(semantic_format!(
-                                    "{operator} projection borrowing requires a reference"
-                                ))
-                            }
-                        };
-                        let _ = target;
                         let field_type = expression(
                             &items[1], variables, functions, structs, enums, mutable, aliases, None,
                         )?;
@@ -7429,20 +7479,9 @@ fn list_expression(
                         || (matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")
                             && place.len() == 4) =>
                 {
-                    let root = projection_root(&items[1]).ok_or_else(|| {
-                        format!("{operator} projection borrowing requires a reference")
-                    })?;
-                    let (reference_mutable, _) = match expression(
-                        root, variables, functions, structs, enums, mutable, aliases, None,
-                    )? {
-                        Type::Reference { mutable, .. } => (mutable, false),
-                        Type::PinnedReference { mutable, .. } => (mutable, true),
-                        _ => {
-                            return Err(semantic_format!(
-                                "{operator} projection borrowing requires a reference"
-                            ))
-                        }
-                    };
+                    let (reference_mutable, _) = borrow_projection_permissions(
+                        &items[1], variables, functions, structs, enums, mutable, aliases,
+                    )?;
                     if mutable_borrow && !reference_mutable {
                         return Err(borrow_error(
                             "cannot mutably borrow through an immutable reference",
@@ -7950,7 +7989,7 @@ fn list_expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
             let array_type = match array_type {
-                Type::Reference { target, .. } => *target,
+                Type::Reference { target, .. } | Type::PinnedReference { target, .. } => *target,
                 other => other,
             };
             let Type::Array(element, length) = array_type else {
@@ -8496,6 +8535,53 @@ fn list_expression(
                 })?;
             }
             Ok(return_type)
+        }
+    }
+}
+
+/// Borrowing an owned projection addresses its original binding; it does not
+/// load an aggregate temporary or manufacture a reference-parameter origin.
+fn borrow_projection_permissions(
+    place: &Expr,
+    variables: &VariableTypes<'_>,
+    functions: &FunctionTable,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    mutable: &HashSet<String>,
+    aliases: &HashMap<String, Type>,
+) -> Result<(bool, bool), SemanticError> {
+    let root = projection_root(place).ok_or_else(|| {
+        SemanticError::from("projection borrowing requires a variable-rooted place")
+    })?;
+    match expression(
+        root, variables, functions, structs, enums, mutable, aliases, None,
+    )? {
+        Type::Reference { mutable, .. } => Ok((mutable, false)),
+        Type::PinnedReference { mutable, .. } => Ok((mutable, true)),
+        _ => {
+            let Expr::Symbol(name) = root else {
+                return Err("projection borrowing requires an owned variable or reference".into());
+            };
+            // An embedded reference changes the referent identity. Require a
+            // named handle for that crossing rather than pretending its pointee
+            // is storage belonging to this aggregate's BindingId.
+            let mut current = place;
+            while let Expr::List(parts) = current {
+                let Some(parent) = parts.get(1) else { break };
+                if std::ptr::eq(parent, root) {
+                    break;
+                }
+                if matches!(
+                    expression(
+                        parent, variables, functions, structs, enums, mutable, aliases, None
+                    )?,
+                    Type::Reference { .. } | Type::PinnedReference { .. }
+                ) {
+                    return Err("borrowing through an embedded reference requires a named reference binding".into());
+                }
+                current = parent;
+            }
+            Ok((mutable.contains(name), false))
         }
     }
 }

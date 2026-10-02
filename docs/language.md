@@ -256,8 +256,11 @@ The two-expression form produces a reference:
 
 Multiple shared borrows may overlap, but a mutable borrow cannot overlap any
 other borrow, and a shared borrow cannot overlap a mutation. References to
-locals cannot escape their function; references returned from parameters and
-globals are supported. `#deref` reads through a reference, and `#deref-set`
+locals cannot escape their function; incoming reference referents and
+globals may be returned. A by-value parameter's own storage is local too:
+returning `(#borrow parameter)` is invalid even if the parameter itself
+contains references. Loading one of those incoming references preserves
+its external referent instead. `#deref` reads through a reference, and `#deref-set`
 writes through a mutable reference when the target fits the native value
 registers. The known target type is used for aggregate RHS values, including
 one-word structs. Writing a zero-sized aggregate evaluates both operands but
@@ -269,6 +272,16 @@ referent is local, and a mutable parent reference is suspended while its
 derived field reference remains live. Tuple and array projections use `#get`
 and `#index`; enum payloads use
 `(#get-payload reference Variant index)`.
+Projections may also start at an owned local, without borrowing the entire
+aggregate first: `(#borrow (#get owner field))`. Nested struct, tuple, array,
+and enum-payload projections address the original storage; a dynamic index
+is evaluated once before the borrow's body. Mutable borrowing requires a
+mutable local or an exclusive reference root. The same rules apply to
+`#pin-borrow` and `#pin-borrow-mut`, and reborrowing through a pinned reference
+preserves pinning. A projection cannot borrow a computed aggregate temporary.
+When crossing a reference-valued field, bind that reference first so the
+next borrow has an explicit reference root. See `examples/owned_field_borrow.lim`.
+
 Reference-valued fields may be projected through nested aggregates; their
 original source borrow remains active for as long as the containing aggregate
 is live.
