@@ -799,3 +799,29 @@ rejection and concurrent publication.
 All enabled integrations also pass (including 183 async tests); four existing
 ignored tests are unchanged. The library suite passes 856 tests and fails the
 pre-existing uncommitted staged empty-enum thread-join provenance test.
+
+## Hash generated-source digests without concatenating inputs
+
+The stable hash now accepts borrowed byte slices. Generated-source validation
+hashes the key, NUL separator, and source directly instead of allocating and
+copying their concatenation. The algorithm, separator, and digest format are
+unchanged; no cache schema migration is needed. A regression test checks every
+split point, empty segments, embedded NULs, and UTF-8 input against contiguous
+hashing. All 17 focused generator/cache tests pass.
+
+Baseline: c798715 with identical pending staged ownership edits. Warm release
+CLI, two warmups, no concurrent builds or tests:
+
+| Workload / measurement order | Samples | Before median | After median |
+| --- | ---: | ---: | ---: |
+| 256 tasks, baseline first | 30 | 141.70 ms | 142.02 ms |
+| 256 tasks, optimized first | 30 | 143.00 ms | 142.24 ms |
+| async_fn, baseline first | 40 | 30.15 ms | 30.56 ms |
+| async_fn, optimized first | 40 | 30.61 ms | 29.83 ms |
+
+Executable bytes match throughout. Task timing ranges from 0.2% slower to
+0.5% faster; async ranges from 1.4% slower to 2.5% faster. These mixed results
+do not establish a general timing speedup. Removing one key-plus-source-sized
+temporary allocation and copy per digest calculation is deterministic.
+The library suite passes 857 tests with the same pre-existing uncommitted
+staged empty-enum thread-join provenance failure; no additional failure appears.

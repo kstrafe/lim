@@ -1144,11 +1144,10 @@ fn format_generated_source(source: &str) -> Result<String, String> {
 }
 
 fn generated_source_digest(key: &str, source: &str) -> String {
-    let mut contents = Vec::with_capacity(key.len() + 1 + source.len());
-    contents.extend_from_slice(key.as_bytes());
-    contents.push(0);
-    contents.extend_from_slice(source.as_bytes());
-    format!("{:032x}", stable_hash(&contents))
+    format!(
+        "{:032x}",
+        stable_hash_parts(&[key.as_bytes(), &[0], source.as_bytes()])
+    )
 }
 
 fn write_cache_staging(target: &Path, contents: &[u8]) -> Result<PathBuf, String> {
@@ -1223,10 +1222,16 @@ fn cleanup_abandoned_staging(directory: &Path) {
 }
 
 pub(crate) fn stable_hash(bytes: &[u8]) -> u128 {
+    stable_hash_parts(&[bytes])
+}
+
+fn stable_hash_parts(parts: &[&[u8]]) -> u128 {
     let mut hash = 0x6c62272e07bb014262b821756295c58du128;
-    for byte in bytes {
-        hash ^= u128::from(*byte);
-        hash = hash.wrapping_mul(0x0000000001000000000000000000013bu128);
+    for bytes in parts {
+        for byte in *bytes {
+            hash ^= u128::from(*byte);
+            hash = hash.wrapping_mul(0x0000000001000000000000000000013bu128);
+        }
     }
     hash
 }
@@ -1633,6 +1638,31 @@ fn expression_nodes(expression: &Expr) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn segmented_hash_preserves_generated_source_digest_format() {
+        for (key, source) in [
+            ("", ""),
+            ("key", "(#fn main () u64 (#return 42u64))"),
+            ("κλειδί\0key", "λ\0source"),
+        ] {
+            let mut joined = key.as_bytes().to_vec();
+            joined.push(0);
+            joined.extend_from_slice(source.as_bytes());
+            assert_eq!(
+                generated_source_digest(key, source),
+                format!("{:032x}", stable_hash(&joined))
+            );
+            // Splitting at every byte boundary must retain the same hash,
+            // including empty segments and boundaries within UTF-8 text.
+            for boundary in 0..=joined.len() {
+                assert_eq!(
+                    stable_hash_parts(&[&joined[..boundary], &[], &joined[boundary..]]),
+                    stable_hash(&joined)
+                );
+            }
+        }
+    }
 
     #[test]
     fn generator_iteration_bindings_cannot_shadow_parameters_or_outer_bindings() {
