@@ -944,10 +944,15 @@ fn check_expr(
                 let mut right = moved.clone();
                 check_expr(&items[2], bindings, &mut left, globals, false, types)?;
                 check_expr(&items[3], bindings, &mut right, globals, false, types)?;
-                require_same_consumption(bindings, &left, &right, types)?;
-                // Both branches have consumed exactly the same outer places,
-                // so the union now also represents definite consumption.
-                *moved = left.merged(&right);
+                match (expression_returns(&items[2]), expression_returns(&items[3])) {
+                    (false, false) => {
+                        require_same_consumption(bindings, &left, &right, types)?;
+                        *moved = left.merged(&right);
+                    }
+                    (false, true) => *moved = left,
+                    (true, false) => *moved = right,
+                    (true, true) => {}
+                }
             } else if head == "match" && items.len() >= 3 {
                 check_expr(&items[1], bindings, moved, globals, false, types)?;
                 let after_scrutinee = moved.clone();
@@ -1002,7 +1007,11 @@ fn check_expr(
                         }
                     }
                     arm_moved.retain(|name| bindings.contains(place_root(name)));
-                    exits.push(arm_moved);
+                    if !parts.last().is_some_and(|body| {
+                        expression_returns_with_guard(body, guard.map(Vec::as_slice))
+                    }) {
+                        exits.push(arm_moved);
+                    }
                 }
                 if let Some(first) = exits.first() {
                     for exit in exits.iter().skip(1) {
@@ -1234,6 +1243,119 @@ fn check_expr(
     }
     let _ = globals;
     Ok(())
+}
+
+/// Only function-return paths can be omitted from continuation joins. Loop
+/// transfers must remain visible to their enclosing loop's ownership checks.
+/// Every branch is checked first, including cleanup at its explicit returns.
+fn expression_returns(expression: &Expr) -> bool {
+    expression_returns_with_guard(expression, None)
+}
+
+fn expression_returns_with_guard(expression: &Expr, guard: Option<&[Expr]>) -> bool {
+    const NEXT: u8 = 1;
+    const RETURN: u8 = 2;
+    const TRANSFER: u8 = 4;
+
+    fn sequence(statements: &[Statement]) -> u8 {
+        let mut exits = NEXT;
+        for statement in statements {
+            if exits & NEXT == 0 {
+                break;
+            }
+            exits = (exits & !NEXT) | statement_exits(statement);
+        }
+        exits
+    }
+    fn statement_exits(statement: &Statement) -> u8 {
+        match statement {
+            Statement::Return(value) => {
+                let exits = value.as_ref().map_or(NEXT, expression_exits);
+                (exits & !NEXT) | if exits & NEXT != 0 { RETURN } else { 0 }
+            }
+            Statement::Break
+            | Statement::BreakValue(_)
+            | Statement::BreakTo(_)
+            | Statement::BreakToValue { .. }
+            | Statement::Continue
+            | Statement::ContinueTo(_) => TRANSFER,
+            Statement::Expr(value)
+            | Statement::Let { value, .. }
+            | Statement::Destructure { value, .. }
+            | Statement::Assign { value, .. }
+            | Statement::FieldAssign { value, .. }
+            | Statement::TupleAssign { value, .. }
+            | Statement::EnumPayloadAssign { value, .. } => expression_exits(value),
+            // Keep loops, labels, and conditional binding failures conservative.
+            // Their exits belong to distinct control-flow owners.
+            Statement::While { .. }
+            | Statement::Loop { .. }
+            | Statement::For { .. }
+            | Statement::Labeled { .. }
+            | Statement::LetElse { .. }
+            | Statement::ArrayAssign { .. } => NEXT | TRANSFER,
+        }
+    }
+    fn expression_exits(expression: &Expr) -> u8 {
+        match expression {
+            Expr::Block(body) => sequence(body),
+            Expr::Loop(_) | Expr::Labeled { .. } => NEXT | TRANSFER,
+            Expr::List(items) => {
+                let head = match items.first() {
+                    Some(Expr::Symbol(head)) => head.as_str(),
+                    _ => "",
+                };
+                match head {
+                    "if" if items.len() == 4 => {
+                        let condition = expression_exits(&items[1]);
+                        (condition & !NEXT)
+                            | if condition & NEXT != 0 {
+                                expression_exits(&items[2]) | expression_exits(&items[3])
+                            } else {
+                                0
+                            }
+                    }
+                    "match" if items.len() >= 3 => {
+                        let scrutinee = expression_exits(&items[1]);
+                        (scrutinee & !NEXT)
+                            | if scrutinee & NEXT != 0 {
+                                items[2..].iter().fold(0, |exits, arm| {
+                                    exits
+                                        | match arm {
+                                            Expr::List(parts) => {
+                                                let guard_transfer =
+                                                    parts.get(1).map_or(0, |guard| {
+                                                        expression_exits(guard) & TRANSFER
+                                                    });
+                                                guard_transfer
+                                                    | parts.last().map_or(NEXT, expression_exits)
+                                            }
+                                            _ => NEXT,
+                                        }
+                                })
+                            } else {
+                                0
+                            }
+                    }
+                    "quote" | "quasiquote" => NEXT,
+                    "break" | "break-to" | "continue" | "continue-to" => TRANSFER,
+                    _ => {
+                        NEXT | items.iter().skip(1).fold(0, |exits, child| {
+                            exits | (expression_exits(child) & TRANSFER)
+                        })
+                    }
+                }
+            }
+            _ => NEXT,
+        }
+    }
+    expression_exits(expression) == RETURN
+        && guard.is_none_or(|guard| {
+            guard
+                .iter()
+                .skip(1)
+                .all(|value| expression_exits(value) & TRANSFER == 0)
+        })
 }
 
 fn simple_place_name(expr: &Expr) -> Option<&str> {
@@ -1469,6 +1591,42 @@ fn check_expr_with_place(
 #[cfg(test)]
 mod tests {
     use crate::{check_types, parse_program};
+
+    #[test]
+    fn returning_branches_do_not_join_restored_loop_state() {
+        let source = "(#struct Resource ((value u64))) (#linear Resource)
+          (#fn main () u64
+            (#let-mut state Resource (#struct-literal Resource ((value 0u64))))
+            (#for-range (turn u64) 0u64 2u64
+              (#let original Resource state)
+              (#let observed u64 (#get original value))
+              (#match turn
+                (#case 0u64 (#block
+                  (#forget original)
+                  (#set state (#struct-literal Resource ((value 1u64)))) ()))
+                (#case _ (#block (#forget original) (#return observed)))))
+            (#forget state)
+            (#return 0u64))";
+        check_types(&parse_program(source).unwrap()).unwrap();
+        let conditional = source.replace(
+            "(#match turn\n                (#case 0u64 (#block",
+            "(#if (#u64.== turn 0u64) (#block",
+        ).replace(
+            "((value 1u64)))) ()))\n                (#case _ (#block (#forget original) (#return observed))))",
+            "((value 1u64)))) ())\n                (#block (#forget original) (#return observed)))",
+        );
+        check_types(&parse_program(&conditional).unwrap()).unwrap();
+        let missing_cleanup = source.replace("(#forget original)", "()");
+        assert!(check_types(&parse_program(&missing_cleanup).unwrap()).is_err());
+        let moved_on_break = source.replace("(#return observed)", "(#break)");
+        assert!(check_types(&parse_program(&moved_on_break).unwrap()).is_err());
+        let consumed_before_backedge = source.replace(
+            "(#return observed)))))",
+            "(#return observed)))) (#forget state))",
+        );
+        assert_ne!(consumed_before_backedge, source);
+        assert!(check_types(&parse_program(&consumed_before_backedge).unwrap()).is_err());
+    }
 
     #[test]
     fn places_keep_identifier_punctuation_and_dynamic_indices_structural() {
