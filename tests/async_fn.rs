@@ -1906,6 +1906,30 @@ fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
     build_and_run(&early_break, 42);
     let fallthrough = early_break.replace("(#u64.== awaited 41u64)", "(#u64.== awaited 0u64)");
     build_and_run(&fallthrough, 41);
+    let branch_only = source.replace(
+        "(#break awaited)",
+        "(#if (#u64.== awaited 41u64) (#break 42u64) (#break awaited))",
+    );
+    build_and_run(&branch_only, 42);
+    let branch_fallthrough =
+        branch_only.replace("(#u64.== awaited 41u64)", "(#u64.== awaited 0u64)");
+    build_and_run(&branch_fallthrough, 41);
+    let branch_match = branch_only.replace(
+        "(#if (#u64.== awaited 41u64) (#break 42u64) (#break awaited))",
+        "(#match (#u64.== awaited 41u64) (#case true (#break 42u64)) (#case false (#break awaited)))",
+    );
+    build_and_run(&branch_match, 42);
+    let nested_branch = branch_only.replace(
+        "(#if (#u64.== awaited 41u64)",
+        "(#let inner u32 (#loop (#break 7u32)))\n                (#assert (#u32.== inner 7u32))\n                (#if (#u64.== awaited 41u64)",
+    );
+    build_and_run(&nested_branch, 42);
+    let outer_value = branch_only
+        .replace("(#fn work () u64", "(#fn work ((fallback u64)) u64")
+        .replace("(#call work ())", "(#call work (: fallback 42u64))")
+        .replace("(#break 42u64)", "(#break fallback)");
+    assert_ne!(outer_value, branch_only);
+    build_and_run(&outer_value, 42);
     let nested_loop = early_break.replace(
         "(#if (#u64.== awaited 41u64)",
         "(#let nested u64 (#loop (#break 7u64)))\n                (#assert (#u64.== nested 7u64))\n                (#if (#u64.== awaited 41u64)",
@@ -1983,6 +2007,11 @@ fn async_value_loop_break_moves_linear_payload_across_pending() {
     );
     assert_ne!(early_break, source);
     build_and_run(&early_break, 41);
+    let branch_only = source.replace(
+        "(#break token)",
+        "(#if (#u64.== (#get token value) 41u64) (#break token) (#break token))",
+    );
+    build_and_run(&branch_only, 41);
 }
 
 #[test]

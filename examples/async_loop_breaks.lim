@@ -1,4 +1,4 @@
-; Both exits of this value-producing loop survive suspension. The inner
+; Both conditional exits of this value-producing loop survive suspension. The inner
 ; synchronous loop's break belongs to that loop, not the enclosing async loop.
 (#enum Step ((Waiting u64) (Resuming u64)))
 (#linear Step)
@@ -18,8 +18,7 @@
             (#await u64 Step StepPending StepReady step-poll (Waiting 41u64)))
           (#let nested u64 (#loop (#break 7u64)))
           (#assert (#u64.== nested 7u64))
-          (#if choose (#break 42u64) ())
-          (#break awaited)))))
+          (#if choose (#break 42u64) (#break awaited))))))
     (#return result))))
 
 (#fn run ((choose bool) (waker (#ref u64))) u64

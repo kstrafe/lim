@@ -1138,7 +1138,10 @@ fn first_async_await(expression: &Expr) -> Option<&[Expr]> {
     }
 }
 
-fn async_loop_terminal_break_value(expression: &Expr) -> Option<(Expr, Expr)> {
+fn async_loop_break_value(
+    expression: &Expr,
+    known: &HashMap<String, Binding>,
+) -> Option<(Expr, Expr)> {
     fn declared_type(expression: &Expr, name: &str) -> Option<Expr> {
         let Expr::List(items) = expression else {
             return None;
@@ -1156,49 +1159,96 @@ fn async_loop_terminal_break_value(expression: &Expr) -> Option<(Expr, Expr)> {
     }
 
     let loop_items = form(expression, "#loop")?;
-    let terminal = form(loop_items.last()?, "#break")?;
-    if terminal.len() != 2 {
-        return None;
-    }
-    let value = terminal[1].clone();
-    let ty = if let Expr::Symbol(name) = &value {
-        loop_items[1..loop_items.len() - 1]
-            .iter()
-            .find_map(|body| declared_type(body, name))?
-    } else if let Some(items) = form(&value, "#literal") {
-        if items.len() < 2 {
-            return None;
+    let value_type = |value: &Expr| -> Option<Expr> {
+        if let Expr::Symbol(name) = value {
+            loop_items[1..]
+                .iter()
+                .find_map(|body| declared_type(body, name))
+                .or_else(|| {
+                    known.get(name).and_then(|binding| {
+                        crate::parse(&binding.ty)
+                            .ok()?
+                            .into_iter()
+                            .next()
+                            .map(|source| source.expr)
+                    })
+                })
+        } else if let Some(items) = form(value, "#literal") {
+            if items.len() < 2 {
+                return None;
+            }
+            Some(items[1].clone())
+        } else if let Expr::List(items) = value {
+            let Some(Expr::Symbol(head)) = items.first() else {
+                return None;
+            };
+            let scalar = head.strip_prefix('#').unwrap_or(head).split_once('.')?.0;
+            let scalar_type = parse_type(Some(&Expr::Symbol(scalar.into()))).ok()?;
+            if !async_task_capture_is_copy(&scalar_type) {
+                return None;
+            }
+            Some(Expr::Symbol(scalar.into()))
+        } else {
+            None
         }
-        items[1].clone()
-    } else if let Expr::List(items) = &value {
-        let Some(Expr::Symbol(head)) = items.first() else {
+    };
+    fn find_break(
+        expression: &Expr,
+        value_type: &impl Fn(&Expr) -> Option<Expr>,
+    ) -> Option<(Expr, Expr)> {
+        let Expr::List(items) = expression else {
             return None;
         };
-        let scalar = head.strip_prefix('#').unwrap_or(head).split_once('.')?.0;
-        let scalar_type = parse_type(Some(&Expr::Symbol(scalar.into()))).ok()?;
-        if !async_task_capture_is_copy(&scalar_type) {
+        if matches!(items.first(), Some(Expr::Symbol(head))
+            if matches!(head.as_str(), "#loop" | "#while" | "#while-let" | "#for" | "#for-range"
+                | "#quote" | "quote" | "#quasiquote" | "quasiquote" | "#fn" | "fn"))
+        {
             return None;
         }
-        Expr::Symbol(scalar.into())
-    } else {
-        return None;
-    };
-    Some((value, ty))
+        if let Some(items) = form(expression, "#break") {
+            if items.len() == 2 {
+                return value_type(&items[1]).map(|ty| (items[1].clone(), ty));
+            }
+            return None;
+        }
+        items
+            .iter()
+            .skip(1)
+            .find_map(|child| find_break(child, value_type))
+    }
+    // Prefer the old terminal anchor when present, preserving existing types.
+    // Otherwise any explicitly typed exit of this loop can supply the schema;
+    // ordinary checking validates the other payloads against it.
+    loop_items
+        .last()
+        .and_then(|last| {
+            let terminal = form(last, "#break")?;
+            (terminal.len() == 2)
+                .then(|| &terminal[1])
+                .and_then(|value| value_type(value).map(|ty| (value.clone(), ty)))
+        })
+        .or_else(|| {
+            loop_items
+                .iter()
+                .skip(1)
+                .find_map(|body| find_break(body, &value_type))
+        })
 }
 
-fn rewrite_async_loop_terminal_break_value(
+fn rewrite_async_loop_break_values(
     expression: &mut Expr,
     break_value: &Expr,
+    known: &HashMap<String, Binding>,
     result_name: &str,
     result_variant: &str,
 ) -> bool {
-    let Some(items) = form(expression, "#loop") else {
+    let Some(_) = form(expression, "#loop") else {
         return false;
     };
-    let Some(terminal) = items.last().and_then(|item| form(item, "#break")) else {
+    let Some((anchor, _)) = async_loop_break_value(expression, known) else {
         return false;
     };
-    if terminal.len() != 2 || terminal[1] != *break_value {
+    if anchor != *break_value {
         return false;
     }
     fn rewrite_breaks(expression: &mut Expr, result_name: &str, result_variant: &str) {
@@ -1316,7 +1366,7 @@ fn conditional_value_expression_task(
     }
     let enclosing_return_type = async_terminal_return_type(expression);
     let value_loop = if enclosing_return_type.is_none() {
-        async_loop_terminal_break_value(expression)
+        async_loop_break_value(expression, known)
     } else {
         None
     };
@@ -1375,9 +1425,10 @@ fn conditional_value_expression_task(
             Expr::Symbol(empty_variant.clone()),
         ]));
         let mut loop_expression = expression.clone();
-        if !rewrite_async_loop_terminal_break_value(
+        if !rewrite_async_loop_break_values(
             &mut loop_expression,
             break_value,
+            known,
             &state_name,
             &filled_variant,
         ) {
@@ -10258,7 +10309,7 @@ fn lower_async_loop_with_transfers(
     // by this statement-level state machine. Let the general expression
     // adapter lower Copy results; reject a discarded linear result here,
     // before it can be hidden in the generated adapter's output state.
-    if let Some((_, result_type)) = async_loop_terminal_break_value(statement) {
+    if let Some((_, result_type)) = async_loop_break_value(statement, known) {
         let result_type = parse_type(Some(&normalize_keywords(result_type)))?;
         if !async_task_capture_is_copy(&result_type) {
             return Err(
