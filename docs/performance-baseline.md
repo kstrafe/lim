@@ -825,3 +825,21 @@ do not establish a general timing speedup. Removing one key-plus-source-sized
 temporary allocation and copy per digest calculation is deterministic.
 The library suite passes 857 tests with the same pre-existing uncommitted
 staged empty-enum thread-join provenance failure; no additional failure appears.
+
+## Avoid allocation churn while constructing generator fingerprints
+
+Dependency-closure traversal now borrows helper names from the generator call
+list and existing fingerprint records. It no longer clones a String for each
+queued edge or visited helper. Dependency and helper records are formatted
+directly into their destination Strings, avoiding temporary formatted Strings
+(including a helper-definition-sized temporary copy for each helper record).
+Sorting, deduplication, fingerprint material, and digest inputs are unchanged.
+As with any generator implementation edit, the interpreter fingerprint changes
+and existing cache entries are invalidated normally.
+
+All 19 focused generator/cache tests pass. The shared-dependency regression
+also checks generator-level material and digest bytes against the previous
+format, including an unknown helper and repeated dependency paths. No
+end-to-end timing improvement has been established for this change. The
+separate in-progress ownership-checker migration currently has nine failing
+async tests (174 pass); these changes are not included in this optimization.

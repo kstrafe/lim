@@ -2,6 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    fmt::Write as _,
     fs::{self, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -880,9 +881,9 @@ fn hash_generator_function(
             Some(_) => {
                 let hash =
                     hash_generator_function(called, functions, interpreter_hash, hashes, active)?;
-                hash_material.push_str(&format!("\ncall={called}:{hash:032x}"));
+                write!(hash_material, "\ncall={called}:{hash:032x}").unwrap();
             }
-            None => hash_material.push_str(&format!("\nmissing-call={called}")),
+            None => write!(hash_material, "\nmissing-call={called}").unwrap(),
         }
     }
     active.pop();
@@ -913,13 +914,13 @@ fn generator_hashes(
                 generator.parameters, generator.body
             );
             let mut closure = HashSet::new();
-            let mut pending = calls.clone();
+            let mut pending = calls.iter().map(String::as_str).collect::<Vec<_>>();
             while let Some(called) = pending.pop() {
-                if !closure.insert(called.clone()) {
+                if !closure.insert(called) {
                     continue;
                 }
-                if let Some(fingerprint) = function_hashes.get(&called) {
-                    pending.extend(fingerprint.dependencies.iter().cloned());
+                if let Some(fingerprint) = function_hashes.get(called) {
+                    pending.extend(fingerprint.dependencies.iter().map(String::as_str));
                 }
             }
             let mut closure = closure.into_iter().collect::<Vec<_>>();
@@ -927,23 +928,23 @@ fn generator_hashes(
             let mut material = definition.clone();
             let mut hash_material = definition;
             for called in closure {
-                match function_hashes.get(&called) {
+                match function_hashes.get(called) {
                     Some(fingerprint) => {
-                        material.push_str(&format!(
+                        write!(material,
                             "\nhelper={called}:{}:{}",
                             fingerprint.material.len(),
                             fingerprint.material
-                        ));
+                        ).unwrap();
                     }
-                    None => material.push_str(&format!("\nmissing-helper={called}")),
+                    None => write!(material, "\nmissing-helper={called}").unwrap(),
                 }
             }
             for called in &calls {
                 match function_hashes.get(called) {
                     Some(fingerprint) => {
-                        hash_material.push_str(&format!("\ncall={called}:{:032x}", fingerprint.hash));
+                        write!(hash_material, "\ncall={called}:{:032x}", fingerprint.hash).unwrap();
                     }
-                    None => hash_material.push_str(&format!("\nmissing-call={called}")),
+                    None => write!(hash_material, "\nmissing-call={called}").unwrap(),
                 }
             }
             (
@@ -1708,6 +1709,54 @@ mod tests {
             expected
         );
         assert_eq!(hashes.len(), 4);
+
+        // The generator closure must include each shared helper once, in
+        // lexical order, while retaining unknown helpers in its fingerprint.
+        let source = crate::parse(
+            "(#gn build (value) (#gn-list (#gn-call root value)
+                (#gn-call left value) (#gn-call missing value)))",
+        )
+        .unwrap()
+        .remove(0);
+        let Expr::List(items) = &source.expr else {
+            panic!("expected generator");
+        };
+        let generator = parse_generator(items, &source).unwrap();
+        let definition = format!(
+            "lim-generator-v1\ninterpreter={interpreter:032x}\nname=build\nparameters={:?}\nbody={:?}",
+            generator.parameters, generator.body
+        );
+        let mut expected_material = definition.clone();
+        for name in ["leaf", "left"] {
+            expected_material.push_str(&format!(
+                "\nhelper={name}:{}:{}",
+                hashes[name].material.len(),
+                hashes[name].material
+            ));
+        }
+        expected_material.push_str("\nmissing-helper=missing");
+        for name in ["right", "root"] {
+            expected_material.push_str(&format!(
+                "\nhelper={name}:{}:{}",
+                hashes[name].material.len(),
+                hashes[name].material
+            ));
+        }
+        let mut expected_hash_material = definition;
+        expected_hash_material.push_str(&format!("\ncall=left:{:032x}", hashes["left"].hash));
+        expected_hash_material.push_str("\nmissing-call=missing");
+        expected_hash_material.push_str(&format!("\ncall=root:{:032x}", hashes["root"].hash));
+        let generators = HashMap::from([("build".to_owned(), generator)]);
+        let fingerprints = generator_hashes(&generators, &hashes, interpreter);
+        assert_eq!(fingerprints["build"].material, expected_material);
+        assert_eq!(
+            fingerprints["build"].hash,
+            stable_hash(expected_hash_material.as_bytes())
+        );
+        assert_eq!(
+            fingerprints["build"].dependencies,
+            ["left", "missing", "root"]
+        );
     }
 
     #[test]
