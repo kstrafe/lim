@@ -1890,10 +1890,40 @@ impl FlowGraph {
         use_event: FlowNodeId,
         predecessors: &[Vec<FlowNodeId>],
     ) -> Option<Vec<NodeId>> {
+        self.call_result_producers(body, value, use_event, predecessors)?
+            .into_iter()
+            .map(|(call, path)| path.is_empty().then_some(call))
+            .collect()
+    }
+
+    /// Identify an actual call and the owned output storage selected from it.
+    /// Nonempty paths are not interchangeable with root outcome contracts.
+    #[cfg(test)]
+    fn call_result_producers(
+        &self,
+        body: &Body,
+        value: NodeId,
+        use_event: FlowNodeId,
+        predecessors: &[Vec<FlowNodeId>],
+    ) -> Option<Vec<(NodeId, Vec<Segment>)>> {
         let reachable = self.reachable();
-        let mut pending_values = vec![(value, use_event, Vec::new())];
+        let mut pending_values = vec![(value, use_event, Vec::new(), Vec::new())];
         let mut calls = Vec::new();
-        while let Some((value, use_event, mut bindings)) = pending_values.pop() {
+        while let Some((value, use_event, mut bindings, mut path)) = pending_values.pop() {
+            // Reference handles do not have their referent's owned output
+            // layout. Following them needs a separate provenance proof.
+            if matches!(
+                body.nodes[value.0].ty.as_ref(),
+                Some(
+                    Type::Reference { .. }
+                        | Type::PinnedReference { .. }
+                        | Type::RawPointer { .. }
+                        | Type::Slice(_)
+                        | Type::MutableSlice(_)
+                )
+            ) {
+                return None;
+            }
             if matches!(body.nodes[value.0].kind, NodeKind::Loop(_)) {
                 let mut found = false;
                 for (index, node) in self.nodes.iter().enumerate() {
@@ -1908,7 +1938,7 @@ impl FlowGraph {
                     {
                         if result == value {
                             found = true;
-                            pending_values.push((source, event, bindings.clone()));
+                            pending_values.push((source, event, bindings.clone(), path.clone()));
                         }
                     }
                 }
@@ -1933,7 +1963,7 @@ impl FlowGraph {
                     if evaluations.next().is_some() {
                         return None;
                     }
-                    pending_values.push((alternative, event, bindings.clone()));
+                    pending_values.push((alternative, event, bindings.clone(), path.clone()));
                 }
                 continue;
             }
@@ -1944,8 +1974,9 @@ impl FlowGraph {
                     ..
                 }
             ) {
-                if !calls.contains(&value) {
-                    calls.push(value);
+                let source = (value, path);
+                if !calls.contains(&source) {
+                    calls.push(source);
                 }
                 continue;
             }
@@ -1953,9 +1984,21 @@ impl FlowGraph {
             let PlaceRoot::Local(binding) = place.root else {
                 return None;
             };
-            if !place.segments.is_empty() || bindings.contains(&binding) {
+            if place.segments.iter().any(|segment| {
+                !matches!(
+                    segment,
+                    Segment::Field(_)
+                        | Segment::Tuple(_)
+                        | Segment::Payload(_, _)
+                        | Segment::Index(_)
+                )
+            }) || bindings.contains(&binding)
+            {
                 return None;
             }
+            let mut selected = place.segments;
+            selected.append(&mut path);
+            path = selected;
             bindings.push(binding);
             let mut definitions =
                 self.nodes
@@ -1965,10 +2008,14 @@ impl FlowGraph {
                         FlowAction::Bind {
                             binding: found,
                             value,
-                        } if found == binding => Some((FlowNodeId(index), value)),
+                        } if found == binding => Some((FlowNodeId(index), value, Vec::new())),
+                        FlowAction::Pattern { pattern, value } => {
+                            pattern_binding_path(body, pattern, binding)
+                                .map(|path| (FlowNodeId(index), value, path))
+                        }
                         _ => None,
                     });
-            let (definition, source) = definitions.next()?;
+            let (definition, source, mut source_path) = definitions.next()?;
             if definitions.next().is_some() {
                 return None;
             }
@@ -1998,7 +2045,8 @@ impl FlowGraph {
             if !reached_definition {
                 return None;
             }
-            pending_values.push((source, definition, bindings));
+            source_path.append(&mut path);
+            pending_values.push((source, definition, bindings, source_path));
         }
         (!calls.is_empty()).then_some(calls)
     }
@@ -7781,6 +7829,27 @@ fn release_operand_is_linear(body: &Body, value: NodeId, types: &LinearTypes) ->
         .get(1)
         .and_then(|operand| body.nodes[operand.0].ty.as_ref())
         .is_some_and(|ty| types.is_linear(ty))
+}
+
+#[cfg(test)]
+fn pattern_binding_path(body: &Body, id: NodeId, binding: BindingId) -> Option<Vec<Segment>> {
+    match &body.nodes[id.0].kind {
+        NodeKind::Symbol {
+            binding: Some(found),
+            ..
+        } if *found == binding => Some(Vec::new()),
+        NodeKind::Labeled(_, inner) => pattern_binding_path(body, *inner, binding),
+        NodeKind::Form { head, children, .. } => {
+            for (index, child) in children.iter().skip(1).enumerate() {
+                if let Some(mut path) = pattern_binding_path(body, *child, binding) {
+                    path.insert(0, aggregate_slot(body, head, children, index)?);
+                    return Some(path);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
 fn collect_pattern_bindings(body: &Body, id: NodeId, bindings: &mut HashSet<BindingId>) {
@@ -14376,6 +14445,96 @@ mod tests {
                 "{name}"
             );
             assert_eq!(origins.before(event, BindingId(0)).len(), 1);
+        }
+    }
+
+    #[test]
+    fn matched_call_result_producers_preserve_payload_paths_and_reject_reassignment() {
+        for (pattern, selected, index, overwrite, unknown) in [
+            ("(#tuple first second)", "first", 0, false, false),
+            ("(#tuple first second)", "second", 1, false, false),
+            ("(#tuple first second)", "first", 0, true, true),
+            ("pair", "(#get pair 0)", 0, false, false),
+            ("pair", "(#get pair 1)", 1, false, false),
+            (
+                "(#tuple first second)",
+                "(#deref (#borrow first))",
+                0,
+                false,
+                true,
+            ),
+        ] {
+            let source = format!(
+                "(#enum Outcome ((Ready) (Pending)))
+                 (#enum Envelope ((Packet (#tuple Outcome Outcome))))
+                 (#fn build () Envelope (#return (Packet (#tuple (Ready) (Pending)))))
+                 (#fn main () u64
+                   (#return (#match (#call build ())
+                     (#case (Packet {pattern})
+                       (#block (#let-mut alias Outcome {selected})
+                         {} (#match alias (#case (Ready) 42u64) (#case (Pending) 0u64)))))))",
+                if overwrite {
+                    "(#set alias (Pending))"
+                } else {
+                    ""
+                }
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            crate::generate_assembly(&program).unwrap();
+            let declarations = checked.declarations();
+            let body = &declarations.bodies["main"];
+            let graph = &declarations.flows["main"];
+            let mut predecessors = vec![Vec::new(); graph.nodes.len()];
+            for (event, node) in graph.nodes.iter().enumerate() {
+                for successor in &node.successors {
+                    predecessors[successor.0].push(FlowNodeId(event));
+                }
+            }
+            let (event, value) = graph
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    let FlowAction::Pattern { pattern, value } = node.action else {
+                        return None;
+                    };
+                    let variant = constructor_variant_at_storage(body, pattern, &[])?;
+                    (declarations.variant(variant).name == "Ready")
+                        .then_some((FlowNodeId(index), value))
+                })
+                .unwrap();
+            let result = graph.call_result_producers(body, value, event, &predecessors);
+            for (index, node) in body.nodes.iter().enumerate() {
+                if matches!(&node.kind, NodeKind::Form { head, .. } if head == "borrow") {
+                    assert!(graph
+                        .call_result_producers(body, NodeId(index), event, &predecessors)
+                        .is_none());
+                }
+            }
+            if unknown {
+                assert!(result.is_none());
+                continue;
+            }
+            let producers = result.unwrap();
+            assert_eq!(producers.len(), 1);
+            let (call, path) = &producers[0];
+            assert!(matches!(
+                body.nodes[call.0].kind,
+                NodeKind::Form {
+                    callee: Some(_),
+                    ..
+                }
+            ));
+            let [Segment::Payload(packet, 0), Segment::Tuple(slot)] = path.as_slice() else {
+                panic!("wrong output path: {path:?}");
+            };
+            assert_eq!(declarations.variant(*packet).name, "Packet");
+            assert_eq!(*slot, index);
+            // A nested constructor cannot select a root-only effect contract.
+            assert!(graph
+                .call_result_sources(body, value, event, &predecessors)
+                .is_none());
         }
     }
 
