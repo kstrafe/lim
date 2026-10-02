@@ -17647,18 +17647,7 @@ mod typed_ownership_tests {
             declarations
                 .staged_referent_entry_contracts(&types)
                 .unwrap();
-            if !consumes {
-                crate::check_types(&program).unwrap();
-            } else {
-                // The syntax-only production fallback does not recognize
-                // ordinary referent restoration yet. Keep this migration
-                // gap explicit rather than claiming checker equivalence.
-                let error = crate::check_types(&program).unwrap_err();
-                assert!(
-                    error.contains("linear value 'target' was used more than once"),
-                    "{error}"
-                );
-            }
+            crate::check_types(&program).unwrap();
             // Preview payloads cannot be mutably borrowed in source. Inject
             // the mapped access contract into a valid read-only guard to
             // verify the structural guard boundary independently of that
@@ -18415,6 +18404,35 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn production_referent_consumption_restores_storage_not_reference_handles() {
+        for restore in [false, true] {
+            let replacement = if restore {
+                "(#deref-set target (#struct-literal Resource (: number 42u64)))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn inspect ((target (#ref-mut Resource))) u64
+                   (#forget (#deref target))
+                   {replacement}
+                   (#return (#get target number)))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            if restore {
+                crate::check_types(&program).unwrap();
+                crate::codegen::generate_assembly(&program).unwrap();
+            } else {
+                let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+                assert!(message.contains("used more than once"), "{message}");
+                let span = span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#get target number)");
+                assert!(!labels.is_empty());
+            }
+        }
+    }
+
+    #[test]
     fn staged_worker_conditionally_constructed_operands_preserve_outcomes() {
         for shape in ["tuple", "struct", "payload"] {
             for slot in [0, 1] {
@@ -18461,6 +18479,9 @@ mod typed_ownership_tests {
                      (#case (Task-spawn-error error) (#panic)))))"
             );
                     let program = crate::parse_program(&source).unwrap();
+                    let worker =
+                        crate::parse_program(source.split("(#fn caller").next().unwrap()).unwrap();
+                    crate::check_types(&worker).unwrap();
                     let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
                     let types = crate::linearcheck::LinearTypes::from_program(&program);
                     let result = declarations.staged_contents_referent_entry_contracts(&types);

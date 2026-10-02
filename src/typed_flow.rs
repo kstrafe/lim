@@ -3445,14 +3445,30 @@ impl FlowGraph {
     /// Production ownership can already resolve whole local pinned storage.
     /// Projected, parameter, global, ambiguous and anchored targets still
     /// require the full referent-contract migration; never guess their roots.
+    #[cfg(test)]
     pub fn local_pin_accesses(&self, body: &Body, types: &LinearTypes) -> HashMap<NodeId, Place> {
+        self.local_pin_accesses_with_origins(body, types, None)
+    }
+
+    fn local_pin_accesses_with_origins(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        origins: Option<&FlowLoanOrigins>,
+    ) -> HashMap<NodeId, Place> {
         if !body.nodes.iter().any(|node| matches!(&node.kind,
             NodeKind::Form { head, children, .. }
                 if (head == "pin-read" && node.ty.as_ref().is_some_and(|ty| types.is_linear(ty)))
                 || (head == "pin-write" && children.get(1).and_then(|id| body.nodes[id.0].ty.as_ref()).is_some_and(|ty|
                     matches!(ty, Type::PinnedReference { target, .. } if types.is_linear(target)))))
         ) { return HashMap::new(); }
-        let origins = self.loan_origins(body);
+        let owned_origins;
+        let origins = if let Some(origins) = origins {
+            origins
+        } else {
+            owned_origins = self.loan_origins(body);
+            &owned_origins
+        };
         let mut accesses = HashMap::new();
         for (index, event) in self.nodes.iter().enumerate() {
             let value = match event.action {
@@ -4776,11 +4792,7 @@ impl FlowGraph {
         calls: Option<&HashMap<FlowNodeId, CallConsumptionFacts>>,
         entry_consumed: &[Place],
     ) -> FlowConsumptions {
-        let local_pin_accesses = if origins.is_none() {
-            self.local_pin_accesses(body, types)
-        } else {
-            HashMap::new()
-        };
+        let local_pin_accesses = self.local_pin_accesses_with_origins(body, types, origins);
         let resolve = |id: FlowNodeId, place: &Place, value: NodeId| {
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
@@ -5632,6 +5644,7 @@ impl FlowGraph {
         self.check_linear_consumptions_with_origins(body, &moves, Some(&origins))
     }
 
+    #[cfg(test)]
     fn check_linear_consumptions_with_moves(
         &self,
         body: &Body,
@@ -5780,11 +5793,16 @@ impl FlowGraph {
                 .flatten()
                 .min_by_key(|span| (span.source_id, span.start));
             let place_name = display_linear_place(body, place);
-            let message = if place.segments.is_empty() {
+            let mut message = if place.segments.is_empty() {
                 format!("linear value '{place_name}' was used more than once")
             } else {
                 format!("linear projection '{place_name}' was used more than once")
             };
+            if matches!(place.root, PlaceRoot::Local(binding)
+                if matches!(body.bindings[binding.0].ty, Type::PinnedReference { .. }))
+            {
+                message.insert_str(0, "pinned ");
+            }
             return Err(ReleaseConflict {
                 message,
                 span: node.span,
@@ -5844,12 +5862,15 @@ impl FlowGraph {
         {
             return ([Ok(()), Ok(()), Ok(()), Ok(())], HashMap::new());
         }
-        let moves = self.consumptions(body, types);
+        let origins = self.loan_origins(body);
+        let moves = self.consumptions_with_origins(body, types, Some(&origins));
         let results = [
             self.check_guard_preview_consumptions(body, &moves)
                 .and_then(|_| self.check_linear_releases(body, types)),
             self.check_referent_consumption_permissions_with_moves(body, types, &moves)
-                .and_then(|_| self.check_linear_consumptions_with_moves(body, &moves)),
+                .and_then(|_| {
+                    self.check_linear_consumptions_with_origins(body, &moves, Some(&origins))
+                }),
             self.check_linear_exit_obligations_with_moves(
                 body,
                 types,
