@@ -4,6 +4,38 @@ This is an incremental internal migration, not a language or syntax change.
 Lim still requires explicit source types and performs the existing type,
 linearity, borrow, and unsafe checks before returning a `CheckedProgram`.
 
+## Original-source async control flow
+
+`async_cfg.rs` builds a graph before nested-task rewriting. Nodes borrow exact
+`SpannedExpr` source children rather than cloning or reparsing function bodies.
+Local bindings have graph-local IDs and declaration contracts; pattern types
+come from explicit tuple/array/struct/enum layouts. Unknown contracts remain
+unknown until ordinary type validation, not inferred from literal values.
+
+Control edges distinguish branch selection, Ready, Pending and resolved loop
+transfers. Pending retries only the await poll node, never child construction.
+Match guards have separate pattern preview and commit operations, with scope
+exits on rejected guards. Break values travel on their selected incoming join
+edge, rather than becoming uses of every alternative. Continue in a `#for`
+targets its step; continue in a `#while` targets its condition. Transfers to
+outer labels explicitly exit the intervening scopes. `#for-range` preserves
+ordinary desugaring: start runs once and end runs at every condition check.
+
+Named function operands and keyed struct fields follow declaration order,
+not written order or hash-map iteration order. Parameter order is part of the
+async environment cache identity, including external function declarations.
+
+Production uses the graph to reject invalid control transfers at their exact
+original keyword/label spans before rewriting. Its backward data-use analysis
+tracks bindings and computed operand temporaries separately. In-scope storage
+candidates at suspension also retain unread locals: data-use liveness is not
+permission to discard a linear value on cancellation.
+
+This graph does **not yet emit frames** or calculate suspended ownership/loan
+state. The legacy lowering still emits inspectable ordinary Lim declarations;
+the normal typed checkers validate those generated functions. General graph
+emission and delayed initialization of stable frame-owned storage remain open.
+
 ## Production ownership boundary
 
 Typed flow now decides owned-value validity without a syntax-only rejection

@@ -9,6 +9,7 @@ use std::{
 };
 
 mod analysis_error;
+mod async_cfg;
 mod async_contract;
 mod async_fn;
 // Retain the lexical model only for differential regression tests. Production
@@ -2299,7 +2300,7 @@ fn async_type_environment(expressions: &[SpannedExpr]) -> async_fn::AsyncTypeEnv
         // In particular, do not copy an async invocation's entire function body.
         if !matches!(&expression.expr, Expr::List(items)
             if matches!(items.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#enum" | "#type" | "#struct")))
+                if matches!(head.as_str(), "#fn" | "#unsafe-fn" | "#extern-fn" | "#enum" | "#type" | "#struct")))
         {
             continue;
         }
@@ -2353,6 +2354,14 @@ fn async_type_environment(expressions: &[SpannedExpr]) -> async_fn::AsyncTypeEnv
                 );
             }
             Item::Function(function) => {
+                environment.function_parameter_order.insert(
+                    function.name.clone(),
+                    function
+                        .parameters
+                        .iter()
+                        .map(|parameter| parameter.name.clone())
+                        .collect(),
+                );
                 environment
                     .function_results
                     .insert(function.name.clone(), type_source(&function.return_type));
@@ -2453,7 +2462,8 @@ fn async_type_environment_identity(environment: &async_fn::AsyncTypeEnvironment)
                 .collect::<Vec<_>>()
                 .join(",");
             format!(
-                "{name}({parameters})->{}",
+                "{name}[order={:?}]({parameters})->{}",
+                environment.function_parameter_order.get(name),
                 environment
                     .function_results
                     .get(name)
@@ -3014,6 +3024,14 @@ fn parse_prepared_program_with_async_captures(
                 let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned")
                 {
                     if let Some(error) = async_contract::check(&source_expression, &async_types) {
+                        return Err(attach_span_to_source_error_kind(
+                            error.message,
+                            error.span,
+                            &source_files,
+                            "generator error: ",
+                        ));
+                    }
+                    if let Err(error) = async_cfg::check(&source_expression, &async_types) {
                         return Err(attach_span_to_source_error_kind(
                             error.message,
                             error.span,
@@ -12064,6 +12082,40 @@ mod tests {
         assert_eq!(
             async_type_environment_identity(&first),
             async_type_environment_identity(&environment("(z u16) (a u64)"))
+        );
+    }
+
+    #[test]
+    fn async_environment_identity_preserves_parameter_evaluation_order() {
+        let environment = |parameters| {
+            async_type_environment(
+                &parse(&format!(
+                    "(#fn helper ({parameters}) u64 (#return (#unreachable)))"
+                ))
+                .unwrap(),
+            )
+        };
+        let first = environment("(first u64) (second u64)");
+        let swapped = environment("(second u64) (first u64)");
+        assert_eq!(first.functions, swapped.functions);
+        assert_eq!(
+            first.function_parameter_order["helper"],
+            ["first", "second"]
+        );
+        assert_ne!(
+            async_type_environment_identity(&first),
+            async_type_environment_identity(&swapped)
+        );
+        assert_eq!(
+            async_type_environment_identity(&first),
+            async_type_environment_identity(&environment("(first u64) (second u64)"))
+        );
+        let foreign = async_type_environment(
+            &parse("(#extern-fn #abi-c foreign ((second u64) (first u64)) u64)").unwrap(),
+        );
+        assert_eq!(
+            foreign.function_parameter_order["foreign"],
+            ["second", "first"]
         );
     }
 

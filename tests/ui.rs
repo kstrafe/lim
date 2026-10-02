@@ -11,6 +11,18 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "async-unknown-loop-label",
+            diagnostic_code: "E4000",
+            offending_line: "      (#continue-to missing))",
+            line_number: 9,
+        },
+        Case {
+            name: "async-break-outside-loop",
+            diagnostic_code: "E4000",
+            offending_line: "    (#break)",
+            line_number: 8,
+        },
+        Case {
             name: "fresh-aggregate-borrows",
             diagnostic_code: "E4100",
             offending_line: "  (#let pair Pair (#struct-literal Pair (: left (#borrow-mut owner) : right (#borrow-mut owner))))",
@@ -1009,6 +1021,8 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "async-unknown-loop-label" => Some("missing"),
+            "async-break-outside-loop" => Some("#break"),
             "fresh-aggregate-borrows" => Some("(#borrow-mut owner)"),
             "pinned-copy-parent-release" => Some("#drop"),
             "call-suspended-parent" => Some("parent"),

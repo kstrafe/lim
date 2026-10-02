@@ -1,0 +1,10 @@
+(#enum Child ((Waiting u64)))
+(#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+(#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+  (#return (#match task (#case (Waiting value) (ChildReady value)))))
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+  (#fn work () ()
+    (#loop
+      (#let value u64 (#await u64 Child ChildPending ChildReady child-poll (Waiting 42u64)))
+      (#continue-to missing))
+    (#return ()))))
