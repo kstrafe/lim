@@ -156,6 +156,7 @@ pub(crate) struct AsyncTypeEnvironment {
     pub enums: HashMap<String, HashMap<String, Vec<String>>>,
     pub aliases: HashMap<String, String>,
     pub functions: HashMap<String, HashMap<String, String>>,
+    pub function_results: HashMap<String, String>,
     pub struct_fields: HashMap<String, HashMap<String, String>>,
 }
 
@@ -1138,60 +1139,153 @@ fn first_async_await(expression: &Expr) -> Option<&[Expr]> {
     }
 }
 
+/// Select generated storage from explicit declarations and builtin contracts.
+/// This is not a replacement for expression checking: arity, operand types,
+/// ownership and agreement between branches are checked on the emitted body.
+fn async_expression_type(expression: &Expr, known: &HashMap<String, Binding>) -> Option<Expr> {
+    fn source_type(source: &str) -> Option<Expr> {
+        crate::parse(source)
+            .ok()?
+            .into_iter()
+            .next()
+            .map(|source| source.expr)
+    }
+    fn constructor_type(variant: &str) -> Option<Expr> {
+        ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
+            let stack = stack.borrow();
+            let environment = stack.last()?;
+            environment.enums.iter().find_map(|(name, variants)| {
+                variants
+                    .contains_key(variant)
+                    .then(|| Expr::Symbol(name.clone()))
+            })
+        })
+    }
+    match expression {
+        Expr::Symbol(name) if matches!(name.as_str(), "true" | "false") => {
+            Some(Expr::Symbol("bool".into()))
+        }
+        Expr::Symbol(name) => known
+            .get(name)
+            .and_then(|binding| source_type(&binding.ty))
+            .or_else(|| constructor_type(name)),
+        Expr::Char(_) => Some(Expr::Symbol("char".into())),
+        Expr::List(items) if items.is_empty() => Some(Expr::List(Vec::new())),
+        Expr::List(items) => {
+            let Expr::Symbol(head) = items.first()? else {
+                return None;
+            };
+            let head = head.strip_prefix('#').unwrap_or(head);
+            if let Some(operation) = crate::typed_body::NumericOperation::parse(head) {
+                use crate::typed_body::NumericOpcode;
+                let ty = match operation.operation {
+                    NumericOpcode::Less
+                    | NumericOpcode::LessEqual
+                    | NumericOpcode::Greater
+                    | NumericOpcode::GreaterEqual
+                    | NumericOpcode::Equal
+                    | NumericOpcode::NotEqual => Type::Bool,
+                    _ => operation.operand_type,
+                };
+                return source_type(&crate::type_source(&ty));
+            }
+            match head {
+                "literal" | "struct-literal" | "tuple" | "array-of" | "await" => {
+                    items.get(1).cloned()
+                }
+                "as" => items.get(2).cloned(),
+                "call" => {
+                    let Expr::Symbol(function) = items.get(1)? else {
+                        return None;
+                    };
+                    ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
+                        source_type(stack.borrow().last()?.function_results.get(function)?)
+                    })
+                }
+                "clone" | "unsafe" => async_expression_type(items.last()?, known),
+                "borrow" | "borrow-mut" if items.len() == 2 => Some(Expr::List(vec![
+                    Expr::Symbol(if head == "borrow" { "#ref" } else { "#ref-mut" }.into()),
+                    async_expression_type(&items[1], known)?,
+                ])),
+                "deref" => {
+                    let ty = async_expression_type(items.get(1)?, known)?;
+                    let Type::Reference { target, .. } =
+                        parse_type(Some(&normalize_keywords(ty))).ok()?
+                    else {
+                        return None;
+                    };
+                    source_type(&crate::type_source(&target))
+                }
+                "get" => {
+                    let ty = async_expression_type(items.get(1)?, known)?;
+                    let ty = parse_type(Some(&normalize_keywords(ty))).ok()?;
+                    let ty = match ty {
+                        Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                            *target
+                        }
+                        other => other,
+                    };
+                    match (ty, items.get(2)?) {
+                        (Type::Named(name), Expr::Symbol(field)) => {
+                            source_type(&struct_field_type(&name, field)?)
+                        }
+                        (Type::Tuple(fields), Expr::Integer(index)) if *index >= 0 => source_type(
+                            &crate::type_source(fields.get(usize::try_from(*index).ok()?)?),
+                        ),
+                        _ => None,
+                    }
+                }
+                "if" => items
+                    .get(2..)?
+                    .iter()
+                    .find_map(|branch| async_expression_type(branch, known)),
+                "block" => {
+                    let mut scope = known.clone();
+                    for statement in items.iter().skip(1).take(items.len().saturating_sub(2)) {
+                        if let Ok(local) = binding(statement, "expression block") {
+                            scope.insert(local.name.clone(), local);
+                        }
+                    }
+                    async_expression_type(items.last()?, &scope)
+                }
+                _ => constructor_type(head),
+            }
+        }
+        _ => None,
+    }
+}
+
 fn async_loop_break_value(
     expression: &Expr,
     known: &HashMap<String, Binding>,
 ) -> Option<(Expr, Expr)> {
-    fn declared_type(expression: &Expr, name: &str) -> Option<Expr> {
+    fn collect_declared_types(expression: &Expr, known: &mut HashMap<String, Binding>) {
         let Expr::List(items) = expression else {
-            return None;
+            return;
         };
+        if matches!(items.first(), Some(Expr::Symbol(head))
+            if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote" | "#fn" | "fn"))
+        {
+            return;
+        }
         if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut"))
             && items.len() == 4
-            && matches!(items.get(1), Some(Expr::Symbol(binding)) if binding == name)
         {
-            return items.get(2).cloned();
+            if let Ok(local) = binding(expression, "loop result declaration") {
+                known.insert(local.name.clone(), local);
+            }
         }
-        items
-            .iter()
-            .skip(1)
-            .find_map(|item| declared_type(item, name))
+        for item in items.iter().skip(1) {
+            collect_declared_types(item, known);
+        }
     }
 
     let loop_items = form(expression, "#loop")?;
-    let value_type = |value: &Expr| -> Option<Expr> {
-        if let Expr::Symbol(name) = value {
-            loop_items[1..]
-                .iter()
-                .find_map(|body| declared_type(body, name))
-                .or_else(|| {
-                    known.get(name).and_then(|binding| {
-                        crate::parse(&binding.ty)
-                            .ok()?
-                            .into_iter()
-                            .next()
-                            .map(|source| source.expr)
-                    })
-                })
-        } else if let Some(items) = form(value, "#literal") {
-            if items.len() < 2 {
-                return None;
-            }
-            Some(items[1].clone())
-        } else if let Expr::List(items) = value {
-            let Some(Expr::Symbol(head)) = items.first() else {
-                return None;
-            };
-            let scalar = head.strip_prefix('#').unwrap_or(head).split_once('.')?.0;
-            let scalar_type = parse_type(Some(&Expr::Symbol(scalar.into()))).ok()?;
-            if !async_task_capture_is_copy(&scalar_type) {
-                return None;
-            }
-            Some(Expr::Symbol(scalar.into()))
-        } else {
-            None
-        }
-    };
+    let mut loop_known = known.clone();
+    for statement in &loop_items[1..] {
+        collect_declared_types(statement, &mut loop_known);
+    }
+    let value_type = |value: &Expr| async_expression_type(value, &loop_known);
     fn find_break(
         expression: &Expr,
         value_type: &impl Fn(&Expr) -> Option<Expr>,

@@ -1,0 +1,39 @@
+; A suspended value loop can break with ordinary expressions, including a
+; function call returning a linear struct. The struct is consumed explicitly.
+(#struct Token ((value u64)))
+(#fn make-token ((value u64)) Token
+  (#return (#struct-literal Token ((value value)))))
+(#fn consume-token ((token Token)) u64
+  (#let value u64 (#get token value))
+  (#forget token)
+  (#return value))
+
+(#enum Step ((Waiting u64) (Resuming u64)))
+(#linear Step)
+(#enum StepPoll ((StepPending Step) (StepReady u64)))
+(#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+  (#return (#match task
+    (#case (Waiting value) (StepPending (Resuming value)))
+    (#case (Resuming value) (StepReady value)))))
+
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+  (#fn work () u64
+    (#let result u64
+      (#call consume-token (: token
+        (#loop
+          (#let awaited u64
+            (#await u64 Step StepPending StepReady step-poll (Waiting 41u64)))
+          (#if (#u64.== awaited 41u64)
+            (#break (#call make-token (: value (#u64.+.wrap awaited 1u64))))
+            (#break (#struct-literal Token ((value 0u64)))))))))
+    (#return result))))
+
+(#fn main () u64
+  (#let waker u64 0u64)
+  (#let first Poll (#call poll (: task (#call work ()) : waker (#borrow waker))))
+  (#let-else (Pending pending) Poll first (#unreachable))
+  (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+  (#forget waker)
+  (#return (#match second
+    (#case (Ready value) value)
+    (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))

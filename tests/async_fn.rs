@@ -1862,6 +1862,94 @@ fn async_suspension_inside_nested_value_block_preserves_block_scope() {
 }
 
 #[test]
+fn async_value_loop_results_use_declared_expression_types() {
+    let source = include_str!("../examples/async_loop_breaks.lim");
+    let called = source
+        .replace(
+            "(#break 42u64)",
+            "(#break (#call identity (: value 42u64)))",
+        )
+        .replace(
+            "(#break awaited)",
+            "(#break (#call identity (: value awaited)))",
+        );
+    assert_ne!(called, source);
+    build_and_run(&called, 42);
+
+    let comparison = source
+        .replace(
+            "(#fn identity ((value u64)) u64 (#return value))",
+            "(#fn identity ((value bool)) u64 (#return (#if value 42u64 0u64)))",
+        )
+        .replace("(#break 42u64)", "(#break (#u64.== awaited 41u64))")
+        .replace("(#break awaited)", "(#break (#u64.< awaited 42u64))")
+        .replace("(#u64.== final 41u64)", "(#u64.== final 42u64)");
+    build_and_run(&comparison, 42);
+
+    for (declarations, consumer, first, second) in [
+        (
+            "(#struct Token ((value u64)))",
+            "(#fn identity ((token Token)) u64 (#let value u64 (#get token value)) (#forget token) (#return value))",
+            "(#struct-literal Token ((value 42u64)))",
+            "(#struct-literal Token ((value awaited)))",
+        ),
+        (
+            "(#enum Outcome ((Value u64)))",
+            "(#fn identity ((token Outcome)) u64 (#return (#match token (#case (Value value) value))))",
+            "(Value 42u64)",
+            "(Value awaited)",
+        ),
+        (
+            "",
+            "(#fn identity ((token (#tuple u64 bool))) u64 (#return (#get token 0)))",
+            "(#tuple (#tuple u64 bool) 42u64 true)",
+            "(#tuple (#tuple u64 bool) awaited false)",
+        ),
+        (
+            "",
+            "(#fn identity ((token u32)) u64 (#return (#as token u64)))",
+            "(#as 42u64 u32)",
+            "(#as awaited u32)",
+        ),
+    ] {
+        let constructed = format!("{declarations}\n{}", source
+            .replace("(#fn identity ((value u64)) u64 (#return value))", consumer)
+            .replace("(#call identity (: value", "(#call identity (: token")
+            .replace("(#break 42u64)", &format!("(#break {first})"))
+            .replace("(#break awaited)", &format!("(#break {second})")));
+        build_and_run(&constructed, 42);
+    }
+    let blocked = called.replace(
+        "(#break (#call identity (: value 42u64)))",
+        "(#break (#block (#let local u64 42u64) (#call identity (: value local))))",
+    );
+    build_and_run(&blocked, 42);
+    let conditional = called.replace(
+        "(#break (#call identity (: value 42u64)))",
+        "(#break (#if choose (#call identity (: value 42u64)) 0u64))",
+    );
+    build_and_run(&conditional, 42);
+
+    let invalid = format!(
+        "(#fn wrong-type () u32 (#return 42u32))\n{}",
+        called.replace("(#call identity (: value 42u64))", "(#call wrong-type ())")
+    );
+    let scratch = support::Scratch::new("async-loop-expression-result-type");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("different declared break-result types must be rejected");
+    assert_eq!(error.code, lim::DiagnosticCode::Type);
+    assert!(error.span.is_some(), "{error:?}");
+    build_and_run(include_str!("../examples/async_loop_results.lim"), 42);
+}
+
+#[test]
 fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
     let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
       (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))

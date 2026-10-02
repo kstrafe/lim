@@ -353,6 +353,14 @@ child is polled only when that branch is selected. An awaited condition is
 polled before each body decision, and Ready(false) skips the body. These loop
 forms still have shape-specific transfer restrictions; they are not yet
 lowered from a general typed CFG.
+Value-producing awaited `#loop` expressions can exit through conditional or
+match branches without a final direct `#break`. Result storage uses explicitly
+declared binding and function types, concrete constructors, casts, and builtin
+operation contracts; comparisons return `bool`, not their operand type. The
+ordinary checker still validates all break payloads and their ownership.
+`examples/async_loop_results.lim` passes a linear struct produced by a function
+call out of a suspended loop and consumes it explicitly. This does not remove
+the remaining general control-flow lowering restrictions.
 Sequential suspension points have no fixed language-level count limit.
 For movable `@async-fn`, references into pre-suspension stack locals cannot be
 retained in the frame; the ordinary borrow checker rejects them. Pinned

@@ -2345,6 +2345,9 @@ fn async_type_environment(expressions: &[SpannedExpr]) -> async_fn::AsyncTypeEnv
                 );
             }
             Item::Function(function) => {
+                environment
+                    .function_results
+                    .insert(function.name.clone(), type_source(&function.return_type));
                 environment.functions.insert(
                     function.name,
                     function
@@ -2441,7 +2444,13 @@ fn async_type_environment_identity(environment: &async_fn::AsyncTypeEnvironment)
                 .map(|(name, ty)| format!("{name}:{ty}"))
                 .collect::<Vec<_>>()
                 .join(",");
-            format!("{name}({parameters})")
+            format!(
+                "{name}({parameters})->{}",
+                environment
+                    .function_results
+                    .get(name)
+                    .map_or("", String::as_str)
+            )
         })
         .collect::<Vec<_>>()
         .join(";");
@@ -11980,6 +11989,29 @@ mod tests {
     }
 
     #[test]
+    fn async_environment_identity_includes_declared_function_results() {
+        let environment = |result| {
+            async_type_environment(
+                &parse(&format!(
+                    "(#fn helper ((value u64)) {result} (#return (#unreachable)))"
+                ))
+                .unwrap(),
+            )
+        };
+        let scalar = environment("u64");
+        let boolean = environment("bool");
+        assert_eq!(scalar.functions, boolean.functions);
+        assert_ne!(
+            async_type_environment_identity(&scalar),
+            async_type_environment_identity(&boolean)
+        );
+        assert_eq!(
+            async_type_environment_identity(&scalar),
+            async_type_environment_identity(&environment("u64"))
+        );
+    }
+
+    #[test]
     fn async_metadata_is_only_built_for_selected_async_users() {
         let declarations =
             "(#struct Value ((number u64))) (#fn ordinary ((value u64)) u64 (#return value))";
@@ -12009,6 +12041,7 @@ mod tests {
                 asynchronous.async_types.functions["ordinary"]["value"],
                 "u64"
             );
+            assert_eq!(asynchronous.async_types.function_results["ordinary"], "u64");
             assert_eq!(
                 asynchronous.async_types.struct_fields["Value"]["number"],
                 "u64"
