@@ -1,0 +1,35 @@
+; The labeled loop owns block-local state across suspension.
+(#enum Step ((Start u64) (Resume u64)))
+(#enum StepPoll ((StepPending Step) (StepReady u64)))
+(#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+  (#return (#match task
+    (#case (Start value) (StepPending (Resume value)))
+    (#case (Resume value) (StepReady value)))))
+
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+  (#fn work () u64
+    (#let result u64
+      (#block
+        (#let-mut index u64 0u64)
+        (#let-mut total u64 40u64)
+        (#label outer
+          (#while (#u64.< index 2u64)
+            (#let value u64 (#await u64 Step StepPending StepReady step-poll (Start 1u64)))
+            (#set total (#u64.+.wrap total value))
+            (#set index (#u64.+.wrap index 1u64))
+            (#continue-to outer)))
+        total))
+    ; The inner scope has ended; this is an independent declaration.
+    (#let index u64 0u64)
+    (#return (#u64.+.wrap result index)))))
+
+(#fn main () u64
+  (#let waker u64 0u64)
+  (#let-mut task Frame (#call work (:)))
+  (#for-range (attempt u64) 0u64 4u64
+    (#let outcome Poll (#call poll (: task task : waker (#borrow waker))))
+    (#match outcome
+      (#case (Pending next) (#block (#set task next) ()))
+      (#case (Ready value) (#block (#return value)))))
+  (#forget task)
+  (#return (#unreachable)))

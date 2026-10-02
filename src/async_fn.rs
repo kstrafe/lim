@@ -1337,9 +1337,8 @@ fn async_expression_type(expression: &Expr, known: &HashMap<String, Binding>) ->
                 return source_type(&crate::type_source(&ty));
             }
             match head {
-                "literal" | "struct-literal" | "tuple" | "array-of" | "await" => {
-                    items.get(1).cloned()
-                }
+                "literal" | "struct-literal" | "tuple" | "array-of" => items.get(1).cloned(),
+                "await" if items.len() == 7 => items.get(1).cloned(),
                 "as" => items.get(2).cloned(),
                 "call" => {
                     let Expr::Symbol(function) = items.get(1)? else {
@@ -1557,13 +1556,16 @@ fn conditional_value_expression_task(
     }
     let await_form = first_async_await(expression)
         .ok_or_else(|| "@async-fn could not locate conditional branch #await".to_owned())?;
-    if await_form.len() != 7 {
+    if !matches!(await_form.len(), 6 | 7) {
         return Err(
             "nested #await requires an explicit result type: (#await Type Child Pending Ready poll task)"
                 .into(),
         );
     }
-    parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
+    let annotated_result_type = (await_form.len() == 7).then(|| &await_form[1]);
+    if let Some(ty) = annotated_result_type {
+        parse_type(Some(&normalize_keywords(ty.clone())))?;
+    }
     let mut captures = HashSet::new();
     collect_value_names(expression, &mut captures);
     let mut locals = HashSet::new();
@@ -1648,7 +1650,10 @@ fn conditional_value_expression_task(
         enclosing_return_type
             .as_ref()
             .or(expression_result_type.as_ref())
-            .unwrap_or(&await_form[1])
+            .or(annotated_result_type)
+            .ok_or_else(|| {
+                "nested #await requires an explicit result type: (#await Type Child Pending Ready poll task)".to_owned()
+            })?
     };
     let mut function = vec![
         Expr::Symbol("#fn".into()),
@@ -2552,6 +2557,19 @@ fn extract_nested_awaits(
             );
         }
     }
+    if form(expression, "#block").is_some()
+        && extract_mutating_async_expression(
+            expression,
+            generated,
+            generated_helpers,
+            known,
+            source,
+            next_name,
+            waker,
+        )?
+    {
+        return Ok(());
+    }
     if let Some(block) = form(expression, "#block") {
         if block.len() == 2 && has_await(&block[1]) {
             *expression = block[1].clone();
@@ -2905,7 +2923,7 @@ fn extract_nested_awaits(
             }
         }
     }
-    if extract_mutating_async_choice(
+    if extract_mutating_async_expression(
         expression,
         generated,
         generated_helpers,
@@ -3428,16 +3446,17 @@ fn async_mutated_names(expression: &Expr, names: &mut HashSet<String>) {
                 names.insert(name.to_owned());
             }
         }
-        for item in items.iter().skip(1) {
+        let operands = usize::from(matches!(items.first(), Some(Expr::Symbol(_))));
+        for item in items.iter().skip(operands) {
             async_mutated_names(item, names);
         }
     }
 }
 
-/// Return branch-local mutations with the logical result, then restore them
-/// at the suspension's call site. Capturing mutable locals by value without
-/// these outputs silently loses changes made in a generated branch helper.
-fn extract_mutating_async_choice(
+/// Return mutations of enclosing locals with the logical result, then restore
+/// them at the suspension's call site. Capturing mutable locals by value without
+/// these outputs silently loses changes made in a generated expression helper.
+fn extract_mutating_async_expression(
     expression: &mut Expr,
     generated: &mut Vec<Expr>,
     generated_helpers: &mut Vec<String>,
@@ -3450,7 +3469,8 @@ fn extract_mutating_async_choice(
         return Ok(false);
     }
     let is_if = form(expression, "#if").is_some_and(|items| items.len() == 4);
-    if !is_if && form(expression, "#match").is_none() {
+    let is_block = form(expression, "#block").is_some_and(|items| items.len() >= 2);
+    if !is_if && !is_block && form(expression, "#match").is_none() {
         return Ok(false);
     }
     let mut mutated = HashSet::new();
@@ -3502,6 +3522,29 @@ fn extract_mutating_async_choice(
         for branch in &mut items[2..] {
             *branch = wrap(branch, next_name);
         }
+    } else if is_block {
+        // Flatten the original block into the child's ordinary function body.
+        // Wrapping the entire block in another awaited initializer would ask
+        // this same adapter to capture the same mutable inputs recursively.
+        let tail = items.pop().expect("nonempty value block");
+        let result = nested_await_name(source, next_name);
+        items.push(Expr::List(vec![
+            Expr::Symbol("#let".into()),
+            Expr::Symbol(result.clone()),
+            result_type.clone(),
+            tail,
+        ]));
+        let mut tuple = vec![
+            Expr::Symbol("#tuple".into()),
+            tuple_type.clone(),
+            Expr::Symbol(result),
+        ];
+        tuple.extend(
+            outputs
+                .iter()
+                .map(|output| Expr::Symbol(output.name.clone())),
+        );
+        items.push(Expr::List(tuple));
     } else {
         for arm in &mut items[2..] {
             let Expr::List(case) = arm else {
@@ -3513,9 +3556,12 @@ fn extract_mutating_async_choice(
             *branch = wrap(branch, next_name);
         }
     }
-    let Some((protocol, mut task, helper)) =
+    let child = if is_block {
+        conditional_value_expression_task(&choice, known, source, next_name, waker)?
+    } else {
         conditional_await_with_immediate(&choice, known, source, next_name, waker)?
-    else {
+    };
+    let Some((protocol, mut task, helper)) = child else {
         return Ok(false);
     };
     generated_helpers.push(helper);
@@ -7262,7 +7308,8 @@ fn lower_async_while_with_transfers(
                 let ty = parse_type(Some(&normalize_keywords(
                     crate::parse(&capture.ty)?[0].expr.clone(),
                 )))?;
-                if async_task_capture_is_mutable_reference(&ty)
+                if (!async_task_capture_is_copy(&ty)
+                    || async_task_capture_is_mutable_reference(&ty))
                     && !child_transfers
                         .iter()
                         .any(|transfer| transfer.name == capture.name)
@@ -7272,7 +7319,7 @@ fn lower_async_while_with_transfers(
                         ty: capture.ty.clone(),
                         result_index: index + 1,
                         resumed_name: output_name,
-                        owned: false,
+                        owned: !async_task_capture_is_mutable_reference(&ty),
                     });
                 }
             }

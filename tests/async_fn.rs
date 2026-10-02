@@ -4422,6 +4422,77 @@ fn async_function_resumes_a_child_await_in_a_while_condition() {
 }
 
 #[test]
+fn async_block_owned_labeled_loop_keeps_its_scope_across_suspension() {
+    let source = include_str!("../examples/async_block_loop.lim");
+    build_and_run(source, 42);
+    let returned = source.replace("(#let result u64", "(#return").replace(
+        "total))\n    ; The inner scope has ended; this is an independent declaration.\n    (#let index u64 0u64)\n    (#return (#u64.+.wrap result index)))))",
+        "total)))))",
+    );
+    build_and_run(&returned, 42);
+    let outer_mutation = source.replace(
+        "(#let result u64\n      (#block\n        (#let-mut index u64 0u64)\n        (#let-mut total u64 40u64)",
+        "(#let-mut total u64 40u64)\n    (#let result u64\n      (#block\n        (#let-mut index u64 0u64)",
+    ).replace("(#u64.+.wrap result index)", "(#u64.+.wrap result (#u64.-.wrap total 40u64))");
+    build_and_run(&outer_mutation, 44);
+    build_and_run(
+        &outer_mutation.replace("(StepPending (Resume value))", "(StepReady value)"),
+        44,
+    );
+    build_and_run(
+        &outer_mutation.replace("(#await u64 Step", "(#await Step"),
+        44,
+    );
+    build_and_run(
+        &outer_mutation
+            .replace("(#u64.< index 2u64)", "false")
+            .replace("(StepPending (Resume value))", "(#panic)"),
+        40,
+    );
+    let borrowed_update = format!(
+        "(#fn increment ((target (#ref-mut u64)) (value u64)) ()
+        (#deref-set target (#u64.+.wrap (#deref target) value)) (#return ()))\n{}",
+        outer_mutation.replace(
+            "(#set total (#u64.+.wrap total value))",
+            "(#call increment (: target (#borrow-mut total) : value value))"
+        )
+    );
+    build_and_run(&borrowed_update, 44);
+    let linear = format!("(#struct Counter ((value u64))) (#linear Counter)\n{}", outer_mutation
+        .replace("(#let-mut total u64 40u64)", "(#let-mut total Counter (#struct-literal Counter (: value 40u64)))")
+        .replace("(#set total (#u64.+.wrap total value))", "(#set-field total value (#u64.+.wrap (#get total value) value))")
+        .replace("total))\n    ;", "(#get total value)))\n    ;")
+        .replace("(#return (#u64.+.wrap result (#u64.-.wrap total 40u64)))", "(#let answer u64 (#u64.+.wrap result (#u64.-.wrap (#get total value) 40u64))) (#forget total) (#return answer)"));
+    build_and_run(&linear, 44);
+    let scratch = support::Scratch::new("async-block-loop-scope");
+    let error_for = |source: &str| {
+        lim::compile_source_to_assembly(
+            source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err()
+    };
+    let missing_cleanup = error_for(&linear.replace("(#forget total)", "()"));
+    assert!(
+        missing_cleanup.message.contains("total") && missing_cleanup.message.contains("consum"),
+        "{missing_cleanup:?}"
+    );
+    let out_of_scope = error_for(&source.replace("(#let index u64 0u64)", "()"));
+    assert!(
+        out_of_scope.message.contains("index") && out_of_scope.message.contains("unknown"),
+        "{out_of_scope:?}"
+    );
+    let immutable = error_for(&outer_mutation.replace("(#let-mut total u64", "(#let total u64"));
+    assert!(
+        immutable.message.contains("total") && immutable.message.contains("mutable"),
+        "{immutable:?}"
+    );
+}
+
+#[test]
 fn async_labeled_while_continues_to_its_label_after_body_await() {
     let source = "(#enum ChildTask ((Waiting u64) (Resuming u64)))
       (#enum ChildPoll ((ChildPending ChildTask) (ChildReady u64)))

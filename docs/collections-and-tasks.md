@@ -630,3 +630,15 @@ for comparison, and underlines the specific offending `#await`. An unrelated
 earlier await is not substituted as the diagnostic location. This check does
 not infer local types or replace ordinary type, ownership and borrow checking
 of the generated declarations.
+
+An awaited block must preserve writes to its enclosing mutable bindings,
+including writes made through a named function argument's mutable borrow.
+Generated block helpers return changed captures alongside the logical result;
+the parent restores those values before executing its continuation. A linear
+capture belongs to the child while it is Pending, rather than being duplicated
+in the parent's loop state, and still requires explicit consumption after it
+is returned. `examples/async_block_loop.lim` demonstrates a block-owned labeled
+loop with Pending/resume and independent bindings after the block's scope ends.
+Its regression also checks enclosing scalar and linear aggregate mutations,
+immediate completion, skipped loops, and protocol-only awaits whose local result
+type is explicitly declared.
