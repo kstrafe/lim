@@ -832,9 +832,9 @@ fn hash_generator_function(
     interpreter_hash: u128,
     hashes: &mut HashMap<String, GeneratorFingerprint>,
     active: &mut Vec<String>,
-) -> Result<GeneratorFingerprint, crate::source_error::SourceError> {
+) -> Result<u128, crate::source_error::SourceError> {
     if let Some(hash) = hashes.get(name) {
-        return Ok(hash.clone());
+        return Ok(hash.hash);
     }
     if active.iter().any(|entry| entry == name) {
         let mut chain = active.join(" -> ");
@@ -878,9 +878,9 @@ fn hash_generator_function(
     for called in &calls {
         match functions.get(called) {
             Some(_) => {
-                let fingerprint =
+                let hash =
                     hash_generator_function(called, functions, interpreter_hash, hashes, active)?;
-                hash_material.push_str(&format!("\ncall={called}:{:032x}", fingerprint.hash));
+                hash_material.push_str(&format!("\ncall={called}:{hash:032x}"));
             }
             None => hash_material.push_str(&format!("\nmissing-call={called}")),
         }
@@ -891,8 +891,9 @@ fn hash_generator_function(
         material: definition,
         dependencies: calls,
     };
-    hashes.insert(name.to_owned(), fingerprint.clone());
-    Ok(fingerprint)
+    let hash = fingerprint.hash;
+    hashes.insert(name.to_owned(), fingerprint);
+    Ok(hash)
 }
 
 fn generator_hashes(
@@ -1643,6 +1644,71 @@ fn expression_nodes(expression: &Expr) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn helper_digest_lookup_preserves_shared_dependency_material() {
+        let source = "(#gn-fn leaf (value) value)
+            (#gn-fn left (value) (#gn-call leaf value))
+            (#gn-fn right (value) (#gn-call leaf value))
+            (#gn-fn root (value)
+                (#gn-list (#gn-call right value) (#gn-call left value)
+                          (#gn-call left value)))";
+        let functions = crate::parse(source)
+            .unwrap()
+            .into_iter()
+            .map(|source| {
+                let Expr::List(items) = &source.expr else {
+                    panic!("expected helper declaration");
+                };
+                let Expr::Symbol(name) = &items[1] else {
+                    panic!("expected helper name");
+                };
+                (
+                    name.clone(),
+                    parse_generator_function(items, &source).unwrap(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let interpreter = 42;
+        let mut hashes = generator_function_hashes(&functions, interpreter).unwrap();
+        for (name, expected_calls) in [
+            ("leaf", vec![]),
+            ("left", vec!["leaf"]),
+            ("right", vec!["leaf"]),
+            ("root", vec!["left", "right"]),
+        ] {
+            let function = &functions[name];
+            let definition = format!(
+                "lim-generator-function-v1\ninterpreter={interpreter:032x}\nname={name}\nparameters={:?}\nbody={:?}",
+                function.parameters, function.body
+            );
+            let mut material = definition.clone();
+            for dependency in &expected_calls {
+                material.push_str(&format!(
+                    "\ncall={dependency}:{:032x}",
+                    hashes[*dependency].hash
+                ));
+            }
+            assert_eq!(hashes[name].material, definition);
+            assert_eq!(hashes[name].dependencies, expected_calls);
+            assert_eq!(hashes[name].hash, stable_hash(material.as_bytes()));
+        }
+        // A memoized lookup returns only the digest and leaves the stored
+        // collision-check material and dependency records in place.
+        let expected = hashes["root"].hash;
+        assert_eq!(
+            hash_generator_function(
+                "root",
+                &functions,
+                interpreter,
+                &mut hashes,
+                &mut Vec::new()
+            )
+            .unwrap(),
+            expected
+        );
+        assert_eq!(hashes.len(), 4);
+    }
 
     #[test]
     fn interpreter_fingerprint_matches_embedded_source() {
