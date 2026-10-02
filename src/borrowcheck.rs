@@ -470,6 +470,8 @@ struct Loans {
 #[derive(Clone)]
 struct LocalLoad {
     source: String,
+    /// Checked owned-storage path, not a path through the referent.
+    path: Vec<usize>,
     moves: bool,
     store_type: Option<crate::Type>,
 }
@@ -1498,6 +1500,7 @@ fn check_let_binding(
                 }
             }
         }
+        detach_moved_projected_loans(value, context);
     }
     if *mutable {
         context.mutable.insert(name.clone());
@@ -1519,6 +1522,16 @@ fn check_let_binding(
 
 fn existing_reference_value_loans(expression: &Expr, context: &Context) -> Vec<(String, String)> {
     if let Some(load) = typed_local_load(expression, context) {
+        if !load.path.is_empty() {
+            return context
+                .reference_fields
+                .get(&load.source)
+                .into_iter()
+                .flat_map(|fields| fields.iter())
+                .filter(|(path, _)| path.starts_with(&load.path))
+                .flat_map(|(_, (_, loans))| loans.iter().cloned())
+                .collect();
+        }
         return context
             .reference_loans
             .get(&load.source)
@@ -1694,8 +1707,11 @@ fn collect_reference_fields(
     if let Some(load) = typed_local_load(value, context) {
         if let Some(fields) = context.reference_fields.get(&load.source) {
             for (slot, facts) in fields {
+                let Some(relative) = slot.strip_prefix(load.path.as_slice()) else {
+                    continue;
+                };
                 let mut output = path.clone();
-                output.extend_from_slice(slot);
+                output.extend_from_slice(relative);
                 result.insert(output, facts.clone());
             }
         }
@@ -2546,10 +2562,16 @@ fn merge_branch_context(context: &mut Context, branches: &[Context]) {
 
 fn release_dropped_value(expression: &Expr, context: &mut Context) {
     if let Some(load) = typed_local_load(expression, context)
-        .filter(|load| load.moves)
+        .filter(|load| load.moves || !load.path.is_empty())
         .cloned()
     {
-        release_dropped_value(&Expr::Symbol(load.source), context);
+        if load.path.is_empty() {
+            release_dropped_value(&Expr::Symbol(load.source), context);
+        } else {
+            for (_, loan) in take_projected_loans(&load.source, &load.path, context) {
+                context.loans.end(&loan);
+            }
+        }
         return;
     }
     let Expr::Symbol(name) = expression else {
@@ -2665,16 +2687,27 @@ fn release_projected_value(expression: &Expr, context: &mut Context) {
     else {
         return;
     };
+    for (_, loan) in take_projected_loans(root, &path, context) {
+        context.loans.end(&loan);
+    }
+}
+
+/// Detach a checked storage slot without ending loans now held by its recipient.
+fn take_projected_loans(
+    root: &str,
+    path: &[usize],
+    context: &mut Context,
+) -> Vec<(String, String)> {
     let Some(fields) = context.reference_fields.get(root) else {
-        return;
+        return Vec::new();
     };
     let selected = fields
         .keys()
-        .filter(|field_path| field_path.starts_with(&path))
+        .filter(|field_path| field_path.starts_with(path))
         .cloned()
         .collect::<Vec<_>>();
     if selected.is_empty() {
-        return;
+        return Vec::new();
     }
     let released_loans = selected
         .iter()
@@ -2684,11 +2717,11 @@ fn release_projected_value(expression: &Expr, context: &mut Context) {
     // A field origin alone is not authority to retire a loan: ensure this
     // binding still owns every matching loan, including repeated references.
     let Some(mut remaining) = context.reference_loans.get(root).cloned() else {
-        return;
+        return Vec::new();
     };
     for loan in &released_loans {
         let Some(index) = remaining.iter().position(|held| held == loan) else {
-            return;
+            return Vec::new();
         };
         remaining.remove(index);
     }
@@ -2701,9 +2734,33 @@ fn release_projected_value(expression: &Expr, context: &mut Context) {
     }
     // Keep an empty entry: dropping the aggregate later must not fall back
     // to its conservative, possibly stale origin set and end an alias's loan.
-    context.reference_loans.insert(root.clone(), remaining);
-    for (_, loan) in released_loans {
-        context.loans.end(&loan);
+    context.reference_loans.insert(root.to_owned(), remaining);
+    released_loans
+}
+
+fn detach_moved_projected_loans(expression: &Expr, context: &mut Context) {
+    if let Some(load) = typed_local_load(expression, context).cloned() {
+        if load.moves && !load.path.is_empty() {
+            for (_, loan) in take_projected_loans(&load.source, &load.path, context) {
+                // An exclusive loan moved without registration; shared loans
+                // in a moved aggregate were counted for its destination.
+                if matches!(context.loans.active.get(&loan), Some(LoanKind::Shared(_))) {
+                    context.loans.end(&loan);
+                }
+            }
+        }
+        return;
+    }
+    if let Expr::List(items) = expression {
+        if matches!(items.first(), Some(Expr::Symbol(head))
+            if context.reference_types.contains(head)
+                || context.reference_variants.contains(head)
+                || matches!(head.as_str(), "tuple" | "array" | "array-repeat"))
+        {
+            for child in items.iter().skip(1) {
+                detach_moved_projected_loans(child, context);
+            }
+        }
     }
 }
 
@@ -3062,7 +3119,7 @@ fn aggregate_reborrow_parents(expression: &Expr, context: &Context) -> HashSet<S
 
 fn aggregate_moved_parent_sources(expression: &Expr, context: &Context) -> HashSet<String> {
     if let Some(load) = typed_local_load(expression, context) {
-        return if load.moves {
+        return if load.moves && load.path.is_empty() {
             HashSet::from([load.source.clone()])
         } else {
             HashSet::new()
@@ -3161,6 +3218,7 @@ fn typed_borrow_facts(
             id,
             LocalLoad {
                 source: body.bindings[binding.0].name.clone(),
+                path: Vec::new(),
                 moves: false,
                 store_type: Some(body.bindings[binding.0].ty.clone()),
             },
@@ -3177,6 +3235,45 @@ fn typed_borrow_facts(
         else {
             continue;
         };
+        if let crate::typed_flow::FlowAction::Read { place, .. } = &node.action {
+            if let crate::typed_body::PlaceRoot::Local(binding) = place.root {
+                if !place.segments.is_empty()
+                    && !crate::typed_place::reads_through_reference(body, value)
+                    && body.nodes[value.0]
+                        .ty
+                        .as_ref()
+                        .is_some_and(|ty| linear_types.contains_reference(ty))
+                {
+                    let path = place
+                        .segments
+                        .iter()
+                        .map(|segment| match segment {
+                            crate::typed_place::Segment::Field(field) => Some(field.index),
+                            crate::typed_place::Segment::Tuple(index)
+                            | crate::typed_place::Segment::Payload(_, index) => Some(*index),
+                            crate::typed_place::Segment::Index(index) => {
+                                usize::try_from(*index).ok()
+                            }
+                            _ => None,
+                        })
+                        .collect::<Option<Vec<_>>>();
+                    if let (Some(path), Some(id)) = (path, body.nodes[value.0].expression_id) {
+                        loads_by_expression.insert(
+                            id,
+                            LocalLoad {
+                                source: body.bindings[binding.0].name.clone(),
+                                path,
+                                moves: body.nodes[value.0]
+                                    .ty
+                                    .as_ref()
+                                    .is_some_and(|ty| linear_types.requires_move(ty)),
+                                store_type: None,
+                            },
+                        );
+                    }
+                }
+            }
+        }
         let store = matches!(head.as_str(), "deref-set" | "pin-write");
         if !(store && children.len() == 3)
             && !(matches!(head.as_str(), "pin-read" | "deref") && children.len() == 2)
@@ -3211,6 +3308,7 @@ fn typed_borrow_facts(
             expression_id,
             LocalLoad {
                 source: body.bindings[binding.0].name.clone(),
+                path: Vec::new(),
                 store_type: store.then(|| body.bindings[binding.0].ty.clone()),
                 moves: head == "pin-read"
                     && body.nodes[value.0]
@@ -3533,6 +3631,16 @@ fn reference_origins(
         return HashSet::new();
     }
     if let Some(load) = typed_local_load(expression, context) {
+        if !load.path.is_empty() {
+            return context
+                .reference_fields
+                .get(&load.source)
+                .into_iter()
+                .flat_map(|fields| fields.iter())
+                .filter(|(path, _)| path.starts_with(&load.path))
+                .flat_map(|(_, (origins, _))| origins.iter().cloned())
+                .collect();
+        }
         let mut origins = context
             .reference_origins
             .get(&load.source)

@@ -1302,6 +1302,15 @@ RHS expressions and member replacement retain their existing restrictions.
 `examples/reference_assignment.lim` releases the old owner, reads the new
 owner, then drops both shared handles before mutating the new owner.
 
+Binding an exclusive reference, or storing it in an aggregate, transfers its
+handle: subsequent use of the source handle is rejected. Extracting an exclusive
+reference from an owned aggregate likewise transfers its selected slot, not the
+pointee or the other fields. Forgetting the remaining container does not end the
+transferred borrow; explicitly release the destination handle before mutating
+its owner. See `examples/exclusive_reference_move.lim`. References need no
+mandatory destruction at function exit, and passing a reference directly to a
+function is a call-duration reborrow rather than a handle transfer.
+
 Struct types are not constructors. Create a value with `#struct-literal`, or
 write a named free-standing constructor function that returns one. Every field
 must be supplied exactly once; fields may appear in any order, and omitted

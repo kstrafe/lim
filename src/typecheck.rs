@@ -9211,6 +9211,220 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn typed_exclusive_handles_cannot_be_transferred_into_two_fields() {
+        for (ty, constructor) in [
+            (
+                "Pair",
+                "(#struct-literal Pair (: left reference : right reference))",
+            ),
+            (
+                "(#tuple (#ref-mut u64) (#ref-mut u64))",
+                "(#tuple reference reference)",
+            ),
+            (
+                "(#array (#ref-mut u64) 2)",
+                "(#array-of (#array (#ref-mut u64) 2) reference reference)",
+            ),
+            ("Choice", "(Both reference reference)"),
+        ] {
+            let source = format!(
+                "(#struct Pair (: left (#ref-mut u64) : right (#ref-mut u64)))
+                  (#enum Choice ((Both (#ref-mut u64) (#ref-mut u64))))
+                  (#fn main () ()
+                    (#let-mut value u64 1u64)
+                    (#let reference (#ref-mut u64) (#borrow-mut value))
+                    (#let output {ty} {constructor})
+                    (#forget output) (#return ()))"
+            );
+            let error = typed_owner_error(&source).expect("exclusive handle must not be copied");
+            let span = error.span.unwrap();
+            assert_eq!(&source[span.start..span.end], "reference", "{error:?}");
+            assert_eq!(span.start, source.rfind("reference)").unwrap(), "{error:?}");
+            assert!(error
+                .labels
+                .iter()
+                .any(|(span, _)| &source[span.start..span.end] == "reference"));
+            assert!(crate::check_types(&crate::parse_program(&source).unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn typed_exclusive_handle_moves_invalidate_sources_not_pointees() {
+        for (binding, used, valid) in [
+            ("(#let next (#ref-mut u64) reference)", "(#deref next)", true),
+            ("(#let next (#ref-mut u64) reference)", "(#deref reference)", false),
+            ("(#let first Pair (#struct-literal Pair (: item reference))) (#let next Pair first)", "(#deref (#get next item))", true),
+            ("(#let first Pair (#struct-literal Pair (: item reference))) (#let next Pair first)", "(#deref (#get first item))", false),
+            ("(#let next (#ref-mut u64) (#if choice reference reference))", "(#deref next)", true),
+        ] {
+            let source = format!(
+                "(#struct Pair (: item (#ref-mut u64)))
+                 (#fn main (: choice bool) u64
+                   (#let-mut value u64 40u64)
+                   (#let reference (#ref-mut u64) (#borrow-mut value))
+                   {binding}
+                   (#return {used}))"
+            );
+            let error = typed_owner_error(&source);
+            assert_eq!(error.is_none(), valid, "{source}: {error:?}");
+            assert_eq!(crate::check_types(&crate::parse_program(&source).unwrap()).is_ok(), valid, "{source}");
+        }
+    }
+
+    #[test]
+    fn typed_exclusive_handles_need_no_implicit_cleanup_and_calls_reborrow() {
+        for statements in [
+            "(#let next (#ref-mut u64) reference) (#return ())",
+            "(#call write (: target reference)) (#deref-set reference 43u64) (#return ())",
+            "(#deref-set reference 43u64) (#deref-set reference 44u64) (#return ())",
+        ] {
+            let source = format!(
+                "(#fn write (: target (#ref-mut u64)) () (#deref-set target 42u64) (#return ()))
+                 (#fn main () ()
+                   (#let-mut value u64 1u64)
+                   (#let reference (#ref-mut u64) (#borrow-mut value))
+                   {statements})"
+            );
+            assert!(typed_owner_error(&source).is_none(), "{source}");
+            crate::check_types(&crate::parse_program(&source).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn typed_exclusive_handle_transfers_forbid_later_access_through_source() {
+        for transfer in [
+            "(#let moved (#ref-mut Resource) reference)",
+            "(#let moved (#ref-mut Resource) (#if selected reference reference))",
+            "(#let moved (#tuple (#ref-mut Resource)) (#tuple reference))",
+        ] {
+            let source = format!(
+                "(#struct Resource (: value u64)) (#linear Resource)
+                 (#fn main (: selected bool) ()
+                   (#let-mut owner Resource (#struct-literal Resource (: value 1u64)))
+                   (#let reference (#ref-mut Resource) (#borrow-mut owner))
+                   {transfer}
+                   (#forget (#deref reference))
+                   (#forget moved) (#return ()))"
+            );
+            let error = typed_owner_error(&source).expect("source handle was transferred");
+            let span = error.span.unwrap();
+            assert_eq!(
+                &source[span.start..span.end],
+                "(#forget (#deref reference))",
+                "{error:?}"
+            );
+            assert!(
+                error
+                    .message
+                    .contains("reference handle was consumed earlier"),
+                "{error:?}"
+            );
+            assert!(error
+                .labels
+                .iter()
+                .any(|(span, _)| &source[span.start..span.end] == "reference"));
+            assert!(crate::check_types(&crate::parse_program(&source).unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn typed_exclusive_field_transfers_preserve_independent_slots() {
+        for access in [
+            "(#deref moved)",
+            "(#u64.+.wrap (#deref moved) (#deref (#get holder other)))",
+            "(#deref (#get holder other))",
+            "(#deref (#get holder item))",
+        ] {
+            let source = format!(
+                "(#struct Holder (: item (#ref-mut u64) : other (#ref-mut u64)))
+                 (#fn main () u64
+                   (#let-mut first u64 40u64) (#let-mut second u64 2u64)
+                   (#let holder Holder (#struct-literal Holder
+                     (: item (#borrow-mut first) : other (#borrow-mut second))))
+                   (#let moved (#ref-mut u64) (#get holder item))
+                   (#return {access}))"
+            );
+            let valid = !access.contains("holder item");
+            let error = typed_owner_error(&source);
+            assert_eq!(error.is_none(), valid, "{source}: {error:?}");
+            let checked = crate::check_types(&crate::parse_program(&source).unwrap());
+            assert_eq!(checked.is_ok(), valid, "{source}: {checked:?}");
+        }
+    }
+
+    #[test]
+    fn typed_exclusive_projected_moves_survive_source_cleanup() {
+        for (declarations, ty, initial, projection) in [
+            ("(#struct Holder (: item (#ref-mut u64) : other (#ref-mut u64)))", "Holder",
+             "(#struct-literal Holder (: item (#borrow-mut first) : other (#borrow-mut second)))", "(#get holder item)"),
+            ("", "(#tuple (#ref-mut u64) (#ref-mut u64))",
+             "(#tuple (#borrow-mut first) (#borrow-mut second))", "(#get holder 0)"),
+            ("", "(#array (#ref-mut u64) 2)",
+             "(#array-of (#array (#ref-mut u64) 2) (#borrow-mut first) (#borrow-mut second))", "(#index holder 0u64)"),
+            ("(#enum Holder ((Views (#ref-mut u64) (#ref-mut u64))))", "Holder",
+             "(Views (#borrow-mut first) (#borrow-mut second))", "(#get-payload holder Views 0)"),
+        ] {
+            let source = format!("{declarations}
+                (#fn main () u64
+                  (#let-mut first u64 40u64) (#let-mut second u64 2u64)
+                  (#let holder {ty} {initial})
+                  (#let moved (#ref-mut u64) {projection})
+                  (#forget holder)
+                  (#set second 3u64)
+                  (#deref-set moved 42u64)
+                  (#let answer u64 (#deref moved))
+                  (#forget moved) (#set first 44u64) (#return answer))");
+            assert!(typed_owner_error(&source).is_none(), "{source}");
+            crate::check_types(&crate::parse_program(&source).unwrap()).unwrap();
+
+            let invalid = source.replace("(#set second 3u64)", "(#set first 3u64)");
+            let program = crate::parse_program(&invalid).unwrap();
+            let (message, code, span, labels) = check_types_with_span(&program).unwrap_err();
+            assert_eq!(code, crate::DiagnosticCode::Borrow, "{message}");
+            let span = span.unwrap();
+            assert!(invalid[span.start..span.end].contains("#set"), "{message}");
+            assert!(!labels.is_empty(), "{message}");
+        }
+    }
+
+    #[test]
+    fn typed_shared_projected_copies_keep_independent_loans() {
+        let source = "(#struct Holder (: item (#ref u64)))
+            (#fn main () u64
+              (#let-mut owner u64 42u64)
+              (#let holder Holder (#struct-literal Holder (: item (#borrow owner))))
+              (#let copied (#ref u64) (#get holder item))
+              (#forget (#get holder item))
+              (#let answer u64 (#deref copied))
+              (#forget copied) (#set owner 43u64) (#return answer))";
+        assert!(typed_owner_error(source).is_none());
+        crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
+        let invalid = source.replace("(#let answer", "(#set owner 1u64) (#let answer");
+        assert!(crate::check_types(&crate::parse_program(&invalid).unwrap()).is_err());
+    }
+
+    #[test]
+    fn typed_exclusive_one_slot_repeat_transfers_its_handle() {
+        let source = "(#fn main () u64
+            (#let-mut owner u64 42u64)
+            (#let reference (#ref-mut u64) (#borrow-mut owner))
+            (#let values (#array (#ref-mut u64) 1) (#array-repeat reference))
+            (#let answer u64 (#deref (#index values 0u64)))
+            (#forget values) (#return answer))";
+        assert!(typed_owner_error(source).is_none());
+        crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
+        let invalid = source.replace("(#index values 0u64)", "reference");
+        let error = typed_owner_error(&invalid).expect("one-slot repeat moves its operand");
+        let span = error.span.unwrap();
+        assert_eq!(&invalid[span.start..span.end], "(#deref reference)");
+        assert!(error
+            .labels
+            .iter()
+            .any(|(span, _)| &invalid[span.start..span.end] == "reference"));
+        assert!(crate::check_types(&crate::parse_program(&invalid).unwrap()).is_err());
+    }
+
+    #[test]
     fn typed_reference_release_invalidates_handles_without_linear_owners() {
         for release in ["#drop", "#forget"] {
             for (use_after, offending) in [
@@ -9376,7 +9590,8 @@ mod typed_ownership_tests {
             );
             let error = typed_owner_error(&source);
             assert_eq!(error.is_none(), valid, "{source}: {error:?}");
-            assert_eq!(crate::check_types(&crate::parse_program(&source).unwrap()).is_ok(), valid, "{source}");
+            let checked = crate::check_types(&crate::parse_program(&source).unwrap());
+            assert_eq!(checked.is_ok(), valid, "{source}: {checked:?}");
         }
     }
 
@@ -16933,9 +17148,12 @@ mod typed_ownership_tests {
         for expression in [
             "(#if selected (#block (#forget (#deref left)) left) right)",
             "(#match selected (#case true (#block (#forget (#deref left)) left)) (#case false right))",
-            "(#block (#let view (#ref-mut Resource) (#if selected left right)) (#forget (#deref left)) view)",
+            // Reborrow rather than move the source handles: this audit must
+            // reach the returned-pointee check, not a use of a moved handle.
+            "(#block (#let view (#ref-mut Resource) (#if selected (#call reborrow (: target left)) (#call reborrow (: target right)))) (#forget (#deref left)) view)",
         ] {
             let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+              (#fn reborrow ((target (#ref-mut Resource))) (#ref-mut Resource) (#return target))
               (#fn choose ((left (#ref-mut Resource)) (right (#ref-mut Resource))
                            (selected bool)) (#ref-mut Resource) (#return {expression}))");
             let program = crate::parse_program(&source).unwrap();
@@ -18943,9 +19161,10 @@ mod typed_ownership_tests {
         // Later constructor operands mutate storage after the reference has
         // been evaluated, so its earlier snapshot cannot prove safe escape.
         let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#fn reborrow ((target (#ref-mut Resource))) (#ref-mut Resource) (#return target))
             (#fn select ((first (#ref-mut Resource)) (second (#ref-mut Resource)) (choose bool))
               (#tuple (#ref-mut Resource) ())
-              (#return (#tuple (#if choose first second)
+              (#return (#tuple (#if choose (#call reborrow (: target first)) (#call reborrow (: target second)))
                 (#block (#forget (#deref first)) (#forget (#deref second)) ()))))";
         let program = crate::parse_program(source).unwrap();
         let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();

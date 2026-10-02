@@ -19,6 +19,24 @@ join across reachable branches, while each newly bound loop-local handle has
 its own initialized state. Direct typed regressions check the offending access
 and prior-release spans as well as whole and projected aggregate releases.
 
+Exclusive reference handles and aggregates containing them are move-only even
+when they have no mandatory exit-cleanup obligation. Typed consumption records
+their owned storage slots at bindings, aggregate construction, assignments,
+patterns and returns; it never substitutes the pointee for a moved handle.
+Direct reference arguments use call-duration reborrows, while owned aggregates
+passed by value transfer their handles. Repeated reads, writes and helper calls
+through a still-owned reference remain valid.
+
+For a known owned field, tuple slot, array index or enum payload, extraction
+transfers only that slot. Live-loan validation ignores the consumed source slot
+but retains the destination's origin and the container's other loans. The
+temporary syntax-checker bridge uses checked slot paths rather than inventing
+referent projections from field names, and detaches the source loan without
+ending its transferred borrow. Shared-reference copies retain independent loan
+counts. Tests distinguish handle use-after-move from returning a reference to
+a consumed pointee; the latter audit uses explicit forwarding calls to keep
+source handles available while retaining a reference snapshot.
+
 This does not finish the borrow-checker migration. Production still runs the
 syntax-based borrow checker and separate typed borrowed-storage entry contracts.
 Several sections below document earlier staging milestones; those experiments

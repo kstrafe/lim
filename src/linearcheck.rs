@@ -267,6 +267,12 @@ impl LinearTypes {
         !self.is_linear(ty) && !contains_exclusive_reference(ty, self, &mut HashSet::new())
     }
 
+    /// Move-only handles need unique ownership without necessarily requiring
+    /// explicit destruction at a function exit.
+    pub(crate) fn requires_move(&self, ty: &Type) -> bool {
+        !self.can_repeat(ty)
+    }
+
     /// Explicit release invalidates reference-bearing handles even when
     /// they are Copy and do not create a linear cleanup obligation.
     pub(crate) fn contains_reference(&self, ty: &Type) -> bool {

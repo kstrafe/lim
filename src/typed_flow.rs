@@ -5545,6 +5545,7 @@ impl FlowGraph {
                 _ => None,
             })
             .collect::<Vec<_>>();
+        let mut affine_roots = transfer_roots.clone();
         for node in &body.nodes {
             let NodeKind::Form {
                 head,
@@ -5557,6 +5558,14 @@ impl FlowGraph {
             };
             if callee.is_some() {
                 transfer_roots.extend(children.iter().skip(1).copied());
+                // Passing a reference is a call-duration reborrow, not a move
+                // of its handle. Owned reference-bearing aggregates transfer.
+                affine_roots.extend(children.iter().skip(1).copied().filter(|value| {
+                    !matches!(
+                        body.nodes[value.0].ty,
+                        Some(Type::Reference { .. } | Type::PinnedReference { .. })
+                    )
+                }));
             } else if node.ty.is_some() && matches!(head.as_str(), "tuple" | "array" | "array-of") {
                 let start = if head == "array-of" {
                     2
@@ -5564,6 +5573,14 @@ impl FlowGraph {
                     constructor_values_start(node.ty.as_ref(), children.len())
                 };
                 transfer_roots.extend(children.iter().skip(start).copied());
+                affine_roots.extend(children.iter().skip(start).copied());
+            } else if node.ty.is_some() && head == "array-repeat" {
+                // Only a one-slot repeat accepts a move-only element. Its
+                // source handle transfers just like an array-of operand.
+                if let Some(source) = children.get(if children.len() == 3 { 2 } else { 1 }) {
+                    transfer_roots.push(*source);
+                    affine_roots.push(*source);
+                }
             } else if node.ty.is_some() && head == "slice-mut-split" {
                 if let Some(source) = children.get(1) {
                     transfer_roots.push(*source);
@@ -5575,6 +5592,7 @@ impl FlowGraph {
                             if let NodeKind::Syntax(pair) = &body.nodes[field.0].kind {
                                 if let Some(value) = pair.get(1) {
                                     transfer_roots.push(*value);
+                                    affine_roots.push(*value);
                                 }
                             }
                         }
@@ -5589,6 +5607,7 @@ impl FlowGraph {
                 )
             {
                 transfer_roots.extend(children.iter().skip(1).copied());
+                affine_roots.extend(children.iter().skip(1).copied());
             } else if node.ty.is_some()
                 && !matches!(
                     head.as_str(),
@@ -5620,9 +5639,19 @@ impl FlowGraph {
             }
         }
         let mut direct_transfers = HashSet::new();
-        let mut pending_values = transfer_roots;
-        while let Some(value) = pending_values.pop() {
-            if !direct_transfers.insert(value) {
+        let mut affine_transfers = HashSet::new();
+        let mut pending_values = transfer_roots
+            .into_iter()
+            .map(|value| (value, false))
+            .chain(affine_roots.into_iter().map(|value| (value, true)))
+            .collect::<Vec<_>>();
+        while let Some((value, affine)) = pending_values.pop() {
+            let transfers = if affine {
+                &mut affine_transfers
+            } else {
+                &mut direct_transfers
+            };
+            if !transfers.insert(value) {
                 continue;
             }
             match &body.nodes[value.0].kind {
@@ -5631,16 +5660,16 @@ impl FlowGraph {
                     else_value,
                     ..
                 } => {
-                    pending_values.push(*then_value);
+                    pending_values.push((*then_value, affine));
                     if let Some(other) = else_value {
-                        pending_values.push(*other);
+                        pending_values.push((*other, affine));
                     }
                 }
                 NodeKind::Match { arms, .. } => {
                     for arm in arms {
                         if let NodeKind::MatchArm { values, .. } = &body.nodes[arm.0].kind {
                             if let Some(result) = values.last() {
-                                pending_values.push(*result);
+                                pending_values.push((*result, affine));
                             }
                         }
                     }
@@ -5651,13 +5680,13 @@ impl FlowGraph {
                         ..
                     }) = instructions.last()
                     {
-                        pending_values.push(*result);
+                        pending_values.push((*result, affine));
                     }
                 }
-                NodeKind::Labeled(_, result) => pending_values.push(*result),
+                NodeKind::Labeled(_, result) => pending_values.push((*result, affine)),
                 NodeKind::Form { head, children, .. } if head == "unsafe" => {
                     if let Some(result) = children.get(1) {
-                        pending_values.push(*result);
+                        pending_values.push((*result, affine));
                     }
                 }
                 _ => {}
@@ -5753,6 +5782,32 @@ impl FlowGraph {
                 continue;
             }
             match &node.action {
+                FlowAction::Read {
+                    value,
+                    place,
+                    place_base: false,
+                } if matches!(place.root, PlaceRoot::Local(_))
+                    && affine_transfers.contains(value)
+                    && !reads_through_reference(body, *value)
+                    && body.nodes[value.0]
+                        .ty
+                        .as_ref()
+                        .is_some_and(|ty| types.requires_move(ty) && !types.is_linear(ty)) =>
+                {
+                    // Move the exclusive handle's owned slot, never its
+                    // pointee. References still have no exit cleanup duty.
+                    consumed_at[id.0].insert(place.clone());
+                    resolved_at[id.0].insert(place.clone());
+                    if let Some(definite) = &mut definite_consumed_at {
+                        if !has_dynamic_projection(place) {
+                            definite[id.0].insert(place.clone());
+                        }
+                    }
+                    let spans = state.entry(place.clone()).or_default();
+                    if !spans.contains(&node.span) {
+                        spans.push(node.span);
+                    }
+                }
                 FlowAction::Read {
                     value,
                     place,
@@ -6485,6 +6540,15 @@ impl FlowGraph {
             } else {
                 format!("linear projection '{place_name}' was used more than once")
             };
+            if state.keys().any(|moved| {
+                moved.segments.is_empty()
+                    && definite_place_covers(moved, place)
+                    && matches!(moved.root, PlaceRoot::Local(binding)
+                        if matches!(body.bindings[binding.0].ty,
+                            Type::Reference { .. } | Type::PinnedReference { .. }))
+            }) {
+                message.push_str("; reference handle was consumed earlier");
+            }
             if matches!(place.root, PlaceRoot::Local(binding)
                 if matches!(body.bindings[binding.0].ty, Type::PinnedReference { .. }))
             {
@@ -6541,11 +6605,11 @@ impl FlowGraph {
         if !body
             .bindings
             .iter()
-            .any(|binding| types.is_linear(&binding.ty))
+            .any(|binding| types.requires_move(&binding.ty))
             && !body
                 .nodes
                 .iter()
-                .any(|node| node.ty.as_ref().is_some_and(|ty| types.is_linear(ty)))
+                .any(|node| node.ty.as_ref().is_some_and(|ty| types.requires_move(ty)))
             && !self.nodes.iter().any(|node| {
                 matches!(node.action, FlowAction::Release { value, .. }
                     if release_operand_contains_reference(body, value, types))

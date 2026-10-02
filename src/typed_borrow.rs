@@ -222,6 +222,13 @@ pub(crate) fn check_live_direct_loans_cached(
                 continue;
             }
             for held in origins.before(event, binding) {
+                let slot = Place {
+                    root: PlaceRoot::Local(binding),
+                    segments: held.storage.clone(),
+                };
+                if consumptions.definitely_consumed_before(event, &slot) {
+                    continue;
+                }
                 let held_place = held.referent_place();
                 let releasing_reborrow_parent =
                     match (&place.root, place.segments.is_empty(), access) {

@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "exclusive-handle-duplicate",
+            diagnostic_code: "E4200",
+            offending_line: "  (#let output Pair (#struct-literal Pair (: right reference : left reference)))",
+            line_number: 5,
+        },
+        Case {
             name: "callee-store-retained-borrow",
             diagnostic_code: "E4100",
             offending_line: "  (#set value 1u64)",
@@ -979,6 +985,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "exclusive-handle-duplicate" => Some("reference"),
             "callee-store-retained-borrow" => Some("#set"),
             "callee-store-scope-escape" => Some("(#borrow local)"),
             "local-store-retained-borrow" => Some("#set"),
