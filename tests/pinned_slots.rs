@@ -79,6 +79,10 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
         generated.contains("#unsafe-fn stable-u64-take"),
         "{generated}"
     );
+    assert!(
+        generated.contains("(#forget (#pin-read slot))"),
+        "try-insert must consume the initialized empty shell before refilling: {generated}"
+    );
     let (status, _, stderr) =
         support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
     assert_eq!(status.code(), Some(42), "{stderr:?}");

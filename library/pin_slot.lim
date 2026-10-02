@@ -34,6 +34,9 @@
         ,(#gn-call pin-slot-sixth names)
         (#let previous ,(#gn-first names)
           (#unsafe (#call ,(#gn-call pin-slot-fifth names) (: slot slot))))
+        ;; take initialized the slot with Empty. Consume that linear shell
+        ;; explicitly before either branch writes its replacement in place.
+        (#unsafe (#forget (#pin-read slot)))
         (#return (#match previous
           (#case ,(#gn-call pin-slot-second names)
             (#block (#unsafe (#pin-write slot (,(#gn-call pin-slot-third names) value)))
