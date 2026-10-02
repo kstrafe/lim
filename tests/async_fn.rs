@@ -1897,6 +1897,43 @@ fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
         (#return result))";
     let generated = build_and_run(source, 41);
     assert!(generated.contains("loop-result-state"), "{generated}");
+
+    let early_break = source.replace(
+        "(#break awaited)",
+        "(#if (#u64.== awaited 41u64) (#break 42u64) ())\n                (#break awaited)",
+    );
+    assert_ne!(early_break, source);
+    build_and_run(&early_break, 42);
+    let fallthrough = early_break.replace("(#u64.== awaited 41u64)", "(#u64.== awaited 0u64)");
+    build_and_run(&fallthrough, 41);
+    let nested_loop = early_break.replace(
+        "(#if (#u64.== awaited 41u64)",
+        "(#let nested u64 (#loop (#break 7u64)))\n                (#assert (#u64.== nested 7u64))\n                (#if (#u64.== awaited 41u64)",
+    );
+    build_and_run(&nested_loop, 42);
+    let invalid = early_break.replace("(#break 42u64)", "(#break 42u32)");
+    let scratch = support::Scratch::new("async-value-loop-break-type");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("all break values must still match the loop result type");
+    assert_eq!(error.code, lim::DiagnosticCode::Type);
+    let message = error.message.to_ascii_lowercase();
+    assert!(
+        message.contains("u64") && message.contains("u32"),
+        "{}",
+        error.message
+    );
+    assert!(
+        error.span.is_some(),
+        "break type mismatch needs a source span"
+    );
+    build_and_run(include_str!("../examples/async_loop_breaks.lim"), 42);
 }
 
 #[test]
@@ -1940,6 +1977,12 @@ fn async_value_loop_break_moves_linear_payload_across_pending() {
         (#forget waker)
         (#return result))";
     build_and_run(source, 41);
+    let early_break = source.replace(
+        "(#break token)",
+        "(#if (#u64.== (#get token value) 41u64) (#break token) ())\n                (#break token)",
+    );
+    assert_ne!(early_break, source);
+    build_and_run(&early_break, 41);
 }
 
 #[test]

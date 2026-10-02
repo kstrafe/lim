@@ -381,3 +381,4 @@ exit 84 callee_variant_branch_clear.lim - -
 exit 84 callee_variant_loop_clear.lim - -
 exit 42 parameter_pin_restore.lim - -
 exit 42 async_nested_await.lim - -
+exit 42 async_loop_breaks.lim - -

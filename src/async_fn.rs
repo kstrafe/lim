@@ -1201,24 +1201,45 @@ fn rewrite_async_loop_terminal_break_value(
     if terminal.len() != 2 || terminal[1] != *break_value {
         return false;
     }
-    let value = terminal[1].clone();
-    let last_index = items.len() - 1;
+    fn rewrite_breaks(expression: &mut Expr, result_name: &str, result_variant: &str) {
+        let Expr::List(items) = expression else {
+            return;
+        };
+        if matches!(items.first(), Some(Expr::Symbol(head))
+            if matches!(head.as_str(), "#loop" | "#while" | "#while-let" | "#for" | "#for-range"
+                | "#quote" | "quote" | "#quasiquote" | "quasiquote" | "#fn" | "fn"))
+        {
+            // These forms establish a different control-flow or syntax owner.
+            return;
+        }
+        if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#break") && items.len() == 2
+        {
+            let value = items[1].clone();
+            *expression = Expr::List(vec![
+                Expr::Symbol("#block".into()),
+                Expr::List(vec![
+                    Expr::Symbol("#forget".into()),
+                    Expr::Symbol(result_name.into()),
+                ]),
+                Expr::List(vec![
+                    Expr::Symbol("#set".into()),
+                    Expr::Symbol(result_name.into()),
+                    Expr::List(vec![Expr::Symbol(result_variant.into()), value]),
+                ]),
+                Expr::List(vec![Expr::Symbol("#break".into())]),
+            ]);
+            return;
+        }
+        for child in items.iter_mut().skip(1) {
+            rewrite_breaks(child, result_name, result_variant);
+        }
+    }
     let Expr::List(loop_items) = expression else {
         unreachable!()
     };
-    loop_items[last_index] = Expr::List(vec![
-        Expr::Symbol("#block".into()),
-        Expr::List(vec![
-            Expr::Symbol("#forget".into()),
-            Expr::Symbol(result_name.into()),
-        ]),
-        Expr::List(vec![
-            Expr::Symbol("#set".into()),
-            Expr::Symbol(result_name.into()),
-            Expr::List(vec![Expr::Symbol(result_variant.into()), value]),
-        ]),
-        Expr::List(vec![Expr::Symbol("#break".into())]),
-    ]);
+    for statement in loop_items.iter_mut().skip(1) {
+        rewrite_breaks(statement, result_name, result_variant);
+    }
     true
 }
 
@@ -9065,6 +9086,41 @@ fn contains_loop_control(expression: &Expr) -> bool {
     }
 }
 
+/// Unlabelled transfers belong to the nearest loop. Named transfers remain
+/// conservative here because they may explicitly target an enclosing loop.
+fn contains_enclosing_loop_control(expression: &Expr) -> bool {
+    fn named_transfer(expression: &Expr) -> bool {
+        let Expr::List(items) = expression else {
+            return false;
+        };
+        if matches!(items.first(), Some(Expr::Symbol(head))
+            if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote"))
+        {
+            return false;
+        }
+        matches!(items.first(), Some(Expr::Symbol(head))
+            if matches!(head.as_str(), "#break-to" | "break-to" | "#continue-to" | "continue-to"))
+            || items.iter().skip(1).any(named_transfer)
+    }
+    let Expr::List(items) = expression else {
+        return contains_loop_control(expression);
+    };
+    if matches!(items.first(), Some(Expr::Symbol(head))
+        if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote"))
+    {
+        return false;
+    }
+    if matches!(items.first(), Some(Expr::Symbol(head))
+        if matches!(head.as_str(), "#loop" | "#while" | "#while-let" | "#for" | "#for-range"))
+    {
+        return named_transfer(expression);
+    }
+    matches!(items.first(), Some(Expr::Symbol(head))
+        if matches!(head.as_str(), "#break" | "break" | "#continue" | "continue"
+            | "#break-to" | "break-to" | "#continue-to" | "continue-to"))
+        || items.iter().skip(1).any(contains_enclosing_loop_control)
+}
+
 fn exits(expression: &Expr) -> bool {
     let Expr::List(items) = expression else {
         return false;
@@ -10217,7 +10273,10 @@ fn lower_async_loop_with_transfers(
         return Err("@async-fn awaited #loop requires a body".into());
     };
     rewrite_terminal_loop_control(last, &done)?;
-    if body[..body.len() - 1].iter().any(contains_loop_control) {
+    if body[..body.len() - 1]
+        .iter()
+        .any(contains_enclosing_loop_control)
+    {
         return Err("@async-fn awaited #loop control transfers must follow the await".into());
     }
     let condition = Expr::List(vec![
