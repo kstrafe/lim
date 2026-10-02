@@ -3678,6 +3678,153 @@ fn async_conditional_value_await_captures_typed_local_bindings() {
 }
 
 #[test]
+fn async_conditional_continuations_can_change_result_type() {
+    let source = "(#enum Step ((Waiting u64) (Resuming u64)))
+      (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case (Waiting value) (StepPending (Resuming value)))
+          (#case (Resuming value) (StepReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((choose bool)) bool
+          (#return (#if choose
+            (#block
+              (#let awaited u64 (#await u64 Step StepPending StepReady step-poll (Waiting 41u64)))
+              (#u64.== awaited 41u64))
+            false)))))
+      (#fn run ((choose bool) (waker (#ref u64))) u64
+        (#let first Poll (#call poll (: task (#call work (: choose choose)) : waker waker)))
+        (#let result bool (#match first
+          (#case (Ready value) value)
+          (#case (Pending pending)
+            (#match (#call poll (: task pending : waker waker))
+              (#case (Ready value) value)
+              (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))
+        (#return (#if result 42u64 0u64)))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let selected u64 (#call run (: choose true : waker (#borrow waker))))
+        (#let skipped u64 (#call run (: choose false : waker (#borrow waker))))
+        (#assert (#u64.== skipped 0u64))
+        (#forget waker)
+        (#return selected))";
+    build_and_run(source, 42);
+    let expression = source.replace(
+        "(#block\n              (#let awaited u64 (#await u64 Step StepPending StepReady step-poll (Waiting 41u64)))\n              (#u64.== awaited 41u64))",
+        "(#u64.== (#await u64 Step StepPending StepReady step-poll (Waiting 41u64)) 41u64)",
+    );
+    assert_ne!(expression, source);
+    build_and_run(&expression, 42);
+    let multiple = source.replace(
+        "(#u64.== awaited 41u64)",
+        "(#block (#let another u64 (#await u64 Step StepPending StepReady step-poll (Resuming awaited))) (#u64.== another 41u64))",
+    );
+    build_and_run(&multiple, 42);
+
+    let linear = format!(
+        "(#struct Token ((value u64)))\n{}",
+        source
+            .replace(
+                "(#fn work ((choose bool)) bool",
+                "(#fn work ((choose bool)) Token"
+            )
+            .replace(
+                "(#u64.== awaited 41u64)",
+                "(#struct-literal Token ((value (#u64.+.wrap awaited 1u64))))"
+            )
+            .replacen("false", "(#struct-literal Token ((value 0u64)))", 1)
+            .replace("(#let result bool", "(#let result Token")
+            .replace(
+                "(#return (#if result 42u64 0u64))",
+                "(#let value u64 (#get result value)) (#forget result) (#return value)"
+            )
+    );
+    build_and_run(&linear, 42);
+
+    let invalid = source.replace("false)))))", "0u64)))))");
+    let scratch = support::Scratch::new("async-conditional-result-type");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("both conditional branches must agree on the result type");
+    assert_eq!(error.code, lim::DiagnosticCode::Type);
+    assert!(error.span.is_some(), "{error:?}");
+    let borrowed = source
+        .replace(
+            "(#fn work ((choose bool)) bool",
+            "(#fn work ((choose bool) (view (#ref u64))) (#ref u64)",
+        )
+        .replace("(#u64.== awaited 41u64)", "view")
+        .replacen("false", "view", 1)
+        .replace(
+            "(#fn run ((choose bool) (waker (#ref u64)))",
+            "(#fn run ((choose bool) (view (#ref u64)) (waker (#ref u64)))",
+        )
+        .replace(
+            "(#call work (: choose choose))",
+            "(#call work (: choose choose : view view))",
+        )
+        .replace("(#let result bool", "(#let result (#ref u64)")
+        .replace(
+            "(#return (#if result 42u64 0u64))",
+            "(#return (#deref result))",
+        )
+        .replace(
+            "(#let waker u64 0u64)",
+            "(#let waker u64 0u64) (#let-mut storage u64 42u64)",
+        )
+        .replace(
+            ": choose true : waker",
+            ": choose true : view (#borrow storage) : waker",
+        )
+        .replace(
+            ": choose false : waker",
+            ": choose false : view (#borrow storage) : waker",
+        )
+        .replace("(#u64.== skipped 0u64)", "(#u64.== skipped 42u64)");
+    build_and_run(&borrowed, 42);
+    let definitions = borrowed.split_once("(#fn main").unwrap().0;
+    let suspended = format!("{definitions}
+      (#fn main () u64
+        (#let-mut storage u64 42u64)
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work (: choose true : view (#borrow storage))) : waker (#borrow waker))))
+        (#let-else (Pending pending) Poll first (#unreachable))
+        MUTATE_HERE
+        (#forget pending)
+        (#set storage 42u64)
+        (#forget waker)
+        (#return storage))");
+    build_and_run(&suspended.replace("MUTATE_HERE", "()"), 42);
+    let invalid = suspended.replace("MUTATE_HERE", "(#set storage 0u64)");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("borrowed.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("borrow-cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("a suspended conditional result keeps its captured referent borrowed");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let span = error
+        .span
+        .expect("suspended-loan errors need the original assignment span");
+    let assignment = invalid.find("(#set storage 0u64)").unwrap();
+    assert!(
+        span.start >= assignment && span.end <= assignment + "(#set storage 0u64)".len(),
+        "{error:?}"
+    );
+    build_and_run(include_str!("../examples/async_branch_results.lim"), 42);
+}
+
+#[test]
 fn async_conditional_block_continuation_captures_typed_locals() {
     let source = "(#enum Child ((Waiting u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

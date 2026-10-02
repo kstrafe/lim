@@ -383,3 +383,4 @@ exit 42 parameter_pin_restore.lim - -
 exit 42 async_nested_await.lim - -
 exit 42 async_loop_breaks.lim - -
 exit 42 async_loop_results.lim - -
+exit 42 async_branch_results.lim - -

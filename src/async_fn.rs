@@ -1061,11 +1061,13 @@ fn conditional_block_continuation(
         block.result_type.clone(),
         normalized_await,
     ]);
+    let continuation_result_type =
+        async_expression_type(expression, known).unwrap_or_else(|| block.result_type.clone());
     let function = Expr::List(vec![
         Expr::Symbol("#fn".into()),
         Expr::Symbol(function_name.clone()),
         Expr::List(parameters),
-        block.result_type.clone(),
+        continuation_result_type.clone(),
         first_binding,
         Expr::List(vec![Expr::Symbol("#return".into()), block.continuation]),
     ]);
@@ -1100,7 +1102,7 @@ fn conditional_block_continuation(
     };
     Ok(Some((
         AwaitProtocol {
-            result_type: block.result_type,
+            result_type: continuation_result_type,
             child_type: Expr::Symbol(frame),
             pending: Expr::Symbol(pending),
             ready: Expr::Symbol(ready),
@@ -1481,12 +1483,16 @@ fn conditional_value_expression_task(
         || block_ends_in_loop)
         && enclosing_return_type.is_none();
     let unit_result_type = Expr::List(Vec::new());
+    let expression_result_type = async_expression_type(expression, known);
     let function_result_type = if let Some((_, result_type)) = &value_loop {
         result_type
     } else if standalone_loop {
         &unit_result_type
     } else {
-        enclosing_return_type.as_ref().unwrap_or(&await_form[1])
+        enclosing_return_type
+            .as_ref()
+            .or(expression_result_type.as_ref())
+            .unwrap_or(&await_form[1])
     };
     let mut function = vec![
         Expr::Symbol("#fn".into()),
@@ -1596,7 +1602,7 @@ fn conditional_value_expression_task(
             function.push(Expr::List(vec![
                 Expr::Symbol("#let".into()),
                 Expr::Symbol(result_name.clone()),
-                await_form[1].clone(),
+                function_result_type.clone(),
                 block.last().expect("nonempty value block").clone(),
             ]));
             function.push(Expr::List(vec![

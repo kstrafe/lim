@@ -361,6 +361,13 @@ ordinary checker still validates all break payloads and their ownership.
 `examples/async_loop_results.lim` passes a linear struct produced by a function
 call out of a suspended loop and consumes it explicitly. This does not remove
 the remaining general control-flow lowering restrictions.
+Conditional await continuations may likewise change result type: a branch can
+await a `u64` and then yield a `bool`, reference, or concrete linear aggregate.
+Its generated Ready payload uses the branch's declared expression contract,
+not the first awaited value's type. Returned and suspended references retain
+their source loans; explicitly consuming a cancelled frame releases those
+loans without implicitly destroying resources. See
+`examples/async_branch_results.lim` for selected and immediate linear results.
 Sequential suspension points have no fixed language-level count limit.
 For movable `@async-fn`, references into pre-suspension stack locals cannot be
 retained in the frame; the ordinary borrow checker rejects them. Pinned
