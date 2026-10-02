@@ -11,6 +11,8 @@ use crate::typed_body::{
 #[cfg(test)]
 use crate::typed_ir::VariantId;
 use crate::typed_ir::{DeclarationId, FieldId};
+#[cfg(test)]
+use crate::typed_place::owned_output_projection;
 use crate::typed_place::{reads_through_reference, Place, Segment};
 use crate::{Span, Type};
 
@@ -1880,7 +1882,8 @@ impl FlowGraph {
                                     Some(NodeKind::Declaration(
                                         DeclarationId::Variant(_) | DeclarationId::Aggregate(_)
                                     ))
-                                ) {
+                                ) && owned_output_projection(body, *value).is_none()
+                                {
                                     return None;
                                 }
                             }
@@ -1925,17 +1928,24 @@ impl FlowGraph {
         while let Some((value, use_event, mut bindings, mut path)) = pending_values.pop() {
             // Reference handles do not have their referent's owned output
             // layout. Following them needs a separate provenance proof.
-            if matches!(
-                body.nodes[value.0].ty.as_ref(),
-                Some(
-                    Type::Reference { .. }
-                        | Type::PinnedReference { .. }
-                        | Type::RawPointer { .. }
-                        | Type::Slice(_)
-                        | Type::MutableSlice(_)
+            if reads_through_reference(body, value)
+                || matches!(
+                    body.nodes[value.0].ty.as_ref(),
+                    Some(
+                        Type::Reference { .. }
+                            | Type::PinnedReference { .. }
+                            | Type::RawPointer { .. }
+                            | Type::Slice(_)
+                            | Type::MutableSlice(_)
+                    )
                 )
-            ) {
+            {
                 return None;
+            }
+            if let Some((base, slot)) = owned_output_projection(body, value) {
+                path.insert(0, slot);
+                pending_values.push((base, use_event, bindings, path));
+                continue;
             }
             if matches!(body.nodes[value.0].kind, NodeKind::Loop(_)) {
                 let mut found = false;
@@ -2451,16 +2461,27 @@ impl FlowGraph {
             .collect()
     }
 
-    /// A selected return can prove destruction without claiming initialization.
     #[cfg(test)]
-    pub fn parameter_clear_variant_summaries(
+    pub fn parameter_output_store_variant_summaries(
         &self,
         body: &Body,
         origins: &FlowLoanOrigins,
-    ) -> HashMap<VariantId, Vec<crate::typed_body::ParameterLoanSummary>> {
-        self.return_variant_graphs(body)
+    ) -> HashMap<(Vec<Segment>, VariantId), Vec<crate::typed_body::ParameterStoreSummary>> {
+        self.return_output_variant_graphs(body)
             .into_iter()
-            .map(|(variant, filtered)| (variant, filtered.parameter_clear_summaries(body, origins)))
+            .map(|(selector, graph)| (selector, graph.parameter_store_summaries(body, origins)))
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub fn parameter_output_clear_variant_summaries(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> HashMap<(Vec<Segment>, VariantId), Vec<crate::typed_body::ParameterLoanSummary>> {
+        self.return_output_variant_graphs(body)
+            .into_iter()
+            .map(|(selector, graph)| (selector, graph.parameter_clear_summaries(body, origins)))
             .collect()
     }
 
@@ -2468,6 +2489,17 @@ impl FlowGraph {
     /// remain possible for every selected variant; event IDs stay unchanged.
     #[cfg(test)]
     fn return_variant_graphs(&self, body: &Body) -> HashMap<VariantId, Self> {
+        self.return_output_variant_graphs(body)
+            .into_iter()
+            .filter_map(|((path, variant), graph)| path.is_empty().then_some((variant, graph)))
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn return_output_variant_graphs(
+        &self,
+        body: &Body,
+    ) -> HashMap<(Vec<Segment>, VariantId), Self> {
         let mut alternatives = Vec::new();
         for node in &self.nodes {
             if let FlowAction::Return(Some(value)) = node.action {
@@ -2495,19 +2527,29 @@ impl FlowGraph {
                         }
                     }
                 }
-            } else if let Some(variant) = constructor_variant_at_storage(body, value, &[]) {
-                constructors.insert(value, variant);
+            } else {
+                let variants = value_variant_facts(body, value, &HashMap::new(), None)
+                    .into_iter()
+                    .map(|(place, variant)| (place.segments, variant))
+                    .collect::<HashMap<_, _>>();
+                if !variants.is_empty() {
+                    constructors.insert(value, variants);
+                }
             }
         }
-        let mut variants = constructors.values().copied().collect::<Vec<_>>();
-        variants.sort();
-        variants.dedup();
+        let variants = constructors
+            .values()
+            .flat_map(|facts| facts.iter().map(|(path, variant)| (path.clone(), *variant)))
+            .collect::<HashSet<_>>();
         let mut result = HashMap::new();
         for selected in variants {
             let mut filtered = self.clone();
             for node in &mut filtered.nodes {
-                if constructors.iter().any(|(value, variant)| {
-                    *variant != selected && flow_action_has_value(&node.action, *value)
+                if constructors.iter().any(|(value, facts)| {
+                    facts
+                        .get(&selected.0)
+                        .is_some_and(|variant| *variant != selected.1)
+                        && flow_action_has_value(&node.action, *value)
                 }) {
                     node.successors.clear();
                 }
@@ -3489,7 +3531,30 @@ impl FlowGraph {
         consumed_entry: Option<&[Place]>,
         possible_restorations: &[(FlowNodeId, Vec<Place>)],
     ) -> HashMap<VariantId, ReferentVariantExit> {
-        self.return_variant_graphs(body)
+        self.referent_output_variant_exit_effects(
+            body,
+            types,
+            calls,
+            restorations,
+            consumed_entry,
+            possible_restorations,
+        )
+        .into_iter()
+        .filter_map(|((path, variant), exit)| path.is_empty().then_some((variant, exit)))
+        .collect()
+    }
+
+    #[cfg(test)]
+    pub fn referent_output_variant_exit_effects(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        consumed_entry: Option<&[Place]>,
+        possible_restorations: &[(FlowNodeId, Vec<Place>)],
+    ) -> HashMap<(Vec<Segment>, VariantId), ReferentVariantExit> {
+        self.return_output_variant_graphs(body)
             .into_iter()
             .map(|(variant, filtered)| {
                 let summary = filtered.referent_function_effects_with_restorations(
@@ -14586,6 +14651,45 @@ mod tests {
                 .call_result_sources(body, value, event, &predecessors)
                 .is_none());
         }
+    }
+
+    #[test]
+    fn call_result_producers_do_not_follow_implicit_reference_field_reads() {
+        let program = crate::parse_program(
+            "(#enum Outcome ((Ready) (Pending)))
+             (#struct Pair ((first Outcome) (second Outcome)))
+             (#fn factory () Pair (#return (#struct-literal Pair (: first (Ready) : second (Pending)))))
+             (#fn main () u64
+               (#let packet Pair (#call factory ()))
+               (#let result u64 (#match (#get (#borrow packet) first)
+                 (#case (Ready) 42u64) (#case (Pending) 0u64)))
+               (#forget packet) (#return result))"
+        ).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        crate::generate_assembly(&program).unwrap();
+        let body = &checked.declarations().bodies["main"];
+        let flow = &checked.declarations().flows["main"];
+        let mut predecessors = vec![Vec::new(); flow.nodes.len()];
+        for (event, node) in flow.nodes.iter().enumerate() {
+            for successor in &node.successors {
+                predecessors[successor.0].push(FlowNodeId(event));
+            }
+        }
+        let (event, value) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let FlowAction::Pattern { value, .. } = node.action else {
+                    return None;
+                };
+                Some((FlowNodeId(index), value))
+            })
+            .unwrap();
+        assert!(reads_through_reference(body, value));
+        assert!(flow
+            .call_result_producers(body, value, event, &predecessors)
+            .is_none());
     }
 
     #[test]

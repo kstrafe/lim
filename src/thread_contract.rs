@@ -65,6 +65,25 @@ pub(crate) struct CapturedWorkerContract {
     pub facts: ReferentFunctionEffects,
 }
 
+pub(crate) fn capture_variant_exit(
+    owner: AggregateId,
+    parameters: usize,
+    exit: &ReferentVariantExit,
+) -> Option<ReferentVariantExit> {
+    let captures = Captures { owner, parameters };
+    Some(ReferentVariantExit {
+        restored: captures.effects(&exit.restored)?,
+        has_normal_return: exit.has_normal_return,
+        effects: captures.effects(&exit.effects)?,
+        effects_from_consumed_entry: match &exit.effects_from_consumed_entry {
+            Some(effects) => Some(captures.effects(effects)?),
+            None => None,
+        },
+        consumed_entry: captures.effects(&exit.consumed_entry)?,
+        unresolved: exit.unresolved.clone(),
+    })
+}
+
 /// A running or retryable worker has not established its normal-return facts.
 /// In particular this type intentionally has no restoration guarantees.
 pub(crate) struct PendingWorkerEffects {

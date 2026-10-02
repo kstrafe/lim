@@ -950,6 +950,7 @@ impl Declarations {
         }
         let mut summaries = HashMap::new();
         // This is a referent contract, not a purity claim about unsafe code.
+        let mut output_summaries = crate::typed_body::OutputVariantMap::new();
         // Scalars and raw pointers carry no checked parameter referents. Raw
         // memory validity remains the caller's explicit unsafe obligation;
         // these summaries cannot initialize storage or manufacture safe loans.
@@ -999,17 +1000,20 @@ impl Declarations {
                     return true;
                 }
                 self.staged_add_thread_operation_contracts(&mut summaries, infer_entry_contracts);
-                let mut output_contracts = HashMap::new();
+                let mut output_contracts = body.nodes.iter().filter_map(|node| {
+                    let NodeKind::Form { callee: Some(callee), .. } = node.kind else { return None; };
+                    output_summaries.get(&callee).map(|groups| (callee, groups.clone()))
+                }).collect::<HashMap<_, _>>();
                 for (task, captures) in &self.thread_capture_schemas {
                     let (
                         Some(worker_body),
-                        Some(worker_summary),
+                        Some(worker_outputs),
                         Some(join),
                         Some(owner),
                         Some(join_ok),
                     ) = (
                         self.bodies.get(&captures.worker_name),
-                        summaries.get(&captures.worker),
+                        output_summaries.get(&captures.worker),
                         self.function_id(&format!("{task}-join")),
                         self.aggregate_id(&Type::Named(task.clone())),
                         self.variant_id(
@@ -1027,31 +1031,17 @@ impl Declarations {
                     }) {
                         continue;
                     }
-                    let Some(captured) = crate::thread_contract::capture_worker_contract(
-                        captures.worker,
-                        owner,
-                        worker_body.parameter_count,
-                        worker_summary,
-                    ) else {
+                    let captured = worker_outputs.iter().map(|((path, variant), exit)| {
+                        let mut nested = vec![crate::typed_place::Segment::Payload(join_ok, 0)];
+                        nested.extend_from_slice(path);
+                        Some(((nested, *variant), crate::thread_contract::capture_variant_exit(
+                            owner, worker_body.parameter_count, exit,
+                        )?))
+                    }).collect::<Option<HashMap<_, _>>>();
+                    let Some(captured) = captured else {
                         continue;
                     };
-                    output_contracts.insert(
-                        join,
-                        captured
-                            .facts
-                            .variant_exits
-                            .into_iter()
-                            .map(|(variant, exit)| {
-                                (
-                                    (
-                                        vec![crate::typed_place::Segment::Payload(join_ok, 0)],
-                                        variant,
-                                    ),
-                                    exit,
-                                )
-                            })
-                            .collect(),
-                    );
+                    output_contracts.insert(join, captured);
                 }
                 *body.call_output_variant_exits.borrow_mut() = output_contracts;
                 *body.call_variant_exits.borrow_mut() = body
@@ -1319,7 +1309,7 @@ impl Declarations {
                     );
                 }
                 if body.staged_parameter_contents {
-                    summary.variant_exits = flow.referent_variant_exit_effects(
+                    let outcomes = flow.referent_output_variant_exit_effects(
                         body,
                         types,
                         &calls,
@@ -1327,6 +1317,10 @@ impl Declarations {
                         infer_entry_contracts.then_some(consumed_entry.as_slice()),
                         &possible_restorations,
                     );
+                    summary.variant_exits = outcomes.iter().filter_map(|((path, variant), exit)| {
+                        path.is_empty().then_some((*variant, exit.clone()))
+                    }).collect();
+                    output_summaries.insert(self.function_id(name).unwrap(), outcomes);
                 }
                 summary.consumed_entry = consumed_entry;
                 summary.reads.extend(call_reads);
@@ -1682,7 +1676,14 @@ impl Declarations {
             #[cfg(test)]
             let stores = flow.parameter_store_summaries(body, &store_origins);
             #[cfg(test)]
-            let variants = flow.parameter_store_variant_summaries(body, &store_origins);
+            let output_stores = flow.parameter_output_store_variant_summaries(body, &store_origins);
+            #[cfg(test)]
+            let variants = output_stores
+                .iter()
+                .filter_map(|((path, variant), stores)| {
+                    path.is_empty().then_some((*variant, stores.clone()))
+                })
+                .collect();
             #[cfg(test)]
             let clears = if include_parameter_contents {
                 flow.parameter_clear_summaries(body, &store_origins)
@@ -1699,11 +1700,18 @@ impl Declarations {
                 })
                 .collect();
             #[cfg(test)]
-            let conditional_clears = if include_parameter_contents {
-                flow.parameter_clear_variant_summaries(body, &store_origins)
+            let output_clears = if include_parameter_contents {
+                flow.parameter_output_clear_variant_summaries(body, &store_origins)
             } else {
                 HashMap::new()
             };
+            #[cfg(test)]
+            let conditional_clears = output_clears
+                .iter()
+                .filter_map(|((path, variant), clears)| {
+                    path.is_empty().then_some((*variant, clears.clone()))
+                })
+                .collect();
             for (index, node) in flow.nodes.iter().enumerate() {
                 let crate::typed_flow::FlowAction::Return(Some(value)) = &node.action else {
                     continue;
@@ -1744,6 +1752,10 @@ impl Declarations {
                 clear_summaries.insert(id, clears);
                 #[cfg(test)]
                 clear_variants.insert(id, conditional_clears);
+                #[cfg(test)]
+                output_store_variants.insert(id, output_stores);
+                #[cfg(test)]
+                output_clear_variants.insert(id, output_clears);
                 #[cfg(test)]
                 for (task, captures) in &self.thread_capture_schemas {
                     if captures.worker != id {
@@ -1798,14 +1810,13 @@ impl Declarations {
                         join,
                         HashMap::from([(join_ok, captured_clears), (join_error, Vec::new())]),
                     );
-                    let selected_stores = store_variants[&id]
+                    let selected_stores = output_store_variants[&id]
                         .iter()
-                        .map(|(variant, stores)| {
+                        .map(|((path, variant), stores)| {
+                            let mut nested = vec![crate::typed_place::Segment::Payload(join_ok, 0)];
+                            nested.extend_from_slice(path);
                             Some((
-                                (
-                                    vec![crate::typed_place::Segment::Payload(join_ok, 0)],
-                                    *variant,
-                                ),
+                                (nested, *variant),
                                 crate::thread_contract::capture_store_summaries(
                                     owner,
                                     captures.parameters.len(),
@@ -1814,14 +1825,13 @@ impl Declarations {
                             ))
                         })
                         .collect::<Option<HashMap<_, _>>>();
-                    let selected_clears = clear_variants[&id]
+                    let selected_clears = output_clear_variants[&id]
                         .iter()
-                        .map(|(variant, clears)| {
+                        .map(|((path, variant), clears)| {
+                            let mut nested = vec![crate::typed_place::Segment::Payload(join_ok, 0)];
+                            nested.extend_from_slice(path);
                             Some((
-                                (
-                                    vec![crate::typed_place::Segment::Payload(join_ok, 0)],
-                                    *variant,
-                                ),
+                                (nested, *variant),
                                 clears
                                     .iter()
                                     .map(|clear| {

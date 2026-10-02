@@ -159,6 +159,57 @@ fn literal_index(body: &Body, id: NodeId) -> Option<u128> {
 }
 
 /// Classify an access using checked base types, including nested projections.
+/// An exact projection from owned storage. The base can be a call result,
+/// not just an addressable local; references need a separate provenance proof.
+#[cfg(test)]
+pub(crate) fn owned_output_projection(body: &Body, value: NodeId) -> Option<(NodeId, Segment)> {
+    let NodeKind::Form {
+        head,
+        children,
+        callee: None,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return None;
+    };
+    let base = *children.get(1)?;
+    if reads_through_reference(body, value) {
+        return None;
+    }
+    for id in [value, base] {
+        if matches!(
+            body.nodes[id.0].ty.as_ref()?,
+            crate::Type::Reference { .. }
+                | crate::Type::PinnedReference { .. }
+                | crate::Type::RawPointer { .. }
+                | crate::Type::Slice(_)
+                | crate::Type::MutableSlice(_)
+        ) {
+            return None;
+        }
+    }
+    let slot = match head.as_str() {
+        "get" if children.len() == 3 => match body.nodes[children[2].0].kind {
+            NodeKind::Declaration(DeclarationId::Field(field)) => Segment::Field(field),
+            _ => Segment::Tuple(usize::try_from(literal_index(body, children[2])?).ok()?),
+        },
+        "get-payload" if children.len() == 4 => {
+            let NodeKind::Declaration(DeclarationId::Variant(variant)) =
+                body.nodes[children[2].0].kind
+            else {
+                return None;
+            };
+            Segment::Payload(
+                variant,
+                usize::try_from(literal_index(body, children[3])?).ok()?,
+            )
+        }
+        "index" if children.len() == 3 => Segment::Index(literal_index(body, children[2])?),
+        _ => return None,
+    };
+    Some((base, slot))
+}
+
 pub(crate) fn reads_through_reference(body: &Body, value: NodeId) -> bool {
     let Some(node) = body.nodes.get(value.0) else {
         return false;
