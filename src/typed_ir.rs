@@ -1748,41 +1748,6 @@ impl Declarations {
             let Some(worker_summary) = summaries.get(&captures.worker) else {
                 continue;
             };
-            // Global reference contents are not represented by parameter
-            // contents yet; do not pretend those deferred writes are known.
-            if worker_body
-                .call_store_origins
-                .get(&captures.worker)
-                .is_some_and(|stores| {
-                    stores
-                        .iter()
-                        .any(|store| store.destination.global.is_some())
-                })
-                || worker_body
-                    .call_parameter_clears
-                    .get(&captures.worker)
-                    .is_some_and(|clears| clears.iter().any(|clear| clear.global.is_some()))
-                || worker_body
-                    .call_store_variants
-                    .get(&captures.worker)
-                    .is_some_and(|variants| {
-                        variants
-                            .values()
-                            .flatten()
-                            .any(|store| store.destination.global.is_some())
-                    })
-                || worker_body
-                    .call_clear_variants
-                    .get(&captures.worker)
-                    .is_some_and(|variants| {
-                        variants
-                            .values()
-                            .flatten()
-                            .any(|clear| clear.global.is_some())
-                    })
-            {
-                continue;
-            }
             let (
                 Some(spawn),
                 Some(join),

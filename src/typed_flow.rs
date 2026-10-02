@@ -224,8 +224,12 @@ type LoanState = Vec<Vec<LoanOrigin>>;
 #[derive(Clone)]
 struct LoanState {
     bindings: Vec<Vec<LoanOrigin>>,
-    // The key is the original input pointer slot, not an output value slot.
-    parameter_contents: Option<HashMap<(BindingId, Vec<Segment>), Vec<LoanOrigin>>>,
+    // Parameter input pointer slots and owned global storage have distinct
+    // roots. These keys are not positions in the output value being stored.
+    parameter_contents: Option<HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>>>,
+    // Globals have no symbolic parameter seed. Only every-path concrete writes
+    // establish known contents; a may-write cannot invent the old provenance.
+    global_known_contents: HashMap<crate::typed_ir::GlobalId, HashSet<Vec<Segment>>>,
 }
 
 #[cfg(test)]
@@ -234,6 +238,7 @@ impl From<Vec<Vec<LoanOrigin>>> for LoanState {
         Self {
             bindings,
             parameter_contents: None,
+            global_known_contents: HashMap::new(),
         }
     }
 }
@@ -7810,11 +7815,29 @@ fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
             changed |= merge_loan_origins(held.entry(key.clone()).or_default(), contents);
         }
     }
+    #[cfg(test)]
+    existing.global_known_contents.retain(|global, paths| {
+        let previous = paths.clone();
+        let Some(other) = incoming.global_known_contents.get(global) else {
+            changed |= !paths.is_empty();
+            return false;
+        };
+        let candidates = previous.iter().chain(other);
+        *paths = candidates
+            .filter(|path| {
+                previous.iter().any(|prefix| path.starts_with(prefix))
+                    && other.iter().any(|prefix| path.starts_with(prefix))
+            })
+            .cloned()
+            .collect();
+        changed |= *paths != previous;
+        !paths.is_empty()
+    });
     changed
 }
 
 #[cfg(test)]
-fn seed_parameter_contents(body: &Body) -> HashMap<(BindingId, Vec<Segment>), Vec<LoanOrigin>> {
+fn seed_parameter_contents(body: &Body) -> HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>> {
     let mut contents = HashMap::new();
     for (parameter, slots) in body.parameter_referent_loan_slots.iter().enumerate() {
         for slot in slots {
@@ -7825,7 +7848,10 @@ fn seed_parameter_contents(body: &Body) -> HashMap<(BindingId, Vec<Segment>), Ve
             else {
                 continue;
             };
-            let key = (BindingId(parameter), slot.storage[..boundary].to_vec());
+            let key = (
+                PlaceRoot::Parameter(BindingId(parameter)),
+                slot.storage[..boundary].to_vec(),
+            );
             let held = LoanOrigin {
                 place: Place::root(PlaceRoot::Parameter(BindingId(parameter))),
                 mutable: slot.mutable,
@@ -7845,17 +7871,33 @@ fn seed_parameter_contents(body: &Body) -> HashMap<(BindingId, Vec<Segment>), Ve
 
 #[cfg(test)]
 fn loaded_parameter_value_origins(origin: &LoanOrigin, state: &LoanState) -> Vec<LoanOrigin> {
-    let PlaceRoot::Parameter(parameter) = origin.place.root else {
+    if !matches!(
+        origin.place.root,
+        PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
+    ) {
         return Vec::new();
-    };
+    }
     if origin.lifetime_only || !origin.storage.is_empty() {
         return Vec::new();
+    }
+    if let PlaceRoot::Global(global) = origin.place.root {
+        if !state
+            .global_known_contents
+            .get(&global)
+            .is_some_and(|paths| {
+                paths
+                    .iter()
+                    .any(|path| origin.place.segments.starts_with(path))
+            })
+        {
+            return Vec::new();
+        }
     }
     let Some(contents) = &state.parameter_contents else {
         return Vec::new();
     };
     let key = (
-        parameter,
+        origin.place.root.clone(),
         origin.parameter_storage.clone().unwrap_or_default(),
     );
     let mut result = Vec::new();
@@ -7901,17 +7943,38 @@ fn store_parameter_contents(
     incoming: Vec<LoanOrigin>,
     strong: bool,
 ) {
-    let PlaceRoot::Parameter(parameter) = destination.place.root else {
+    if !matches!(
+        destination.place.root,
+        PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
+    ) {
         return;
-    };
+    }
     if destination.lifetime_only || !destination.storage.is_empty() {
         return;
+    }
+    if let PlaceRoot::Global(global) = destination.place.root {
+        let known = state.global_known_contents.entry(global).or_default();
+        let path = &destination.place.segments;
+        if strong
+            && !path.iter().any(|segment| {
+                matches!(segment, Segment::DynamicIndex | Segment::SliceDynamicIndex)
+            })
+        {
+            known.insert(path.clone());
+        } else {
+            known.retain(|held| {
+                !destination.place.overlaps(&Place {
+                    root: PlaceRoot::Global(global),
+                    segments: held.clone(),
+                })
+            });
+        }
     }
     let Some(contents) = &mut state.parameter_contents else {
         return;
     };
     let key = (
-        parameter,
+        destination.place.root.clone(),
         destination.parameter_storage.clone().unwrap_or_default(),
     );
     let held = contents.entry(key).or_default();
@@ -7943,6 +8006,12 @@ fn released_reference_destinations(
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
+    if let NodeKind::Declaration(DeclarationId::Global(global)) = body.nodes[value.0].kind {
+        // An owned global value can be explicitly consumed under #unsafe.
+        // This is a destruction destination, not a mutable borrow of an
+        // immutable global; it must never become reference-value provenance.
+        return vec![global_storage_address(global, body.nodes[value.0].span)];
+    }
     if matches!(
         body.nodes[value.0].ty,
         Some(Type::Reference { .. } | Type::PinnedReference { .. })
@@ -8095,7 +8164,7 @@ fn joined_call_variant_stores(
                 !store.destination.lifetime_only
                     && matches!(
                         store.destination.place.root,
-                        PlaceRoot::Local(_) | PlaceRoot::Parameter(_)
+                        PlaceRoot::Local(_) | PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
                     )
             })
             .collect::<Vec<_>>();
@@ -8257,7 +8326,7 @@ fn joined_call_variant_clears(
                     .filter(|clear| {
                         matches!(
                             clear.place.root,
-                            PlaceRoot::Local(_) | PlaceRoot::Parameter(_)
+                            PlaceRoot::Local(_) | PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
                         )
                     })
                     .collect(),
@@ -8390,6 +8459,18 @@ fn select_summary_inputs_with_slots(
         }];
     };
     if *head == Segment::Dereference && origin.storage.is_empty() && !origin.lifetime_only {
+        #[cfg(test)]
+        if matches!(origin.place.root, PlaceRoot::Global(_)) && state.parameter_contents.is_some() {
+            let mut result = Vec::new();
+            for loaded in loaded_parameter_value_origins(&origin, state) {
+                for mut selected in select_summary_inputs_with_slots(loaded, tail, state) {
+                    selected.slots.insert(0, Segment::Dereference);
+                    selected.inputs.insert(0, None);
+                    result.push(selected);
+                }
+            }
+            return result;
+        }
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
             #[cfg(test)]
             if state.parameter_contents.is_some() {
@@ -8552,6 +8633,12 @@ fn projected_value_origins(
         if !borrowed_container || origin.lifetime_only {
             continue;
         }
+        #[cfg(test)]
+        if matches!(origin.place.root, PlaceRoot::Global(_)) && state.parameter_contents.is_some() {
+            origin.place.segments.push(slot.clone());
+            merge_loan_origins(&mut result, &loaded_parameter_value_origins(&origin, state));
+            continue;
+        }
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
             #[cfg(test)]
             if state.parameter_contents.is_some() {
@@ -8699,14 +8786,19 @@ fn dereference_value_origins(
         if origin.lifetime_only || !origin.storage.is_empty() {
             continue;
         }
-        let PlaceRoot::Parameter(parameter) = origin.place.root else {
-            continue;
-        };
         #[cfg(test)]
-        if state.parameter_contents.is_some() {
+        if state.parameter_contents.is_some()
+            && matches!(
+                origin.place.root,
+                PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
+            )
+        {
             merge_loan_origins(&mut result, &loaded_parameter_value_origins(&origin, state));
             continue;
         }
+        let PlaceRoot::Parameter(parameter) = origin.place.root else {
+            continue;
+        };
         let mut prefix = origin.parameter_storage.clone().unwrap_or_default();
         prefix.push(Segment::Dereference);
         prefix.extend_from_slice(&origin.place.segments);
@@ -8757,6 +8849,21 @@ fn project_slice_element_origins(origins: &mut [LoanOrigin], state: &LoanState) 
     }
 }
 
+#[cfg(test)]
+fn global_storage_address(global: crate::typed_ir::GlobalId, span: Option<Span>) -> LoanOrigin {
+    LoanOrigin {
+        place: Place::root(PlaceRoot::Global(global)),
+        mutable: true,
+        pinned: false,
+        lifetime_only: false,
+        span,
+        borrowed_from: None,
+        storage: Vec::new(),
+        parameter_storage: None,
+        storage_inputs: Vec::new(),
+    }
+}
+
 fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOrigin> {
     let node = &body.nodes[id.0];
     match &node.kind {
@@ -8764,6 +8871,10 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             binding: Some(binding),
             ..
         } => state[binding.0].clone(),
+        #[cfg(test)]
+        NodeKind::Declaration(DeclarationId::Global(global)) => {
+            loaded_parameter_value_origins(&global_storage_address(*global, node.span), state)
+        }
         NodeKind::Form { head, children, .. }
             if matches!(
                 head.as_str(),
@@ -10601,6 +10712,104 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn global_contents_keep_identity_and_do_not_invent_unknown_entry_loans() {
+        let program =
+            crate::parse_program("(#static Shared u64 0u64) (#fn main () u64 (#return 0u64))")
+                .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let id = checked.declarations().global_id("Shared").unwrap();
+        let origin = |root| LoanOrigin {
+            place: Place::root(root),
+            mutable: true,
+            pinned: false,
+            lifetime_only: false,
+            span: None,
+            borrowed_from: None,
+            storage: Vec::new(),
+            parameter_storage: None,
+            storage_inputs: Vec::new(),
+        };
+        let global = origin(PlaceRoot::Global(id));
+        let parameter = origin(PlaceRoot::Parameter(BindingId(0)));
+        let first = origin(PlaceRoot::Parameter(BindingId(1)));
+        let second = origin(PlaceRoot::Parameter(BindingId(2)));
+        let mut state = empty_loan_state(0);
+        state.parameter_contents = Some(HashMap::new());
+        assert!(loaded_parameter_value_origins(&global, &state).is_empty());
+        store_parameter_contents(&mut state, &global, vec![first.clone()], false);
+        assert!(
+            loaded_parameter_value_origins(&global, &state).is_empty(),
+            "a may-write cannot manufacture unknown entry provenance"
+        );
+        store_parameter_contents(&mut state, &global, vec![first.clone()], true);
+        store_parameter_contents(&mut state, &parameter, vec![second.clone()], true);
+        assert_eq!(loaded_parameter_value_origins(&global, &state), vec![first]);
+        assert_eq!(
+            loaded_parameter_value_origins(&parameter, &state),
+            vec![second.clone()]
+        );
+        store_parameter_contents(&mut state, &global, Vec::new(), true);
+        assert!(loaded_parameter_value_origins(&global, &state).is_empty());
+        assert_eq!(
+            loaded_parameter_value_origins(&parameter, &state),
+            vec![second]
+        );
+    }
+
+    #[test]
+    fn global_contents_are_known_only_for_every_path_concrete_coverage() {
+        let program =
+            crate::parse_program("(#static Shared u64 0u64) (#fn main () u64 (#return 0u64))")
+                .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let global = checked.declarations().global_id("Shared").unwrap();
+        let address = |segments| LoanOrigin {
+            place: Place {
+                root: PlaceRoot::Global(global),
+                segments,
+            },
+            mutable: true,
+            pinned: false,
+            lifetime_only: false,
+            span: None,
+            borrowed_from: None,
+            storage: Vec::new(),
+            parameter_storage: None,
+            storage_inputs: Vec::new(),
+        };
+        let mut whole = empty_loan_state(0);
+        whole.parameter_contents = Some(HashMap::new());
+        store_parameter_contents(&mut whole, &address(vec![]), Vec::new(), true);
+        let mut field = empty_loan_state(0);
+        field.parameter_contents = Some(HashMap::new());
+        store_parameter_contents(
+            &mut field,
+            &address(vec![Segment::Tuple(0)]),
+            Vec::new(),
+            true,
+        );
+        assert!(merge_loan_states(&mut whole, &field));
+        assert_eq!(
+            whole.global_known_contents[&global],
+            HashSet::from([vec![Segment::Tuple(0)]])
+        );
+        let mut unknown = empty_loan_state(0);
+        unknown.parameter_contents = Some(HashMap::new());
+        assert!(merge_loan_states(&mut whole, &unknown));
+        assert!(!whole.global_known_contents.contains_key(&global));
+        store_parameter_contents(
+            &mut whole,
+            &address(vec![Segment::DynamicIndex]),
+            Vec::new(),
+            true,
+        );
+        assert!(
+            whole.global_known_contents[&global].is_empty(),
+            "dynamic writes are not exact coverage"
+        );
+    }
 
     #[test]
     fn definite_consumption_meet_preserves_only_structural_coverage() {

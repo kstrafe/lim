@@ -18697,6 +18697,47 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_thread_global_clears_are_deferred_to_successful_join() {
+        let source = "(#enum Holder ((Empty) (Filled (#ref u64)))) (#linear Holder)
+            (#static Snapshot Holder (Empty))
+            (#fn worker () () (#unsafe (#forget Snapshot)) (#return ()))
+            (@thread-spawn (: task Task : worker worker))
+            (#fn caller () ()
+              (#return (#match (#call Task-spawn ())
+                (#case (Task-spawn-ok task)
+                  (#match (#call Task-join (: task task))
+                    (#case (Task-join-ok result) ())
+                    (#case (Task-join-error (#tuple retry error)) (#panic))))
+                (#case (Task-spawn-error error) ()))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        crate::generate_assembly(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let global = declarations.global_id("Snapshot").unwrap();
+        let worker = declarations.function_id("worker").unwrap();
+        let spawn = declarations.function_id("Task-spawn").unwrap();
+        let join = declarations.function_id("Task-join").unwrap();
+        let ok = declarations
+            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .unwrap();
+        let retry = declarations
+            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-error")
+            .unwrap();
+        let body = &declarations.bodies["caller"];
+        assert_eq!(body.call_parameter_clears[&worker].len(), 1);
+        assert_eq!(body.call_parameter_clears[&worker][0].global, Some(global));
+        assert!(body.call_parameter_clears[&spawn].is_empty());
+        assert!(body.call_parameter_clears[&join].is_empty());
+        assert_eq!(body.call_clear_variants[&join][&ok].len(), 1);
+        assert_eq!(body.call_clear_variants[&join][&ok][0].global, Some(global));
+        assert!(body.call_clear_variants[&join][&retry].is_empty());
+    }
+
+    #[test]
     fn stored_enum_constructors_require_agreement_across_worker_paths() {
         let clear = "(#forget (#deref target))";
         let empty = "(#deref-set target (Empty))";
