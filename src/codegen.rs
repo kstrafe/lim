@@ -15662,43 +15662,16 @@ impl FunctionContext<'_> {
             return Err(format!("call to '{name}' has more than 32 machine words"));
         }
         if total_words > ARGUMENT_REGISTERS.len() {
-            let stack_arguments = total_words - ARGUMENT_REGISTERS.len();
-            let needs_padding = (self.stack_depth + stack_arguments) % 2 == 1;
-            if needs_padding {
-                self.output.push_str("    sub rsp, 8\n");
-                self.stack_depth += 1;
-            }
-            for ((argument, ty), indirect) in arguments
-                .iter()
-                .zip(&abi.parameters)
-                .zip(&abi.indirect_parameters)
-                .rev()
-            {
-                if *indirect {
-                    self.push_call_argument(argument, ty, true)?;
-                } else {
-                    self.push_value_words(argument, ty, true)?;
-                }
-            }
-            for (index, register) in ARGUMENT_REGISTERS.iter().enumerate() {
-                self.output.push_str(&format!(
-                    "    mov {register}, QWORD PTR [rsp+{}]\n",
-                    index * 8
-                ));
-            }
-            self.output.push_str("    add rsp, 48\n");
-            self.stack_depth -= ARGUMENT_REGISTERS.len();
-            self.emit_indirect_return_target(indirect_return_slot);
-            self.output
-                .push_str(&format!("    call {}\n", asm_symbol(&abi.symbol_name)));
-            self.output
-                .push_str(&format!("    add rsp, {}\n", stack_arguments * 8));
-            self.stack_depth -= stack_arguments;
-            if needs_padding {
-                self.output.push_str("    add rsp, 8\n");
-                self.stack_depth -= 1;
-            }
-            return Ok(());
+            // Evaluate in declaration order, then rearrange evaluated words
+            // for the ABI. Reversing argument evaluation to build the stack
+            // disagrees with typed flow (and with calls that fit registers).
+            return self.call_mixed(
+                &abi.symbol_name,
+                arguments,
+                &abi.parameters,
+                &abi.indirect_parameters,
+                indirect_return_slot,
+            );
         }
         for ((argument, ty), indirect) in arguments
             .iter()
