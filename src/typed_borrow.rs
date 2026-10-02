@@ -892,7 +892,10 @@ fn call_argument_slots(body: &Body, value: NodeId, output: &mut Vec<Place>) {
     }
 }
 
-fn scoped_borrows_before(flow: &FlowGraph, scoped_ids: &HashSet<NodeId>) -> Vec<HashSet<NodeId>> {
+pub(crate) fn scoped_borrows_before(
+    flow: &FlowGraph,
+    scoped_ids: &HashSet<NodeId>,
+) -> Vec<HashSet<NodeId>> {
     // Without a scoped loan, every transfer preserves the empty set. Avoid
     // constructing predecessors and iterating the fixed point in that case.
     if scoped_ids.is_empty() {

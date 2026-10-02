@@ -1015,6 +1015,7 @@ fn monomorphize_program<'a>(
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
         syntax_bundle_uses: program.syntax_bundle_uses.clone(),
+        async_functions: program.async_functions.clone(),
     }))
 }
 
@@ -1192,6 +1193,7 @@ fn prepare_checked_program(
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
         syntax_bundle_uses: program.syntax_bundle_uses.clone(),
+        async_functions: program.async_functions.clone(),
     };
     for item in &mut result.items {
         match item {
@@ -2237,7 +2239,23 @@ fn generate_function(
     } else {
         None
     };
+    // Computed aggregates can need scratch without having a local binding or
+    // an indirect-call ABI. Use their checked types, not source inference.
+    let checked_value_words = expression_types
+        .by_id
+        .values()
+        .filter_map(|metadata| metadata.ty.as_ref())
+        .try_fold(0usize, |largest, ty| {
+            storage_word_count(ty, structs, enums).map(|words| {
+                largest.max(if words > VALUE_REGISTERS.len() {
+                    words
+                } else {
+                    0
+                })
+            })
+        })?;
     let aggregate_temp_words = max_abi_storage_words
+        .max(checked_value_words)
         .max(
             local_types
                 .values()
@@ -2790,6 +2808,9 @@ fn collect_expr_types(
                 collect_local_types(statement, types, aliases, enums, structs);
             }
         }
+        Expr::Labeled { expression, .. } => {
+            collect_expr_types(expression, types, aliases, enums, structs);
+        }
         _ => {}
     }
 }
@@ -2801,7 +2822,7 @@ fn max_let_else_storage_in_expression(
     aliases: &HashMap<String, Type>,
 ) -> Result<usize, String> {
     match expression {
-        Expr::Block(statements) => {
+        Expr::Block(statements) | Expr::Loop(statements) => {
             let max = statements
                 .iter()
                 .map(|statement| {
@@ -2823,7 +2844,10 @@ fn max_let_else_storage_in_expression(
                 .unwrap_or(0);
             Ok(max)
         }
-        Expr::Quote(value)
+        Expr::Labeled {
+            expression: value, ..
+        }
+        | Expr::Quote(value)
         | Expr::QuasiQuote(value)
         | Expr::Unquote(value)
         | Expr::UnquoteSplicing(value) => {
@@ -2865,9 +2889,18 @@ fn max_let_else_storage_in_statement(
         .max(nested(body)?)),
         Statement::Loop { body } => nested(body),
         Statement::For {
-            condition, body, ..
+            init,
+            condition,
+            step,
+            body,
         } => Ok(
-            max_let_else_storage_in_expression(condition, structs, enums, aliases)?
+            max_let_else_storage_in_statement(init, structs, enums, aliases)?
+                .max(max_let_else_storage_in_expression(
+                    condition, structs, enums, aliases,
+                )?)
+                .max(max_let_else_storage_in_statement(
+                    step, structs, enums, aliases,
+                )?)
                 .max(nested(body)?),
         ),
         Statement::Expr(value)
@@ -2922,7 +2955,10 @@ fn max_projection_depth_in_expression(expression: &Expr) -> usize {
             .map(max_projection_depth_in_statement)
             .max()
             .unwrap_or(0),
-        Expr::Quote(value)
+        Expr::Labeled {
+            expression: value, ..
+        }
+        | Expr::Quote(value)
         | Expr::QuasiQuote(value)
         | Expr::Unquote(value)
         | Expr::UnquoteSplicing(value) => max_projection_depth_in_expression(value),
@@ -2946,6 +2982,7 @@ fn max_projection_depth_in_statement(statement: &Statement) -> usize {
         | Statement::TupleAssign { value, .. }
         | Statement::EnumPayloadAssign { value, .. }
         | Statement::BreakValue(value)
+        | Statement::BreakToValue { value, .. }
         | Statement::Return(Some(value))
         | Statement::Expr(value) => max_projection_depth_in_expression(value),
         Statement::ArrayAssign { index, value, .. } => {
@@ -2970,7 +3007,6 @@ fn max_projection_depth_in_statement(statement: &Statement) -> usize {
         Statement::Labeled { statement, .. } => max_projection_depth_in_statement(statement),
         Statement::Break
         | Statement::BreakTo(_)
-        | Statement::BreakToValue { .. }
         | Statement::Continue
         | Statement::ContinueTo(_)
         | Statement::Return(None) => 0,
@@ -3442,6 +3478,11 @@ fn collect_expr_locals(
             for statement in statements {
                 collect_locals(statement, locals, structs, enums, aliases, next_slot, types)?;
             }
+        }
+        Expr::Labeled { expression, .. } => {
+            collect_expr_locals(
+                expression, locals, structs, enums, aliases, next_slot, types,
+            )?;
         }
         _ => {}
     }
@@ -6406,6 +6447,11 @@ impl FunctionContext<'_> {
             } => {
                 let storage_words = storage_word_count(ty, &self.structs, &self.enums)?;
                 let words = if storage_words > VALUE_REGISTERS.len() {
+                    if storage_words > self.aggregate_temp_words {
+                        return Err(
+                            "internal error: let-else exceeds reserved aggregate scratch".into(),
+                        );
+                    }
                     let base = self
                         .aggregate_temp_base
                         .ok_or_else(|| "no aggregate temporary is available".to_owned())?;

@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "async-source-type-mismatch",
+            diagnostic_code: "E4000",
+            offending_line: "    (#let bad u64 false)",
+            line_number: 9,
+        },
+        Case {
             name: "async-unknown-loop-label",
             diagnostic_code: "E4000",
             offending_line: "      (#continue-to missing))",
@@ -1021,6 +1027,7 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "async-source-type-mismatch" => Some("false"),
             "async-unknown-loop-label" => Some("missing"),
             "async-break-outside-loop" => Some("#break"),
             "fresh-aggregate-borrows" => Some("(#borrow-mut owner)"),

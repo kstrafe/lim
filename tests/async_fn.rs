@@ -635,11 +635,31 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
         "(#let second Poll",
         "(#let moved Frame frame)\n        (#let second Poll",
     );
-    let error = lim::check_types(&lim::parse_program(&moved).unwrap()).unwrap_err();
+    let scratch = support::Scratch::new("pinned-frame-move-span");
+    let diagnostic = lim::compile_source_to_assembly(
+        &moved,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    let error = &diagnostic.message;
     assert!(
-        error.contains("pinned") || error.contains("borrow") || error.contains("consumed"),
+        error.contains("pinned")
+            || error.contains("borrow")
+            || error.contains("consumed")
+            || error.contains("used more than once"),
         "{error}"
     );
+    assert!(matches!(
+        diagnostic.code,
+        lim::DiagnosticCode::Linear | lim::DiagnosticCode::Borrow
+    ));
+    let span = diagnostic
+        .span
+        .expect("the move must retain its original source span");
+    assert!(moved[span.start..span.end].contains("frame"));
 
     let escaping = source.replace(
         "(#fn main () u64",

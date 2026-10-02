@@ -170,6 +170,33 @@ struct FunctionTable {
     expression_spans: std::cell::RefCell<HashMap<crate::typed_ir::ExpressionId, crate::Span>>,
     statement_spans: std::cell::RefCell<HashMap<crate::typed_ir::StatementId, crate::Span>>,
     collecting_sources: std::cell::Cell<bool>,
+    value_loops: std::cell::RefCell<Vec<ValueLoopTypes>>,
+    pending_value_label: std::cell::RefCell<Option<String>>,
+}
+
+struct ValueLoopTypes {
+    label: Option<String>,
+    expected: Option<Type>,
+    breaks: Option<Vec<Type>>,
+}
+
+struct StatementLoopBarrier<'a>(&'a FunctionTable);
+
+impl Drop for StatementLoopBarrier<'_> {
+    fn drop(&mut self) {
+        self.0.value_loops.borrow_mut().pop();
+    }
+}
+
+impl FunctionTable {
+    fn statement_loop_barrier(&self) -> StatementLoopBarrier<'_> {
+        self.value_loops.borrow_mut().push(ValueLoopTypes {
+            label: None,
+            expected: None,
+            breaks: None,
+        });
+        StatementLoopBarrier(self)
+    }
 }
 
 impl std::ops::Deref for FunctionTable {
@@ -221,6 +248,21 @@ impl<'a> CheckedProgram<'a> {
 
     pub(crate) fn declarations(&self) -> &Declarations {
         &self.declarations
+    }
+
+    /// Suspension planning may query ordinary staged ownership facts only
+    /// after this program has passed the same validation as emitted code.
+    /// Updating analysis caches cannot alter its declarations or source body.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn suspension_storage_facts(
+        &mut self,
+        names: &std::collections::HashSet<String>,
+    ) -> Result<
+        HashMap<String, crate::typed_flow::StorageFacts>,
+        crate::typed_ir::StagedReferentError,
+    > {
+        let types = crate::linearcheck::LinearTypes::from_program(self.program);
+        self.declarations.suspension_storage_facts(&types, names)
     }
 
     /// Inspect the retained body representation. This is a compiler debugging
@@ -709,7 +751,7 @@ pub(crate) fn check_types_with_span(
 }
 
 fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
-    resolve_program_for_analysis(program, true)
+    crate::async_source::resolve(program)
 }
 
 /// Build checked typed bodies and CFG liveness before ownership enforcement.
@@ -1580,9 +1622,15 @@ fn check_types_inner(
                         }
                     }
                 }
-                for result in ownership_results {
+                let [release, consumed_use, owned_exit, replacement] = ownership_results;
+                for (result, declaration_subject) in [
+                    (release, false),
+                    (consumed_use, false),
+                    (owned_exit, true),
+                    (replacement, false),
+                ] {
                     if typed_linear_error.is_none() {
-                        typed_linear_error = result.err();
+                        typed_linear_error = result.err().map(|error| (error, declaration_subject));
                     }
                 }
             }
@@ -1591,7 +1639,7 @@ fn check_types_inner(
     // Typed flow alone decides owned-value validity. Consult the legacy
     // syntax checker only to format an error already established by typed
     // events; it cannot reject a program that passed the typed analysis.
-    if let Some(error) = typed_linear_error {
+    if let Some((error, declaration_subject)) = typed_linear_error {
         let syntax_linear_error = crate::linearcheck::check_program_with_span(
             program,
             checked_expression_types,
@@ -1606,9 +1654,21 @@ fn check_types_inner(
                 .is_some_and(|(syntax_subject, typed_subject)| {
                     ownership_subjects_overlap(syntax_subject, typed_subject)
                 });
-            if same_checked_subject || span == error.span {
-                *diagnostic_span = span;
-                *diagnostic_labels = labels;
+            if span.is_some() && (same_checked_subject || span == error.span) {
+                // Exit obligations select the declared owner, not an unrelated
+                // return tail. Use diagnostics may still refine a projected
+                // operation to its consumed handle in the syntax formatter.
+                // Never choose this policy by parsing diagnostic wording.
+                *diagnostic_span = if declaration_subject {
+                    error.span.or(span)
+                } else {
+                    span.or(error.span)
+                };
+                *diagnostic_labels = if error.labels.is_empty() {
+                    labels
+                } else {
+                    error.labels
+                };
                 return Err(message);
             }
         }
@@ -3805,26 +3865,31 @@ fn semantic_statement_source<'a>(
         }
     }
     match statement {
-        Statement::Let { value, .. } | Statement::Destructure { value, .. } => {
-            locate(value, source.children.get(3)?)
-        }
+        Statement::Let { value, .. } => locate(value, source.children.get(3)?),
+        Statement::Destructure { pattern, value, .. } => locate(value, source.children.get(3)?)
+            .or_else(|| locate(pattern, source.children.get(1)?)),
         Statement::LetElse {
-            value, else_body, ..
-        } => locate(value, source.children.get(3)?).or_else(|| {
-            else_body
-                .iter()
-                .zip(source.children.iter().skip(4))
-                .find_map(|(statement, source)| {
-                    semantic_statement_source(
-                        statement,
-                        source,
-                        origin,
-                        statement_origin,
-                        functions,
-                        structs,
-                    )
-                })
-        }),
+            pattern,
+            value,
+            else_body,
+            ..
+        } => locate(value, source.children.get(3)?)
+            .or_else(|| {
+                else_body
+                    .iter()
+                    .zip(source.children.iter().skip(4))
+                    .find_map(|(statement, source)| {
+                        semantic_statement_source(
+                            statement,
+                            source,
+                            origin,
+                            statement_origin,
+                            functions,
+                            structs,
+                        )
+                    })
+            })
+            .or_else(|| locate(pattern, source.children.get(1)?)),
         Statement::Return(Some(value)) | Statement::BreakValue(value) => {
             locate(value, source.children.get(1)?)
         }
@@ -5314,6 +5379,9 @@ fn statement_type_in_context(
                 Some(&Type::Bool),
             )?;
             require_type(&actual, &Type::Bool, "while condition")?;
+            // Only the body has the inner target. Headers keep the enclosing
+            // targets, exactly as ordinary flow construction and emission do.
+            let _barrier = functions.statement_loop_barrier();
             let mut loop_variables = variables.clone();
             let mut loop_mutable = mutable.clone();
             for nested in body {
@@ -5335,6 +5403,7 @@ fn statement_type_in_context(
             if body.iter().any(statement_has_value_break) {
                 return Err("break with a value is only valid in a loop expression".into());
             }
+            let _barrier = functions.statement_loop_barrier();
             let mut loop_variables = variables.clone();
             let mut loop_mutable = mutable.clone();
             for nested in body {
@@ -5372,7 +5441,7 @@ fn statement_type_in_context(
                 enums,
                 return_type,
                 aliases,
-                false,
+                in_loop,
             )?;
             let actual = expression(
                 condition,
@@ -5385,18 +5454,21 @@ fn statement_type_in_context(
                 Some(&Type::Bool),
             )?;
             require_type(&actual, &Type::Bool, "for condition")?;
-            for nested in body {
-                statement_type(
-                    nested,
-                    &mut loop_variables,
-                    &mut loop_mutable,
-                    functions,
-                    structs,
-                    enums,
-                    return_type,
-                    aliases,
-                    true,
-                )?;
+            {
+                let _barrier = functions.statement_loop_barrier();
+                for nested in body {
+                    statement_type(
+                        nested,
+                        &mut loop_variables,
+                        &mut loop_mutable,
+                        functions,
+                        structs,
+                        enums,
+                        return_type,
+                        aliases,
+                        true,
+                    )?;
+                }
             }
             statement_type(
                 step,
@@ -5407,7 +5479,7 @@ fn statement_type_in_context(
                 enums,
                 return_type,
                 aliases,
-                true,
+                in_loop,
             )?;
             Ok(Type::Unit)
         }
@@ -5415,9 +5487,30 @@ fn statement_type_in_context(
             if !mutable.contains(LOOP_VALUE_CONTEXT) {
                 return Err("break with a value used outside a loop".into());
             }
-            expression(
-                value, variables, functions, structs, enums, mutable, aliases, None,
-            )
+            let expected = functions
+                .value_loops
+                .borrow()
+                .last()
+                .and_then(|context| context.expected.clone());
+            let actual = expression(
+                value,
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                expected.as_ref(),
+            )?;
+            let mut contexts = functions.value_loops.borrow_mut();
+            let breaks = contexts
+                .last_mut()
+                .and_then(|context| context.breaks.as_mut())
+                .ok_or_else(|| {
+                    SemanticError::from("break with a value used outside a value loop")
+                })?;
+            breaks.push(actual);
+            Ok(Type::Never)
         }
         Statement::BreakToValue { label, value } => {
             if !mutable.contains(&format!("\0lim-value-label:{label}")) {
@@ -5425,12 +5518,48 @@ fn statement_type_in_context(
                     "value break used with inactive or non-value label '{label}'"
                 ));
             }
-            expression(
-                value, variables, functions, structs, enums, mutable, aliases, None,
-            )
+            let target = functions
+                .value_loops
+                .borrow()
+                .iter()
+                .rposition(|context| context.label.as_ref() == Some(label))
+                .ok_or_else(|| {
+                    SemanticError::from(format!(
+                        "value break used with inactive or non-value label '{label}'"
+                    ))
+                })?;
+            let expected = functions.value_loops.borrow()[target].expected.clone();
+            let actual = expression(
+                value,
+                variables,
+                functions,
+                structs,
+                enums,
+                mutable,
+                aliases,
+                expected.as_ref(),
+            )?;
+            functions.value_loops.borrow_mut()[target]
+                .breaks
+                .as_mut()
+                .unwrap()
+                .push(actual);
+            Ok(Type::Never)
         }
         Statement::BreakTo(label) | Statement::ContinueTo(label) => {
             if mutable.contains(&format!("\0lim-label:{label}")) {
+                if matches!(statement, Statement::BreakTo(_)) {
+                    if let Some(context) = functions
+                        .value_loops
+                        .borrow_mut()
+                        .iter_mut()
+                        .rfind(|context| context.label.as_ref() == Some(label))
+                    {
+                        if let Some(breaks) = &mut context.breaks {
+                            breaks.push(Type::Unit);
+                        }
+                    }
+                }
                 Ok(Type::Never)
             } else {
                 Err(semantic_format!("unknown or inactive loop label '{label}'"))
@@ -5438,6 +5567,16 @@ fn statement_type_in_context(
         }
         Statement::Break | Statement::Continue => {
             if in_loop {
+                if matches!(statement, Statement::Break) {
+                    if let Some(breaks) = functions
+                        .value_loops
+                        .borrow_mut()
+                        .last_mut()
+                        .and_then(|context| context.breaks.as_mut())
+                    {
+                        breaks.push(Type::Unit);
+                    }
+                }
                 Ok(Type::Never)
             } else {
                 Err("break or continue used outside a loop".into())
@@ -5468,12 +5607,38 @@ fn statement_type_in_context(
 
 fn statement_diverges(statement: &Statement) -> bool {
     match statement {
-        Statement::Return(_) | Statement::Break | Statement::Continue => true,
+        Statement::Return(_)
+        | Statement::Break
+        | Statement::BreakValue(_)
+        | Statement::BreakTo(_)
+        | Statement::BreakToValue { .. }
+        | Statement::Continue
+        | Statement::ContinueTo(_) => true,
         Statement::Labeled { statement, .. } => statement_diverges(statement),
-        Statement::Expr(Expr::List(items)) => matches!(
-            items.first(),
-            Some(Expr::Symbol(name)) if matches!(name.as_str(), "panic" | "unreachable")
-        ),
+        Statement::Expr(expression) => expression_diverges(expression),
+        _ => false,
+    }
+}
+
+fn expression_diverges(expression: &Expr) -> bool {
+    match expression {
+        Expr::Block(statements) => statements.iter().any(statement_diverges),
+        Expr::List(items) => match items.first() {
+            Some(Expr::Symbol(head)) if matches!(head.as_str(), "panic" | "unreachable") => true,
+            Some(Expr::Symbol(head)) if head == "unsafe" && items.len() == 2 => {
+                expression_diverges(&items[1])
+            }
+            Some(Expr::Symbol(head)) if head == "if" && items.len() == 4 => {
+                expression_diverges(&items[2]) && expression_diverges(&items[3])
+            }
+            Some(Expr::Symbol(head)) if head == "match" && items.len() > 2 => {
+                items[2..].iter().all(|arm| match arm {
+                    Expr::List(parts) => parts.last().is_some_and(expression_diverges),
+                    _ => false,
+                })
+            }
+            _ => false,
+        },
         _ => false,
     }
 }
@@ -5789,23 +5954,14 @@ fn expression_inner(
                 .clone()
                 .or_else(|| expected.cloned())
                 .unwrap_or(Type::Unit);
-            let mut result_type = None;
-            for statement in statements {
-                let has_value_break = statement_has_value_break(statement);
-                let actual = if let Statement::BreakValue(value)
-                | Statement::BreakToValue { value, .. } = statement
-                {
-                    expression(
-                        value,
-                        &loop_variables,
-                        functions,
-                        structs,
-                        enums,
-                        &loop_mutable,
-                        aliases,
-                        expected,
-                    )?
-                } else {
+            let label = functions.pending_value_label.borrow_mut().take();
+            functions.value_loops.borrow_mut().push(ValueLoopTypes {
+                label,
+                expected: expected.cloned(),
+                breaks: Some(Vec::new()),
+            });
+            let checked = (|| {
+                for statement in statements {
                     statement_type(
                         statement,
                         &mut loop_variables,
@@ -5816,17 +5972,22 @@ fn expression_inner(
                         &loop_return,
                         aliases,
                         true,
-                    )?
-                };
-                if has_value_break {
-                    if let Some(previous) = &result_type {
-                        result_type = Some(merge_types(previous, &actual, "loop break values")?);
-                    } else {
-                        result_type = Some(actual);
-                    }
+                    )?;
                 }
+                Ok::<_, SemanticError>(())
+            })();
+            let breaks = functions
+                .value_loops
+                .borrow_mut()
+                .pop()
+                .unwrap()
+                .breaks
+                .unwrap();
+            checked?;
+            let mut result = Type::Never;
+            for actual in breaks {
+                result = merge_types(&result, &actual, "loop break values")?;
             }
-            let result = result_type.unwrap_or(Type::Unit);
             if let Some(expected) = expected {
                 require_type(&result, expected, "loop expression")?;
             }
@@ -5846,7 +6007,8 @@ fn expression_inner(
             let mut labeled_mutable = mutable.clone();
             labeled_mutable.insert(marker);
             labeled_mutable.insert(format!("\0lim-value-label:{label}"));
-            expression(
+            let previous = functions.pending_value_label.replace(Some(label.clone()));
+            let result = expression(
                 loop_expression,
                 variables,
                 functions,
@@ -5855,7 +6017,9 @@ fn expression_inner(
                 &labeled_mutable,
                 aliases,
                 expected,
-            )
+            );
+            functions.pending_value_label.replace(previous);
+            result
         }
         Expr::At
         | Expr::Quote(_)
@@ -5872,7 +6036,9 @@ fn expression_inner(
 
 fn statement_has_value_break(statement: &Statement) -> bool {
     match statement {
-        Statement::BreakValue(_) | Statement::BreakToValue { .. } => true,
+        // Named transfers are checked against their resolved value target;
+        // they may legitimately cross a nested statement loop.
+        Statement::BreakValue(_) => true,
         Statement::Expr(expression) => expression_has_value_break(expression),
         Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. } => false,
         _ => false,

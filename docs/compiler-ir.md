@@ -62,10 +62,58 @@ temporary parent handle's storage.
 The existing async capture probe now retains linear cleanup requirements even
 when a resume parameter has no subsequent data read. This cheap preliminary
 mode is explicitly entry-only: without callee staging it cannot supply snapshots
-at later events. The source suspension graph still needs mapping to checked
-typed bodies and computed temporary storage before general frame emission can
-use these facts. Staging snapshots are not a successful `CheckedProgram`
+at later events. Staging snapshots are not a successful `CheckedProgram`
 boundary and cannot waive ordinary owned-exit, borrowing or unsafe validation.
+
+### Original-body checking and evaluated operands
+
+`async_source.rs` retains original async function trees and checks them in the
+same ordinary whole-program context as the generated functions. Each await
+becomes a uniquely identified analysis-only function call. Its driver evaluates
+the child once, replaces it with each Pending payload, and returns the Ready
+payload. These drivers model type, move and borrow effects; they are not the
+runtime state machine and are excluded from emitted code and typed-IR dumps.
+Original source paths distinguish awaits even when expanded syntax nodes share
+one span. Poll protocols use concrete declared types, including aliases and the
+short await form's declared Ready payload. Unsafe poll calls still require an
+original unsafe scope. Original bodies are checked before their continuations
+to retain precise operand diagnostics.
+
+For the currently supported hoisted pinned owners, the model uses a real
+external pinned-frame parameter and projects internal borrows into its sibling
+fields. An analysis-only receiver accounts for each owner's ownership transfer
+once; it is not an exit-check exemption. This receiver does not itself store
+reference provenance into the frame: the ordinary factory and generated
+functions must also pass validation. Reference-bearing owners containing stack
+borrows remain invalid. General promoted-place access and late initialization
+are not implemented by this model.
+
+`async_values.rs` plans already-evaluated operands using structured checked
+bodies and actual flow edges, not arena numbering or source spans. Named calls
+follow declaration order. Completed branches and value loops retain one
+selected result. Reference/slice/pointer loads are retained as values instead
+of rereading a holder that later operands may replace; lexical place roots are
+not implicitly moved. Unreachable awaits have no storage snapshot. Planning
+rejects suspended linear/exclusive match previews until alias-aware storage is
+implemented, and rejects ambiguous repeated-element or assembly evaluation.
+
+The storage planner includes those computed values' loans as well as named
+locals. Active scoped borrows reuse the ordinary scoped-loan solver to retain
+referent addresses even without later reads, distinguishing a parent handle's
+lifetime from its pointee's address. Source models can query these facts only
+after ordinary validation. They cannot authorize whole-value loads of
+Conditional storage, duplicate transferred children, or move stationary owners.
+General source-graph identity mapping, executable frame/poll/cancel emission,
+and Empty/Full initialization of late pinned owners remain open.
+
+Ordinary value-loop checking records break payload types separately from the
+Never type of a control transfer. Statement-loop bodies introduce an inner
+target; while conditions and for initialization/condition/step keep the outer
+targets, matching ordinary flow and native emission. Native storage and scratch
+walkers traverse labeled loops and their transfer payloads. Oversized computed
+aggregate types also contribute to scratch sizing even without local bindings.
+Pattern declarations retain exact source spans, and exit-obligation formatting
+cannot replace them with unrelated return tails.
 
 ## Production ownership boundary
 

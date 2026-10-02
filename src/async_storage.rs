@@ -9,9 +9,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::linearcheck::LinearTypes;
-use crate::typed_body::{BindingId, Body, PlaceRoot};
+use crate::typed_body::{BindingId, Body, NodeId, PlaceRoot};
 use crate::typed_flow::{
-    linear_obligation_place, place_covers, FlowConsumptions, FlowGraph, FlowLiveness,
+    linear_obligation_place, place_covers, FlowAction, FlowConsumptions, FlowGraph, FlowLiveness,
     FlowLoanOrigins, FlowNodeId, LoanOrigin, StorageFacts,
 };
 use crate::typed_ir::{Declarations, VariantId};
@@ -60,8 +60,31 @@ impl Slot {
 }
 
 #[derive(Debug)]
+pub(crate) struct ValueSlot {
+    /// An already-evaluated operand. It must not be reconstructed on resume.
+    pub value: NodeId,
+    #[cfg_attr(not(test), allow(dead_code))] // General frame emission consumes the checked type.
+    pub ty: crate::Type,
+    pub loans: Vec<LoanOrigin>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ScopedLoan {
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub scope: NodeId,
+    pub places: Vec<Place>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub mutable: bool,
+    pub handle: Place,
+}
+
+#[derive(Debug)]
 pub(crate) struct Snapshot {
     pub slots: Vec<Slot>,
+    #[cfg_attr(not(test), allow(dead_code))] // General frame emission consumes operand slots.
+    pub values: Vec<ValueSlot>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub scoped_loans: Vec<ScopedLoan>,
     /// Unresolved effects are never a proof that storage is initialized.
     pub unresolved_effects: bool,
 }
@@ -80,6 +103,8 @@ pub(crate) struct Analysis<'a> {
     obligations: Vec<Vec<Place>>,
     unresolved_before: Vec<bool>,
     entry_only: bool,
+    scoped_before: Vec<HashSet<NodeId>>,
+    scoped_places: HashMap<NodeId, ScopedLoan>,
 }
 
 impl<'a> Analysis<'a> {
@@ -107,6 +132,48 @@ impl<'a> Analysis<'a> {
                     .collect()
             })
             .collect();
+        let scopes = flow
+            .nodes
+            .iter()
+            .filter_map(|node| match node.action {
+                FlowAction::BorrowScopeEnd { scope } => Some(scope),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
+        let scoped_before = crate::typed_borrow::scoped_borrows_before(flow, &scopes);
+        let scoped_places = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, node)| match &node.action {
+                FlowAction::Borrow {
+                    value,
+                    place,
+                    mutable,
+                } if scopes.contains(value) => {
+                    let projected = match place.root {
+                        PlaceRoot::Local(binding) => {
+                            origins.projected_referents(FlowNodeId(index), binding, &place.segments)
+                        }
+                        _ => Vec::new(),
+                    };
+                    Some((
+                        *value,
+                        ScopedLoan {
+                            scope: *value,
+                            places: if projected.is_empty() {
+                                vec![place.clone()]
+                            } else {
+                                projected
+                            },
+                            mutable: *mutable,
+                            handle: place.clone(),
+                        },
+                    ))
+                }
+                _ => None,
+            })
+            .collect();
         Self {
             body,
             flow,
@@ -119,10 +186,22 @@ impl<'a> Analysis<'a> {
             definite_active: flow.definitely_active_bindings_before(body),
             unresolved_before: facts.moves.unresolved_before(flow),
             entry_only: facts.entry_only,
+            scoped_before,
+            scoped_places,
         }
     }
 
     pub(crate) fn before(&self, event: FlowNodeId) -> Option<Snapshot> {
+        self.before_with_values(event, &[])
+    }
+
+    /// `values` must be evaluated operands selected by the checked body's
+    /// evaluation-order planner, not arbitrary source expressions or reads.
+    pub(crate) fn before_with_values(
+        &self,
+        event: FlowNodeId,
+        values: &[NodeId],
+    ) -> Option<Snapshot> {
         if self.entry_only && event != self.flow.entry {
             return None;
         }
@@ -198,9 +277,51 @@ impl<'a> Analysis<'a> {
                 loans,
             });
         }
+        let mut captured = Vec::with_capacity(values.len());
+        for &value in values {
+            if captured.iter().any(|slot: &ValueSlot| slot.value == value) {
+                continue;
+            }
+            captured.push(ValueSlot {
+                value,
+                ty: self.body.nodes.get(value.0)?.ty.clone()?,
+                loans: self
+                    .origins
+                    .value_before(self.body, self.flow, event, value),
+            });
+        }
         let mut retain_owners = Vec::new();
-        for slot in &slots {
-            for loan in &slot.loans {
+        let mut scopes = self.scoped_before[event.0]
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        scopes.sort_by_key(|scope| scope.0);
+        let scoped_loans = scopes
+            .into_iter()
+            .filter_map(|scope| self.scoped_places.get(&scope))
+            .map(|loan| {
+                for place in &loan.places {
+                    if let PlaceRoot::Local(owner) = place.root {
+                        retain_owners.push((owner, true));
+                    }
+                }
+                if let PlaceRoot::Local(handle) = loan.handle.root {
+                    retain_owners.push((handle, false));
+                }
+                ScopedLoan {
+                    scope: loan.scope,
+                    places: loan.places.clone(),
+                    mutable: loan.mutable,
+                    handle: loan.handle.clone(),
+                }
+            })
+            .collect();
+        for loans in slots
+            .iter()
+            .map(|slot| &slot.loans)
+            .chain(captured.iter().map(|slot| &slot.loans))
+        {
+            for loan in loans {
                 if let PlaceRoot::Local(owner) = loan.referent_place().root {
                     retain_owners.push((owner, !loan.lifetime_only));
                 }
@@ -221,6 +342,8 @@ impl<'a> Analysis<'a> {
         }
         Some(Snapshot {
             slots,
+            values: captured,
+            scoped_loans,
             unresolved_effects,
         })
     }
@@ -336,6 +459,69 @@ mod tests {
         let analysis = Analysis::new(body, &facts, &types, &declarations);
         assert!(analysis.before(flow.entry).is_some());
         assert!(analysis.before(checkpoint(body, flow, 0)).is_none());
+    }
+
+    #[test]
+    fn scoped_borrow_retains_an_unread_copy_owners_address_until_scope_end() {
+        let (program, declarations, facts) = prepare_staged(
+            "(#fn work () ()
+               (#let-mut owner u64 1u64)
+               (#borrow-mut owner (#block (#call checkpoint (:)) ()))
+               (#call checkpoint (:)) (#return ()))",
+        );
+        crate::CheckedProgram::validate(&program).unwrap();
+        let body = &declarations.bodies["work"];
+        let types = LinearTypes::from_program(&program);
+        let analysis = Analysis::new(body, &facts, &types, &declarations);
+        let inside = analysis.before(checkpoint(body, &facts.flow, 0)).unwrap();
+        let owner = slot(body, &inside, "owner");
+        assert!(!owner.data_needed);
+        assert!(!owner.cleanup_needed());
+        assert!(owner.address_needed && owner.lifetime_needed && owner.retain());
+        assert_eq!(inside.scoped_loans.len(), 1);
+        assert!(inside.scoped_loans[0].mutable);
+        assert_eq!(
+            inside.scoped_loans[0].places[0].root,
+            PlaceRoot::Local(owner.binding)
+        );
+        let outside = analysis.before(checkpoint(body, &facts.flow, 1)).unwrap();
+        assert!(outside.scoped_loans.is_empty());
+        assert!(!slot(body, &outside, "owner").retain());
+    }
+
+    #[test]
+    fn scoped_reborrow_retains_the_referent_and_not_the_parent_handles_address() {
+        let (program, declarations, facts) = prepare_staged(
+            "(#struct Owner ((value u64)))
+             (#fn work () ()
+               (#let-mut owner Owner (#struct-literal Owner (: value 1u64)))
+               (#let view (#ref-mut Owner) (#borrow-mut owner))
+               (#borrow (#get view value) (#block (#call checkpoint (:)) ()))
+               (#drop view) (#call checkpoint (:)) (#return ()))",
+        );
+        crate::CheckedProgram::validate(&program).unwrap();
+        let body = &declarations.bodies["work"];
+        let types = LinearTypes::from_program(&program);
+        let analysis = Analysis::new(body, &facts, &types, &declarations);
+        let inside = analysis.before(checkpoint(body, &facts.flow, 0)).unwrap();
+        let owner = slot(body, &inside, "owner");
+        assert!(owner.address_needed && owner.lifetime_needed);
+        let view = slot(body, &inside, "view");
+        assert!(view.lifetime_needed);
+        assert!(!view.address_needed);
+        assert_eq!(inside.scoped_loans.len(), 1);
+        assert!(!inside.scoped_loans[0].mutable);
+        assert_eq!(
+            inside.scoped_loans[0].places[0].root,
+            PlaceRoot::Local(owner.binding)
+        );
+        assert_eq!(
+            inside.scoped_loans[0].handle.root,
+            PlaceRoot::Local(view.binding)
+        );
+        let outside = analysis.before(checkpoint(body, &facts.flow, 1)).unwrap();
+        assert!(outside.scoped_loans.is_empty());
+        assert!(!slot(body, &outside, "owner").retain());
     }
 
     #[test]

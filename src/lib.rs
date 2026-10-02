@@ -12,7 +12,9 @@ mod analysis_error;
 mod async_cfg;
 mod async_contract;
 mod async_fn;
+mod async_source;
 mod async_storage;
+mod async_values;
 // Retain the lexical model only for differential regression tests. Production
 // borrowing is decided by checked places, callee contracts and typed flow.
 #[cfg(test)]
@@ -1616,6 +1618,7 @@ pub struct Program {
     pub(crate) declaration_occurrences: HashMap<String, Vec<SpannedExpr>>,
     pub(crate) generated_source_invocations: HashMap<u32, Span>,
     pub(crate) syntax_bundle_uses: HashMap<Span, Vec<Span>>,
+    pub(crate) async_functions: Vec<async_source::Source>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2393,6 +2396,7 @@ fn async_copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
         declaration_occurrences: HashMap::new(),
         generated_source_invocations: HashMap::new(),
         syntax_bundle_uses: HashMap::new(),
+        async_functions: Vec::new(),
     };
     let linear_types = linearcheck::LinearTypes::from_program(&program);
     items
@@ -2891,8 +2895,10 @@ fn parse_prepared_program_with_async_captures(
     let mut declaration_expressions = HashMap::new();
     let mut declaration_occurrences: HashMap<String, Vec<SpannedExpr>> = HashMap::new();
     let mut generated_source_invocations = HashMap::new();
+    let mut async_functions = Vec::new();
     let worker_functions = &prepared.worker_functions;
     for mut expression in expressions {
+        let original_async = async_source::Source::from_invocation(&expression)?;
         validate_prefixed_forms(&expression.expr).map_err(|error| {
             attach_span_to_source_error_kind(error, expression.span, &source_files, "parse error: ")
         })?;
@@ -2935,6 +2941,13 @@ fn parse_prepared_program_with_async_captures(
             });
             generated_source_invocations.insert(source_id, form_span);
             expression = generated_expression;
+        }
+        let original_async = match original_async {
+            Some(source) => Some(source),
+            None => async_source::Source::from_invocation(&expression)?,
+        };
+        if let Some(source) = original_async {
+            async_functions.push(source);
         }
         collect_function_statement_spans(
             &expression,
@@ -3225,6 +3238,7 @@ fn parse_prepared_program_with_async_captures(
         declaration_occurrences,
         generated_source_invocations,
         syntax_bundle_uses: prepared.bundles.uses.clone(),
+        async_functions,
     })
 }
 
@@ -13155,6 +13169,105 @@ mod tests {
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
+    }
+
+    #[test]
+    fn let_else_accepts_blocks_and_branches_that_all_transfer_control() {
+        for fallback in [
+            "(#block (#return 0u64))",
+            "(#if true (#block (#return 0u64)) (#block (#return 1u64)))",
+            "(#match true (#case true (#block (#return 0u64))) (#case false (#block (#return 1u64))))",
+        ] {
+            let program = parse_program(&format!(
+                "(#enum Maybe ((Some u64) None))
+                 (#fn main () u64
+                   (#let value Maybe (Some 42u64))
+                   (#let-else (Some payload) Maybe value {fallback})
+                   (#return payload))"
+            )).unwrap();
+            check_types(&program).unwrap();
+            generate_assembly(&program).unwrap();
+        }
+        let program = parse_program(
+            "(#enum Maybe ((Some u64) None))
+             (#fn main () u64 (#let value Maybe (Some 42u64))
+               (#let-else (Some payload) Maybe value
+                 (#if true (#block (#return 0u64)) ()))
+               (#return payload))",
+        )
+        .unwrap();
+        assert!(check_types(&program).unwrap_err().contains("diverge"));
+    }
+
+    #[test]
+    fn value_loop_control_transfers_diverge_without_losing_break_result_types() {
+        for value in [
+            "(#loop (#if true (#block (#break 42u64)) ()))",
+            "(#label outer (#loop (#if true (#block (#break-to outer 42u64)) ())))",
+            "(#loop (#loop (#break)) (#break 42u64))",
+        ] {
+            let program = parse_program(&format!("(#fn main () u64 (#return {value}))")).unwrap();
+            check_types(&program).unwrap();
+            generate_assembly(&program).unwrap();
+        }
+        let program = parse_program(
+            "(#fn main () u64
+               (#return (#loop (#if true (#block (#break 42u64)) (#block (#break false))))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_err());
+        let program = parse_program(
+            "(#fn main () u64
+               (#return (#label outer (#loop (#break-to outer)))))",
+        )
+        .unwrap();
+        assert!(check_types(&program).is_err());
+    }
+
+    #[test]
+    fn statement_loop_headers_use_the_enclosing_value_loop_result_contract() {
+        for statement in [
+            "(#while (#block (#break 42u64) false) ())",
+            "(#for (#let count u64 (#block (#break 42u64) 0u64)) false () ())",
+            "(#for () (#block (#break 42u64) false) () ())",
+            "(#for () true (#break 42u64) ())",
+            "(#while true (#break-to outer 42u64))",
+            "(#loop (#break-to outer 42u64))",
+            "(#for () true () (#break-to outer 42u64))",
+        ] {
+            let source = format!(
+                "(#fn main () u64
+                   (#return (#label outer (#loop {statement} (#break 42u64)))))"
+            );
+            let program = parse_program(&source).unwrap();
+            check_types(&program).unwrap_or_else(|error| panic!("{source}: {error}"));
+            generate_assembly(&program).unwrap_or_else(|error| panic!("{source}: {error}"));
+            let missing_value = source.replace("(#break 42u64)", "(#break)");
+            if statement.contains("(#break 42u64)") {
+                // Keep the final typed break, to expose an omitted Unit exit
+                // rather than just rejecting an entirely Unit-valued loop.
+                let missing_value = missing_value.replacen("(#break))", "(#break 42u64))", 1);
+                assert!(
+                    check_types(&parse_program(&missing_value).unwrap()).is_err(),
+                    "{missing_value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn destructured_linear_cleanup_errors_retain_the_binding_span() {
+        let source = "(#struct Token ((value u64))) (#linear Token)
+          (#fn broken ((value Token)) ()
+            (#let (#tuple retained) (#tuple Token) (#tuple (#tuple Token) value))
+            (#return ()))";
+        let program = parse_program(source).unwrap();
+        let (message, code, span, _) =
+            crate::typecheck::check_types_with_span(&program).unwrap_err();
+        assert!(message.contains("retained") && message.contains("consum"));
+        assert_eq!(code, DiagnosticCode::Linear);
+        let span = span.expect("pattern declarations must retain their exact source spans");
+        assert_eq!(&source[span.start..span.end], "retained");
     }
 
     #[test]

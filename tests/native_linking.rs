@@ -71,6 +71,50 @@ fn simple_lim_program_builds_with_no_external_tools_on_path() {
 }
 
 #[test]
+fn loop_headers_and_outer_value_transfers_return_the_selected_value() {
+    let scratch = support::Scratch::new("value-loop-phase-targets");
+    for statement in [
+        "(#while (#block (#break 42u64) false) ())",
+        "(#for (#let count u64 (#block (#break 42u64) 0u64)) false () ())",
+        "(#for () (#block (#break 42u64) false) () ())",
+        "(#for () true (#break 42u64) ())",
+        "(#while true (#break-to outer 42u64))",
+        "(#loop (#break-to outer 42u64))",
+        "(#for () true () (#break-to outer 42u64))",
+    ] {
+        let source =
+            format!("(#fn main () u64 (#return (#label outer (#loop {statement} (#break 0u64)))))");
+        assert_runs(&compile(&source, scratch.path(), &[]), b"");
+    }
+}
+
+#[test]
+fn labeled_value_loops_reserve_scratch_for_large_patterns_and_projections() {
+    let scratch = support::Scratch::new("labeled-loop-aggregate-scratch");
+    let array = "(#array-of (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)";
+    for expression in [
+        format!(
+            "(#label outer (#loop
+          (#let-else (#array a b c d e f answer) (#array u64 7) {array} (#unreachable))
+          (#break-to outer answer)))"
+        ),
+        format!(
+            "(#label outer (#loop
+          (#break-to outer (#index (#index
+            (#array-of (#array (#array u64 7) 1) {array}) 0usize) 6usize))))"
+        ),
+        format!(
+            "(#loop
+          (#break (#index (#index
+            (#array-of (#array (#array u64 7) 1) {array}) 0usize) 6usize)))"
+        ),
+    ] {
+        let source = format!("(#fn main () u64 (#return {expression}))");
+        assert_runs(&compile(&source, scratch.path(), &[]), b"");
+    }
+}
+
+#[test]
 fn constant_data_and_rip_relative_loads_build_without_external_tools() {
     let scratch = support::Scratch::new("internal-constant-link");
     for (name, source) in [
