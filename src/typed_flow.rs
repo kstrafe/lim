@@ -6260,7 +6260,8 @@ impl FlowGraph {
     }
 
     /// Preserve branch-specific origins and consumption only when evaluation
-    /// is followed by structural merge/scope nodes and this exact return.
+    /// is followed by structural merge/scope nodes, proved initializer-alias
+    /// binds/reads, and this exact return.
     /// A later operand, mutation, call, or loop edge needs the merged proof;
     /// an earlier snapshot alone cannot establish initialization at escape.
     fn transparent_return_alternatives(
@@ -6271,7 +6272,37 @@ impl FlowGraph {
         value: NodeId,
     ) -> Option<Vec<(FlowNodeId, NodeId)>> {
         let mut alternatives = Vec::new();
-        collect_result_alternatives(body, value, &mut alternatives);
+        let mut pending = vec![(returned, value)];
+        let mut seen_values = HashSet::new();
+        let mut alias_definitions = HashSet::new();
+        let mut alias_reads = HashSet::new();
+        while let Some((event, value)) = pending.pop() {
+            if !seen_values.insert((event, value)) {
+                return None;
+            }
+            if let NodeKind::Symbol {
+                binding: Some(binding),
+                ..
+            } = body.nodes[value.0].kind
+            {
+                if let Some(definitions) =
+                    self.unchanged_local_definitions(body, origins, event, binding, value)
+                {
+                    // Assignment, pattern, and scope transitions need a
+                    // reaching-storage proof, not initializer-based guesses.
+                    if definitions.iter().any(|(event, _)| {
+                        !matches!(self.nodes[event.0].action, FlowAction::Bind { .. })
+                    }) {
+                        return None;
+                    }
+                    alias_reads.insert(value);
+                    alias_definitions.extend(definitions.iter().map(|(event, _)| *event));
+                    pending.extend(definitions);
+                    continue;
+                }
+            }
+            collect_result_alternatives(body, value, &mut alternatives);
+        }
         if alternatives.len() < 2 {
             return None;
         }
@@ -6297,6 +6328,8 @@ impl FlowGraph {
                     }
                     match self.nodes[next.0].action {
                         FlowAction::ScopeExit(_) => {}
+                        FlowAction::Bind { .. } if alias_definitions.contains(next) => {}
+                        FlowAction::Read { value, .. } if alias_reads.contains(&value) => {}
                         FlowAction::Evaluate(value)
                             if matches!(
                                 body.nodes[value.0].kind,
@@ -6337,7 +6370,6 @@ impl FlowGraph {
         )
     }
 
-    #[cfg(test)]
     /// Find every reaching whole-value definition only while the local is
     /// unchanged. Unknown writes/calls and parameter entry stop the proof;
     /// a merged origin union is not a substitute for checking each source.

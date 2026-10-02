@@ -18415,6 +18415,38 @@ mod typed_ownership_tests {
         crate::check_types(&program).unwrap();
         crate::codegen::generate_assembly(&program).unwrap();
 
+        let aliased = source
+            .replace(
+                "(#return (#if choose",
+                "(#let output (#ref-mut Resource) (#if choose",
+            )
+            .replace(
+                "(#block (#forget (#deref first)) second))))",
+                "(#block (#forget (#deref first)) second))) (#return output))",
+            );
+        for source in [
+            aliased.clone(),
+            aliased.replace(
+                "(#return output)",
+                "(#let final-output (#ref-mut Resource) output) (#return final-output)",
+            ),
+        ] {
+            let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            crate::codegen::generate_assembly(&program).unwrap();
+
+            let invalid = source.replace(
+                "(#block (#forget (#deref second)) first)",
+                "(#block (#forget (#deref first)) first)",
+            );
+            let program = crate::parse_program(&invalid).unwrap();
+            let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+            assert!(message.contains("returned reference"), "{message}");
+            let span = span.unwrap();
+            assert!(invalid[span.start..span.end].starts_with("(#return"));
+            assert!(!labels.is_empty());
+        }
+
         // Later constructor operands mutate storage after the reference has
         // been evaluated, so its earlier snapshot cannot prove safe escape.
         let source = "(#struct Resource ((number u64))) (#linear Resource)
