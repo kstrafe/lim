@@ -30,7 +30,7 @@ through a still-owned reference remain valid.
 For a known owned field, tuple slot, array index or enum payload, extraction
 transfers only that slot. Live-loan validation ignores the consumed source slot
 but retains the destination's origin and the container's other loans. The
-temporary syntax-checker bridge uses checked slot paths rather than inventing
+retired syntax-checker bridge used checked slot paths rather than inventing
 referent projections from field names, and detaches the source loan without
 ending its transferred borrow. Shared-reference copies retain independent loan
 counts. Tests distinguish handle use-after-move from returning a reference to
@@ -67,18 +67,37 @@ Labeled value-loops resolve to the inner loop's checked break-result identity
 for both cached and event-specific loan queries; erasing the label without
 resolving its result previously lost returned-reference origins.
 
-This closes the known moved/restored child-parent call gap, not the complete
-loan-retention migration. The broader ordinary-reference lifetime/retirement
-rules still need parity before the syntax-based borrow checker can be removed.
-In particular, the syntax loan-retirement bridge still rejects some shared
-call results whose exclusive input is a block or conditional result; the typed
-provenance matrix records those cases without treating production parity as
-complete.
+Production now checks borrowing with typed flow and borrowed-storage contracts
+alone. The lexical borrow model is compiled only for differential regression
+tests; it cannot reject a program accepted by the typed checker. The returned
+reborrow matrix requires production acceptance after cleanup for direct,
+block and conditional arguments, including ordinary/pinned, shared/exclusive
+and aggregate results. Dead pattern-produced copies still use ordinary NLL.
 
-This does not finish the borrow-checker migration. Production still runs the
-syntax-based borrow checker and separate typed borrowed-storage entry contracts.
-Several sections below document earlier staging milestones; those experiments
-are not evidence that every reference-store or async integration gate is closed.
+Fresh reference-bearing bindings retain their loans until their first owned
+use, explicit release or scope exit, even if the value is never read. Forward
+may-state joins this retention across branches; ordinary backward liveness
+then governs loans after use. An address-only borrow or a Copy load through a
+pin does not retire the original holder. Derived borrows and direct unpinned
+call access can retire otherwise dead parent/backing holders; consumption and
+retained destination loans are checked independently.
+
+Aggregate construction also checks simultaneous fresh loans before any local
+holds its result. Path alternatives preserve exclusive branch/variant choices.
+Symbol operands use their evaluated snapshots, shared once per function, not
+the enclosing constructor's later binding state. Reassigning a reference in a
+later operand cannot erase a loan already copied into an earlier operand.
+Symbolic parameter slots retain distinct referent places during this check.
+Mutable slice metadata reads also respect live element reborrow permissions.
+Scoped mutable access permission does not authorize an overlapping access
+through a suspended parent reference. Diagnostics select source access order
+rather than reverse CFG allocation order, and display the resolved offending
+projection, not a dynamically indexed held loan. Dots in identifiers remain
+ordinary name characters, not path syntax.
+
+This is not proof of arbitrary-body async support or delayed pinned-owner
+initialization. Several sections below document earlier staging milestones;
+their descriptions of production syntax borrowing are historical.
 
 Borrowed-storage contracts are now prepared before production live-loan,
 scope-escape, returned-reference and argument-alias checks. Their contents-aware

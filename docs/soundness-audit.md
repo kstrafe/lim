@@ -74,6 +74,18 @@ examples. `staged_store_unions_do_not_claim_ready_path_self_reference_clearing`
 keeps the naive may-store-only solver's false Ready-path conflicts explicit;
 plain unions must not replace result-conditioned clearing. The full async
 integration suite separately exercises Pending, Ready and cancellation.
-Syntax-based borrow checking remains a production boundary; removing it still
-requires a broader parity audit. This coverage is not a proof of all ownership
-or arbitrary-body async lowering.
+Production borrowing now uses typed places, live loans and these contents-aware
+contracts without a syntax-based acceptance fallback. The old lexical model is
+test-only differential evidence. `typed_unread_holders_retain_loans_until_use_release_or_scope_exit`
+covers unused direct references, reference-bearing structs and slices, branch
+cleanup and scope exit. `typed_fresh_aggregate_borrows_are_checked_before_binding`
+rejects conflicting fresh struct/tuple/array/enum operands before the result is
+bound and accepts disjoint owners. The pinned-copy holder matrix independently
+checks that releasing a loaded copy does not authorize destruction of its
+original holder's parent handle; UI fixtures check both new primary spans.
+`typed_aggregate_operand_snapshots_survive_later_handle_reassignment` checks
+that replacing a shared source handle in a later operand cannot hide the loan
+already copied into the first operand, with exact conflict/origin spans and
+disjoint-owner and symbolic-slot controls. Slice metadata reads remain subject
+to suspended-parent permission in `tests/slice_reborrow.rs`.
+This coverage is not a proof of all ownership or arbitrary-body async lowering.

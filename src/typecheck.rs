@@ -1618,6 +1618,26 @@ fn check_types_inner(
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
+                crate::typed_borrow::check_call_arguments_cached(
+                    body,
+                    &declarations.flows[&function.name],
+                    &loan_caches[function.name.as_str()],
+                )
+                .map_err(|error| {
+                    *diagnostic_span = error.span;
+                    *diagnostic_labels = error
+                        .labels
+                        .into_iter()
+                        .map(|(span, label)| {
+                            (
+                                typed_borrow_origin_span(program, span).unwrap_or(span),
+                                label,
+                            )
+                        })
+                        .collect();
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                    error.message
+                })?;
                 crate::typed_borrow::check_live_direct_loans_cached(
                     body,
                     &declarations.flows[&function.name],
@@ -1642,36 +1662,9 @@ fn check_types_inner(
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     error.message
                 })?;
-                crate::typed_borrow::check_call_arguments_cached(
-                    body,
-                    &declarations.flows[&function.name],
-                    &loan_caches[function.name.as_str()],
-                )
-                .map_err(|error| {
-                    *diagnostic_span = error.span;
-                    *diagnostic_labels = error
-                        .labels
-                        .into_iter()
-                        .map(|(span, label)| {
-                            (
-                                typed_borrow_origin_span(program, span).unwrap_or(span),
-                                label,
-                            )
-                        })
-                        .collect();
-                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                    error.message
-                })?;
             }
         }
     }
-    crate::borrowcheck::check_program_with_typed_returns(program, &declarations).map_err(
-        |error| {
-            *diagnostic_span = error.span;
-            *diagnostic_labels = error.labels;
-            error.message
-        },
-    )?;
     *diagnostic_code = crate::DiagnosticCode::Unsafe;
     crate::unsafecheck::check_program_with_span(program).map_err(|(message, span)| {
         *diagnostic_span = span;
@@ -9599,24 +9592,7 @@ mod typed_ownership_tests {
                                 assert_eq!(&source[span.start..span.end], "parent", "{error:?}");
                                 assert!(error.message.contains("overwrite"), "{error:?}");
                             }
-                            if argument == "parent" {
-                                assert_eq!(
-                                    crate::check_types(&program).is_ok(),
-                                    release,
-                                    "{source}"
-                                );
-                            } else if !release {
-                                assert!(crate::check_types(&program).is_err(), "{source}");
-                            } else {
-                                // Typed provenance accepts these transparent
-                                // results, but the syntax loan-retirement bridge
-                                // still double-borrows some shared call results.
-                                // Keep that production parity gate explicit.
-                                let production = crate::check_types(&program);
-                                if let Err(error) = production {
-                                    assert!(error.contains("already borrowed mutably"), "{error}");
-                                }
-                            }
+                            assert_eq!(crate::check_types(&program).is_ok(), release, "{source}");
                         }
                     }
                 }
@@ -21999,6 +21975,173 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn typed_unread_holders_retain_loans_until_use_release_or_scope_exit() {
+        for (owner_type, owner_value, holder_type, holder_value) in [
+            ("u64", "42u64", "(#ref u64)", "(#borrow owner)"),
+            ("u64", "42u64", "(#ref-mut u64)", "(#borrow-mut owner)"),
+            (
+                "u64",
+                "42u64",
+                "Held",
+                "(#struct-literal Held (: item (#borrow owner)))",
+            ),
+            (
+                "(#array u64 1)",
+                "(#array-of (#array u64 1) 42u64)",
+                "(#slice u64)",
+                "(#slice-of (#borrow owner))",
+            ),
+        ] {
+            for cleanup in [
+                "",
+                "(#forget holder)",
+                "(#if selected (#block (#forget holder) ()) ())",
+                "(#if selected (#block (#forget holder) ()) (#block (#forget holder) ()))",
+            ] {
+                let source = format!(
+                    "(#struct Held (: item (#ref u64)))
+                  (#fn main (: selected bool) ()
+                    (#let-mut owner {owner_type} {owner_value})
+                    (#let holder {holder_type} {holder_value})
+                    {cleanup}
+                    (#set owner {owner_value})
+                    (#return ()))"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                let types = crate::linearcheck::LinearTypes::from_program(&program);
+                let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+                declarations.check_referent_entry_contracts(&types).unwrap();
+                let checked = crate::typed_borrow::check_live_direct_loans_with_types(
+                    &declarations.bodies["main"],
+                    &declarations.flows["main"],
+                    &types,
+                );
+                let accepted = cleanup == "(#forget holder)"
+                    || cleanup.contains("(#block (#forget holder) ()) (#block");
+                assert_eq!(checked.is_ok(), accepted, "{checked:?}\n{source}");
+                assert_eq!(crate::check_types(&program).is_ok(), accepted, "{source}");
+                if let Err(error) = checked {
+                    let span = error.span.unwrap();
+                    assert_eq!(
+                        &source[span.start..span.end],
+                        format!("(#set owner {owner_value})")
+                    );
+                    assert!(!error.labels.is_empty(), "{error:?}");
+                    // Keep the retired lexical checker as negative differential
+                    // evidence, not as an additional production acceptance gate.
+                    let old = crate::borrowcheck::check_program(&program).unwrap_err();
+                    assert!(old.span.is_some(), "{}", old.message);
+                    assert!(!old.labels.is_empty(), "{}", old.message);
+                }
+            }
+            let scoped = format!(
+                "(#struct Held (: item (#ref u64)))
+                (#fn main () ()
+                  (#let-mut owner {owner_type} {owner_value})
+                  (#block (#let holder {holder_type} {holder_value}) ())
+                  (#set owner {owner_value}) (#return ()))"
+            );
+            crate::check_types(&crate::parse_program(&scoped).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn typed_fresh_aggregate_borrows_are_checked_before_binding() {
+        for (ty, constructor) in [
+            (
+                "Pair",
+                "(#struct-literal Pair (: left (#borrow-mut owner) : right (#borrow-mut owner)))",
+            ),
+            (
+                "(#tuple (#ref-mut u64) (#ref-mut u64))",
+                "(#tuple (#borrow-mut owner) (#borrow-mut owner))",
+            ),
+            (
+                "(#array (#ref-mut u64) 2)",
+                "(#array-of (#array (#ref-mut u64) 2) (#borrow-mut owner) (#borrow-mut owner))",
+            ),
+            ("Choice", "(Both (#borrow-mut owner) (#borrow-mut owner))"),
+        ] {
+            let source = format!(
+                "(#struct Pair (: left (#ref-mut u64) : right (#ref-mut u64)))
+                (#enum Choice ((Both (#ref-mut u64) (#ref-mut u64))))
+                (#fn main () () (#let-mut owner u64 42u64)
+                  (#let holder {ty} {constructor}) (#forget holder) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations.check_referent_entry_contracts(&types).unwrap();
+            let error = crate::typed_borrow::check_call_arguments(
+                &declarations.bodies["main"],
+                &declarations.flows["main"],
+            )
+            .expect_err("fresh conflicting borrows coexist before the holder is bound");
+            assert!(error.message.contains("overlapping borrows"), "{error:?}");
+            let span = error.span.unwrap();
+            let first = error.labels[0].0;
+            assert_eq!(&source[span.start..span.end], "(#borrow-mut owner)");
+            assert_eq!(&source[first.start..first.end], "(#borrow-mut owner)");
+            assert!(span.start > first.start, "{error:?}");
+            assert!(crate::check_types(&program).is_err());
+            let disjoint = source.replacen(
+                "(#let-mut owner u64 42u64)",
+                "(#let-mut owner u64 42u64) (#let-mut other u64 43u64)",
+                1,
+            );
+            let second = disjoint.rfind("(#borrow-mut owner)").unwrap();
+            let mut disjoint = disjoint;
+            disjoint.replace_range(
+                second..second + "(#borrow-mut owner)".len(),
+                "(#borrow-mut other)",
+            );
+            crate::check_types(&crate::parse_program(&disjoint).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn typed_aggregate_operand_snapshots_survive_later_handle_reassignment() {
+        let source = "(#struct Pair (: left (#ref u64) : right (#ref-mut u64)))
+            (#fn main () ()
+              (#let-mut owner u64 42u64)
+              (#let-mut other u64 43u64)
+              (#let-mut first (#ref u64) (#borrow owner))
+              (#let next (#ref u64) (#borrow other))
+              (#let pair Pair (#struct-literal Pair
+                (: left first : right (#block
+                  (#set first next) (#borrow-mut owner)))))
+              (#forget pair) (#drop first) (#drop next) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.check_referent_entry_contracts(&types).unwrap();
+        let conflict = crate::typed_borrow::check_call_arguments(
+            &declarations.bodies["main"],
+            &declarations.flows["main"],
+        )
+        .expect_err("the first operand retains its original evaluated loan");
+        let span = conflict.span.unwrap();
+        let origin = conflict.labels[0].0;
+        assert_eq!(&source[span.start..span.end], "(#borrow-mut owner)");
+        assert_eq!(&source[origin.start..origin.end], "(#borrow owner)");
+        let error = crate::check_types(&program)
+            .expect_err("the first operand still owns the original borrow of owner");
+        assert!(error.contains("borrow"), "{error}");
+        let independent = source
+            .replace(
+                "(#let-mut other u64 43u64)",
+                "(#let-mut other u64 43u64) (#let-mut third u64 44u64)",
+            )
+            .replace("(#borrow-mut owner)", "(#borrow-mut third)");
+        crate::check_types(&crate::parse_program(&independent).unwrap()).unwrap();
+
+        let forwarded = "(#struct Views (: left (#ref-mut u64) : right (#ref-mut u64)))
+            (#fn rebuild (: input Views) Views
+              (#return (#struct-literal Views (: left (#get input left) : right (#get input right)))))";
+        crate::check_types(&crate::parse_program(forwarded).unwrap()).unwrap();
+    }
+
+    #[test]
     fn pinned_local_loads_transfer_moved_holder_loans_but_preserve_copies() {
         for (linear, release_original, release_loaded_early, accepted) in [
             (true, false, true, true),
@@ -22038,12 +22181,20 @@ mod typed_ownership_tests {
               {original} {early} (#drop parent) {late} (#forget owner) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
-            let declarations = resolve_program_for_analysis(&program, false).unwrap();
-            declarations
-                .staged_referent_entry_contracts(&crate::linearcheck::LinearTypes::from_program(
-                    &program,
-                ))
-                .unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations.check_referent_entry_contracts(&types).unwrap();
+            let typed = crate::typed_borrow::check_live_direct_loans_with_types(
+                &declarations.bodies["main"],
+                &declarations.flows["main"],
+                &types,
+            );
+            assert_eq!(typed.is_ok(), accepted, "{typed:?}\n{source}");
+            if let Err(error) = typed {
+                let span = error.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#drop parent)");
+                assert!(error.message.contains("derived"), "{error:?}");
+            }
             if accepted {
                 crate::check_types(&program).unwrap();
                 continue;
@@ -22052,7 +22203,7 @@ mod typed_ownership_tests {
                 .expect_err("a remaining holder still retains its parent loan");
             assert!(
                 error.contains("reference 'parent'") && error.contains("derived"),
-                "{error}"
+                "{error}\n{source}"
             );
         }
     }

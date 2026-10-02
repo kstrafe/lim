@@ -78,6 +78,7 @@ pub(crate) fn check_live_direct_loans_cached(
     let origins = cache.get_or_init(|| flow.loan_origins(body));
     let consumptions = flow.consumptions(body, types);
     let live = flow.liveness(body);
+    let unread = unread_loan_bindings(body, flow, types, origins);
     let scoped_ids = flow
         .nodes
         .iter()
@@ -121,7 +122,21 @@ pub(crate) fn check_live_direct_loans_cached(
         })
         .collect::<HashMap<_, _>>();
     let scoped_before = scoped_borrows_before(flow, &scoped_ids);
-    for (index, node) in flow.nodes.iter().enumerate() {
+    // Nodes are allocated backwards while constructing continuations. Report
+    // the first offending source access, not a later cleanup that happens to
+    // have a smaller allocation index. Loan snapshots remain CFG fixed points.
+    let mut accesses = (0..flow.nodes.len()).collect::<Vec<_>>();
+    accesses.sort_by_key(|index| {
+        (
+            flow.nodes[*index]
+                .span
+                .map(|span| span.start)
+                .unwrap_or(usize::MAX),
+            std::cmp::Reverse(*index),
+        )
+    });
+    for index in accesses {
+        let node = &flow.nodes[index];
         // Computed reference operands have no syntactic place, so lowering
         // represents their write as Evaluate. Resolve the evaluated target
         // rather than silently omitting the write from conflict checking.
@@ -212,7 +227,7 @@ pub(crate) fn check_live_direct_loans_cached(
                     .filter_map(|origin| origin.borrowed_from),
             );
         }
-        for binding in live.before(event) {
+        for binding in visible_loan_bindings(&live, &unread, event, body.bindings.len()) {
             if suspended_parents.contains(&binding) {
                 continue;
             }
@@ -230,6 +245,21 @@ pub(crate) fn check_live_direct_loans_cached(
                     continue;
                 }
                 let held_place = held.referent_place();
+                if matches!(access, AccessKind::Read) && place.segments.is_empty() {
+                    if let PlaceRoot::Local(parent) = place.root {
+                        if held.borrowed_from == Some(parent)
+                            && matches!(body.bindings[parent.0].ty, Type::MutableSlice(_))
+                        {
+                            let parent = &body.bindings[parent.0].name;
+                            return Err(BorrowConflict {
+                                message: format!("cannot use reference '{parent}' while a derived field reference is active"),
+                                span: node.span,
+                                labels: held.span.into_iter().map(|span|
+                                    (span, "derived reference originates here".into())).collect(),
+                            });
+                        }
+                    }
+                }
                 let releasing_reborrow_parent =
                     match (&place.root, place.segments.is_empty(), access) {
                         (
@@ -246,7 +276,7 @@ pub(crate) fn check_live_direct_loans_cached(
                     };
                     return Err(BorrowConflict {
                         message: crate::analysis_error::failure!(
-                            "cannot move or destroy reference '{parent}' while a derived reference is stored"
+                            "cannot move or destroy reference '{parent}' while a stored derived reference borrows it"
                         )
                         .message,
                         span: node.span,
@@ -293,11 +323,21 @@ pub(crate) fn check_live_direct_loans_cached(
                     AccessKind::Move | AccessKind::Write | AccessKind::Release => true,
                 };
                 if conflicts && access_places.iter().any(|place| held_place.overlaps(place)) {
-                    let owner = match &held.place.root {
-                        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
-                            body.bindings[binding.0].name.as_str()
+                    let owner = if matches!(access, AccessKind::Read) {
+                        diagnostic_place_name(
+                            body,
+                            access_places
+                                .iter()
+                                .find(|place| held_place.overlaps(place))
+                                .unwrap(),
+                        )
+                    } else {
+                        match held.place.root {
+                            PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
+                                body.bindings[binding.0].name.clone()
+                            }
+                            PlaceRoot::Global(_) => "static".into(),
                         }
-                        PlaceRoot::Global(_) => "static",
                     };
                     let message = match access {
                         AccessKind::Read => {
@@ -373,6 +413,7 @@ pub(crate) fn check_live_direct_loans_cached(
                 continue;
             }
             let mutable_scope_access = *held_mutable
+                && reborrow_parent.is_none()
                 && matches!(
                     access,
                     AccessKind::Read | AccessKind::Clone | AccessKind::Write
@@ -410,11 +451,21 @@ pub(crate) fn check_live_direct_loans_cached(
             if !conflicts {
                 continue;
             }
-            let owner = match &held_place.root {
-                PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
-                    body.bindings[binding.0].name.as_str()
+            let owner = if matches!(access, AccessKind::Read) {
+                diagnostic_place_name(
+                    body,
+                    access_places
+                        .iter()
+                        .find(|place| held_place.overlaps(place))
+                        .unwrap(),
+                )
+            } else {
+                match &held_place.root {
+                    PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
+                        body.bindings[binding.0].name.clone()
+                    }
+                    PlaceRoot::Global(_) => "static".into(),
                 }
-                PlaceRoot::Global(_) => "static",
             };
             let message = match access {
                 AccessKind::Read => format!("cannot access '{owner}' while it is mutably borrowed"),
@@ -449,7 +500,189 @@ pub(crate) fn check_live_direct_loans_cached(
             });
         }
     }
-    check_call_reborrow_parents(body, flow, origins, &live, &consumptions)
+    check_call_reborrow_parents(body, flow, origins, &live, &unread, &consumptions)
+}
+
+fn diagnostic_place_name(body: &Body, place: &Place) -> String {
+    use crate::typed_ir::DeclarationId;
+    use crate::typed_place::Segment;
+    let mut name = match place.root {
+        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => {
+            body.bindings[binding.0].name.clone()
+        }
+        PlaceRoot::Global(_) => "static".into(),
+    };
+    for segment in &place.segments {
+        match segment {
+            Segment::Field(field) => {
+                name.push('.');
+                if let Some(field) = body.declaration_name(DeclarationId::Field(*field)) {
+                    name.push_str(field);
+                } else {
+                    name.push_str(&field.index.to_string());
+                }
+            }
+            Segment::Tuple(index) => name.push_str(&format!(".{index}")),
+            Segment::Index(index) | Segment::SliceIndex(index) => {
+                name.push_str(&format!(".{index}"))
+            }
+            Segment::DynamicIndex | Segment::SliceDynamicIndex => name.push_str(".*"),
+            Segment::Payload(variant, index) => {
+                name.push('.');
+                if let Some(variant) = body.declaration_name(DeclarationId::Variant(*variant)) {
+                    name.push_str(variant);
+                }
+                name.push_str(&format!(".{index}"));
+            }
+            Segment::Dereference => name.push_str(".*"),
+            Segment::SliceHalf(index) => name.push_str(&format!("[half {index}]")),
+            Segment::ThreadCapture(_, index) => name.push_str(&format!(".capture[{index}]")),
+        }
+    }
+    name
+}
+
+/// A freshly bound reference-bearing value retains its loans before its first
+/// owned value use. Ordinary use liveness then determines visibility; merely
+/// borrowing the container's address or copying through a pin does not use up
+/// the original holder. Parameters and pattern-produced copies use ordinary
+/// liveness from the outset. Slot consumption remains authoritative for moves
+/// and explicit release, including moves through a local pinned reference.
+fn unread_loan_bindings(
+    body: &Body,
+    flow: &FlowGraph,
+    types: &LinearTypes,
+    origins: &FlowLoanOrigins,
+) -> Vec<Vec<u64>> {
+    use std::collections::VecDeque;
+    let words = body.bindings.len().div_ceil(64);
+    let mut before = vec![None::<Vec<u64>>; flow.nodes.len()];
+    before[flow.entry.0] = Some(vec![0; words]);
+    let mut pending = VecDeque::from([flow.entry]);
+    let mut queued = vec![false; flow.nodes.len()];
+    queued[flow.entry.0] = true;
+    while let Some(event) = pending.pop_front() {
+        queued[event.0] = false;
+        let mut state = before[event.0].as_ref().unwrap().clone();
+        let set = |state: &mut [u64], binding: BindingId, active: bool| {
+            let mask = 1u64 << (binding.0 % 64);
+            if active {
+                state[binding.0 / 64] |= mask;
+            } else {
+                state[binding.0 / 64] &= !mask;
+            }
+        };
+        match &flow.nodes[event.0].action {
+            FlowAction::Bind { binding, .. } => {
+                set(
+                    &mut state,
+                    *binding,
+                    types.contains_reference(&body.bindings[binding.0].ty),
+                );
+            }
+            FlowAction::Assign { place, .. } if place.segments.is_empty() => {
+                if let PlaceRoot::Local(binding) = place.root {
+                    set(
+                        &mut state,
+                        binding,
+                        types.contains_reference(&body.bindings[binding.0].ty),
+                    );
+                }
+            }
+            FlowAction::Read {
+                place,
+                place_base: false,
+                ..
+            } if place.segments.is_empty() => {
+                if let PlaceRoot::Local(binding) = place.root {
+                    set(&mut state, binding, false);
+                }
+            }
+            FlowAction::Borrow { place, .. } if !place.segments.is_empty() => {
+                if let PlaceRoot::Local(binding) = place.root {
+                    if matches!(
+                        body.bindings[binding.0].ty,
+                        Type::Reference { .. } | Type::PinnedReference { .. }
+                    ) {
+                        set(&mut state, binding, false);
+                    }
+                }
+            }
+            FlowAction::Evaluate(value) => {
+                if let NodeKind::Form {
+                    children,
+                    callee: Some(_),
+                    ..
+                } = &body.nodes[value.0].kind
+                {
+                    for argument in children.iter().skip(1) {
+                        for origin in origins.value_before(body, flow, event, *argument) {
+                            if !origin.pinned
+                                && !origin.lifetime_only
+                                && origin.storage.is_empty()
+                                && origin.place.segments.is_empty()
+                            {
+                                if let PlaceRoot::Local(binding) = origin.place.root {
+                                    set(&mut state, binding, false);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            FlowAction::Release { place, .. } if place.segments.is_empty() => {
+                if let PlaceRoot::Local(binding) = place.root {
+                    set(&mut state, binding, false);
+                }
+            }
+            FlowAction::ScopeExit(bindings) => {
+                for binding in bindings {
+                    set(&mut state, *binding, false);
+                }
+            }
+            _ => {}
+        }
+        for successor in &flow.nodes[event.0].successors {
+            let changed = if let Some(existing) = &mut before[successor.0] {
+                let mut changed = false;
+                for (held, incoming) in existing.iter_mut().zip(&state) {
+                    let joined = *held | incoming;
+                    changed |= joined != *held;
+                    *held = joined;
+                }
+                changed
+            } else {
+                before[successor.0] = Some(state.clone());
+                true
+            };
+            if changed && !queued[successor.0] {
+                queued[successor.0] = true;
+                pending.push_back(*successor);
+            }
+        }
+    }
+    before
+        .into_iter()
+        .map(|state| state.unwrap_or_default())
+        .collect()
+}
+
+fn visible_loan_bindings(
+    live: &crate::typed_flow::FlowLiveness,
+    unread: &[Vec<u64>],
+    event: FlowNodeId,
+    count: usize,
+) -> Vec<BindingId> {
+    let mut visible = live.before(event);
+    visible.extend((0..count).filter_map(|index| {
+        unread[event.0]
+            .get(index / 64)
+            .is_some_and(|word| word & (1 << (index % 64)) != 0)
+            .then_some(BindingId(index))
+    }));
+    visible.sort_unstable_by_key(|binding| binding.0);
+    visible.dedup();
+    visible
 }
 
 /// A reference argument grants callee access to its referent, even when the
@@ -462,6 +695,7 @@ fn check_call_reborrow_parents(
     flow: &FlowGraph,
     origins: &FlowLoanOrigins,
     live: &crate::typed_flow::FlowLiveness,
+    unread: &[Vec<u64>],
     consumptions: &crate::typed_flow::FlowConsumptions,
 ) -> Result<(), BorrowConflict> {
     for (index, node) in flow.nodes.iter().enumerate() {
@@ -510,7 +744,7 @@ fn check_call_reborrow_parents(
                     );
                 }
             }
-            for binding in live.before(event) {
+            for binding in visible_loan_bindings(live, unread, event, body.bindings.len()) {
                 if parents.contains(&binding) {
                     continue;
                 }
@@ -723,6 +957,13 @@ struct DirectBorrow {
     storage: Vec<crate::typed_place::Segment>,
 }
 
+fn is_value_constructor(body: &Body, kind: &NodeKind) -> bool {
+    matches!(kind, NodeKind::Form { head, children, callee: None, .. }
+        if matches!(head.as_str(), "tuple" | "array" | "array-of" | "array-repeat" | "struct-literal")
+        || matches!(children.first().map(|child| &body.nodes[child.0].kind),
+            Some(NodeKind::Declaration(DeclarationId::Variant(_) | DeclarationId::Aggregate(_)))))
+}
+
 #[cfg(test)]
 pub(crate) fn check_call_arguments(body: &Body, flow: &FlowGraph) -> Result<(), BorrowConflict> {
     check_call_arguments_cached(body, flow, &OnceCell::new())
@@ -744,7 +985,7 @@ pub(crate) fn check_call_arguments_cached(
                     callee: Some(_),
                     ..
                 }
-            )
+            ) || is_value_constructor(body, &node.kind)
         })
         .collect::<Vec<_>>();
     if calls.is_empty() {
@@ -759,19 +1000,43 @@ pub(crate) fn check_call_arguments_cached(
             _ => None,
         })
         .collect::<HashMap<_, _>>();
+    let symbol_events = flow
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, event)| {
+            let FlowAction::Read { value, .. } = event.action else {
+                return None;
+            };
+            matches!(body.nodes[value.0].kind, NodeKind::Symbol { .. })
+                .then_some((value, FlowNodeId(index)))
+        })
+        .collect::<Vec<_>>();
     let origins = cache.get_or_init(|| flow.loan_origins(body));
     let active = flow.definitely_active_bindings_before(body);
+    // Capture operand values at their reads, not after later operands have
+    // reassigned their bindings. Share these immutable snapshots across all
+    // uses and path alternatives in this function.
+    let mut value_snapshots = HashMap::new();
+    for (value, read) in &symbol_events {
+        let held = origins.value_before(body, flow, *read, *value);
+        if let Some(alternatives) = origin_alternatives(&held, body.nodes[value.0].span)? {
+            value_snapshots.insert(*value, alternatives);
+        }
+    }
+    let value_snapshots = std::sync::Arc::new(value_snapshots);
     for (index, node) in calls {
         let NodeKind::Form {
             head,
             children,
-            callee: Some(_),
+            callee,
             ..
         } = &node.kind
         else {
             continue;
         };
         let mut bindings = BoundBorrows::new();
+        bindings.values = std::sync::Arc::clone(&value_snapshots);
         let call_event = call_events.get(&NodeId(index)).copied();
         if let Some(event) = call_event {
             for index in 0..body.bindings.len() {
@@ -780,6 +1045,14 @@ pub(crate) fn check_call_arguments_cached(
                     bindings.insert(BindingId(index), alternatives);
                 }
             }
+        }
+        if callee.is_none() {
+            // Fresh borrows in aggregate operands coexist before any local
+            // owns the completed value. Check them with the same path-aware
+            // alternatives as call operands, rather than waiting for liveness
+            // of a destination that may never be read.
+            returned_borrows_with_bindings(body, NodeId(index), &format!("#{head}"), &bindings)?;
+            continue;
         }
         let mut prior = vec![Vec::<DirectBorrow>::new()];
         for argument in children.iter().skip(1) {
@@ -991,7 +1264,29 @@ pub(crate) fn check_scope_escapes_cached(
     Ok(())
 }
 
-type BoundBorrows = HashMap<BindingId, Vec<Vec<DirectBorrow>>>;
+#[derive(Clone, Default)]
+struct BoundBorrows {
+    bindings: HashMap<BindingId, Vec<Vec<DirectBorrow>>>,
+    values: std::sync::Arc<HashMap<NodeId, Vec<Vec<DirectBorrow>>>>,
+}
+
+impl BoundBorrows {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn get(&self, binding: &BindingId) -> Option<&Vec<Vec<DirectBorrow>>> {
+        self.bindings.get(binding)
+    }
+
+    fn insert(&mut self, binding: BindingId, alternatives: Vec<Vec<DirectBorrow>>) {
+        self.bindings.insert(binding, alternatives);
+    }
+
+    fn remove(&mut self, binding: &BindingId) {
+        self.bindings.remove(binding);
+    }
+}
 
 fn origin_alternatives(
     held: &[LoanOrigin],
@@ -1005,7 +1300,7 @@ fn origin_alternatives(
             .iter()
             .map(|origin| {
                 vec![DirectBorrow {
-                    place: origin.place.clone(),
+                    place: origin.referent_place(),
                     mutable: origin.mutable,
                     span: origin.span,
                     storage: Vec::new(),
@@ -1055,7 +1350,7 @@ fn origin_alternatives(
                     })
                 })
                 .map(|origin| DirectBorrow {
-                    place: origin.place.clone(),
+                    place: origin.referent_place(),
                     mutable: origin.mutable,
                     span: origin.span,
                     storage: origin.storage.clone(),
@@ -1086,7 +1381,9 @@ fn returned_borrows_with_bindings(
             binding: Some(binding),
             ..
         } => Ok(bindings
-            .get(binding)
+            .values
+            .get(&id)
+            .or_else(|| bindings.get(binding))
             .cloned()
             .unwrap_or_else(|| vec![Vec::new()])),
         NodeKind::Form { head, children, .. }
@@ -1635,9 +1932,11 @@ fn combine(
                     (first.mutable || borrow.mutable) && first.place.overlaps(&borrow.place)
                 }) {
                     return Err(BorrowConflict {
-                        message: format!(
-                            "call to '{callee}' passes overlapping borrows; at most one may be mutable"
-                        ),
+                        message: if let Some(constructor) = callee.strip_prefix('#') {
+                            format!("constructor '{constructor}' contains overlapping borrows; at most one may be mutable")
+                        } else {
+                            format!("call to '{callee}' passes overlapping borrows; at most one may be mutable")
+                        },
                         span: borrow.span.or(span),
                         labels: first
                             .span

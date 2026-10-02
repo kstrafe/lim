@@ -11,6 +11,18 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "fresh-aggregate-borrows",
+            diagnostic_code: "E4100",
+            offending_line: "  (#let pair Pair (#struct-literal Pair (: left (#borrow-mut owner) : right (#borrow-mut owner))))",
+            line_number: 4,
+        },
+        Case {
+            name: "pinned-copy-parent-release",
+            diagnostic_code: "E4100",
+            offending_line: "  (#drop parent)",
+            line_number: 12,
+        },
+        Case {
             name: "call-returned-parent",
             diagnostic_code: "E4100",
             offending_line: "  (#call overwrite (: owner parent))",
@@ -997,6 +1009,8 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "fresh-aggregate-borrows" => Some("(#borrow-mut owner)"),
+            "pinned-copy-parent-release" => Some("#drop"),
             "call-suspended-parent" => Some("parent"),
             "call-returned-parent" => Some("parent"),
             "exclusive-handle-duplicate" => Some("reference"),
@@ -1173,6 +1187,7 @@ fn compilation_errors_render_the_offending_source_line() {
                         | "match-branch-mismatch"
                         | "borrow-conflict-field-name"
                         | "borrow-conflict-callee-name"
+                        | "fresh-aggregate-borrows"
                         | "local-name-type-error"
                 ) {
                     source_row.rfind(fragment)

@@ -11,6 +11,9 @@ use std::{
 mod analysis_error;
 mod async_contract;
 mod async_fn;
+// Retain the lexical model only for differential regression tests. Production
+// borrowing is decided by checked places, callee contracts and typed flow.
+#[cfg(test)]
 mod borrowcheck;
 mod cache_report;
 mod codegen;
@@ -10931,7 +10934,7 @@ mod tests {
         .unwrap();
         assert!(check_types(&duplicate_mutable_reference_fields)
             .unwrap_err()
-            .contains("already borrowed mutably"));
+            .contains("overlapping borrows"));
 
         let destructured_enum_payload_references = parse_program(
             "(#enum PairOrEmpty ((Pair (#ref-mut u64) (#ref-mut u64)) Empty)) (#fn main () u64 (#let-mut left-value u64 20) (#let-mut right-value u64 22) (#let choice PairOrEmpty (Pair (#borrow-mut left-value) (#borrow-mut right-value))) (#let-else (Pair left right) PairOrEmpty choice (#return 0u64)) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",

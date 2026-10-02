@@ -699,16 +699,6 @@ pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
     check_program_impl(program, false, None)
 }
 
-/// The ordinary compilation path has already checked escapes and direct-loan
-/// conflicts against typed places and origins. Whole aggregate assignments
-/// rely on that slot-identity proof; standalone callers retain legacy rules.
-pub(crate) fn check_program_with_typed_returns(
-    program: &Program,
-    declarations: &crate::typed_ir::Declarations,
-) -> Result<(), BorrowDiagnostic> {
-    check_program_impl(program, true, Some(declarations))
-}
-
 fn check_program_impl(
     program: &Program,
     typed_return_escapes: bool,
