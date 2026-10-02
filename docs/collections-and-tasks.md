@@ -621,3 +621,12 @@ may reuse a name. `examples/async_for_patterns.lim` demonstrates a nested
 mutable struct pattern and exits with 42. Reference leaves retain their source
 loans while suspended; returning a reference transfers its loan rather than
 ending it at Ready.
+
+An explicit `#await` result annotation is a checked contract, not a hint that
+lowering may discard. It must agree with an explicitly declared destination,
+function result, condition or named parameter contract. The compiler checks
+these source contracts before expanding the state machine, resolves aliases
+for comparison, and underlines the specific offending `#await`. An unrelated
+earlier await is not substituted as the diagnostic location. This check does
+not infer local types or replace ordinary type, ownership and borrow checking
+of the generated declarations.

@@ -3926,7 +3926,8 @@ fn async_function_rejects_conditional_awaits_with_different_result_types() {
     );
     let error = lim::parse_program(&mismatched).unwrap_err();
     assert!(
-        error.contains("conditional #await branches must produce the same result type"),
+        error.contains("result type does not match function result")
+            && error.contains("found u32, expected u64"),
         "{error}"
     );
 }
@@ -4762,7 +4763,11 @@ fn async_while_body_can_return_after_awaited_condition() {
 
     let wrong_result_type = source.replace("#while (#await Child", "#while (#await u64 Child");
     let error = lim::parse_program(&wrong_result_type).unwrap_err();
-    assert!(error.contains("result type must be bool"), "{error}");
+    assert!(
+        error.contains("result type does not match loop condition")
+            && error.contains("found u64, expected bool"),
+        "{error}"
+    );
 }
 
 #[test]
@@ -9482,6 +9487,69 @@ fn awaited_for_condition_runs_step_after_continue_but_not_break() {
         (#forget waker)
         (#return (#if (#u64.== value 2u64) 42u64 0u64)))";
     build_and_run(source, 42);
+}
+
+#[test]
+fn explicit_await_contracts_are_checked_before_loop_lowering() {
+    let source = include_str!("../examples/async_for_patterns.lim");
+    let invalid = source.replace(
+        "(#set iteration (#u64.+.wrap iteration 1u64))",
+        "(#set iteration (#await u32 Step StepPending StepReady step-poll (Start (#u64.+.wrap iteration 1u64))))",
+    );
+    let scratch = support::Scratch::new("async-explicit-result-contracts");
+    let result = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    );
+    assert!(
+        result.is_err(),
+        "lowering must not erase a contradictory explicit await result type"
+    );
+    let error = result.unwrap_err();
+    assert!(
+        error.message.contains("result type") && error.message.contains("iteration"),
+        "{error:?}"
+    );
+    let span = error
+        .span
+        .expect("an explicit await contract error has its own source span");
+    assert_eq!(span.start, invalid.find("#await u32").unwrap(), "{error:?}");
+    assert_eq!(&invalid[span.start..span.end], "#await", "{error:?}");
+    let with_condition = format!("(#struct TestTask ((decision bool)))
+      (#enum TestPoll ((TestPending TestTask) (TestReady bool)))
+      (#fn test-poll ((task TestTask) (waker (#ref u64))) TestPoll
+        (#return (TestReady (#get task decision))))\n{}", source.replace(
+        "(#u64.< iteration limit)",
+        "(#await bool TestTask TestPending TestReady test-poll (#struct-literal TestTask (: decision (#u64.< iteration limit))))"));
+    let body_error =
+        with_condition.replace("(#await Step StepPending", "(#await u32 Step StepPending");
+    let error = lim::compile_source_to_assembly(
+        &body_error,
+        &scratch.path().join("body.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("body-cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("result type") && error.message.contains("value"),
+        "{error:?}"
+    );
+    let span = error.span.unwrap();
+    assert_eq!(
+        span.start,
+        body_error.find("#await u32").unwrap(),
+        "{error:?}"
+    );
+    assert_eq!(&body_error[span.start..span.end], "#await");
+    let aliased = format!("(#type Index u64)\n{}", source
+        .replace("(z (#tuple u64 u64))", "(z (#tuple Index u64))")
+        .replace("(#set iteration (#u64.+.wrap iteration 1u64))", "(#set iteration (#await u64 Step StepPending StepReady step-poll (Start (#u64.+.wrap iteration 1u64))))")
+        .replace("0u64 4u64", "0u64 8u64"));
+    build_and_run(&aliased, 42);
 }
 
 #[test]

@@ -9629,7 +9629,7 @@ fn resolve_async_enum_name<'a>(
     None
 }
 
-fn collect_enum_pattern_bindings(
+pub(crate) fn collect_enum_pattern_bindings(
     pattern: &Expr,
     type_name: &str,
     environment: &AsyncTypeEnvironment,

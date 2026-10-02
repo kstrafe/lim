@@ -9,6 +9,7 @@ use std::{
 };
 
 mod analysis_error;
+mod async_contract;
 mod async_fn;
 mod borrowcheck;
 mod cache_report;
@@ -3009,6 +3010,14 @@ fn parse_prepared_program_with_async_captures(
             if matches!(forms.first(), Some(Expr::At)) {
                 let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned")
                 {
+                    if let Some(error) = async_contract::check(&source_expression, &async_types) {
+                        return Err(attach_span_to_source_error_kind(
+                            error.message,
+                            error.span,
+                            &source_files,
+                            "generator error: ",
+                        ));
+                    }
                     async_generated_source(
                         &normalized_invocation,
                         form_span,
