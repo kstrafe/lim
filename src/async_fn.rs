@@ -3528,7 +3528,7 @@ fn extract_mutating_async_choice(
     generated.push(Expr::List(vec![
         Expr::Symbol("#let".into()),
         Expr::Symbol(tuple.clone()),
-        tuple_type,
+        tuple_type.clone(),
         Expr::List(vec![
             Expr::Symbol("#await".into()),
             protocol.child_type,
@@ -3538,31 +3538,29 @@ fn extract_mutating_async_choice(
             task,
         ]),
     ]));
-    let field = |index: usize| {
-        Expr::List(vec![
-            Expr::Symbol("#get".into()),
-            Expr::Symbol(tuple.clone()),
-            Expr::Integer(index as i128),
-        ])
-    };
     let result = nested_await_name(source, next_name);
+    let restored = outputs
+        .iter()
+        .map(|_| nested_await_name(source, next_name))
+        .collect::<Vec<_>>();
+    let mut pattern = vec![Expr::Symbol("#tuple".into()), Expr::Symbol(result.clone())];
+    pattern.extend(restored.iter().cloned().map(Expr::Symbol));
+    // Consume the Ready tuple into ordinary explicitly typed bindings. Moving
+    // reference-bearing outputs through these names preserves provenance and
+    // uses the normal assignment contract rather than special-case setters.
     generated.push(Expr::List(vec![
         Expr::Symbol("#let".into()),
-        Expr::Symbol(result.clone()),
-        result_type,
-        field(0),
+        Expr::List(pattern),
+        tuple_type,
+        Expr::Symbol(tuple),
     ]));
-    for (index, output) in outputs.iter().enumerate() {
+    for (output, restored) in outputs.iter().zip(restored) {
         generated.push(Expr::List(vec![
             Expr::Symbol("#set".into()),
             Expr::Symbol(output.name.clone()),
-            field(index + 1),
+            Expr::Symbol(restored),
         ]));
     }
-    generated.push(Expr::List(vec![
-        Expr::Symbol("#forget".into()),
-        Expr::Symbol(tuple),
-    ]));
     *expression = Expr::Symbol(result);
     Ok(true)
 }
@@ -9608,6 +9606,56 @@ fn collect_enum_pattern_bindings(
             let Expr::Symbol(variant_name) = &items[0] else {
                 return Err("@async-fn #for initializer requires named enum patterns".into());
             };
+            // Tuple/array payloads have explicit structural declarations too.
+            // Resolve aliases only to select their layout; keep the declared
+            // field type spelling when introducing each captured binding.
+            let mut declared = type_name;
+            let mut visited = HashSet::new();
+            while let Some(target) = environment.aliases.get(declared) {
+                if !visited.insert(declared) {
+                    return Err(format!("@async-fn cyclic pattern type alias '{type_name}'"));
+                }
+                declared = target;
+            }
+            let parsed = crate::parse(declared)?;
+            let ty = parse_type(Some(&normalize_keywords(
+                parsed
+                    .first()
+                    .ok_or_else(|| format!("@async-fn missing pattern type '{type_name}'"))?
+                    .expr
+                    .clone(),
+            )))?;
+            let structural_fields = match ty {
+                Type::Tuple(fields) if matches!(variant_name.as_str(), "#tuple" | "tuple") => {
+                    Some(fields)
+                }
+                Type::Array(element, length)
+                    if matches!(variant_name.as_str(), "#array" | "array") =>
+                {
+                    if length != items.len() - 1 {
+                        return Err(format!("@async-fn array pattern expects {length} elements"));
+                    }
+                    Some(vec![*element; length])
+                }
+                _ => None,
+            };
+            if let Some(fields) = structural_fields {
+                if fields.len() != items.len() - 1 {
+                    return Err(format!(
+                        "@async-fn tuple pattern expects {} elements",
+                        fields.len()
+                    ));
+                }
+                for (pattern, field_type) in items[1..].iter().zip(&fields) {
+                    collect_enum_pattern_bindings(
+                        pattern,
+                        &crate::type_source(field_type),
+                        environment,
+                        bindings,
+                    )?;
+                }
+                return Ok(());
+            }
             let enum_name = resolve_async_enum_name(type_name, environment).ok_or_else(|| {
                 format!("@async-fn cannot resolve enum payload types for '{type_name}'")
             })?;
@@ -11977,13 +12025,23 @@ fn generated_source_with_capture_selection(
                     if names.is_empty() {
                         return Err("@async-fn cannot infer destructured bindings".into());
                     }
+                    // Expansion may introduce a tuple destructuring after
+                    // the original body was checked. Its explicit annotation
+                    // still supplies every generated binding's type.
+                    let declared_type = items.get(2).map(expression_source).transpose()?;
+                    let declared_scope =
+                        async_pattern_scope(&items[1], declared_type.as_deref(), &HashMap::new());
                     for name in names {
                         if known.contains_key(&name) {
                             return Err(format!("@async-fn duplicate binding '{name}'"));
                         }
-                        let local = lowering_known.get(&name).cloned().ok_or_else(|| {
-                            format!("@async-fn cannot resolve destructured binding '{name}'")
-                        })?;
+                        let local = lowering_known
+                            .get(&name)
+                            .or_else(|| declared_scope.get(&name))
+                            .cloned()
+                            .ok_or_else(|| {
+                                format!("@async-fn cannot resolve destructured binding '{name}'")
+                            })?;
                         known.insert(name.clone(), local);
                         known_order.push(name);
                     }

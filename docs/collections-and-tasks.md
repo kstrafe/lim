@@ -551,3 +551,9 @@ payload references stay borrowed through nested Pending frames; explicit
 cancellation consumption releases them. See
 `examples/async_while_let_dependencies.lim` for repeated factory calls,
 two body awaits, and once-per-construction mutations (exit 40).
+
+Those capture declarations also support tuple and array payload patterns,
+aliases to structural types, and nesting. Ready helpers use explicit tuple
+destructuring to restore mutable outputs via ordinary binding assignments.
+`examples/async_pattern_payloads.lim` demonstrates carrying one destructured
+field across a suspension while awaiting another field's computation.

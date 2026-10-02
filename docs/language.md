@@ -1292,7 +1292,8 @@ aggregate local:
 ```
 
 A whole reference-bearing local may also be assigned from another typed
-binding, for example `(#set view next)`. The replacement installs that
+binding or a fieldless enum variant, for example `(#set view next)` or
+`(#set view Empty)`. The replacement installs that
 binding's reference origins and releases the old binding's loans. Shared
 references remain Copy; exclusive references transfer without duplication.
 An outstanding borrow of the destination still prevents replacement, and a
@@ -1897,6 +1898,13 @@ references in those payloads retain their source loans while the frame is
 Pending. Consuming the cancelled frame releases those loans. The native
 `examples/async_while_let_dependencies.lim` exercises repeated conditions,
 two body suspension points, and construction side effects (exit 40).
+
+Tuple and array patterns, including aliases and nested aggregate patterns,
+also obtain their captured field types from the declared layout. A suspended
+match body may retain a shared-reference field without losing its source loan.
+Ready helpers destructure mutable outputs into typed bindings before assigning
+them back. See `examples/async_pattern_payloads.lim` for a tuple-payload match
+whose bias is retained across a child await (exit 42).
 
 `#for-range` is shorthand with a typed binding, start, and end.  Its bounds
 are explicit and the range is half-open:

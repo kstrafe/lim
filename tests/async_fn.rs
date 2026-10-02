@@ -7974,6 +7974,86 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_while_let_aggregate_payloads_use_declared_capture_types() {
+    let source = include_str!("../examples/async_while_let_dependencies.lim")
+        .replace(
+            "(#enum Choice ((Chosen u64) Empty))",
+            "(#enum Choice ((Chosen (#tuple u64 u64)) Empty))",
+        )
+        .replace(
+            "(#while-let (Chosen value)",
+            "(#while-let (Chosen (#tuple value bias))",
+        )
+        .replace("(Start value)))", "(Start (#u64.+.wrap value bias))))")
+        .replace(
+            "(Chosen 37u64)",
+            "(Chosen (#tuple (#tuple u64 u64) 37u64 0u64))",
+        );
+    build_and_run(&source, 40);
+    let aliased = format!(
+        "(#type Pair (#tuple u64 u64))\n{}",
+        source.replace("(Chosen (#tuple u64 u64))", "(Chosen Pair)")
+    );
+    build_and_run(&aliased, 40);
+    let array = source
+        .replace("(Chosen (#tuple u64 u64))", "(Chosen (#array u64 2))")
+        .replace(
+            "(Chosen (#tuple value bias))",
+            "(Chosen (#array value bias))",
+        )
+        .replace(
+            "(Chosen (#tuple (#tuple u64 u64) 37u64 0u64))",
+            "(Chosen (#array-of (#array u64 2) 37u64 0u64))",
+        );
+    build_and_run(&array, 40);
+    let alias_chain = format!(
+        "(#type PairAlias Pair)\n{}",
+        aliased.replace("(Chosen Pair)", "(Chosen PairAlias)")
+    );
+    build_and_run(&alias_chain, 40);
+    let referenced = source
+        .replace(
+            "(Chosen (#tuple u64 u64))",
+            "(Chosen (#tuple (#ref u64) u64))",
+        )
+        .replace(
+            "(#u64.+.wrap value bias)",
+            "(#u64.+.wrap (#deref value) bias)",
+        )
+        .replace(
+            "(#let chosen u64",
+            "(#let owner u64 37u64) (#let chosen u64",
+        )
+        .replace(
+            "(Chosen (#tuple (#tuple u64 u64) 37u64 0u64))",
+            "(Chosen (#tuple (#tuple (#ref u64) u64) (#borrow owner) 0u64))",
+        );
+    build_and_run(&referenced, 40);
+    let nested = source
+        .replace("(Chosen (#tuple u64 u64))", "(Chosen (#tuple u64 (#array u64 2)))")
+        .replace("(Chosen (#tuple value bias))", "(Chosen (#tuple value (#array bias padding)))")
+        .replace("(Chosen (#tuple (#tuple u64 u64) 37u64 0u64))", "(Chosen (#tuple (#tuple u64 (#array u64 2)) 37u64 (#array-of (#array u64 2) 0u64 0u64)))");
+    build_and_run(&nested, 40);
+    let scratch = support::Scratch::new("async-pattern-payload-errors");
+    for invalid in [
+        source.replace("(#tuple value bias)", "(#tuple value)"),
+        source.replace("(#tuple value bias)", "(#tuple value value)"),
+        array.replace("(#array value bias)", "(#array value)"),
+    ] {
+        let error = lim::compile_source_to_assembly(
+            &invalid,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .err()
+        .expect("invalid aggregate patterns must still be rejected");
+        assert!(error.span.is_some(), "{error:?}");
+    }
+}
+
+#[test]
 fn async_while_let_can_await_its_scrutinee_task_inputs() {
     let definitions = include_str!("../examples/async_while_let_return.lim")
         .split_once("(#fn run")
