@@ -8021,6 +8021,44 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
             "(#let (Values (#tuple left right) bias) Values values) (#let second u64",
         );
     build_and_run(&between, 42);
+    let mutable_between = between
+        .replace("(#let (Values", "(#let-mut (Values")
+        .replace(
+            "(#let second u64",
+            "(#set bias (#u64.+.wrap bias 2u64)) (#let second u64",
+        );
+    build_and_run(&mutable_between, 44);
+    let both_updated = mutable_between.replace(
+        "(#let second u64",
+        "(#set right (#u16.+.wrap right 1u16)) (#let second u64",
+    );
+    build_and_run(&both_updated, 45);
+    let final_prefix = source
+        .replace("    (#let (Values (#tuple left right) bias) Values values)\n", "")
+        .replace("(Start (#as left u64))", "(Start 9u64)")
+        .replace("(Start (#as right u64))", "(Start 11u64)")
+        .replace("(#return (#u64.+.wrap", "(#let-mut (Values (#tuple left right) bias) Values values) (#set bias 24u64) (#return (#u64.+.wrap");
+    build_and_run(&final_prefix, 44);
+    let immutable_update = mutable_between.replace("(#let-mut (Values", "(#let (Values");
+    let scratch = support::Scratch::new("async-resume-pattern-immutable");
+    let error = lim::compile_source_to_assembly(
+        &immutable_update,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("assignment to 'bias' requires a mutable"),
+        "{error:?}"
+    );
+    assert!(
+        error.span.is_some(),
+        "immutable pattern update must be source-spanned: {error:?}"
+    );
     let owned = format!(
         "(#struct Token ((value u64)))\n{}",
         source

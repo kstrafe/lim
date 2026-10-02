@@ -326,6 +326,7 @@ fn resume_prefix(
     prefix: &[String],
     stage: &Stage,
     known: &HashMap<String, Binding>,
+    environment: &AsyncTypeEnvironment,
 ) -> Result<Vec<String>, String> {
     let mut locals = stage
         .captures
@@ -359,8 +360,10 @@ fn resume_prefix(
                 }
             }
         }
-        if let Ok(local) = binding(expression, "resume local") {
-            locals.insert(local.name);
+        if let Some(bindings) = declared_local_bindings(expression, environment)? {
+            for binding in bindings {
+                locals.insert(binding.name);
+            }
         }
         rewritten.push(statement.clone());
     }
@@ -12561,7 +12564,7 @@ fn generated_source_with_capture_selection(
             stage.child
         ));
         let continuation = if let Some(next) = stages.get(index + 1) {
-            let mut next_prefix = resume_prefix(&next.prefix, stage, &known)?;
+            let mut next_prefix = resume_prefix(&next.prefix, stage, &known, &pattern_environment)?;
             let next_value = inline_stage_task_temporary(&mut next_prefix, &next.value)?;
             // Calls evaluate in parameter declaration order: captures precede
             // the child parameter. Finish task construction before snapshots
@@ -12578,7 +12581,7 @@ fn generated_source_with_capture_selection(
         } else {
             format!(
                 "{} (#return ({ready} {returned}))",
-                resume_prefix(&prefix, stage, &known)?.join(" ")
+                resume_prefix(&prefix, stage, &known, &pattern_environment)?.join(" ")
             )
         };
         helpers.push(format!(

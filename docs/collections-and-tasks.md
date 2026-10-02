@@ -570,3 +570,6 @@ including aliased array elements and nested struct fields. Mutable patterns
 keep their mutable slots across suspension, and linear fields still require
 explicit consumption. `examples/async_destructure.lim` destructures a nested
 tuple in a struct and awaits each element in turn (exit 42).
+`examples/async_resume_destructure.lim` declares and updates nested mutable
+locals after the first await, then suspends again (exit 45). Updates write
+the existing slots; lowering must not turn them into shadowing declarations.
