@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -1267,10 +1267,13 @@ pub(crate) fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<E
 }
 
 fn read_bounded_cache_file(path: &Path) -> Option<Vec<u8>> {
-    if fs::metadata(path).ok()?.len() > MAX_CACHE_ARTIFACT_BYTES {
-        return None;
-    }
-    let bytes = fs::read(path).ok()?;
+    // Limit the read itself: a separate pathname size check both costs a
+    // syscall on every hit and cannot bound a concurrently growing file.
+    let file = fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(MAX_CACHE_ARTIFACT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
     (bytes.len() as u64 <= MAX_CACHE_ARTIFACT_BYTES).then_some(bytes)
 }
 

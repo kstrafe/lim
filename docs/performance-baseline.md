@@ -770,3 +770,32 @@ All 848 library tests, 183 async tests, and enabled integrations pass; the four
 preexisting ignored integrations remain unchanged. A regression test verifies
 throttling, cleanup resumption, and protection of recent temporary files;
 the existing concurrent-publication test also passes.
+
+## Bound cache reads on a single open handle
+
+Cache reads no longer perform a separate pathname metadata lookup before
+opening the artifact. A limited reader accepts at most 64 MiB and reads only
+one additional byte to detect oversize entries. This also bounds allocation
+when another process grows the file during the read. Full key, digest, UTF-8,
+syntax, and publication validation are unchanged. Oversized files now require
+reading the bounded prefix rather than being rejected by metadata alone.
+
+Baseline: 3c22cf1 with identical pending staged ownership edits. Warm release
+CLI, two warmups, no concurrent builds or tests:
+
+| Workload / measurement order | Samples | Before median | After median |
+| --- | ---: | ---: | ---: |
+| 256 tasks, baseline first | 30 | 142.40 ms | 143.48 ms |
+| 256 tasks, optimized first | 30 | 142.26 ms | 142.86 ms |
+| async_fn, baseline first | 40 | 31.20 ms | 29.73 ms |
+| async_fn, optimized first | 40 | 30.44 ms | 30.47 ms |
+
+Executable bytes match throughout. Async's initial 4.7% improvement does not
+repeat in reverse order; thread-heavy is 0.4–0.8% slower. These measurements
+do not establish a general speedup. The deterministic benefits are one fewer
+metadata syscall per read and enforcing the size limit during the read itself.
+All 16 focused generator/cache tests pass, including oversized/corrupt entry
+rejection and concurrent publication.
+All enabled integrations also pass (including 183 async tests); four existing
+ignored tests are unchanged. The library suite passes 856 tests and fails the
+pre-existing uncommitted staged empty-enum thread-join provenance test.
