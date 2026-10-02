@@ -2507,9 +2507,22 @@ fn extract_nested_awaits(
         }
         parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
         let result_type = await_form[1].clone();
+        let mut await_items = await_form.to_vec();
+        // The child task is evaluated before the outer suspension. Extract its
+        // suspensions even when this await is nested inside another operand,
+        // rather than relying on the direct-binding statement special case.
+        extract_nested_awaits(
+            &mut await_items[6],
+            generated,
+            generated_helpers,
+            known,
+            source,
+            next_name,
+            waker,
+        )?;
         let normalized_await = Expr::List(
             std::iter::once(Expr::Symbol("#await".into()))
-                .chain(await_form[2..].iter().cloned())
+                .chain(await_items.into_iter().skip(2))
                 .collect(),
         );
         let name = loop {

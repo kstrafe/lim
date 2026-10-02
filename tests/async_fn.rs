@@ -1226,6 +1226,33 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
     let generated = build_and_run(source, 42);
     assert!(generated.contains("poll-resume-1"), "{generated}");
     assert!(!generated.contains("(#await"), "{generated}");
+
+    // The same task dependency must work when the outer await is an operand,
+    // not only when it is the direct RHS of a binding.
+    let nested_operand = source.replace(
+        "(#await OuterTask OuterPending OuterReady outer-poll\n              (#await OuterTask InnerTask InnerPending InnerReady inner-poll MakeOuter))",
+        "(#u64.+.wrap 0u64\n            (#await u64 OuterTask OuterPending OuterReady outer-poll\n              (#await OuterTask InnerTask InnerPending InnerReady inner-poll MakeOuter)))",
+    );
+    assert_ne!(nested_operand, source);
+    let generated = build_and_run(&nested_operand, 42);
+    assert!(generated.contains("poll-resume-1"), "{generated}");
+    assert!(!generated.contains("(#await"), "{generated}");
+
+    // Both dependencies may return Pending. Completing the inner await must
+    // initialize the outer task exactly once, then retain it for its own retry.
+    let both_pending = nested_operand
+        .replace("(#enum InnerTask (MakeOuter))", "(#enum InnerTask (MakeOuter ResumeOuter))")
+        .replace(
+            "(#case MakeOuter (InnerReady (Waiting 42u64)))",
+            "(#case MakeOuter (InnerPending ResumeOuter))\n          (#case ResumeOuter (InnerReady (Waiting 42u64)))",
+        )
+        .replace(
+            "(#let second Poll\n          (#call poll (: task pending : waker (#borrow waker))))",
+            "(#let middle Poll\n          (#call poll (: task pending : waker (#borrow waker))))\n        (#let-else (Pending outer-pending) Poll middle (#unreachable))\n        (#let second Poll\n          (#call poll (: task outer-pending : waker (#borrow waker))))",
+        );
+    assert_ne!(both_pending, nested_operand);
+    build_and_run(&both_pending, 42);
+    build_and_run(include_str!("../examples/async_nested_await.lim"), 42);
 }
 
 #[test]
