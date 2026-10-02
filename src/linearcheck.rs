@@ -628,6 +628,12 @@ fn check_statements(
                 let before = moved.clone();
                 let mut inner = before.clone();
                 check_scoped_statements(body, bindings, &mut inner, globals, types)?;
+                // Returns have already checked every live linear obligation.
+                // If all body paths return, neither the step nor a back edge
+                // executes. The zero-iteration exit still retains `before`.
+                if statements_return(body) {
+                    continue;
+                }
                 check_statements(
                     std::slice::from_ref(step),
                     bindings,
@@ -1253,6 +1259,19 @@ fn expression_returns(expression: &Expr) -> bool {
 }
 
 fn expression_returns_with_guard(expression: &Expr, guard: Option<&[Expr]>) -> bool {
+    return_source_returns(ReturnSource::Expression(expression), guard)
+}
+
+fn statements_return(statements: &[Statement]) -> bool {
+    return_source_returns(ReturnSource::Statements(statements), None)
+}
+
+enum ReturnSource<'a> {
+    Expression(&'a Expr),
+    Statements(&'a [Statement]),
+}
+
+fn return_source_returns(source: ReturnSource<'_>, guard: Option<&[Expr]>) -> bool {
     const NEXT: u8 = 1;
     const RETURN: u8 = 2;
     const TRANSFER: u8 = 4;
@@ -1349,7 +1368,11 @@ fn expression_returns_with_guard(expression: &Expr, guard: Option<&[Expr]>) -> b
             _ => NEXT,
         }
     }
-    expression_exits(expression) == RETURN
+    let exits = match source {
+        ReturnSource::Expression(expression) => expression_exits(expression),
+        ReturnSource::Statements(statements) => sequence(statements),
+    };
+    exits == RETURN
         && guard.is_none_or(|guard| {
             guard
                 .iter()
@@ -1626,6 +1649,31 @@ mod tests {
         );
         assert_ne!(consumed_before_backedge, source);
         assert!(check_types(&parse_program(&consumed_before_backedge).unwrap()).is_err());
+    }
+
+    #[test]
+    fn all_returning_for_paths_have_no_ownership_back_edge() {
+        let source = "(#struct Resource ((value u64))) (#linear Resource)
+          (#fn main () u64
+            (#let resource Resource (#struct-literal Resource (: value 42u64)))
+            (#for-range (turn u64) 0u64 2u64
+              (#let value u64 (#get resource value))
+              (#match turn
+                (#case 0u64 (#block (#forget resource) (#return value)))
+                (#case _ (#block (#forget resource) (#return value)))))
+            (#forget resource)
+            (#return 0u64))";
+        check_types(&parse_program(source).unwrap()).unwrap();
+        let missing_cleanup =
+            source.replace("(#forget resource) (#return value)", "(#return value)");
+        assert!(check_types(&parse_program(&missing_cleanup).unwrap()).is_err());
+        let possible_back_edge = source.replace(
+            "(#case _ (#block (#forget resource) (#return value)))",
+            "(#case _ (#block (#forget resource) ()))",
+        );
+        assert!(check_types(&parse_program(&possible_back_edge).unwrap()).is_err());
+        let breaks_after_consumption = source.replace("(#return value)", "(#break)");
+        assert!(check_types(&parse_program(&breaks_after_consumption).unwrap()).is_err());
     }
 
     #[test]
