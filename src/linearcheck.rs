@@ -267,6 +267,12 @@ impl LinearTypes {
         !self.is_linear(ty) && !contains_exclusive_reference(ty, self, &mut HashSet::new())
     }
 
+    /// Explicit release invalidates reference-bearing handles even when
+    /// they are Copy and do not create a linear cleanup obligation.
+    pub(crate) fn contains_reference(&self, ty: &Type) -> bool {
+        contains_reference(ty, self, &mut HashSet::new())
+    }
+
     fn binding_consumed(&self, name: &str, moved: &Moves) -> bool {
         let root = Place::root(name);
         if moved.contains(&root) {

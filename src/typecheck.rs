@@ -1530,18 +1530,18 @@ fn check_types_inner(
             }
         }
     }
-    // Typed flow decides ownership validity first. When both analyses find an
-    // error, keep the syntax checker's more specific projection/branch prose;
-    // if only syntax finds one, it remains the compatibility fallback.
-    let syntax_linear_error = crate::linearcheck::check_program_with_span(
-        program,
-        checked_expression_types,
-        expression_ids,
-        checked_local_pin_reads,
-        checked_local_pin_writes,
-    )
-    .err();
+    // Typed flow alone decides owned-value validity. Consult the legacy
+    // syntax checker only to format an error already established by typed
+    // events; it cannot reject a program that passed the typed analysis.
     if let Some(error) = typed_linear_error {
+        let syntax_linear_error = crate::linearcheck::check_program_with_span(
+            program,
+            checked_expression_types,
+            expression_ids,
+            checked_local_pin_reads,
+            checked_local_pin_writes,
+        )
+        .err();
         if let Some((message, span, labels)) = syntax_linear_error {
             let same_checked_subject = ownership_diagnostic_subject(&message)
                 .zip(ownership_diagnostic_subject(&error.message))
@@ -1557,11 +1557,6 @@ fn check_types_inner(
         *diagnostic_span = error.span;
         *diagnostic_labels = error.labels;
         return Err(error.message);
-    }
-    if let Some((message, span, labels)) = syntax_linear_error {
-        *diagnostic_span = span;
-        *diagnostic_labels = labels;
-        return Err(message);
     }
     *diagnostic_code = crate::DiagnosticCode::Borrow;
     // These checks inspect the same immutable body/graph pair. Keep their
@@ -9199,6 +9194,186 @@ fn fits_unsigned_integer(value: u128, ty: &Type) -> bool {
 #[cfg(test)]
 mod typed_ownership_tests {
     use super::*;
+
+    fn typed_owner_error(source: &str) -> Option<crate::typed_flow::ReleaseConflict> {
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations.flows["main"]
+            .check_linear_ownership(&declarations.bodies["main"], &types, &declarations)
+            .into_iter()
+            .find_map(Result::err)
+    }
+
+    #[test]
+    fn typed_reference_release_invalidates_handles_without_linear_owners() {
+        for release in ["#drop", "#forget"] {
+            for (use_after, offending) in [
+                ("(#return (#deref view))", "(#deref view)"),
+                (
+                    "(#let other (#ref u64) (#clone view)) (#return 0u64)",
+                    "(#clone view)",
+                ),
+                ("(#let other (#ref u64) view) (#return 0u64)", "view"),
+            ] {
+                let source = format!(
+                    "(#fn main () u64
+                      (#let owner u64 1u64)
+                      (#let view (#ref u64) (#borrow owner))
+                      ({release} view)
+                      {use_after})"
+                );
+                let error = typed_owner_error(&source).expect("released handle must be invalid");
+                let span = error.span.unwrap();
+                assert_eq!(&source[span.start..span.end], offending, "{error:?}");
+                assert!(
+                    error.labels.iter().any(|(span, _)| {
+                        source[span.start..span.end] == format!("({release} view)")
+                    }),
+                    "{error:?}"
+                );
+                assert!(crate::check_types(&crate::parse_program(&source).unwrap()).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn typed_reference_release_preserves_pointees_and_independent_copies() {
+        for body in [
+            "(#let other (#ref u64) view) (#drop view) (#return (#deref other))",
+            "(#let other (#ref u64) (#clone view)) (#forget view) (#return (#deref other))",
+            "(#drop view) (#set owner 2u64) (#return owner)",
+        ] {
+            let source = format!(
+                "(#fn main () u64
+                  (#let-mut owner u64 1u64)
+                  (#let view (#ref u64) (#borrow owner))
+                  {body})"
+            );
+            assert!(typed_owner_error(&source).is_none(), "{source}");
+            crate::check_types(&crate::parse_program(&source).unwrap()).unwrap();
+        }
+        let source = "(#fn main () u64 (#let owner u64 1u64) (#forget owner) (#return owner))";
+        assert!(typed_owner_error(source).is_none());
+        crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn typed_reference_release_tracks_copy_aggregate_slots() {
+        for (declaration, ty, value, projection) in [
+            (
+                "",
+                "(#tuple (#ref u64))",
+                "(#tuple (#borrow owner))",
+                "(#get values 0)",
+            ),
+            (
+                "",
+                "(#array (#ref u64) 1)",
+                "(#array-repeat (#borrow owner))",
+                "(#index values 0u64)",
+            ),
+            (
+                "(#type View (#ref u64))",
+                "View",
+                "(#borrow owner)",
+                "values",
+            ),
+            (
+                "(#struct Holder ((view (#ref u64))))",
+                "Holder",
+                "(#struct-literal Holder ((view (#borrow owner))))",
+                "(#get values view)",
+            ),
+            (
+                "(#enum Holder ((Some (#ref u64)) None))",
+                "Holder",
+                "(Some (#borrow owner))",
+                "(#get-payload values Some 0)",
+            ),
+        ] {
+            for released in ["values", projection] {
+                let source = format!(
+                    "{declaration}
+                     (#fn main () u64
+                       (#let owner u64 1u64)
+                       (#let values {ty} {value})
+                       (#drop {released})
+                       (#return (#deref {projection})))"
+                );
+                let error = typed_owner_error(&source).expect("released slot must be invalid");
+                let span = error.span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    format!("(#deref {projection})"),
+                    "{error:?}"
+                );
+                assert!(crate::check_types(&crate::parse_program(&source).unwrap()).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn typed_reference_release_invalidates_mutable_handles_and_slice_views() {
+        for (ty, value, use_after) in [
+            ("(#ref-mut u64)", "(#borrow-mut owner)", "(#deref view)"),
+            (
+                "(#slice u64)",
+                "(#slice-of (#borrow data))",
+                "(#deref (#slice-idx view 0usize))",
+            ),
+        ] {
+            let source = format!(
+                "(#fn main () u64
+                  (#let-mut owner u64 1u64)
+                  (#let data (#array u64 1) (#array-of (#array u64 1) 2u64))
+                  (#let view {ty} {value})
+                  (#drop view)
+                  (#return {use_after}))"
+            );
+            let error = typed_owner_error(&source).expect("released view must be invalid");
+            assert!(error
+                .labels
+                .iter()
+                .any(|(span, _)| &source[span.start..span.end] == "(#drop view)"));
+            assert!(crate::check_types(&crate::parse_program(&source).unwrap()).is_err());
+        }
+        let source = "(#struct Holder ((number u64)))
+          (#fn main () u64
+            (#let owner Holder (#struct-literal Holder ((number 42u64))))
+            (#let view (#ref Holder) (#borrow owner))
+            (#drop view)
+            (#let field (#ref u64) (#borrow (#get view number)))
+            (#return 0u64))";
+        let error =
+            typed_owner_error(source).expect("released handle cannot supply a field borrow");
+        let span = error.span.unwrap();
+        assert_eq!(
+            &source[span.start..span.end],
+            "(#borrow (#get view number))"
+        );
+        assert!(crate::check_types(&crate::parse_program(source).unwrap()).is_err());
+    }
+
+    #[test]
+    fn typed_reference_release_respects_control_flow_and_reinitialization() {
+        for (body, valid) in [
+            ("(#if choice (#drop view) ()) (#return (#deref view))", false),
+            ("(#if choice (#block (#drop view) (#return 0u64)) ()) (#return (#deref view))", true),
+            ("(#while choice (#let current (#ref u64) (#borrow owner)) (#drop current)) (#return 0u64)", true),
+            ("(#while choice (#let current (#ref u64) view) (#drop view)) (#return 0u64)", false),
+        ] {
+            let source = format!(
+                "(#fn main ((choice bool)) u64
+                  (#let owner u64 1u64)
+                  (#let-mut view (#ref u64) (#borrow owner))
+                  {body})"
+            );
+            let error = typed_owner_error(&source);
+            assert_eq!(error.is_none(), valid, "{source}: {error:?}");
+            assert_eq!(crate::check_types(&crate::parse_program(&source).unwrap()).is_ok(), valid, "{source}");
+        }
+    }
 
     #[test]
     fn raw_pointer_anchor_does_not_prove_referent_restoration() {

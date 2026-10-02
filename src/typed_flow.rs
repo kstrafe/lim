@@ -5814,6 +5814,24 @@ impl FlowGraph {
                         }
                     }
                 }
+                FlowAction::Release { place, value }
+                    if matches!(place.root, PlaceRoot::Local(_))
+                        && release_operand_contains_reference(body, *value, types) =>
+                {
+                    // End this handle's validity, not its retained pointees.
+                    // Shared-reference copies in other slots remain valid.
+                    consumed_at[id.0].insert(place.clone());
+                    resolved_at[id.0].insert(place.clone());
+                    if let Some(definite) = &mut definite_consumed_at {
+                        if !has_dynamic_projection(place) {
+                            definite[id.0].insert(place.clone());
+                        }
+                    }
+                    let spans = state.entry(place.clone()).or_default();
+                    if !spans.contains(&node.span) {
+                        spans.push(node.span);
+                    }
+                }
                 FlowAction::Evaluate(value)
                     if origins.is_none()
                         && local_pin_accesses.contains_key(value)
@@ -6440,13 +6458,17 @@ impl FlowGraph {
             // remaining container; a consumed container still covers, and
             // forbids releasing, that same container or any child again.
             let conflicts = |moved: &Place| {
-                accessed.iter().any(|place| {
-                    if matches!(node.action, FlowAction::Release { .. }) {
-                        definite_place_covers(moved, place)
-                    } else {
-                        moved.overlaps(place)
-                    }
-                })
+                // Resolving a field access to its pointee must not hide a
+                // released handle needed to reach that field. Check consumed
+                // ancestors of the checked source place as well as referents.
+                definite_place_covers(moved, place)
+                    || accessed.iter().any(|place| {
+                        if matches!(node.action, FlowAction::Release { .. }) {
+                            definite_place_covers(moved, place)
+                        } else {
+                            moved.overlaps(place)
+                        }
+                    })
             };
             if !state.keys().any(conflicts) {
                 continue;
@@ -6513,9 +6535,9 @@ impl FlowGraph {
         types: &LinearTypes,
         declarations: &crate::typed_ir::Declarations,
     ) -> ([Result<(), ReleaseConflict>; 4], HashMap<NodeId, Place>) {
-        // No move or destruction obligation can arise without a linear
-        // binding or expression. References and Copy-only aggregates still
-        // undergo the separate borrow checks.
+        // Copy-only bodies have no destruction obligations, but explicitly
+        // releasing a reference-bearing handle still invalidates that slot.
+        // References also undergo the separate borrow checks.
         if !body
             .bindings
             .iter()
@@ -6524,6 +6546,10 @@ impl FlowGraph {
                 .nodes
                 .iter()
                 .any(|node| node.ty.as_ref().is_some_and(|ty| types.is_linear(ty)))
+            && !self.nodes.iter().any(|node| {
+                matches!(node.action, FlowAction::Release { value, .. }
+                    if release_operand_contains_reference(body, value, types))
+            })
         {
             return ([Ok(()), Ok(()), Ok(()), Ok(())], HashMap::new());
         }
@@ -9078,6 +9104,16 @@ fn release_operand_is_linear(body: &Body, value: NodeId, types: &LinearTypes) ->
         .get(1)
         .and_then(|operand| body.nodes[operand.0].ty.as_ref())
         .is_some_and(|ty| types.is_linear(ty))
+}
+
+fn release_operand_contains_reference(body: &Body, value: NodeId, types: &LinearTypes) -> bool {
+    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+        return false;
+    };
+    children
+        .get(1)
+        .and_then(|operand| body.nodes[operand.0].ty.as_ref())
+        .is_some_and(|ty| types.contains_reference(ty))
 }
 
 fn pattern_binding_path(body: &Body, id: NodeId, binding: BindingId) -> Option<Vec<Segment>> {

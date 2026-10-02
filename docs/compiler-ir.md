@@ -4,6 +4,26 @@ This is an incremental internal migration, not a language or syntax change.
 Lim still requires explicit source types and performs the existing type,
 linearity, borrow, and unsafe checks before returning a `CheckedProgram`.
 
+## Production ownership boundary
+
+Typed flow now decides owned-value validity without a syntax-only rejection
+fallback. The old linear checker is consulted only after typed flow has found
+an error, to preserve established diagnostic wording and source labels. It
+cannot reject a program that passed typed ownership validation.
+
+Explicit `#drop` and `#forget` invalidate reference-bearing handles even when
+their types need no linear cleanup. This records consumption of the handle's
+slot, not destruction of its pointee. Independent shared-reference copies stay
+usable, and releasing a Copy scalar does not create a move. Possible releases
+join across reachable branches, while each newly bound loop-local handle has
+its own initialized state. Direct typed regressions check the offending access
+and prior-release spans as well as whole and projected aggregate releases.
+
+This does not finish the borrow-checker migration. Production still runs the
+syntax-based borrow checker and separate typed borrowed-storage entry contracts.
+Several sections below document earlier staging milestones; those experiments
+are not evidence that every reference-store or async integration gate is closed.
+
 ## Why retain an IR?
 
 An intermediate representation is the compiler's checked model of the program,
@@ -446,9 +466,10 @@ operands, dynamic indices, and ambiguous destinations retain their facts.
 Whole destruction removes all contents, field destruction preserves siblings,
 and nested destruction leaves the outer pointer slot and handle intact.
 These reference facts are not initialization/restoration proofs or outgoing
-consumption effects. The production syntax-only ownership fallback still
-rejects ordinary restore-through-reference sequences, and callee destruction
-must be integrated with consumption contracts before promotion.
+consumption effects. The syntax-only ownership rejection fallback has since
+been removed; production validates borrowed-storage entry contracts separately.
+This historical contents milestone alone does not establish general borrow
+checking or arbitrary-body async lowering.
 The staged interprocedural contents pass now exports a separate table of
 destruction destinations proved cleared on every normal return. These are not
 write summaries and must never count as initialization or restoration evidence.
