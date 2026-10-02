@@ -5,6 +5,24 @@ use crate::{Expr, Item, Program, Statement};
 pub(crate) fn check_program_with_span(
     program: &Program,
 ) -> Result<(), (String, Option<crate::Span>)> {
+    check_with_context(program, None, &[])
+}
+
+/// Reuse ordinary unsafe rules on selected borrowed bodies. Additional
+/// declarations supply call flags only, never bodies or proof Program items.
+pub(crate) fn check_selected_with_span(
+    program: &Program,
+    selected: &std::collections::HashSet<String>,
+    interfaces: &[&crate::Function],
+) -> Result<(), (String, Option<crate::Span>)> {
+    check_with_context(program, Some(selected), interfaces)
+}
+
+fn check_with_context(
+    program: &Program,
+    selected: Option<&std::collections::HashSet<String>>,
+    interfaces: &[&crate::Function],
+) -> Result<(), (String, Option<crate::Span>)> {
     let statics = program
         .items
         .iter()
@@ -13,24 +31,29 @@ pub(crate) fn check_program_with_span(
             _ => None,
         })
         .collect::<std::collections::HashSet<_>>();
-    let external_functions = program
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Function(function) if function.external || function.unsafe_call => Some((
+    let mut external_functions = std::collections::HashMap::new();
+    let actual = program.items.iter().filter_map(|item| match item {
+        Item::Function(function) => Some(function),
+        _ => None,
+    });
+    for function in interfaces.iter().copied().chain(actual) {
+        if function.external || function.unsafe_call {
+            external_functions.insert(
                 function.name.as_str(),
                 if function.external {
                     "external"
                 } else {
                     "unsafe"
                 },
-            )),
-            _ => None,
-        })
-        .collect::<std::collections::HashMap<_, _>>();
+            );
+        } else {
+            // Actual ordinary declarations override any stale interface flag.
+            external_functions.remove(function.name.as_str());
+        }
+    }
     for item in &program.items {
         if let Item::Function(function) = item {
-            if function.external {
+            if function.external || selected.is_some_and(|names| !names.contains(&function.name)) {
                 continue;
             }
             // Function parameters shadow statics in the same way as local

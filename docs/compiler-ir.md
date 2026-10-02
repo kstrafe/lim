@@ -115,6 +115,51 @@ aggregate types also contribute to scratch sizing even without local bindings.
 Pattern declarations retain exact source spans, and exit-obligation formatting
 cannot replace them with unrelated return tails.
 
+### Pre-layout interfaces and executable planning
+
+`async_prepare.rs` builds a planning context without asking the legacy async
+rewriter to accept a particular body shape. Imports, cfg selection, user
+generators and non-async builtin declarations are expanded first.
+`async_interfaces.rs` then reserves async names and supplies explicit start,
+poll and cancellation signatures. Frame layouts remain deferred: there are no
+fake extern functions, executable empty bodies or invented empty structs.
+Call normalization uses temporary signature descriptors only; those descriptors
+never become program items. Async invocations produced by generators acquire
+their own reparsed source files and retain their invocation provenance.
+
+The ordinary type checker resolves only attached source models and drivers in
+this context, borrowing the same AST nodes used to assign checked identities.
+Other function signatures remain available, but their bodies are not replaced
+with stubs or prematurely checked against a missing frame layout. Selected
+bodies use the ordinary unsafe rules. Layout-dependent operations on deferred
+types fail explicitly. Planning declarations reject ownership/staging queries
+and cannot produce a `CheckedProgram` or authorize native emission.
+
+`async_exec.rs` lowers these checked bodies to executable control flow, rather
+than treating ownership events as executable instructions. Operations name
+already evaluated operands; static metadata is separate from runtime inputs.
+Selected edges supply block arguments for branches, short-circuit operations
+and value loops. Await evaluates its child before entering the poll block;
+Pending retries that block without replaying construction, and only Ready
+defines the result. Pattern testing, preview aliases, commit and guard rejection
+are separate actions. Place descriptors retain checked fields and dynamic
+indices, distinguishing a captured reference handle from its referent storage.
+Scope exits end storage/loan scopes without inventing implicit destruction.
+Destructuring retains its explicit mutability. Place formation performs bounds
+and payload checks before subsequent operand evaluation; nested places reuse
+already checked prefixes instead of replaying their checks.
+
+Graph validation checks edge arity/types, checked-node correlation and definite
+operand/storage availability using a fixed point, not arena numbering. It does
+not prove initialized owner contents, moves, escapes or loan lifetimes. This is
+the input boundary for the general emitter, not a replacement for the mandatory
+original and generated ordinary ownership proofs. General frame/poll/cancel
+emission, suspended preview storage and late pinned-slot initialization remain
+open; the legacy emitter still handles executable compilation.
+An exclusive-reference handle captured for address formation must not become
+an implicit clone or move of its holder. The emitter still needs a nonowning
+address-snapshot/checked-ownership mode at that boundary.
+
 ## Production ownership boundary
 
 Typed flow now decides owned-value validity without a syntax-only rejection

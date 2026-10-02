@@ -52,7 +52,15 @@ pub(crate) struct ExpressionId(pub usize);
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub(crate) struct StatementId(pub usize);
 
+#[cfg(test)]
 pub(crate) fn expression_ids(program: &crate::Program) -> HashMap<usize, ExpressionId> {
+    expression_ids_selected(program, None)
+}
+
+pub(crate) fn expression_ids_selected(
+    program: &crate::Program,
+    selected: Option<&HashSet<String>>,
+) -> HashMap<usize, ExpressionId> {
     fn expression(value: &crate::Expr, ids: &mut HashMap<usize, ExpressionId>, next: &mut usize) {
         ids.insert(std::ptr::from_ref(value) as usize, ExpressionId(*next));
         *next += 1;
@@ -155,12 +163,16 @@ pub(crate) fn expression_ids(program: &crate::Program) -> HashMap<usize, Express
     let mut next = 0;
     for item in &program.items {
         match item {
-            crate::Item::Function(function) => {
+            crate::Item::Function(function)
+                if selected.is_none_or(|names| names.contains(&function.name)) =>
+            {
                 for statement_value in &function.body {
                     statement(statement_value, &mut ids, &mut next);
                 }
             }
-            crate::Item::Let { value, .. } | crate::Item::Static { value, .. } => {
+            crate::Item::Let { value, .. } | crate::Item::Static { value, .. }
+                if selected.is_none() =>
+            {
                 expression(value, &mut ids, &mut next);
             }
             _ => {}
@@ -169,7 +181,15 @@ pub(crate) fn expression_ids(program: &crate::Program) -> HashMap<usize, Express
     ids
 }
 
+#[cfg(test)]
 pub(crate) fn statement_ids(program: &crate::Program) -> HashMap<usize, StatementId> {
+    statement_ids_selected(program, None)
+}
+
+pub(crate) fn statement_ids_selected(
+    program: &crate::Program,
+    selected: Option<&HashSet<String>>,
+) -> HashMap<usize, StatementId> {
     fn expression(value: &crate::Expr, ids: &mut HashMap<usize, StatementId>, next: &mut usize) {
         match value {
             crate::Expr::List(items) => {
@@ -266,7 +286,9 @@ pub(crate) fn statement_ids(program: &crate::Program) -> HashMap<usize, Statemen
     let mut next = 0;
     for item in &program.items {
         if let crate::Item::Function(function) = item {
-            statements(&function.body, &mut ids, &mut next);
+            if selected.is_none_or(|names| names.contains(&function.name)) {
+                statements(&function.body, &mut ids, &mut next);
+            }
         }
     }
     ids
@@ -321,6 +343,9 @@ pub(crate) enum StagedReferentError {
 }
 
 pub(crate) struct Declarations {
+    /// Planning declarations are not ownership, escape, or runtime-layout proofs.
+    pub planning_only: bool,
+    pub deferred_layouts: HashMap<String, crate::async_interfaces::DeferredLayout>,
     pub bodies: HashMap<String, crate::typed_body::Body>,
     pub flows: HashMap<String, crate::typed_flow::FlowGraph>,
     pub liveness: HashMap<String, crate::typed_flow::FlowLiveness>,
@@ -615,6 +640,8 @@ impl Declarations {
             })
             .collect();
         Self {
+            planning_only: false,
+            deferred_layouts: HashMap::new(),
             bodies: HashMap::new(),
             flows: HashMap::new(),
             liveness: HashMap::new(),
@@ -635,6 +662,23 @@ impl Declarations {
 
     pub fn global_id(&self, name: &str) -> Option<GlobalId> {
         self.global_ids.get(name).copied()
+    }
+
+    pub fn set_deferred_layouts(
+        &mut self,
+        layouts: &HashMap<String, crate::async_interfaces::DeferredLayout>,
+    ) {
+        self.planning_only = true;
+        self.deferred_layouts = layouts.clone();
+        self.aggregate_names.extend(layouts.keys().cloned());
+        self.aggregate_names.sort();
+        self.aggregate_names.dedup();
+        self.aggregate_ids = self
+            .aggregate_names
+            .iter()
+            .enumerate()
+            .map(|(index, name)| (name.clone(), AggregateId(index)))
+            .collect();
     }
 
     pub fn aggregate_id(&self, ty: &Type) -> Option<AggregateId> {
@@ -700,7 +744,9 @@ impl Declarations {
         &self.functions[id.0]
     }
 
-    pub fn lower_bodies(
+    /// Selection borrows the same immutable AST used for expression identities;
+    /// it does not clone functions or replace nonselected bodies with stubs.
+    pub fn lower_bodies_selected(
         &mut self,
         program: &crate::Program,
         types: &HashMap<ExpressionId, Type>,
@@ -708,6 +754,7 @@ impl Declarations {
         expression_spans: &HashMap<ExpressionId, Span>,
         statement_spans: &HashMap<StatementId, Span>,
         statement_ids: &HashMap<usize, StatementId>,
+        selected: Option<&HashSet<String>>,
     ) -> Result<(), String> {
         {
             self.thread_capture_schemas = program
@@ -750,7 +797,8 @@ impl Declarations {
             .items
             .iter()
             .filter_map(|item| match item {
-                crate::Item::Function(function) if !function.external => {
+                crate::Item::Function(function) if !function.external
+                    && selected.is_none_or(|names| names.contains(&function.name)) => {
                     let parameter_source = program
                         .declaration_expressions
                         .get(&function.name)
@@ -792,7 +840,7 @@ impl Declarations {
                 _ => None,
             })
             .collect();
-        {
+        if selected.is_none() {
             let linear = crate::linearcheck::LinearTypes::from_program(program);
             for body in self.bodies.values_mut() {
                 body.consuming_pin_reads = body.nodes.iter().enumerate().filter_map(|(index, node)| {
@@ -827,7 +875,9 @@ impl Declarations {
                 crate::typed_flow::FlowGraph::lower(body).map(|flow| (name.clone(), flow))
             })
             .collect::<Result<_, _>>()?;
-        self.summarize_returned_parameter_loans();
+        if selected.is_none() {
+            self.summarize_returned_parameter_loans();
+        }
         self.liveness = self
             .flows
             .iter()
@@ -835,7 +885,8 @@ impl Declarations {
             .collect();
         for item in &program.items {
             if let crate::Item::Function(function) = item {
-                if !function.external {
+                if !function.external && selected.is_none_or(|names| names.contains(&function.name))
+                {
                     self.flows[&function.name].check_definite_bindings(
                         &self.bodies[&function.name],
                         function.parameters.len(),
@@ -896,6 +947,9 @@ impl Declarations {
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
     {
+        if self.planning_only {
+            return Err(StagedReferentError::Dependency);
+        }
         self.summarize_parameter_loans_with_contents(true);
         self.staged_referent_analysis(types, false, false, true, None)
     }
@@ -920,6 +974,9 @@ impl Declarations {
         types: &crate::linearcheck::LinearTypes,
         names: &HashSet<String>,
     ) -> Result<HashMap<String, crate::typed_flow::StorageFacts>, StagedReferentError> {
+        if self.planning_only {
+            return Err(StagedReferentError::Dependency);
+        }
         self.summarize_parameter_loans_with_contents(true);
         let mut storage = HashMap::new();
         self.staged_referent_analysis(types, false, false, true, Some((names, &mut storage)))?;
@@ -938,6 +995,9 @@ impl Declarations {
         )>,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
     {
+        if self.planning_only {
+            return Err(StagedReferentError::Dependency);
+        }
         use crate::typed_body::NodeKind;
         use crate::typed_flow::{FlowAction, FlowNodeId};
         // Clear every cache before inference, including callers we may never

@@ -181,6 +181,7 @@ fn names(expr: &Expr, output: &mut HashSet<String>) {
 
 struct Builder<'a> {
     base: &'a Program,
+    interfaces: Option<&'a crate::async_interfaces::Registry>,
     aliases: HashMap<String, Type>,
     used: HashSet<String>,
     prefix: String,
@@ -384,6 +385,10 @@ impl Builder<'_> {
                 Item::Function(function) if function.name == poll_name => Some(function),
                 _ => None,
             })
+            .or_else(|| {
+                self.interfaces
+                    .and_then(|interfaces| interfaces.function(poll_name))
+            })
             .ok_or_else(|| {
                 self.fail(
                     &c[4 + offset],
@@ -400,6 +405,10 @@ impl Builder<'_> {
                     Some(variants)
                 }
                 _ => None,
+            })
+            .or_else(|| {
+                self.interfaces
+                    .and_then(|interfaces| interfaces.enum_variants(&result_owner))
             })
             .ok_or_else(|| {
                 self.fail(
@@ -450,7 +459,7 @@ impl Builder<'_> {
             ));
         }
         let poll_return = crate::type_source(&poll.return_type);
-        let unsafe_call = poll.unsafe_call;
+        let unsafe_call = poll.unsafe_call || poll.external;
         path.push(c.len() - 1);
         let child = self.expression(c.last().unwrap(), path, false)?;
         path.pop();
@@ -526,6 +535,27 @@ fn lower_with_frame(
     base: &Program,
     frame: Option<&str>,
 ) -> Result<Lowered, Error> {
+    lower_source(source, waker, base, frame, None)
+}
+
+/// Type/evaluation planning before physical frame layout. Deferred interfaces
+/// supply signatures only; this is not a pin-promotion or ownership proof.
+pub(crate) fn lower_in_registry(
+    source: &SpannedExpr,
+    waker: Type,
+    base: &Program,
+    interfaces: &crate::async_interfaces::Registry,
+) -> Result<Lowered, Error> {
+    lower_source(source, waker, base, None, Some(interfaces))
+}
+
+fn lower_source(
+    source: &SpannedExpr,
+    waker: Type,
+    base: &Program,
+    frame: Option<&str>,
+    interfaces: Option<&crate::async_interfaces::Registry>,
+) -> Result<Lowered, Error> {
     if head(source) != "fn" || source.children.len() < 5 {
         return Err(Error {
             message: "async source analysis needs the original #fn source tree".into(),
@@ -547,6 +577,9 @@ fn lower_with_frame(
         .iter()
         .flat_map(crate::item_declared_names)
         .collect::<HashSet<_>>();
+    if let Some(interfaces) = interfaces {
+        used.extend(interfaces.generated_names.keys().cloned());
+    }
     names(&source.expr, &mut used);
     let aliases = base
         .items
@@ -558,6 +591,7 @@ fn lower_with_frame(
         .collect();
     let mut builder = Builder {
         base,
+        interfaces,
         aliases,
         used,
         prefix: format!("lim.async.source.{source_name}"),
@@ -662,6 +696,22 @@ impl Lowered {
     }
 
     pub fn append(&self, program: &mut Program) -> Result<(), crate::source_error::SourceError> {
+        self.append_in_context(program, None)
+    }
+
+    pub(crate) fn append_with_interfaces(
+        &self,
+        program: &mut Program,
+        interfaces: &crate::async_interfaces::Registry,
+    ) -> Result<(), crate::source_error::SourceError> {
+        self.append_in_context(program, Some(interfaces))
+    }
+
+    fn append_in_context(
+        &self,
+        program: &mut Program,
+        interfaces: Option<&crate::async_interfaces::Registry>,
+    ) -> Result<(), crate::source_error::SourceError> {
         let original_count = program.items.len();
         fn add(
             program: &mut Program,
@@ -728,6 +778,11 @@ impl Lowered {
                 _ => None,
             })
             .collect::<Vec<_>>();
+        if let Some(interfaces) = interfaces {
+            // This temporary list orders named operands. It is not checked
+            // executable code, and never enters program.items or emission.
+            context.extend(interfaces.signature_context());
+        }
         let context_count = context.len();
         context.extend(program.items.drain(original_count..));
         crate::normalize_function_calls(

@@ -11,7 +11,10 @@ use std::{
 mod analysis_error;
 mod async_cfg;
 mod async_contract;
+mod async_exec;
 mod async_fn;
+mod async_interfaces;
+mod async_prepare;
 mod async_source;
 mod async_storage;
 mod async_values;
@@ -2884,6 +2887,24 @@ fn parse_prepared_program_with_async_captures(
     prepared: &PreparedProgramSyntax,
     capture_plans: Option<&AsyncCapturePlans>,
 ) -> Result<Program, SourceError> {
+    parse_prepared_program_items(prepared, capture_plans, true)
+}
+
+/// Declaration input for original-body planning. Async interfaces live in an
+/// explicit deferred registry, not invented executable/extern declarations.
+/// Ordinary bodies are parsed but stay unnormalized until layout completion;
+/// the planner checks only the source models attached to this context.
+fn parse_prepared_async_declarations(
+    prepared: &PreparedProgramSyntax,
+) -> Result<Program, SourceError> {
+    parse_prepared_program_items(prepared, None, false)
+}
+
+fn parse_prepared_program_items(
+    prepared: &PreparedProgramSyntax,
+    capture_plans: Option<&AsyncCapturePlans>,
+    expand_async: bool,
+) -> Result<Program, SourceError> {
     let expressions = prepared.expressions.clone();
     let mut source_files = prepared.source_files.clone();
     let async_copy_types = &prepared.async_copy_types;
@@ -2898,6 +2919,9 @@ fn parse_prepared_program_with_async_captures(
     let mut async_functions = Vec::new();
     let worker_functions = &prepared.worker_functions;
     for mut expression in expressions {
+        if !expand_async && is_async_invocation(&expression) {
+            continue;
+        }
         let original_async = async_source::Source::from_invocation(&expression)?;
         validate_prefixed_forms(&expression.expr).map_err(|error| {
             attach_span_to_source_error_kind(error, expression.span, &source_files, "parse error: ")
@@ -2911,12 +2935,8 @@ fn parse_prepared_program_with_async_captures(
             .and_then(|file| file.source.get(form_span.start..form_span.end))
             .unwrap_or("")
             .trim_start();
-        let is_generated_output = expression.children.is_empty()
-            && invocation_text.starts_with("(@")
-            && !matches!(
-                &expression.expr,
-                Expr::List(forms) if matches!(forms.first(), Some(Expr::At))
-            );
+        let is_generated_output =
+            expression.children.is_empty() && invocation_text.starts_with("(@");
         if is_generated_output {
             let generated_text = expression_source(&expression.expr)?;
             let source_id = u32::try_from(source_files.len())
@@ -3211,22 +3231,24 @@ fn parse_prepared_program_with_async_captures(
         &declaration_expressions,
         &source_files,
     )?;
-    normalize_function_calls(
-        &mut items,
-        &statement_spans,
-        &statement_expressions,
-        &declaration_spans,
-        &declaration_expressions,
-        &source_files,
-    )?;
-    normalize_struct_literals(
-        &mut items,
-        &statement_spans,
-        &statement_expressions,
-        &declaration_spans,
-        &declaration_expressions,
-        &source_files,
-    )?;
+    if expand_async {
+        normalize_function_calls(
+            &mut items,
+            &statement_spans,
+            &statement_expressions,
+            &declaration_spans,
+            &declaration_expressions,
+            &source_files,
+        )?;
+        normalize_struct_literals(
+            &mut items,
+            &statement_spans,
+            &statement_expressions,
+            &declaration_spans,
+            &declaration_expressions,
+            &source_files,
+        )?;
+    }
     Ok(Program {
         items,
         source: Some(prepared.root_source.clone()),

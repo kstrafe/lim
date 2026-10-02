@@ -163,6 +163,7 @@ use crate::typed_ir::{Declarations, Signature};
 #[derive(Default)]
 struct FunctionTable {
     signatures: HashMap<String, Signature>,
+    deferred_layouts: HashMap<String, crate::async_interfaces::DeferredLayout>,
     return_type_context: std::cell::RefCell<Option<Type>>,
     expression_ids: HashMap<usize, crate::typed_ir::ExpressionId>,
     statement_ids: HashMap<usize, crate::typed_ir::StatementId>,
@@ -827,8 +828,39 @@ pub(crate) fn resolve_program_for_analysis(
         &mut diagnostic_span,
         &mut diagnostic_labels,
         enforce_ownership,
+        None,
     )
     .map_err(|message| (message, diagnostic_code, diagnostic_span, diagnostic_labels))
+}
+
+struct AsyncPlanning<'a> {
+    registry: &'a crate::async_interfaces::Registry,
+    selected_bodies: &'a HashSet<String>,
+}
+
+/// Resolve only original source witnesses/drivers. This establishes types and
+/// explicit unsafe scope, not ownership, callee effects, or a usable layout.
+pub(crate) fn resolve_async_planning(
+    program: &Program,
+    registry: &crate::async_interfaces::Registry,
+    selected_bodies: &HashSet<String>,
+) -> Result<Declarations, AnalysisError> {
+    let mut span = None;
+    let mut code = crate::DiagnosticCode::Type;
+    let mut labels = Vec::new();
+    let planning = AsyncPlanning {
+        registry,
+        selected_bodies,
+    };
+    check_types_inner(
+        program,
+        &mut code,
+        &mut span,
+        &mut labels,
+        false,
+        Some(&planning),
+    )
+    .map_err(|message| (message, code, span, labels))
 }
 
 fn ownership_diagnostic_subject(message: &str) -> Option<&str> {
@@ -850,15 +882,215 @@ fn ownership_subjects_overlap(syntax_subject: &str, typed_subject: &str) -> bool
         })
 }
 
+fn validate_planning_declaration_types(
+    program: &Program,
+    registry: &crate::async_interfaces::Registry,
+    declared: &HashSet<&String>,
+    aliases: &HashMap<String, Type>,
+) -> Result<(), (String, Option<crate::Span>)> {
+    let check = |ty: &Type, span: Option<crate::Span>| {
+        let ty = resolve_type(ty, aliases).map_err(|error| (error.message, span))?;
+        if let Some(unknown) = first_unresolved_type(&ty, declared, aliases) {
+            return Err((
+                format!("undeclared type '{unknown}' in async planning declaration"),
+                span,
+            ));
+        }
+        Ok(())
+    };
+    for item in &program.items {
+        let names = crate::item_declared_names(item);
+        let name = names.first().map(String::as_str).unwrap_or("");
+        let declaration = program.declaration_expressions.get(name);
+        let span = program.declaration_spans.get(name).copied();
+        match item {
+            Item::Function(function) => {
+                for (index, parameter) in function.parameters.iter().enumerate() {
+                    let parameter_source = declaration
+                        .and_then(|source| source.children.get(2))
+                        .and_then(|source| source.children.get(index));
+                    let ty_source = parameter_source.and_then(|source| source.children.last());
+                    check(&parameter.ty, ty_source.map(|source| source.span).or(span))?;
+                }
+                check(
+                    &function.return_type,
+                    declaration
+                        .and_then(|source| source.children.get(3))
+                        .map(|source| source.span)
+                        .or(span),
+                )?;
+            }
+            Item::TypeAlias { target, .. }
+            | Item::Let { ty: target, .. }
+            | Item::Static { ty: target, .. } => {
+                check(
+                    target,
+                    declaration
+                        .and_then(|source| source.children.get(2))
+                        .map(|source| source.span)
+                        .or(span),
+                )?;
+            }
+            Item::Struct { fields, .. } => {
+                for field in fields {
+                    check(
+                        &field.ty,
+                        declaration_member_span(program, name, 2, &field.name, 1).or(span),
+                    )?;
+                }
+            }
+            Item::Enum { variants, .. } => {
+                for variant in variants {
+                    for field in &variant.fields {
+                        check(
+                            field,
+                            declaration_member_span(program, name, 2, &variant.name, 1).or(span),
+                        )?;
+                    }
+                }
+            }
+            Item::ThreadTask {
+                generated_functions,
+                ..
+            } => {
+                for function in generated_functions {
+                    for parameter in &function.parameters {
+                        check(&parameter.ty, span)?;
+                    }
+                    check(&function.return_type, span)?;
+                }
+            }
+            _ => {}
+        }
+    }
+    for interface in registry.functions.values() {
+        let function = &interface.declaration;
+        if function.external != (function.calling_convention == CallingConvention::C) {
+            return Err((
+                format!(
+                    "function '{}' has an inconsistent calling convention",
+                    function.name
+                ),
+                interface.span,
+            ));
+        }
+        if !function.type_parameters.is_empty() {
+            return Err((
+                "generic async planning interfaces are not supported".into(),
+                interface.span,
+            ));
+        }
+        let mut names = HashSet::new();
+        for parameter in &function.parameters {
+            if !names.insert(&parameter.name) {
+                return Err((
+                    format!(
+                        "duplicate parameter '{}' in function '{}'",
+                        parameter.name, function.name
+                    ),
+                    interface.span,
+                ));
+            }
+            check(&parameter.ty, interface.span)?;
+        }
+        check(&function.return_type, interface.span)?;
+    }
+    for (name, variants) in &registry.protocols {
+        let span = registry.generated_names.get(name).copied();
+        for variant in variants {
+            for field in &variant.fields {
+                check(field, span)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A reference has a known handle layout even when its pointee is deferred.
+/// By-value containers, however, cannot hide a layout dependency.
+fn deferred_value_layout(
+    ty: &Type,
+    deferred: &HashMap<String, crate::async_interfaces::DeferredLayout>,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    seen: &mut HashSet<String>,
+) -> Option<String> {
+    match ty {
+        Type::Named(name) if deferred.contains_key(name) => Some(name.clone()),
+        Type::Named(name) if seen.insert(name.clone()) => structs
+            .get(name)
+            .into_iter()
+            .flat_map(|fields| fields.iter())
+            .find_map(|field| deferred_value_layout(&field.ty, deferred, structs, enums, seen))
+            .or_else(|| {
+                enums
+                    .get(name)
+                    .into_iter()
+                    .flat_map(|variants| variants.iter())
+                    .flat_map(|variant| variant.fields.iter())
+                    .find_map(|field| deferred_value_layout(field, deferred, structs, enums, seen))
+            }),
+        Type::Array(element, _) | Type::Atomic(element) => {
+            deferred_value_layout(element, deferred, structs, enums, seen)
+        }
+        Type::Tuple(fields) => fields
+            .iter()
+            .find_map(|field| deferred_value_layout(field, deferred, structs, enums, seen)),
+        _ => None,
+    }
+}
+
+fn deferred_layout_error(name: &str, operation: &str, site: ErrorSite) -> SemanticError {
+    semantic_at!(
+        site,
+        "async layout '{name}' is deferred; '{operation}' requires a concrete layout"
+    )
+}
+
 fn check_types_inner(
     program: &Program,
     diagnostic_code: &mut crate::DiagnosticCode,
     diagnostic_span: &mut Option<crate::Span>,
     diagnostic_labels: &mut Vec<(crate::Span, String)>,
     enforce_ownership: bool,
+    planning: Option<&AsyncPlanning<'_>>,
 ) -> Result<Declarations, String> {
     #[cfg(test)]
     SEMANTIC_PASSES.with(|passes| passes.set(passes.get() + 1));
+    if let Some(planning) = planning {
+        for item in &program.items {
+            let mut names = crate::item_declared_names(item);
+            match item {
+                Item::Enum { variants, .. } => {
+                    names.extend(variants.iter().map(|variant| variant.name.clone()))
+                }
+                Item::ThreadTask {
+                    generated_functions,
+                    ..
+                } => names.extend(
+                    generated_functions
+                        .iter()
+                        .map(|function| function.name.clone()),
+                ),
+                _ => {}
+            }
+            for name in names {
+                if let Some(span) = planning.registry.generated_names.get(&name) {
+                    *diagnostic_span = declaration_name_span(program, &name).or(Some(*span));
+                    diagnostic_labels.push((*span, "async interface reserved here".into()));
+                    return Err(format!(
+                        "async generated name '{name}' conflicts with an existing declaration"
+                    ));
+                }
+            }
+        }
+        for name in planning.selected_bodies {
+            if !program.items.iter().any(|item| matches!(item, Item::Function(function) if function.name == *name && !function.external)) {
+                *diagnostic_span = declaration_name_span(program, name);
+                return Err(format!("async planning body '{name}' is missing or external"));
+            }
+        }
+    }
     for item in &program.items {
         match item {
             Item::Function(function) if !function.type_parameters.is_empty() => {
@@ -955,6 +1187,10 @@ fn check_types_inner(
             }
             _ => {}
         }
+    }
+    if let Some(planning) = planning {
+        declared_types.extend(planning.registry.deferred_layouts.keys());
+        declared_types.extend(planning.registry.protocols.keys());
     }
     let mut linear_annotations = HashSet::new();
     for item in &program.items {
@@ -1093,6 +1329,13 @@ fn check_types_inner(
             return Err(error.into());
         }
     }
+    if let Some(planning) = planning {
+        validate_planning_declaration_types(program, planning.registry, &declared_types, &aliases)
+            .map_err(|(message, span)| {
+                *diagnostic_span = span;
+                message
+            })?;
+    }
     let mut globals = HashMap::new();
     for item in &program.items {
         let (name, ty, mutable) = match item {
@@ -1202,12 +1445,63 @@ fn check_types_inner(
         }
     }
     let mut functions = FunctionTable::default();
-    functions.expression_ids = crate::typed_ir::expression_ids(program);
-    functions.statement_ids = crate::typed_ir::statement_ids(program);
+    let selected = planning.map(|context| context.selected_bodies);
+    functions.expression_ids = crate::typed_ir::expression_ids_selected(program, selected);
+    functions.statement_ids = crate::typed_ir::statement_ids_selected(program, selected);
+    if let Some(planning) = planning {
+        functions.deferred_layouts = planning.registry.deferred_layouts.clone();
+        for (name, variants) in &planning.registry.protocols {
+            if enums.contains_key(name) {
+                continue;
+            }
+            for variant in variants {
+                if let Some(previous) = variant_names.insert(variant.name.clone(), name.clone()) {
+                    *diagnostic_span = planning
+                        .registry
+                        .generated_names
+                        .get(&variant.name)
+                        .copied();
+                    return Err(format!(
+                        "variant '{}' is already defined in enum '{previous}'",
+                        variant.name
+                    ));
+                }
+            }
+            enums.insert(
+                name.clone(),
+                variants
+                    .iter()
+                    .map(|variant| {
+                        Ok(EnumVariant {
+                            name: variant.name.clone(),
+                            fields: variant
+                                .fields
+                                .iter()
+                                .map(|field| resolve_type(field, &aliases))
+                                .collect::<Result<Vec<_>, _>>()?,
+                            discriminant: variant.discriminant,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, SemanticError>>()?,
+            );
+        }
+    }
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;
         };
+        if planning.is_some() {
+            let mut names = HashSet::new();
+            for parameter in &function.parameters {
+                if !names.insert(&parameter.name) {
+                    *diagnostic_span = function_name_span(program, &function.name);
+                    return Err(format!(
+                        "duplicate parameter '{}' in function '{}'",
+                        parameter.name, function.name
+                    ));
+                }
+            }
+        }
         let clone_hook = function
             .name
             .strip_suffix("-clone")
@@ -1250,6 +1544,49 @@ fn check_types_inner(
             return Err(semantic_format!("duplicate function '{}'", function.name));
         }
     }
+    if let Some(planning) = planning {
+        for (name, interface) in &planning.registry.functions {
+            if interface.provenance == crate::async_interfaces::Provenance::Ordinary
+                && functions.contains_key(name)
+            {
+                continue;
+            }
+            let function = &interface.declaration;
+            if interface.provenance != crate::async_interfaces::Provenance::Ordinary
+                && (function.external
+                    || function.calling_convention != CallingConvention::Lim
+                    || function.unsafe_call)
+            {
+                *diagnostic_span = interface.span;
+                return Err(format!(
+                    "async interface '{name}' has inconsistent calling flags"
+                ));
+            }
+            if functions
+                .insert(
+                    name.clone(),
+                    Signature {
+                        type_parameters: function.type_parameters.clone(),
+                        parameters: function
+                            .parameters
+                            .iter()
+                            .map(|parameter| resolve_type(&parameter.ty, &aliases))
+                            .collect::<Result<Vec<_>, _>>()?,
+                        parameter_names: function
+                            .parameters
+                            .iter()
+                            .map(|parameter| parameter.name.clone())
+                            .collect(),
+                        return_type: resolve_type(&function.return_type, &aliases)?,
+                    },
+                )
+                .is_some()
+            {
+                *diagnostic_span = interface.span;
+                return Err(format!("duplicate function '{name}'"));
+            }
+        }
+    }
     for item in &program.items {
         let Item::ThreadTask { name, worker, .. } = item else {
             continue;
@@ -1272,7 +1609,7 @@ fn check_types_inner(
                 "thread task '{name}' refers to unknown worker function '{worker}'"
             ));
         };
-        if worker_item.external || worker_item.unsafe_call {
+        if planning.is_none() && (worker_item.external || worker_item.unsafe_call) {
             *diagnostic_span = program
                 .declaration_expressions
                 .get(name)
@@ -1290,68 +1627,78 @@ fn check_types_inner(
             .get(worker)
             .expect("worker signature collected")
             .clone();
-        for (parameter_index, (parameter, ty)) in worker_item
-            .parameters
-            .iter()
-            .zip(&worker_signature.parameters)
-            .enumerate()
-        {
-            let send = match type_has_thread_property(program, ty, ThreadProperty::Send) {
+        if planning.is_none() {
+            for (parameter_index, (parameter, ty)) in worker_item
+                .parameters
+                .iter()
+                .zip(&worker_signature.parameters)
+                .enumerate()
+            {
+                let send = match type_has_thread_property(program, ty, ThreadProperty::Send) {
+                    Ok(send) => send,
+                    Err(error) => {
+                        *diagnostic_span = first_unresolved_type(ty, &declared_types, &aliases)
+                            .and_then(|unknown| {
+                                worker_parameter_type_span(
+                                    program,
+                                    worker,
+                                    parameter_index,
+                                    &unknown,
+                                )
+                            });
+                        record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                        return Err(semantic_format!(
+                            "{error} while checking thread worker '{worker}'"
+                        ));
+                    }
+                };
+                if !send {
+                    *diagnostic_span = worker_parameter_span(program, worker, parameter_index);
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                    return Err(semantic_format!(
+                        "thread worker '{worker}' parameter '{}' does not implement Send",
+                        parameter.name
+                    ));
+                }
+            }
+            let return_send = match type_has_thread_property(
+                program,
+                &worker_signature.return_type,
+                ThreadProperty::Send,
+            ) {
                 Ok(send) => send,
                 Err(error) => {
-                    *diagnostic_span = first_unresolved_type(ty, &declared_types, &aliases)
-                        .and_then(|unknown| {
-                            worker_parameter_type_span(program, worker, parameter_index, &unknown)
-                        });
+                    *diagnostic_span = first_unresolved_type(
+                        &worker_signature.return_type,
+                        &declared_types,
+                        &aliases,
+                    )
+                    .and_then(|unknown| worker_return_type_span(program, worker, &unknown));
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     return Err(semantic_format!(
                         "{error} while checking thread worker '{worker}'"
                     ));
                 }
             };
-            if !send {
-                *diagnostic_span = worker_parameter_span(program, worker, parameter_index);
+            if !return_send {
+                *diagnostic_span = worker_return_span(program, worker);
                 record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                 return Err(semantic_format!(
-                    "thread worker '{worker}' parameter '{}' does not implement Send",
-                    parameter.name
+                    "thread worker '{worker}' return type does not implement Send"
                 ));
             }
-        }
-        let return_send = match type_has_thread_property(
-            program,
-            &worker_signature.return_type,
-            ThreadProperty::Send,
-        ) {
-            Ok(send) => send,
-            Err(error) => {
-                *diagnostic_span =
-                    first_unresolved_type(&worker_signature.return_type, &declared_types, &aliases)
-                        .and_then(|unknown| worker_return_type_span(program, worker, &unknown));
+            if contains_reference_type(
+                &worker_signature.return_type,
+                &structs,
+                &enums,
+                &mut HashSet::new(),
+            ) {
+                *diagnostic_span = worker_return_span(program, worker);
                 record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                 return Err(semantic_format!(
-                    "{error} while checking thread worker '{worker}'"
+                    "thread worker '{worker}' cannot return reference-containing values"
                 ));
             }
-        };
-        if !return_send {
-            *diagnostic_span = worker_return_span(program, worker);
-            record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-            return Err(semantic_format!(
-                "thread worker '{worker}' return type does not implement Send"
-            ));
-        }
-        if contains_reference_type(
-            &worker_signature.return_type,
-            &structs,
-            &enums,
-            &mut HashSet::new(),
-        ) {
-            *diagnostic_span = worker_return_span(program, worker);
-            record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-            return Err(semantic_format!(
-                "thread worker '{worker}' cannot return reference-containing values"
-            ));
         }
         let task_type = Type::Named(name.clone());
         let spawn_result_type = Type::Named(format!("{name}-spawn-result"));
@@ -1386,16 +1733,20 @@ fn check_types_inner(
             }
         }
     }
-    reject_recursive_calls(program, &functions).map_err(|error| {
-        *diagnostic_span = error.span;
-        error.message
-    })?;
+    if planning.is_none() {
+        reject_recursive_calls(program, &functions).map_err(|error| {
+            *diagnostic_span = error.span;
+            error.message
+        })?;
+    }
     // Establish source locations before type checking. Semantic metadata itself
     // is keyed by deterministic expression IDs from the full AST walk.
     functions.collecting_sources.set(true);
     for item in &program.items {
         match item {
-            Item::Function(function) => {
+            Item::Function(function)
+                if selected.is_none_or(|names| names.contains(&function.name)) =>
+            {
                 for (index, statement) in function.body.iter().enumerate() {
                     if let Some(source) = program
                         .statement_expressions
@@ -1412,7 +1763,9 @@ fn check_types_inner(
                     }
                 }
             }
-            Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
+            Item::Let { name, value, .. } | Item::Static { name, value, .. }
+                if planning.is_none() =>
+            {
                 if let Some(source) = program.declaration_expressions.get(name) {
                     semantic_expression_source(
                         value,
@@ -1429,7 +1782,9 @@ fn check_types_inner(
     }
     for item in &program.items {
         match item {
-            Item::Function(function) if function.external => {}
+            Item::Function(function)
+                if function.external
+                    || selected.is_some_and(|names| !names.contains(&function.name)) => {}
             Item::Function(function) => {
                 if let Err(error) = check_function(
                     function,
@@ -1471,6 +1826,9 @@ fn check_types_inner(
             | Item::OpaqueAnnotation { .. }
             | Item::ThreadTask { .. } => {}
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
+                if planning.is_some() {
+                    continue;
+                }
                 let ty = globals.get(name).expect("global type collected");
                 let result = (|| {
                     let actual = expression(
@@ -1517,27 +1875,54 @@ fn check_types_inner(
             }
         }
     }
+    let mut declaration_spans = program.declaration_spans.clone();
+    if let Some(planning) = planning {
+        declaration_spans.extend(
+            planning
+                .registry
+                .generated_names
+                .iter()
+                .map(|(name, span)| (name.clone(), *span)),
+        );
+    }
     let mut declarations = Declarations::new(
         aliases,
         structs,
         enums,
         globals,
         functions.signatures,
-        &program.declaration_spans,
+        &declaration_spans,
     );
+    if let Some(planning) = planning {
+        declarations.set_deferred_layouts(&planning.registry.deferred_layouts);
+    }
     let checked_expression_types = std::sync::Arc::new(functions.expression_types.into_inner());
     let checked_expression_spans = std::sync::Arc::new(functions.expression_spans.into_inner());
     let checked_statement_spans = std::sync::Arc::new(functions.statement_spans.into_inner());
     let expression_ids = std::sync::Arc::new(functions.expression_ids);
     let statement_ids = std::sync::Arc::new(functions.statement_ids);
-    declarations.lower_bodies(
+    declarations.lower_bodies_selected(
         program,
         &checked_expression_types,
         &expression_ids,
         &checked_expression_spans,
         &checked_statement_spans,
         &statement_ids,
+        selected,
     )?;
+    if let Some(planning) = planning {
+        *diagnostic_code = crate::DiagnosticCode::Unsafe;
+        crate::async_interfaces::check_selected_unsafe(
+            program,
+            planning.registry,
+            planning.selected_bodies,
+        )
+        .map_err(|(message, span)| {
+            *diagnostic_span = span;
+            message
+        })?;
+        return Ok(declarations);
+    }
     if !enforce_ownership {
         return Ok(declarations);
     }
@@ -5012,6 +5397,44 @@ fn statement_type_in_context(
     aliases: &HashMap<String, Type>,
     in_loop: bool,
 ) -> Result<Type, SemanticError> {
+    if !functions.deferred_layouts.is_empty() {
+        match statement {
+            Statement::Destructure { ty, .. } | Statement::LetElse { ty, .. } => {
+                let ty = resolve_type(ty, aliases)?;
+                if let Type::Named(name) = ty {
+                    if functions.deferred_layouts.contains_key(&name) {
+                        return Err(deferred_layout_error(
+                            &name,
+                            "pattern",
+                            ErrorSite::DeclaredType(name.clone()),
+                        ));
+                    }
+                }
+            }
+            Statement::FieldAssign { name, .. }
+            | Statement::EnumPayloadAssign { name, .. }
+            | Statement::TupleAssign { name, .. }
+            | Statement::ArrayAssign { name, .. } => {
+                if let Some(ty) = variables.get(name) {
+                    let ty = resolve_type(ty, aliases)?;
+                    if let Some(owner) = deferred_value_layout(
+                        &ty,
+                        &functions.deferred_layouts,
+                        structs,
+                        enums,
+                        &mut HashSet::new(),
+                    ) {
+                        return Err(deferred_layout_error(
+                            &owner,
+                            "field assignment",
+                            ErrorSite::Symbol(name.clone()),
+                        ));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
     match statement {
         Statement::Let {
             name,
@@ -6121,6 +6544,110 @@ fn list_expression(
         return Err("expression list must start with a symbol".into());
     };
     let raw_operator = operator.as_str();
+    if !functions.deferred_layouts.is_empty() {
+        if let Type::Named(name) = resolve_type(&Type::Named(raw_operator.to_owned()), aliases)? {
+            if functions.deferred_layouts.contains_key(&name) {
+                return Err(deferred_layout_error(
+                    &name,
+                    "construction",
+                    ErrorSite::Operator(raw_operator.into()),
+                ));
+            }
+        }
+        if matches!(raw_operator, "size-of" | "align-of" | "offset-of") {
+            let ty = resolve_type(&parse_type(items.get(1))?, aliases)?;
+            if let Some(owner) = deferred_value_layout(
+                &ty,
+                &functions.deferred_layouts,
+                structs,
+                enums,
+                &mut HashSet::new(),
+            ) {
+                return Err(deferred_layout_error(
+                    &owner,
+                    raw_operator,
+                    ErrorSite::Argument(raw_operator.into(), 1),
+                ));
+            }
+        }
+        if matches!(
+            raw_operator,
+            "get"
+                | "get-payload"
+                | "pin-get-payload"
+                | "index"
+                | "match"
+                | "clone"
+                | "deref"
+                | "pin-read"
+                | "pin-write"
+                | "ptr-read"
+                | "ptr-write"
+                | "ptr-offset"
+                | "slice-idx"
+                | "slice-range"
+                | "slice-mut-idx"
+                | "slice-mut-split"
+        ) {
+            if let Some(operand) = items.get(1) {
+                let operand_expected = if raw_operator == "clone" {
+                    expected
+                } else {
+                    None
+                };
+                let mut ty = expression(
+                    operand,
+                    variables,
+                    functions,
+                    structs,
+                    enums,
+                    mutable,
+                    aliases,
+                    operand_expected,
+                )?;
+                if !matches!(raw_operator, "clone" | "match") {
+                    ty = match (raw_operator, ty) {
+                        (
+                            "ptr-read" | "ptr-write" | "ptr-offset",
+                            Type::RawPointer { target, .. },
+                        ) => *target,
+                        (
+                            "slice-idx" | "slice-range" | "slice-mut-idx" | "slice-mut-split",
+                            Type::Slice(target) | Type::MutableSlice(target),
+                        ) => *target,
+                        (
+                            _,
+                            Type::Reference { target, .. } | Type::PinnedReference { target, .. },
+                        ) => *target,
+                        (_, ty) => ty,
+                    };
+                }
+                let owner = if raw_operator == "match" {
+                    match ty {
+                        Type::Named(name) if functions.deferred_layouts.contains_key(&name) => {
+                            Some(name)
+                        }
+                        _ => None,
+                    }
+                } else {
+                    deferred_value_layout(
+                        &ty,
+                        &functions.deferred_layouts,
+                        structs,
+                        enums,
+                        &mut HashSet::new(),
+                    )
+                };
+                if let Some(owner) = owner {
+                    return Err(deferred_layout_error(
+                        &owner,
+                        raw_operator,
+                        ErrorSite::Argument(raw_operator.into(), 1),
+                    ));
+                }
+            }
+        }
+    }
     if raw_operator.contains('<') && raw_operator.contains('>') && !raw_operator.starts_with('#') {
         return Err(
             "angle-bracket generic calls are not supported; use a concrete generated function"
@@ -9411,6 +9938,142 @@ fn fits_unsigned_integer(value: u128, ty: &Type) -> bool {
         _ => return false,
     };
     value <= maximum
+}
+
+#[cfg(test)]
+mod async_planning_tests {
+    use super::*;
+
+    fn context(body: &str) -> (Program, crate::async_interfaces::Registry) {
+        let source = format!(
+            "(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64
+                : function (#fn start () u64 (#return 1u64)))) {body}"
+        );
+        let prepared = crate::prepare_program_syntax(
+            &source,
+            std::path::Path::new("."),
+            None,
+            &crate::CompileConfig::default(),
+            None,
+        )
+        .unwrap();
+        let program = crate::parse_prepared_async_declarations(&prepared).unwrap();
+        let registry = crate::async_interfaces::Registry::from_program_invocations(
+            &program,
+            &prepared.expressions,
+        )
+        .unwrap();
+        (program, registry)
+    }
+
+    fn plan(body: &str) -> Result<Declarations, AnalysisError> {
+        let (program, registry) = context(body);
+        resolve_async_planning(&program, &registry, &HashSet::from(["main".into()]))
+    }
+
+    #[test]
+    fn selected_deferred_pointer_and_slice_operations_require_layout() {
+        for (parameters, operation) in [
+            ("(ptr (#ptr Frame))", "(#unsafe (#ptr-read ptr))"),
+            ("(ptr (#ptr Frame))", "(#unsafe (#ptr-offset ptr 1usize))"),
+            (
+                "(ptr (#ptr-mut Frame)) (value Frame)",
+                "(#unsafe (#ptr-write ptr value))",
+            ),
+            ("(items (#slice Frame))", "(#slice-idx items 0usize)"),
+            (
+                "(items (#slice Frame))",
+                "(#slice-range items 0usize 1usize)",
+            ),
+            (
+                "(items (#slice-mut Frame))",
+                "(#slice-mut-idx items 0usize)",
+            ),
+            (
+                "(items (#slice-mut Frame))",
+                "(#slice-mut-split items 0usize)",
+            ),
+        ] {
+            let body = format!("(#fn main ({parameters}) () {operation} (#return ()))");
+            let (message, code, span, _) = plan(&body).err().unwrap();
+            assert!(message.contains("deferred"), "{operation}: {message}");
+            assert_eq!(code, crate::DiagnosticCode::Type);
+            assert!(span.is_some(), "{operation}: {message}");
+        }
+    }
+
+    #[test]
+    fn deferred_handle_operations_and_poll_matching_need_no_frame_layout() {
+        plan(
+            "(#fn main ((ptr (#ptr Frame)) (items (#slice Frame)) (result Poll)) u64
+                (#let address usize (#ptr-address ptr))
+                (#let length usize (#slice-len items))
+                (#return (#match result
+                    (#case (Pending child) 0u64)
+                    (#case (Ready value) value))))",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn selected_unsafe_scope_is_lexical_not_function_wide() {
+        plan(
+            "(#fn main ((ptr (#ptr u64))) u64
+                (#return (#unsafe (#ptr-read ptr))))
+             (#fn ignored ((ptr (#ptr u64))) u64 (#return (#ptr-read ptr)))",
+        )
+        .unwrap();
+        let (_, code, span, _) = plan(
+            "(#fn main ((ptr (#ptr u64))) u64
+                (#let first u64 (#unsafe (#ptr-read ptr)))
+                (#return (#ptr-read ptr)))",
+        )
+        .err()
+        .unwrap();
+        assert_eq!(code, crate::DiagnosticCode::Unsafe);
+        assert!(span.is_some());
+    }
+
+    #[test]
+    fn planning_skips_nonselected_bodies_and_global_initializers_not_types() {
+        plan(
+            "(#let unchecked u64 true)
+             (#fn ignored () u64 (#return true))
+             (#fn main () u64 (#return 1u64))",
+        )
+        .unwrap();
+        let (message, code, span, _) = plan(
+            "(#fn ignored ((value Missing)) u64 (#return 1u64))
+             (#fn main () u64 (#return 1u64))",
+        )
+        .err()
+        .unwrap();
+        assert!(message.contains("Missing"), "{message}");
+        assert_eq!(code, crate::DiagnosticCode::Type);
+        assert!(span.is_some());
+    }
+
+    #[test]
+    fn planning_types_are_not_a_stack_lifetime_or_suspension_proof() {
+        let (program, registry) = context(
+            "(#fn main () (#ref u64)
+                (#let local u64 1u64)
+                (#return (#borrow local)))",
+        );
+        let selected = HashSet::from(["main".into()]);
+        let mut declarations = resolve_async_planning(&program, &registry, &selected).unwrap();
+        assert!(declarations.planning_only);
+        assert!(declarations.deferred_layouts.contains_key("Frame"));
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        assert!(matches!(
+            declarations.check_referent_entry_contracts(&types),
+            Err(crate::typed_ir::StagedReferentError::Dependency)
+        ));
+        assert!(matches!(
+            declarations.suspension_storage_facts(&types, &selected),
+            Err(crate::typed_ir::StagedReferentError::Dependency)
+        ));
+    }
 }
 
 #[cfg(test)]

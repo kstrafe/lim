@@ -3,6 +3,42 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 #[test]
+fn generator_produced_async_declaration_keeps_its_checked_source_body() {
+    let source = "
+      (#enum Child ((Waiting u64))) (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
+      (#fn step-poll ((task Child) (waker (#ref u64))) ChildPoll
+        (#return (#match task (#case (Waiting value) (ChildReady value)))))
+      (#gn produce ()
+        `((@async-fn (: names (Frame Poll Pending Ready poll) : waker u64
+          : function (#fn work ((seed u64)) u64
+            (#return (#await Child ChildPending ChildReady step-poll (Waiting seed))))))))
+      (@produce)
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#return (#match (#call poll (: task (#call work (: seed 42u64)) : waker (#borrow waker)))
+          (#case (Ready value) value)
+          (#case (Pending task) (#block (#forget task) (#unreachable))))))";
+    build_and_run(source, 42);
+    let invalid = source.replace("(Waiting seed)", "(Waiting true)");
+    let scratch = support::Scratch::new("generated-async-source-types");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("generated async original bodies must still be checked");
+    assert_eq!(error.code, lim::DiagnosticCode::Type);
+    let text = error.source_text.as_deref().unwrap();
+    let span = error.span.unwrap();
+    assert_eq!(&text[span.start..span.end], "true");
+    assert!(error.source_name.as_deref().unwrap().contains("generated"));
+}
+
+#[test]
 fn async_while_let_returns_after_multiple_body_awaits() {
     let source = include_str!("../examples/async_while_let_return.lim");
     build_and_run(source, 42);
