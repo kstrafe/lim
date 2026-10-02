@@ -11,10 +11,12 @@ use std::{
 mod analysis_error;
 mod async_cfg;
 mod async_contract;
+mod async_emit;
 mod async_exec;
 mod async_fn;
 mod async_interfaces;
 mod async_prepare;
+mod async_render;
 mod async_source;
 mod async_storage;
 mod async_values;

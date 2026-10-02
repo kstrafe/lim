@@ -1106,7 +1106,7 @@ pub(crate) fn cached_generated_source(
 
 /// Keep declarations at column zero and indent their bodies structurally.
 /// Templates supply syntax; their incidental whitespace is never published.
-fn format_generated_source(source: &str) -> Result<String, String> {
+pub(crate) fn format_generated_source(source: &str) -> Result<String, String> {
     fn render(expression: &Expr, indent: usize) -> Result<String, String> {
         let flat = crate::expression_source(expression)?;
         let Expr::List(items) = expression else {
