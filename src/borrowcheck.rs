@@ -45,6 +45,31 @@ fn typed_symbol_assignment_replaces_reference_provenance() {
     let escaped = source.replace("(#set view next)",
         "(#block (#let local u64 3u64) (#let temporary (#ref u64) (#borrow local)) (#set view temporary) ())");
     assert!(crate::check_types(&crate::parse_program(&escaped).unwrap()).is_err());
+    let emptied = "(#enum View ((Present (#ref u64)) Empty))
+      (#fn main () u64
+        (#let-mut owner u64 37u64)
+        (#let-mut view View (Present (#borrow owner)))
+        (#set view Empty)
+        (#set owner 42u64)
+        (#forget view)
+        (#return owner))";
+    crate::check_types(&crate::parse_program(emptied).unwrap()).unwrap();
+    let retained = emptied.replace("(#set view Empty)", "()");
+    let error = crate::check_types(&crate::parse_program(&retained).unwrap()).unwrap_err();
+    assert!(
+        error.contains("owner") && error.contains("borrow"),
+        "{error}"
+    );
+    let parameter = "(#enum View ((Present (#ref u64)) Empty))
+      (#fn replace ((#mut view View)) ()
+        (#set view Empty) (#return ()))";
+    crate::check_types(&crate::parse_program(parameter).unwrap()).unwrap();
+    let borrowed_slot = parameter.replace(
+        "(#set view Empty)",
+        "(#let address (#ref View) (#borrow view)) (#set view Empty) (#drop address)",
+    );
+    let error = crate::check_types(&crate::parse_program(&borrowed_slot).unwrap()).unwrap_err();
+    assert!(error.contains("borrow"), "{error}");
 }
 
 #[cfg(test)]
@@ -672,8 +697,9 @@ pub(crate) fn check_program(program: &Program) -> Result<(), BorrowDiagnostic> {
     check_program_impl(program, false, None)
 }
 
-/// The ordinary compilation path has already checked return escapes against
-/// typed places and loan origins; standalone callers retain the legacy rule.
+/// The ordinary compilation path has already checked escapes and direct-loan
+/// conflicts against typed places and origins. Whole aggregate assignments
+/// rely on that slot-identity proof; standalone callers retain legacy rules.
 pub(crate) fn check_program_with_typed_returns(
     program: &Program,
     declarations: &crate::typed_ir::Declarations,
@@ -1180,7 +1206,17 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             if let Some(store) = store {
                 let ty = store.store_type.as_ref().unwrap();
                 if contains_reference_type(ty, &context.reference_types) {
-                    context.write(name)?;
+                    // Typed direct-loan checking already validates writes to
+                    // owned aggregate storage. Legacy parameter anchors name
+                    // the contained referents, not the parameter's own slot,
+                    // and would spuriously treat replacement as a pointee write.
+                    // Retain the legacy guard for direct reference handles.
+                    if !matches!(
+                        ty,
+                        crate::Type::Named(_) | crate::Type::Tuple(_) | crate::Type::Array(..)
+                    ) {
+                        context.write(name)?;
+                    }
                     return check_let_binding(name, ty, value, &true, context, true);
                 }
             }
@@ -3111,7 +3147,9 @@ fn typed_borrow_facts(
                 crate::typed_body::NodeKind::Symbol {
                     binding: Some(_),
                     ..
-                }
+                } | crate::typed_body::NodeKind::Declaration(
+                    crate::typed_ir::DeclarationId::Variant(_)
+                )
             )
         {
             continue;
