@@ -9255,6 +9255,24 @@ mod tests {
     }
 
     #[test]
+    fn range_loop_borrow_diagnostics_preserve_original_body_sources() {
+        for body in [
+            "(#set value 2u64)",
+            "(#let other u64 0u64) (#set value 2u64)",
+            "(#for-range (j u64) 0u64 1u64 (#set value 2u64))",
+        ] {
+            let source = format!(
+                "(#fn main () u64\n  (#let-mut value u64 1u64)\n  (#let reference (#ref u64) (#borrow value))\n  (#for-range (i u64) 0u64 1u64 {body})\n  (#return (#deref reference)))"
+            );
+            let diagnostic = structured_type_error(&parse_program(&source).unwrap());
+            assert!(diagnostic.message.contains("borrow"), "{diagnostic:?}");
+            let span = diagnostic.span.expect("range body mutation has a span");
+            assert_eq!(&source[span.start..span.end], "#set", "{diagnostic:?}");
+            assert_eq!(span.start, source.find("#set value").unwrap());
+        }
+    }
+
+    #[test]
     fn escaping_borrow_errors_highlight_the_return_and_label_the_referent() {
         let source = "(#fn bad () (#ref u64)\n  (#let value u64 42)\n  (#return (#borrow value)))";
         let program = parse_program(source).unwrap();

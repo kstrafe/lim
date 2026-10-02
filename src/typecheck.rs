@@ -3714,6 +3714,45 @@ fn semantic_statement_source<'a>(
     let locate = |value: &Expr, source: &'a crate::SpannedExpr| {
         semantic_expression_source(value, source, origin, statement_origin, functions, structs)
     };
+    // #for-range expands to #for with a synthetic counter binding at the
+    // front of its body. The original source has neither that binding nor
+    // the generated condition/step syntax; zip only the real body statements.
+    if matches!(source.children.first().map(|head| &head.expr), Some(Expr::Symbol(head)) if head == "#for-range")
+    {
+        if let Statement::For {
+            init,
+            condition,
+            body,
+            ..
+        } = statement
+        {
+            let start = match init.as_ref() {
+                Statement::Let { value, .. } => value,
+                _ => return None,
+            };
+            let end = match condition {
+                Expr::List(items) => items.get(2)?,
+                _ => return None,
+            };
+            return locate(start, source.children.get(2)?)
+                .or_else(|| locate(end, source.children.get(3)?))
+                .or_else(|| {
+                    body.iter()
+                        .skip(1)
+                        .zip(source.children.iter().skip(4))
+                        .find_map(|(statement, source)| {
+                            semantic_statement_source(
+                                statement,
+                                source,
+                                origin,
+                                statement_origin,
+                                functions,
+                                structs,
+                            )
+                        })
+                });
+        }
+    }
     match statement {
         Statement::Let { value, .. } | Statement::Destructure { value, .. } => {
             locate(value, source.children.get(3)?)
