@@ -1067,7 +1067,6 @@ pub(crate) struct ParameterLoanSeed {
 /// Reference contents after normal returns, plus whether every such path
 /// writes this physical destination. This is not an ownership contract.
 #[derive(Clone, Debug, Eq, PartialEq)]
-#[cfg(test)]
 pub(crate) struct ParameterStoreSummary {
     pub destination: ParameterLoanSummary,
     pub sources: Vec<ParameterLoanSummary>,
@@ -1093,7 +1092,6 @@ pub(crate) struct Instruction {
     pub control: Control,
 }
 
-#[cfg(test)]
 pub(crate) type OutputVariantMap<T> =
     HashMap<crate::typed_ir::FunctionId, HashMap<(Vec<crate::typed_place::Segment>, VariantId), T>>;
 
@@ -1107,24 +1105,20 @@ pub(crate) struct Body {
     /// externally supplied reference roots from references to local owners.
     pub parameter_count: usize,
     /// Staged move classification; Copy-valued pinned reads do not consume.
-    #[cfg(test)]
     pub consuming_pin_reads: std::collections::HashSet<NodeId>,
-    #[cfg(test)]
     pub consuming_releases: std::collections::HashSet<NodeId>,
     /// Every-normal-return contents clearing, not an initialization contract.
-    #[cfg(test)]
     pub call_parameter_clears: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
+    /// Verified direct callees with no physical discriminant writes. Unknown
+    /// operations and unchecked callees never appear in this prepared table.
+    pub call_preserves_variant_tags: Arc<std::collections::HashSet<crate::typed_ir::FunctionId>>,
     /// Destruction facts conditioned on an explicitly matched return variant.
-    #[cfg(test)]
     pub call_clear_variants:
         Arc<HashMap<crate::typed_ir::FunctionId, HashMap<VariantId, Vec<ParameterLoanSummary>>>>,
-    #[cfg(test)]
     pub call_output_store_variants: Arc<OutputVariantMap<Vec<ParameterStoreSummary>>>,
-    #[cfg(test)]
     pub call_output_clear_variants: Arc<OutputVariantMap<Vec<ParameterLoanSummary>>>,
     /// Direct callee outcome contracts supplied by the staged ownership pass.
     /// Replaced for each analysis run, never reused across entry assumptions.
-    #[cfg(test)]
     pub call_variant_exits: std::cell::RefCell<
         HashMap<
             crate::typed_ir::FunctionId,
@@ -1133,15 +1127,12 @@ pub(crate) struct Body {
     >,
     /// Actual outcomes inside owned call output storage, not task captures.
     /// Rebuilt with the root contracts for each staged inference run.
-    #[cfg(test)]
     pub call_output_variant_exits:
         std::cell::RefCell<OutputVariantMap<crate::typed_flow::ReferentVariantExit>>,
-    /// Keep opt-in ownership passes on the same provenance interpretation as
-    /// their inferred contracts. Production bodies have no such mode flag.
-    #[cfg(test)]
+    /// Select actual parameter contents when preparing initialized-referent
+    /// contracts. The production gate and its test entry points share this mode.
     pub staged_parameter_contents: bool,
     /// Constant enum facts proved on every normal return, relative to output.
-    #[cfg(test)]
     pub call_return_variants: Arc<
         HashMap<
             crate::typed_ir::FunctionId,
@@ -1149,14 +1140,15 @@ pub(crate) struct Body {
         >,
     >,
     /// Conservative output-relative bounds; missing paths are unknown.
-    #[cfg(test)]
     pub call_return_variant_bounds:
         Arc<HashMap<crate::typed_ir::FunctionId, crate::typed_flow::VariantBounds>>,
     /// Interprocedural return-origin summaries shared by all checked bodies.
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
-    #[cfg(test)]
+    /// Mandatory reference slots of real checked callees' owned returns.
+    /// Used only to exclude impossible tagged outputs, not to invent loans.
+    pub call_return_reference_slots:
+        Arc<HashMap<crate::typed_ir::FunctionId, Vec<Vec<crate::typed_place::Segment>>>>,
     pub call_store_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterStoreSummary>>>,
-    #[cfg(test)]
     pub call_store_variants:
         Arc<HashMap<crate::typed_ir::FunctionId, HashMap<VariantId, Vec<ParameterStoreSummary>>>>,
     /// Reference-bearing slots in each parameter value, indexed by binding ID.

@@ -8,10 +8,8 @@ use crate::linearcheck::LinearTypes;
 use crate::typed_body::{
     BindingId, Body, Control, Instruction, NodeId, NodeKind, NumericOpcode, PlaceRoot, Projection,
 };
-#[cfg(test)]
 use crate::typed_ir::VariantId;
 use crate::typed_ir::{DeclarationId, FieldId};
-#[cfg(test)]
 use crate::typed_place::owned_output_projection;
 use crate::typed_place::{reads_through_reference, Place, Segment};
 use crate::{Span, Type};
@@ -19,16 +17,147 @@ use crate::{Span, Type};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct FlowNodeId(pub usize);
 
-#[cfg(test)]
 type CallResultRefinement = (
     Vec<(FlowNodeId, NodeId, Vec<Segment>)>,
     VariantId,
     Vec<FlowNodeId>,
 );
 
-#[cfg(test)]
 type VariantState = HashMap<Place, VariantId>;
-#[cfg(test)]
+type StorageVariantBounds = HashMap<Place, HashSet<VariantId>>;
+type StorageVariantSnapshots = Vec<Option<StorageVariantBounds>>;
+
+#[derive(Clone, Eq, PartialEq)]
+struct VariantPartition {
+    booleans: HashMap<BindingId, bool>,
+    bounds: StorageVariantBounds,
+}
+
+fn merge_variant_partition(
+    held: &mut Vec<VariantPartition>,
+    incoming: VariantPartition,
+    widened: &mut bool,
+) -> bool {
+    let previous = (*widened).then(|| held[0].clone());
+    if !*widened {
+        if let Some(previous) = held
+            .iter_mut()
+            .find(|previous| previous.booleans == incoming.booleans)
+        {
+            return join_storage_variant_bounds(&mut previous.bounds, &incoming.bounds);
+        }
+        held.push(incoming);
+        if held.len() <= 16 {
+            return true;
+        }
+        *widened = true;
+    } else {
+        held.push(incoming);
+    }
+    let mut common = held.remove(0);
+    for other in held.drain(..) {
+        common
+            .booleans
+            .retain(|binding, value| other.booleans.get(binding) == Some(value));
+        join_storage_variant_bounds(&mut common.bounds, &other.bounds);
+    }
+    let changed = previous.as_ref().is_none_or(|previous| previous != &common);
+    held.push(common);
+    changed
+}
+
+fn boolean_variant_value(
+    body: &Body,
+    value: NodeId,
+    state: &HashMap<BindingId, bool>,
+) -> Option<bool> {
+    match &body.nodes[value.0].kind {
+        NodeKind::Symbol {
+            name,
+            binding: None,
+        } if name == "true" => Some(true),
+        NodeKind::Symbol {
+            name,
+            binding: None,
+        } if name == "false" => Some(false),
+        NodeKind::Literal(crate::Expr::Symbol(name)) if name == "true" => Some(true),
+        NodeKind::Literal(crate::Expr::Symbol(name)) if name == "false" => Some(false),
+        NodeKind::Symbol {
+            binding: Some(binding),
+            ..
+        } if body.nodes[value.0].ty == Some(Type::Bool) => state.get(binding).copied(),
+        NodeKind::Form {
+            numeric: Some(operation),
+            children,
+            ..
+        } if operation.operand_type == Type::Bool => {
+            let left = boolean_variant_value(body, *children.get(1)?, state)?;
+            match operation.operation {
+                NumericOpcode::Not => Some(!left),
+                NumericOpcode::Equal => {
+                    Some(left == boolean_variant_value(body, *children.get(2)?, state)?)
+                }
+                NumericOpcode::NotEqual => {
+                    Some(left != boolean_variant_value(body, *children.get(2)?, state)?)
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn join_storage_variant_bounds(
+    held: &mut StorageVariantBounds,
+    incoming: &StorageVariantBounds,
+) -> bool {
+    let inactive = |state: &StorageVariantBounds, place: &Place| {
+        place.segments.iter().enumerate().any(|(index, segment)| {
+            let Segment::Payload(wanted, _) = segment else {
+                return false;
+            };
+            state
+                .get(&Place {
+                    root: place.root.clone(),
+                    segments: place.segments[..index].to_vec(),
+                })
+                .is_some_and(|possible| {
+                    !possible.is_empty()
+                        && !possible.contains(wanted)
+                        && possible.iter().all(|variant| variant.owner == wanted.owner)
+                })
+        })
+    };
+    let additions = incoming
+        .iter()
+        .filter(|(place, _)| !held.contains_key(*place) && inactive(held, place))
+        .map(|(place, variants)| (place.clone(), variants.clone()))
+        .collect::<Vec<_>>();
+    let mut changed = !additions.is_empty();
+    held.retain(|place, variants| {
+        if let Some(other) = incoming.get(place) {
+            let count = variants.len();
+            variants.extend(other.iter().copied());
+            changed |= count != variants.len();
+            true
+        } else if inactive(incoming, place) {
+            true
+        } else {
+            changed = true;
+            false
+        }
+    });
+    held.extend(additions);
+    changed
+}
+
+#[derive(Clone, Copy)]
+struct StorageVariantContext<'a> {
+    flow: &'a FlowGraph,
+    origins: &'a FlowLoanOrigins,
+    event: FlowNodeId,
+    snapshots: &'a [Option<StorageVariantBounds>],
+}
 type VariantContext<'a> = (
     &'a FlowGraph,
     &'a FlowLoanOrigins,
@@ -36,7 +165,6 @@ type VariantContext<'a> = (
     &'a [Option<VariantState>],
 );
 
-#[cfg(test)]
 fn captured_variant_events(context: VariantContext<'_>, value: NodeId) -> Vec<FlowNodeId> {
     let (flow, origins, event, _) = context;
     let matches = |index: usize| {
@@ -53,6 +181,65 @@ fn captured_variant_events(context: VariantContext<'_>, value: NodeId) -> Vec<Fl
         .filter(|index| origins.before[*index].is_some() && matches(*index))
         .map(FlowNodeId)
         .collect()
+}
+
+fn inactive_variant_fact_slot(state: &HashMap<Place, VariantId>, place: &Place) -> bool {
+    place.segments.iter().enumerate().any(|(index, segment)| {
+        let Segment::Payload(wanted, _) = segment else {
+            return false;
+        };
+        state
+            .get(&Place {
+                root: place.root.clone(),
+                segments: place.segments[..index].to_vec(),
+            })
+            .is_some_and(|actual| actual.owner == wanted.owner && actual != wanted)
+    })
+}
+
+/// A payload fact is conditional on its containing variant being present.
+fn join_variant_facts(
+    held: &mut HashMap<Place, VariantId>,
+    incoming: &HashMap<Place, VariantId>,
+) -> bool {
+    let additions = incoming
+        .iter()
+        .filter(|(place, _)| !held.contains_key(*place) && inactive_variant_fact_slot(held, place))
+        .map(|(place, variant)| (place.clone(), *variant))
+        .collect::<Vec<_>>();
+    let count = held.len();
+    held.retain(|place, variant| {
+        incoming.get(place).map_or_else(
+            || inactive_variant_fact_slot(incoming, place),
+            |other| other == variant,
+        )
+    });
+    let changed = held.len() != count || !additions.is_empty();
+    held.extend(additions);
+    changed
+}
+
+fn value_has_only_unreachable_events(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    value: NodeId,
+) -> bool {
+    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }
+        if matches!(head.as_str(), "panic" | "unreachable"))
+    {
+        return true;
+    }
+    let mut observed = false;
+    for &event in &origins.events_by_value[value.0] {
+        if flow_action_has_value(&flow.nodes[event].action, value) {
+            observed = true;
+            if origins.before[event].is_some() {
+                return false;
+            }
+        }
+    }
+    observed
 }
 
 #[derive(Clone, Debug)]
@@ -125,6 +312,7 @@ pub(crate) struct FlowNode {
 
 #[derive(Clone, Debug)]
 pub(crate) struct FlowGraph {
+    pub variant_pruned_edges: HashMap<FlowNodeId, Vec<FlowNodeId>>,
     pub nodes: Vec<FlowNode>,
     pub entry: FlowNodeId,
     pub exit: FlowNodeId,
@@ -176,7 +364,6 @@ impl PartialEq for LoanOrigin {
 impl Eq for LoanOrigin {}
 
 impl LoanOrigin {
-    #[cfg(test)]
     pub fn parameter_summary(&self) -> Option<crate::typed_body::ParameterLoanSummary> {
         let (parameter, global) = match self.place.root {
             PlaceRoot::Parameter(binding) => (binding.0, None),
@@ -252,10 +439,6 @@ impl LoanOrigin {
     }
 }
 
-#[cfg(not(test))]
-type LoanState = Vec<Vec<LoanOrigin>>;
-
-#[cfg(test)]
 #[derive(Clone)]
 struct LoanState {
     bindings: Vec<Vec<LoanOrigin>>,
@@ -267,7 +450,6 @@ struct LoanState {
     global_known_contents: HashMap<crate::typed_ir::GlobalId, HashSet<Vec<Segment>>>,
 }
 
-#[cfg(test)]
 impl From<Vec<Vec<LoanOrigin>>> for LoanState {
     fn from(bindings: Vec<Vec<LoanOrigin>>) -> Self {
         Self {
@@ -278,7 +460,6 @@ impl From<Vec<Vec<LoanOrigin>>> for LoanState {
     }
 }
 
-#[cfg(test)]
 impl std::ops::Deref for LoanState {
     type Target = Vec<Vec<LoanOrigin>>;
     fn deref(&self) -> &Self::Target {
@@ -286,7 +467,6 @@ impl std::ops::Deref for LoanState {
     }
 }
 
-#[cfg(test)]
 impl std::ops::DerefMut for LoanState {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.bindings
@@ -294,13 +474,8 @@ impl std::ops::DerefMut for LoanState {
 }
 
 fn empty_loan_state(count: usize) -> LoanState {
-    #[cfg(test)]
     {
         vec![Vec::new(); count].into()
-    }
-    #[cfg(not(test))]
-    {
-        vec![Vec::new(); count]
     }
 }
 
@@ -333,9 +508,8 @@ impl std::ops::Index<usize> for LoanSnapshots<'_> {
 /// not yet an enforcing borrow check; indirect provenance and destructured
 /// payloads still need the full IR-04 transfer.
 pub(crate) struct FlowLoanOrigins {
-    #[cfg(test)]
     variants: std::cell::OnceCell<Vec<Option<HashMap<Place, VariantId>>>>,
-    #[cfg(test)]
+    storage_variant_bounds: std::cell::OnceCell<StorageVariantSnapshots>,
     clear_refinements: Vec<Option<CallResultRefinement>>,
     before: Vec<Option<LoanState>>,
     after: Vec<Option<LoanState>>,
@@ -346,7 +520,6 @@ pub(crate) struct FlowLoanOrigins {
 }
 
 #[derive(Clone, Debug)]
-#[cfg(test)]
 pub(crate) struct LoanStore {
     pub destination: LoanOrigin,
     pub incoming: Vec<LoanOrigin>,
@@ -370,14 +543,12 @@ pub(crate) struct FlowConsumptions {
     at: Vec<HashSet<Place>>,
     local_pin_accesses: HashMap<NodeId, Place>,
     /// Resolved direct consuming accesses, independent of later restoration.
-    #[cfg(test)]
     resolved_at: Vec<HashSet<Place>>,
     definitely_before: Vec<Option<HashSet<Place>>>,
     /// Indirect accesses lacking provenance; never an ownership proof.
     unresolved: HashSet<FlowNodeId>,
 }
 
-#[cfg(test)]
 #[derive(Clone, Debug)]
 pub(crate) struct ReferentExitEffect {
     pub place: Place,
@@ -387,7 +558,6 @@ pub(crate) struct ReferentExitEffect {
     pub consumption_spans: Vec<Option<Span>>,
 }
 
-#[cfg(test)]
 #[derive(Clone, Debug)]
 pub(crate) struct ReferentFunctionEffects {
     pub has_normal_return: bool,
@@ -409,7 +579,6 @@ pub(crate) struct ReferentFunctionEffects {
     pub variant_exits: HashMap<VariantId, ReferentVariantExit>,
 }
 
-#[cfg(test)]
 #[derive(Clone, Debug)]
 pub(crate) struct ReferentVariantExit {
     pub has_normal_return: bool,
@@ -423,7 +592,6 @@ pub(crate) struct ReferentVariantExit {
     pub unresolved: Vec<FlowNodeId>,
 }
 
-#[cfg(test)]
 impl ReferentFunctionEffects {
     pub fn possibly_initialized_inputs(&self) -> Vec<Place> {
         self.consumed_entry
@@ -442,7 +610,6 @@ impl ReferentFunctionEffects {
 /// requirements. Prior initialization writes must be considered separately.
 /// Consuming-access contracts reuse this identity descriptor without treating
 /// those facts as read-entry requirements or outgoing consumption effects.
-#[cfg(test)]
 #[derive(Clone, Debug)]
 pub(crate) struct ReferentRead {
     pub event: FlowNodeId,
@@ -452,7 +619,6 @@ pub(crate) struct ReferentRead {
     pub span: Option<Span>,
 }
 
-#[cfg(test)]
 #[derive(Default)]
 pub(crate) struct ReferentCallFacts {
     pub effects: Vec<(FlowNodeId, Vec<ReferentExitEffect>, bool)>,
@@ -473,11 +639,9 @@ struct CallConsumptionFacts {
     unresolved: bool,
     restored: Vec<Place>,
     possibly_restored: Vec<Place>,
-    #[cfg(test)]
     outcomes: Vec<CallOutcomeSource>,
 }
 
-#[cfg(test)]
 struct CallOutcomeSource {
     event: FlowNodeId,
     effects: Vec<ReferentExitEffect>,
@@ -485,7 +649,6 @@ struct CallOutcomeSource {
     consumed_entry: Vec<Place>,
 }
 
-#[cfg(test)]
 fn outcome_candidates(
     outcomes: &[CallOutcomeSource],
     calls: &HashMap<FlowNodeId, CallConsumptionFacts>,
@@ -511,7 +674,6 @@ fn outcome_candidates(
     candidates
 }
 
-#[cfg(test)]
 fn refine_outcome_may(
     facts: &CallConsumptionFacts,
     calls: &HashMap<FlowNodeId, CallConsumptionFacts>,
@@ -585,7 +747,6 @@ fn refine_outcome_may(
     true
 }
 
-#[cfg(test)]
 fn refine_outcome_must(
     facts: &CallConsumptionFacts,
     calls: &HashMap<FlowNodeId, CallConsumptionFacts>,
@@ -742,7 +903,6 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
-    #[cfg(test)]
     fn reachable_loop_breaks(&self, flow: &FlowGraph, result: NodeId) -> Vec<(FlowNodeId, NodeId)> {
         self.events_by_value[result.0]
             .iter()
@@ -763,7 +923,6 @@ impl FlowLoanOrigins {
 
     /// Proven final callee clears or an exact direct destructive access.
     /// Empty contents are not an initialization or ownership proof.
-    #[cfg(test)]
     fn clears_before(&self, body: &Body, flow: &FlowGraph, event: FlowNodeId) -> Vec<LoanOrigin> {
         let Some(state) = &self.before[event.0] else {
             return Vec::new();
@@ -819,7 +978,6 @@ impl FlowLoanOrigins {
     }
 
     /// Actual direct or substituted callee stores at this reachable event.
-    #[cfg(test)]
     pub fn stores_before(
         &self,
         body: &Body,
@@ -1187,7 +1345,6 @@ fn display_linear_place(body: &Body, place: &Place) -> String {
     let mut output = root;
     for segment in &place.segments {
         match segment {
-            #[cfg(test)]
             Segment::ThreadCapture(_, index) => {
                 output.push_str(&format!(".<thread-capture:{index}>"));
             }
@@ -1218,26 +1375,144 @@ fn display_linear_place(body: &Body, place: &Place) -> String {
     output
 }
 
-#[cfg(test)]
 pub(crate) type VariantBounds = HashMap<Vec<Segment>, HashSet<VariantId>>;
 
-#[cfg(test)]
+fn inactive_variant_bound_slot(bounds: &VariantBounds, path: &[Segment]) -> bool {
+    path.iter().enumerate().any(|(index, segment)| {
+        let Segment::Payload(wanted, _) = segment else {
+            return false;
+        };
+        bounds.get(&path[..index]).is_some_and(|possible| {
+            !possible.is_empty()
+                && !possible.contains(wanted)
+                && possible.iter().all(|variant| variant.owner == wanted.owner)
+        })
+    })
+}
+
+fn known_variant_bound_slot(bounds: &VariantBounds, path: &[Segment]) -> bool {
+    path.iter().enumerate().all(|(index, segment)| {
+        let Segment::Payload(wanted, _) = segment else {
+            return true;
+        };
+        bounds
+            .get(&path[..index])
+            .is_some_and(|possible| possible.len() == 1 && possible.contains(wanted))
+    })
+}
+
 fn join_variant_bounds(held: &mut VariantBounds, incoming: &VariantBounds) {
+    // Bounds beneath an enum payload are conditional on that payload being
+    // present. An alternative proving the payload inactive is not unknown
+    // contents and must not erase the active alternative's nested bounds.
+    let additions = incoming
+        .iter()
+        .filter(|(path, _)| !held.contains_key(*path) && inactive_variant_bound_slot(held, path))
+        .map(|(path, variants)| (path.clone(), variants.clone()))
+        .collect::<Vec<_>>();
     held.retain(|path, variants| {
         if let Some(other) = incoming.get(path) {
             variants.extend(other);
             true
         } else {
-            false
+            inactive_variant_bound_slot(incoming, path)
         }
     });
+    held.extend(additions);
 }
 
 impl FlowGraph {
+    pub fn restore_variant_paths(&mut self) {
+        for (event, successors) in self.variant_pruned_edges.drain() {
+            self.nodes[event.0].successors = successors;
+        }
+    }
+
+    /// Exclude only patterns contradicted by actual owned-result bounds.
+    /// Restore prior edges first so changed or removed callees cannot leave
+    /// stale unreachable branches in a subsequent contract analysis.
+    pub fn prune_impossible_variant_patterns(&mut self, body: &Body) {
+        self.restore_variant_paths();
+        if !self.nodes.iter().any(|node| {
+            matches!(node.action,
+            FlowAction::Pattern { pattern, .. }
+                if constructor_variant_at_storage(body, pattern, &[]).is_some())
+        }) {
+            return;
+        }
+        let origins = self.loan_origins(body);
+        let mut impossible = Vec::new();
+        for (index, node) in self.nodes.iter().enumerate() {
+            let FlowAction::Pattern { pattern, value } = node.action else {
+                continue;
+            };
+            let Some(variant) = constructor_variant_at_storage(body, pattern, &[]) else {
+                continue;
+            };
+            let bounds = self.unchanged_result_variant_bounds(
+                body,
+                &origins,
+                FlowNodeId(index),
+                value,
+                &mut HashSet::new(),
+            );
+            if bounds
+                .get(&Vec::new())
+                .is_some_and(|possible| !possible.is_empty() && !possible.contains(&variant))
+            {
+                impossible.push(FlowNodeId(index));
+            }
+        }
+        for event in impossible {
+            self.variant_pruned_edges
+                .insert(event, std::mem::take(&mut self.nodes[event.0].successors));
+        }
+    }
+
+    fn unchanged_result_variant_bounds(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        event: FlowNodeId,
+        value: NodeId,
+        visiting: &mut HashSet<(FlowNodeId, NodeId)>,
+    ) -> VariantBounds {
+        if !visiting.insert((event, value)) {
+            return HashMap::new();
+        }
+        let result = if let NodeKind::Symbol {
+            binding: Some(binding),
+            ..
+        } = body.nodes[value.0].kind
+        {
+            if let Some(definitions) =
+                self.unchanged_local_definitions(body, origins, event, binding, value)
+            {
+                let mut common = None;
+                for (definition, source) in definitions {
+                    let incoming = self.unchanged_result_variant_bounds(
+                        body, origins, definition, source, visiting,
+                    );
+                    if let Some(held) = &mut common {
+                        join_variant_bounds(held, &incoming);
+                    } else {
+                        common = Some(incoming);
+                    }
+                }
+                common.unwrap_or_default()
+            } else {
+                value_variant_bounds(body, value, &HashMap::new(), None)
+            }
+        } else {
+            value_variant_bounds(body, value, &HashMap::new(), None)
+        };
+        visiting.remove(&(event, value));
+        result
+    }
     /// Output-relative variant upper bounds for every reachable normal return.
     /// Unknown alternatives remove bounds rather than guessing a shape.
-    #[cfg(test)]
     pub fn returned_variant_bounds(&self, body: &Body, origins: &FlowLoanOrigins) -> VariantBounds {
+        self.prepare_storage_variant_bounds(body, origins);
         let states = self.variant_facts_with_origins(body, origins);
         let mut returned: Option<VariantBounds> = None;
         for (index, event) in self.nodes.iter().enumerate() {
@@ -1255,6 +1530,9 @@ impl FlowGraph {
                 let mut alternatives = Vec::new();
                 collect_result_alternatives(body, value, &mut alternatives);
                 for alternative in alternatives {
+                    if value_has_only_unreachable_events(self, body, origins, alternative) {
+                        continue;
+                    }
                     let key = (event, alternative);
                     if ancestors.contains(&key) {
                         // A recursive alias is unknown, not an alternative
@@ -1323,7 +1601,76 @@ impl FlowGraph {
         self.variant_facts_with_origins(body, &self.loan_origins(body))
     }
 
-    #[cfg(test)]
+    /// Prove absence of physical tag writes using reachable checked events.
+    /// This is not a consumption, initialization, or general purity contract.
+    pub fn preserves_variant_tags(
+        &self,
+        body: &Body,
+        callees: &HashSet<crate::typed_ir::FunctionId>,
+    ) -> bool {
+        self.reachable()
+            .into_iter()
+            .all(|event| match self.nodes[event.0].action {
+                FlowAction::Write { value, .. } => writes_only_scalar_storage(body, value),
+                FlowAction::Assign { .. }
+                | FlowAction::Release { .. }
+                | FlowAction::Clone { .. } => false,
+                FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
+                    NodeKind::Form {
+                        head,
+                        children,
+                        numeric,
+                        callee,
+                        ..
+                    } => {
+                        if let Some(callee) = callee {
+                            return callees.contains(callee);
+                        }
+                        numeric.is_some()
+                            || writes_only_scalar_storage(body, value)
+                            || children.first().is_some_and(|head| {
+                                matches!(
+                                    body.nodes[head.0].kind,
+                                    NodeKind::Declaration(
+                                        DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
+                                    )
+                                )
+                            })
+                            || matches!(
+                                head.as_str(),
+                                "" | "tuple"
+                                    | "array"
+                                    | "array-of"
+                                    | "array-repeat"
+                                    | "slice-of"
+                                    | "slice-len"
+                                    | "slice-idx"
+                                    | "deref"
+                                    | "get"
+                                    | "get-payload"
+                                    | "index"
+                                    | "assert"
+                                    | "borrow"
+                                    | "borrow-mut"
+                                    | "pin-borrow"
+                                    | "pin-borrow-mut"
+                                    | "unsafe"
+                                    | "atomic-load"
+                                    | "atomic-fence"
+                            )
+                    }
+                    NodeKind::Literal(_)
+                    | NodeKind::Symbol { .. }
+                    | NodeKind::If { .. }
+                    | NodeKind::Match { .. }
+                    | NodeKind::Block(_)
+                    | NodeKind::Labeled(_, _) => true,
+                    _ => false,
+                },
+                _ => true,
+            })
+    }
+
     fn variant_facts_with_origins(
         &self,
         body: &Body,
@@ -1527,7 +1874,12 @@ impl FlowGraph {
                         }
                     ) =>
                 {
-                    state.clear();
+                    let preserves = matches!(&body.nodes[value.0].kind,
+                        NodeKind::Form { callee: Some(callee), .. }
+                            if body.call_preserves_variant_tags.contains(callee));
+                    if !preserves {
+                        state.clear();
+                    }
                     for store in origins.stores_before(body, self, event) {
                         apply_store_variant_facts(&mut state, &store);
                     }
@@ -1547,11 +1899,7 @@ impl FlowGraph {
                         before[successor.0] = Some(state.clone());
                         true
                     }
-                    Some(previous) => {
-                        let count = previous.len();
-                        previous.retain(|place, variant| state.get(place) == Some(variant));
-                        previous.len() != count
-                    }
+                    Some(previous) => join_variant_facts(previous, &state),
                 };
                 if changed && !queued[successor.0] {
                     queued[successor.0] = true;
@@ -1570,7 +1918,273 @@ impl FlowGraph {
         before
     }
 
-    #[cfg(test)]
+    pub fn prepare_storage_variant_bounds(&self, body: &Body, origins: &FlowLoanOrigins) {
+        origins
+            .storage_variant_bounds
+            .get_or_init(|| self.storage_variant_bounds_with_origins(body, origins));
+    }
+
+    fn storage_variant_bounds_with_origins(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> StorageVariantSnapshots {
+        let facts = origins
+            .variants
+            .get_or_init(|| self.variant_facts_with_origins(body, origins));
+        let mut dependencies = vec![Vec::new(); self.nodes.len()];
+        let mut users = vec![Vec::new(); self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            let value = match node.action {
+                FlowAction::Bind { value, .. }
+                | FlowAction::Assign { value, .. }
+                | FlowAction::Pattern { value, .. } => value,
+                _ => continue,
+            };
+            dependencies[index] = self.variant_snapshot_dependencies(body, origins, value);
+            dependencies[index].retain(|source| source.0 != index);
+            for source in &dependencies[index] {
+                users[source.0].push(FlowNodeId(index));
+            }
+        }
+        let mut before = vec![None; self.nodes.len()];
+        before[self.entry.0] = Some(StorageVariantBounds::new());
+        let mut partitions = vec![None; self.nodes.len()];
+        partitions[self.entry.0] = Some(vec![VariantPartition {
+            booleans: HashMap::new(),
+            bounds: HashMap::new(),
+        }]);
+        let mut widened = vec![false; self.nodes.len()];
+        // Only retain constants for scalar booleans whose storage never
+        // escapes. A call through a borrowed flag cannot preserve its value.
+        let mut stable_booleans = body
+            .bindings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, binding)| (binding.ty == Type::Bool).then_some(BindingId(index)))
+            .collect::<HashSet<_>>();
+        for node in &self.nodes {
+            if let FlowAction::Borrow { place, .. } = &node.action {
+                if let PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) = place.root {
+                    stable_booleans.remove(&binding);
+                }
+            }
+        }
+        for node in &body.nodes {
+            if let NodeKind::Form { head, children, .. } = &node.kind {
+                if matches!(
+                    head.as_str(),
+                    "ptr-of"
+                        | "ptr-borrow"
+                        | "ptr-borrow-mut"
+                        | "pin-ptr-borrow"
+                        | "pin-ptr-borrow-mut"
+                ) {
+                    if let Some(place) = children
+                        .get(1)
+                        .and_then(|value| Place::from_expression(body, *value))
+                    {
+                        if let PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) =
+                            place.root
+                        {
+                            stable_booleans.remove(&binding);
+                        }
+                    }
+                }
+            }
+        }
+        let mut pending = VecDeque::from([self.entry]);
+        let mut queued = vec![false; self.nodes.len()];
+        queued[self.entry.0] = true;
+        while let Some(event) = pending.pop_front() {
+            queued[event.0] = false;
+            for mut partition in partitions[event.0].as_ref().unwrap().clone() {
+                let mut state = partition.bounds;
+                // Exact physical facts also refine guarded payloads on successful
+                // patterns. They never turn an ambiguous upper bound into a tag.
+                if let Some(facts) = &facts[event.0] {
+                    for (place, variant) in facts {
+                        state.insert(place.clone(), HashSet::from([*variant]));
+                    }
+                }
+                let context = StorageVariantContext {
+                    flow: self,
+                    origins,
+                    event,
+                    snapshots: &before,
+                };
+                match &self.nodes[event.0].action {
+                    FlowAction::Bind { binding, value } => {
+                        if stable_booleans.contains(binding) {
+                            if let Some(value) =
+                                boolean_variant_value(body, *value, &partition.booleans)
+                            {
+                                partition.booleans.insert(*binding, value);
+                            } else {
+                                partition.booleans.remove(binding);
+                            }
+                        }
+                        let incoming = value_storage_variant_bounds(body, *value, &state, context);
+                        let target = Place::root(PlaceRoot::Local(*binding));
+                        replace_storage_variant_bounds(&mut state, &target, incoming);
+                    }
+                    FlowAction::Assign { place, value } => {
+                        if let PlaceRoot::Local(binding) = place.root {
+                            if place.segments.is_empty() && stable_booleans.contains(&binding) {
+                                if let Some(value) =
+                                    boolean_variant_value(body, *value, &partition.booleans)
+                                {
+                                    partition.booleans.insert(binding, value);
+                                } else {
+                                    partition.booleans.remove(&binding);
+                                }
+                            }
+                        }
+                        if matches!(place.root, PlaceRoot::Local(binding)
+                        if matches!(body.bindings[binding.0].ty, Type::Reference { .. } | Type::PinnedReference { .. }))
+                        {
+                            state.clear();
+                        } else {
+                            let incoming =
+                                value_storage_variant_bounds(body, *value, &state, context);
+                            replace_storage_variant_bounds(&mut state, place, incoming);
+                        }
+                    }
+                    FlowAction::Pattern { pattern, value } => {
+                        let mut incoming =
+                            value_storage_variant_bounds(body, *value, &state, context);
+                        if let Some(variant) = constructor_variant_at_storage(body, *pattern, &[]) {
+                            incoming.insert(Vec::new(), HashSet::from([variant]));
+                            if let Some(place) = Place::from_expression(body, *value) {
+                                if !matches!(
+                                    body.nodes[value.0].ty,
+                                    Some(
+                                        Type::Reference { .. }
+                                            | Type::PinnedReference { .. }
+                                            | Type::RawPointer { .. }
+                                    )
+                                ) && !has_dynamic_projection(&place)
+                                {
+                                    state.insert(place, HashSet::from([variant]));
+                                }
+                            }
+                        }
+                        distribute_pattern_bounds(body, *pattern, &incoming, &mut state);
+                    }
+                    FlowAction::ScopeExit(bindings) => {
+                        state.retain(|place, _| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
+                        partition
+                            .booleans
+                            .retain(|binding, _| !bindings.contains(binding));
+                    }
+                    FlowAction::Release { place, .. } => {
+                        state.retain(|known, _| !place.overlaps(known));
+                        if let PlaceRoot::Local(binding) = place.root {
+                            for referent in
+                                origins.projected_referents(event, binding, &place.segments)
+                            {
+                                state.retain(|known, _| !referent.overlaps(known));
+                            }
+                        }
+                    }
+                    FlowAction::Write { .. } => state.clear(),
+                    FlowAction::Evaluate(value) => {
+                        if let NodeKind::Form { head, callee, .. } = &body.nodes[value.0].kind {
+                            if callee.is_some_and(|callee| {
+                                !body.call_preserves_variant_tags.contains(&callee)
+                            }) || matches!(
+                                head.as_str(),
+                                "pin-read"
+                                    | "pin-write"
+                                    | "pin-set-field"
+                                    | "deref-set"
+                                    | "ptr-write"
+                                    | "linux-syscall"
+                            ) {
+                                state.clear();
+                            }
+                            if callee.is_some() {
+                                for store in origins.stores_before(body, self, event) {
+                                    let target = store.destination.referent_place();
+                                    state.retain(|known, _| !target.overlaps(known));
+                                    if store.definitely_written && !has_dynamic_projection(&target)
+                                    {
+                                        let incoming = store
+                                            .variants
+                                            .iter()
+                                            .map(|(path, variant)| {
+                                                (path.clone(), HashSet::from([*variant]))
+                                            })
+                                            .collect();
+                                        replace_storage_variant_bounds(
+                                            &mut state, &target, incoming,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                let selected = if let FlowAction::Branch(value) = self.nodes[event.0].action {
+                    let successors = &self.nodes[event.0].successors;
+                    let is_pattern = successors.first().is_some_and(|successor|
+                    matches!(self.nodes[successor.0].action, FlowAction::Pattern { pattern, .. } if pattern == value));
+                    if successors.len() == 2 && !is_pattern {
+                        let condition = match body.nodes[value.0].kind {
+                            NodeKind::If { condition, .. } => condition,
+                            _ => value,
+                        };
+                        boolean_variant_value(body, condition, &partition.booleans).map(|value| {
+                            if value {
+                                0
+                            } else {
+                                1
+                            }
+                        })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                for (index, successor) in self.nodes[event.0].successors.iter().enumerate() {
+                    if selected.is_some_and(|selected| selected != index) {
+                        continue;
+                    }
+                    let incoming = VariantPartition {
+                        booleans: partition.booleans.clone(),
+                        bounds: state.clone(),
+                    };
+                    let changed = match &mut partitions[successor.0] {
+                        None => {
+                            partitions[successor.0] = Some(vec![incoming]);
+                            true
+                        }
+                        Some(held) => {
+                            merge_variant_partition(held, incoming, &mut widened[successor.0])
+                        }
+                    };
+                    if changed {
+                        let mut joined =
+                            partitions[successor.0].as_ref().unwrap()[0].bounds.clone();
+                        for other in &partitions[successor.0].as_ref().unwrap()[1..] {
+                            join_storage_variant_bounds(&mut joined, &other.bounds);
+                        }
+                        before[successor.0] = Some(joined);
+                        for user in std::iter::once(successor).chain(users[successor.0].iter()) {
+                            if before[user.0].is_some() && !queued[user.0] {
+                                queued[user.0] = true;
+                                pending.push_back(*user);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        before
+    }
+
     fn variant_snapshot_dependencies(
         &self,
         body: &Body,
@@ -1646,6 +2260,7 @@ impl FlowGraph {
         let first = builder.scoped_instructions(&body.instructions, builder.exit, &[])?;
         let entry = builder.push(FlowAction::Entry, None, vec![first]);
         let mut graph = Self {
+            variant_pruned_edges: HashMap::new(),
             nodes: builder.nodes,
             entry,
             exit: builder.exit,
@@ -1705,7 +2320,6 @@ impl FlowGraph {
     /// Forward may-analysis of direct reference origins held by local
     /// bindings. The transfer uses checked value IDs rather than syntax names.
     pub fn loan_origins(&self, body: &Body) -> FlowLoanOrigins {
-        #[cfg(test)]
         {
             if body.staged_parameter_contents {
                 self.solve_loan_origins(body, true, true, true)
@@ -1713,15 +2327,10 @@ impl FlowGraph {
                 self.solve_loan_origins(body, false, false, false)
             }
         }
-        #[cfg(not(test))]
-        {
-            self.solve_loan_origins(body)
-        }
     }
 
     /// May-store experiment. Not a production replacement until conditional
     /// clearing and definite storage restoration are established.
-    #[cfg(test)]
     pub fn staged_store_loan_origins(&self, body: &Body) -> FlowLoanOrigins {
         self.solve_loan_origins(body, true, false, false)
     }
@@ -1733,7 +2342,6 @@ impl FlowGraph {
         self.solve_loan_origins(body, true, true, false)
     }
 
-    #[cfg(test)]
     /// Actual pointee contents experiment, not an initialization/restoration
     /// proof or a production replacement for interprocedural return checking.
     pub fn staged_parameter_store_loan_origins(&self, body: &Body) -> FlowLoanOrigins {
@@ -1743,7 +2351,6 @@ impl FlowGraph {
     /// Task captures remain borrowed until their linear handle is consumed,
     /// even when the handle has no future reads. Ordinary reference NLL is not
     /// sufficient for an independently running worker.
-    #[cfg(test)]
     pub fn check_pending_task_loans(
         &self,
         body: &Body,
@@ -1911,7 +2518,6 @@ impl FlowGraph {
         Ok(())
     }
 
-    #[cfg(test)]
     fn call_result_refinements(&self, body: &Body) -> Vec<Option<CallResultRefinement>> {
         let reachable = self.reachable();
         let mut predecessors = vec![Vec::new(); self.nodes.len()];
@@ -2053,7 +2659,6 @@ impl FlowGraph {
 
     /// Identify an actual call and the owned output storage selected from it.
     /// Nonempty paths are not interchangeable with root outcome contracts.
-    #[cfg(test)]
     fn call_result_producers(
         &self,
         body: &Body,
@@ -2215,7 +2820,6 @@ impl FlowGraph {
 
     /// Contents destruction proven on every normal return, separately from
     /// writes and initialization. Unknown effects invalidate prior proofs.
-    #[cfg(test)]
     pub fn parameter_clear_summaries(
         &self,
         body: &Body,
@@ -2360,7 +2964,6 @@ impl FlowGraph {
 
     /// Final reference contents on normal returns. Missing paths retain the
     /// caller's entry contents; every-path writes may replace those contents.
-    #[cfg(test)]
     pub fn parameter_store_summaries(
         &self,
         body: &Body,
@@ -2600,7 +3203,6 @@ impl FlowGraph {
             .collect()
     }
 
-    #[cfg(test)]
     pub fn parameter_output_store_variant_summaries(
         &self,
         body: &Body,
@@ -2612,7 +3214,6 @@ impl FlowGraph {
             .collect()
     }
 
-    #[cfg(test)]
     pub fn parameter_output_clear_variant_summaries(
         &self,
         body: &Body,
@@ -2634,7 +3235,6 @@ impl FlowGraph {
             .collect()
     }
 
-    #[cfg(test)]
     fn return_output_variant_graphs(
         &self,
         body: &Body,
@@ -2655,6 +3255,9 @@ impl FlowGraph {
         let mut visited = HashSet::new();
         let mut constructors = HashMap::new();
         while let Some((value, path)) = alternatives.pop() {
+            if value_has_only_unreachable_events(self, body, &origins, value) {
+                continue;
+            }
             if !visited.insert((value, path.clone())) {
                 continue;
             }
@@ -2759,9 +3362,9 @@ impl FlowGraph {
     fn solve_loan_origins(
         &self,
         body: &Body,
-        #[cfg(test)] include_call_stores: bool,
-        #[cfg(test)] include_variant_stores: bool,
-        #[cfg(test)] include_parameter_contents: bool,
+        include_call_stores: bool,
+        include_variant_stores: bool,
+        include_parameter_contents: bool,
     ) -> FlowLoanOrigins {
         // Branch results are read at their evaluation events, before lexical
         // cleanup kills their local bindings. Those snapshots are additional
@@ -2805,7 +3408,6 @@ impl FlowGraph {
                 | FlowAction::Assign { value, .. }
                 | FlowAction::Pattern { value, .. }
                 | FlowAction::Write { value, .. } => value,
-                #[cfg(test)]
                 FlowAction::Evaluate(value)
                     if include_call_stores
                         && matches!(
@@ -2864,13 +3466,11 @@ impl FlowGraph {
                 }
             }
         }
-        #[cfg(test)]
         let refinements = if include_variant_stores {
             self.call_result_refinements(body)
         } else {
             vec![None; self.nodes.len()]
         };
-        #[cfg(test)]
         for (event, refinement) in refinements.iter().enumerate() {
             if let Some((calls, _, _)) = refinement {
                 for (call_event, _, _) in calls {
@@ -2899,7 +3499,6 @@ impl FlowGraph {
                 });
             }
         }
-        #[cfg(test)]
         if include_parameter_contents {
             empty.parameter_contents = Some(seed_parameter_contents(body));
         }
@@ -2912,7 +3511,6 @@ impl FlowGraph {
         while let Some(id) = pending.pop_front() {
             queued[id.0] = false;
             let mut state = before[id.0].as_ref().unwrap().clone();
-            #[cfg(test)]
             if include_parameter_contents {
                 let released = match self.nodes[id.0].action {
                     FlowAction::Release { value, .. } | FlowAction::Evaluate(value)
@@ -2951,7 +3549,6 @@ impl FlowGraph {
                     );
                 }
                 FlowAction::Pattern { pattern, value } => {
-                    #[cfg(test)]
                     if let Some((calls, variant, region)) = &refinements[id.0] {
                         // Clear old reference contents before installing the
                         // completed worker's replacement contents.
@@ -3180,7 +3777,6 @@ impl FlowGraph {
                     }
                     let strong = known_places.len() == 1
                         && destinations.iter().all(|origin| !origin.lifetime_only);
-                    #[cfg(test)]
                     let parameter_strong = one_concrete_store_destination(&destinations);
                     for origin in destinations {
                         // Parameter roots describe external pointees, not
@@ -3188,7 +3784,6 @@ impl FlowGraph {
                         if origin.lifetime_only {
                             continue;
                         }
-                        #[cfg(test)]
                         store_parameter_contents(
                             &mut state,
                             &origin,
@@ -3213,7 +3808,6 @@ impl FlowGraph {
                         }
                     }
                 }
-                #[cfg(test)]
                 FlowAction::Evaluate(value)
                     if include_parameter_contents
                         && body.consuming_pin_reads.contains(value)
@@ -3245,7 +3839,6 @@ impl FlowGraph {
                         },
                     ..
                 } => replace_projected_origins(&mut state[binding.0], segments, Vec::new()),
-                #[cfg(test)]
                 FlowAction::Evaluate(value)
                     if include_call_stores
                         && matches!(
@@ -3340,9 +3933,8 @@ impl FlowGraph {
             before,
             after,
             events_by_value,
-            #[cfg(test)]
             variants: std::cell::OnceCell::new(),
-            #[cfg(test)]
+            storage_variant_bounds: std::cell::OnceCell::new(),
             clear_refinements: if include_parameter_contents {
                 refinements
             } else {
@@ -3509,7 +4101,6 @@ impl FlowGraph {
         self.consumptions_with_origins(body, types, Some(&origins))
     }
 
-    #[cfg(test)]
     pub fn referent_reads(&self, body: &Body) -> (Vec<ReferentRead>, Vec<FlowNodeId>) {
         let origins = self.loan_origins(body);
         let reachable = self.reachable();
@@ -3588,7 +4179,6 @@ impl FlowGraph {
         (reads, unresolved)
     }
 
-    #[cfg(test)]
     fn referent_consuming_accesses_from_moves(
         &self,
         body: &Body,
@@ -3631,7 +4221,6 @@ impl FlowGraph {
         self.referent_exit_effects_from_moves(body, &moves)
     }
 
-    #[cfg(test)]
     fn referent_exit_effects_from_moves(
         &self,
         body: &Body,
@@ -3714,7 +4303,6 @@ impl FlowGraph {
         self.referent_function_effects_with_restorations(body, types, calls, &[])
     }
 
-    #[cfg(test)]
     pub fn referent_function_effects_with_restorations(
         &self,
         body: &Body,
@@ -3757,7 +4345,6 @@ impl FlowGraph {
         .collect()
     }
 
-    #[cfg(test)]
     pub fn referent_output_variant_exit_effects(
         &self,
         body: &Body,
@@ -3836,7 +4423,6 @@ impl FlowGraph {
 
     /// An access is not made safe by never reaching a normal return. Keep
     /// unknown direct and mapped call accesses independently of exit facts.
-    #[cfg(test)]
     fn retain_unresolved_referent_accesses(
         &self,
         summary: &mut ReferentFunctionEffects,
@@ -3856,7 +4442,6 @@ impl FlowGraph {
 
     /// Preserve residual entry assumptions separately from initialized-entry
     /// effects. A surviving seed does not imply an access by the callee.
-    #[cfg(test)]
     pub fn referent_exit_state_from_entry(
         &self,
         body: &Body,
@@ -3879,7 +4464,6 @@ impl FlowGraph {
             .effects
     }
 
-    #[cfg(test)]
     fn referent_function_effects_from_exits(
         &self,
         body: &Body,
@@ -3951,7 +4535,6 @@ impl FlowGraph {
 
     /// Map consumed-entry restoration postconditions without transferring
     /// state or proving the callee's write-entry preconditions.
-    #[cfg(test)]
     pub fn map_referent_call_restorations(
         &self,
         body: &Body,
@@ -4001,7 +4584,6 @@ impl FlowGraph {
 
     /// Entry obligations apply to every possible destination, unlike a
     /// restoration guarantee which needs one exact definite destination.
-    #[cfg(test)]
     pub fn map_referent_call_consumed_entry(
         &self,
         body: &Body,
@@ -4031,7 +4613,6 @@ impl FlowGraph {
     /// Staged call mapping only; does not yet mutate caller ownership state.
     /// Map read identities without transferring ownership or treating these
     /// facts as complete entry requirements.
-    #[cfg(test)]
     pub fn map_referent_call_reads(
         &self,
         body: &Body,
@@ -4043,7 +4624,6 @@ impl FlowGraph {
         self.map_referent_call_reads_with_origins(body, event, call, reads, &origins)
     }
 
-    #[cfg(test)]
     pub fn map_initialized_referent_call_reads_with_origins(
         &self,
         body: &Body,
@@ -4060,7 +4640,6 @@ impl FlowGraph {
         self.map_referent_call_reads_with_unsafe_boundary(body, event, call, reads, origins, true)
     }
 
-    #[cfg(test)]
     pub fn map_referent_call_reads_with_origins(
         &self,
         body: &Body,
@@ -4072,7 +4651,6 @@ impl FlowGraph {
         self.map_referent_call_reads_with_unsafe_boundary(body, event, call, reads, origins, false)
     }
 
-    #[cfg(test)]
     fn map_referent_call_reads_with_unsafe_boundary(
         &self,
         body: &Body,
@@ -4136,7 +4714,6 @@ impl FlowGraph {
     }
 
     /// Staged outgoing consumption mapping; no state transfer on its own.
-    #[cfg(test)]
     pub fn map_referent_call_effects(
         &self,
         body: &Body,
@@ -4148,7 +4725,6 @@ impl FlowGraph {
         self.map_referent_call_effects_with_origins(body, event, call, summary, &origins)
     }
 
-    #[cfg(test)]
     pub fn map_referent_call_effects_with_origins(
         &self,
         body: &Body,
@@ -4162,7 +4738,6 @@ impl FlowGraph {
         )
     }
 
-    #[cfg(test)]
     fn map_referent_call_effects_with_unsafe_boundary(
         &self,
         body: &Body,
@@ -4219,10 +4794,33 @@ impl FlowGraph {
                             };
                             let sources = origins.value_before(body, self, event, alternative);
                             let state = variants.and_then(|facts| facts[event.0].as_ref());
+                            let empty = HashMap::new();
+                            let owned_bounds = if selected_slot.first()
+                                != Some(&Segment::Dereference)
+                                && selected_slot
+                                    .iter()
+                                    .any(|slot| matches!(slot, Segment::Payload(_, _)))
+                            {
+                                value_variant_bounds(
+                                    body,
+                                    alternative,
+                                    state.unwrap_or(&empty),
+                                    variants.map(|facts| (self, origins, event, facts.as_slice())),
+                                )
+                            } else {
+                                HashMap::new()
+                            };
+                            if selected_slot.first() != Some(&Segment::Dereference)
+                                && inactive_variant_bound_slot(&owned_bounds, &selected_slot)
+                            {
+                                inactive = true;
+                                continue;
+                            }
                             if selected_slot.first() != Some(&Segment::Dereference)
                                 && selected_slot
                                     .iter()
                                     .any(|slot| matches!(slot, Segment::Payload(_, _)))
+                                && !known_variant_bound_slot(&owned_bounds, &selected_slot)
                                 && !Place::from_expression(body, alternative).is_some_and(|place| {
                                     state.is_some_and(|state| {
                                         known_variant_slot(state, &place, &selected_slot)
@@ -4357,7 +4955,6 @@ impl FlowGraph {
         (mapped, unknown)
     }
 
-    #[cfg(test)]
     pub fn referent_consumptions_with_calls(
         &self,
         body: &Body,
@@ -4367,7 +4964,6 @@ impl FlowGraph {
         self.referent_consumptions_with_calls_from_entry(body, types, calls, &[])
     }
 
-    #[cfg(test)]
     pub fn referent_consumptions_with_calls_from_entry(
         &self,
         body: &Body,
@@ -4380,7 +4976,6 @@ impl FlowGraph {
 
     /// Transfer exact restoration proofs supplied by staging. Call-entry
     /// preconditions must be validated independently before production use.
-    #[cfg(test)]
     pub fn referent_consumptions_with_restorations(
         &self,
         body: &Body,
@@ -4401,7 +4996,6 @@ impl FlowGraph {
 
     /// A possibly initializing call invalidates must-consumed facts only.
     /// It cannot erase may-consumed facts or prove a definite restoration.
-    #[cfg(test)]
     pub fn referent_consumptions_with_partial_restorations(
         &self,
         body: &Body,
@@ -4499,7 +5093,6 @@ impl FlowGraph {
         self.consumptions_with_origins_and_calls(body, types, origins, None, &[])
     }
 
-    #[cfg(test)]
     fn mapped_outcome_refinement(
         &self,
         body: &Body,
@@ -4662,7 +5255,6 @@ impl FlowGraph {
         self.referent_restoration_guarantees_with_calls(body, types, calls, &[])
     }
 
-    #[cfg(test)]
     pub fn referent_restoration_guarantees_with_calls(
         &self,
         body: &Body,
@@ -4746,7 +5338,6 @@ impl FlowGraph {
         self.filter_referent_entry_reads_with_restorations(body, types, reads, calls, &[])
     }
 
-    #[cfg(test)]
     pub fn filter_referent_entry_reads_with_restorations(
         &self,
         body: &Body,
@@ -4993,7 +5584,6 @@ impl FlowGraph {
         let mut before = vec![None; self.nodes.len()];
         let mut after = vec![None; self.nodes.len()];
         let mut consumed_at = vec![HashSet::new(); self.nodes.len()];
-        #[cfg(test)]
         let mut resolved_at = vec![HashSet::new(); self.nodes.len()];
         let mut definite_consumed_at = origins.map(|_| vec![HashSet::new(); self.nodes.len()]);
         let mut unresolved = HashSet::new();
@@ -5051,7 +5641,6 @@ impl FlowGraph {
         };
         let mut queued = vec![false; self.nodes.len()];
         let mut pending = VecDeque::from([self.entry]);
-        #[cfg(test)]
         let outcome_users = {
             let mut users = vec![Vec::new(); self.nodes.len()];
             if let Some(calls) = calls {
@@ -5074,7 +5663,6 @@ impl FlowGraph {
             queued[id.0] = false;
             let mut state = before[id.0].as_ref().unwrap().clone();
             let node = &self.nodes[id.0];
-            #[cfg(test)]
             if calls.and_then(|calls| calls.get(&id)).is_some_and(|facts| {
                 !refine_outcome_may(facts, calls.unwrap(), &before, &mut state)
             }) {
@@ -5097,7 +5685,6 @@ impl FlowGraph {
                     consumed_at[id.0].insert(place.clone());
                     if let Some(definite) = &mut definite_consumed_at {
                         let (referents, unknown) = resolve(id, place, *value);
-                        #[cfg(test)]
                         resolved_at[id.0].extend(referents.iter().cloned());
                         if unknown {
                             unresolved.insert(id);
@@ -5125,7 +5712,6 @@ impl FlowGraph {
                     consumed_at[id.0].insert(place.clone());
                     if let Some(definite) = &mut definite_consumed_at {
                         let (referents, unknown) = resolve(id, place, *value);
-                        #[cfg(test)]
                         resolved_at[id.0].extend(referents.iter().cloned());
                         if unknown {
                             unresolved.insert(id);
@@ -5157,7 +5743,6 @@ impl FlowGraph {
                 {
                     let place = local_pin_accesses[value].clone();
                     consumed_at[id.0].insert(place.clone());
-                    #[cfg(test)]
                     resolved_at[id.0].insert(place.clone());
                     let spans = state.entry(place).or_default();
                     if !spans.contains(&node.span) {
@@ -5188,7 +5773,6 @@ impl FlowGraph {
                             consumed_at[id.0].extend(places.iter().cloned());
                             (places, unknown)
                         };
-                    #[cfg(test)]
                     resolved_at[id.0].extend(referents.iter().cloned());
                     if unknown {
                         unresolved.insert(id);
@@ -5271,7 +5855,6 @@ impl FlowGraph {
                     pending.push_back(*successor);
                     queued[successor.0] = true;
                 }
-                #[cfg(test)]
                 if changed {
                     for consumer in &outcome_users[successor.0] {
                         if before[consumer.0].is_some() && !queued[consumer.0] {
@@ -5293,7 +5876,6 @@ impl FlowGraph {
         while let Some(id) = pending.pop_front() {
             queued[id.0] = false;
             let mut state = definitely_before[id.0].as_ref().unwrap().clone();
-            #[cfg(test)]
             if calls.and_then(|calls| calls.get(&id)).is_some_and(|facts| {
                 !refine_outcome_must(facts, calls.unwrap(), &definitely_before, &mut state)
             }) {
@@ -5361,7 +5943,6 @@ impl FlowGraph {
                     pending.push_back(*successor);
                     queued[successor.0] = true;
                 }
-                #[cfg(test)]
                 if changed {
                     for consumer in &outcome_users[successor.0] {
                         if definitely_before[consumer.0].is_some() && !queued[consumer.0] {
@@ -5378,7 +5959,6 @@ impl FlowGraph {
             after,
             at: consumed_at,
             local_pin_accesses,
-            #[cfg(test)]
             resolved_at,
             definitely_before,
             unresolved,
@@ -5399,7 +5979,6 @@ impl FlowGraph {
     }
 
     /// Staged owner and known reference-projection checks after call effects.
-    #[cfg(test)]
     pub fn check_referent_call_entry_reads(
         &self,
         body: &Body,
@@ -5410,7 +5989,6 @@ impl FlowGraph {
         self.check_referent_call_entry_reads_from_entry(body, types, calls, &[], reads, &[])
     }
 
-    #[cfg(test)]
     pub fn check_referent_call_entry_reads_from_entry(
         &self,
         body: &Body,
@@ -5480,7 +6058,6 @@ impl FlowGraph {
         )
     }
 
-    #[cfg(test)]
     pub fn infer_referent_call_consumed_entry(
         &self,
         body: &Body,
@@ -5534,7 +6111,6 @@ impl FlowGraph {
         Ok(inherited)
     }
 
-    #[cfg(test)]
     pub fn check_referent_call_consumed_entry_from_entry(
         &self,
         body: &Body,
@@ -5554,7 +6130,6 @@ impl FlowGraph {
         self.check_referent_call_consumed_entry_with_moves(requirements, &moves)
     }
 
-    #[cfg(test)]
     fn check_referent_call_consumed_entry_with_moves(
         &self,
         requirements: &[(FlowNodeId, Vec<Place>, bool)],
@@ -5584,7 +6159,6 @@ impl FlowGraph {
     }
 
     /// Staged owner and known reference-projection checks after call effects.
-    #[cfg(test)]
     pub fn check_owner_consumptions_with_calls(
         &self,
         body: &Body,
@@ -5594,7 +6168,6 @@ impl FlowGraph {
         self.check_owner_consumptions_with_restorations_from_entry(body, types, calls, &[], &[])
     }
 
-    #[cfg(test)]
     pub fn check_owner_consumptions_with_restorations_from_entry(
         &self,
         body: &Body,
@@ -5780,15 +6353,25 @@ impl FlowGraph {
             };
             // Source metadata only supplies labels; it must not decide
             // whether overlapping consumed storage is a use conflict.
-            if !state
-                .keys()
-                .any(|moved| accessed.iter().any(|place| moved.overlaps(place)))
-            {
+            // Explicit release forgets storage without reading its contents.
+            // A consumed child therefore does not prevent forgetting the
+            // remaining container; a consumed container still covers, and
+            // forbids releasing, that same container or any child again.
+            let conflicts = |moved: &Place| {
+                accessed.iter().any(|place| {
+                    if matches!(node.action, FlowAction::Release { .. }) {
+                        definite_place_covers(moved, place)
+                    } else {
+                        moved.overlaps(place)
+                    }
+                })
+            };
+            if !state.keys().any(conflicts) {
                 continue;
             }
             let previous = state
                 .iter()
-                .filter(|(moved, _)| accessed.iter().any(|place| moved.overlaps(place)))
+                .filter(|(moved, _)| conflicts(moved))
                 .flat_map(|(_, spans)| spans)
                 .flatten()
                 .min_by_key(|span| (span.source_id, span.start));
@@ -5990,7 +6573,6 @@ impl FlowGraph {
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &moves)
     }
 
-    #[cfg(test)]
     pub fn check_referent_replacements_with_calls(
         &self,
         body: &Body,
@@ -6003,7 +6585,6 @@ impl FlowGraph {
         self.check_referent_replacements_with_facts(body, types, declarations, &origins, &moves)
     }
 
-    #[cfg(test)]
     fn check_referent_replacements_with_facts(
         &self,
         body: &Body,
@@ -6048,7 +6629,6 @@ impl FlowGraph {
 
     /// Combined staged inference; owned exits and escaping-reference
     /// initialization remain separate obligations before production use.
-    #[cfg(test)]
     pub fn infer_referent_consumed_entry_with_call_facts(
         &self,
         body: &Body,
@@ -6172,7 +6752,6 @@ impl FlowGraph {
     /// Constructor trees and definite discriminant facts identify active enum
     /// payloads. Unknown variants require origins for every possible payload;
     /// lack of a definite discriminant cannot prove a payload inactive.
-    #[cfg(test)]
     fn check_returned_referents_initialized(
         &self,
         body: &Body,
@@ -6351,7 +6930,6 @@ impl FlowGraph {
         (!snapshots.is_empty()).then_some(snapshots)
     }
 
-    #[cfg(test)]
     fn value_missing_reference_provenance(
         &self,
         body: &Body,
@@ -6360,6 +6938,7 @@ impl FlowGraph {
         event: FlowNodeId,
         value: NodeId,
     ) -> bool {
+        self.prepare_storage_variant_bounds(body, origins);
         self.value_missing_reference_provenance_inner(
             body,
             declarations,
@@ -6462,7 +7041,6 @@ impl FlowGraph {
         (!definitions.is_empty()).then_some(definitions)
     }
 
-    #[cfg(test)]
     fn value_missing_reference_provenance_inner(
         &self,
         body: &Body,
@@ -6473,6 +7051,9 @@ impl FlowGraph {
         visiting: &mut HashSet<(FlowNodeId, NodeId)>,
     ) -> bool {
         for alternative in returned_provenance_components(body, value) {
+            if value_has_only_unreachable_events(self, body, origins, alternative) {
+                continue;
+            }
             let Some(ty) = &body.nodes[alternative.0].ty else {
                 continue;
             };
@@ -6574,6 +7155,68 @@ impl FlowGraph {
                             .zip(&origin.storage)
                             .all(|(expected, actual)| storage_slot_matches(expected, actual))
                 }) {
+                    if slot
+                        .storage
+                        .iter()
+                        .any(|segment| matches!(segment, Segment::Payload(..)))
+                    {
+                        if let NodeKind::Form {
+                            callee: Some(callee),
+                            children,
+                            ..
+                        } = &body.nodes[alternative.0].kind
+                        {
+                            if let Some(summary) =
+                                body.call_return_origins.get(callee).filter(|_| {
+                                    declarations
+                                        .bodies
+                                        .keys()
+                                        .any(|name| declarations.function_id(name) == Some(*callee))
+                                })
+                            {
+                                let sources = summary
+                                    .iter()
+                                    .filter(|source| {
+                                        source.storage.len() == slot.storage.len()
+                                            && slot.storage.iter().zip(&source.storage).all(
+                                                |(expected, actual)| {
+                                                    storage_slot_matches(expected, actual)
+                                                },
+                                            )
+                                    })
+                                    .collect::<Vec<_>>();
+                                // A validated callee can inhabit this output payload
+                                // only by supplying its mandatory reference slot.
+                                // If every supplying input payload is provably absent,
+                                // this output payload is impossible at this invocation.
+                                if sources.iter().all(|source| {
+                                    if source.global.is_some()
+                                        || source
+                                            .input_storage
+                                            .iter()
+                                            .any(|segment| matches!(segment, Segment::Dereference))
+                                    {
+                                        return false;
+                                    }
+                                    let Some(argument) = children.get(source.parameter + 1) else {
+                                        return false;
+                                    };
+                                    let Some(state) = variant_states[event.0].as_ref() else {
+                                        return false;
+                                    };
+                                    let bounds = value_variant_bounds(
+                                        body,
+                                        *argument,
+                                        state,
+                                        Some((self, origins, event, variant_states)),
+                                    );
+                                    inactive_variant_bound_slot(&bounds, &source.input_storage)
+                                }) {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                     return true;
                 }
             }
@@ -6581,7 +7224,6 @@ impl FlowGraph {
         false
     }
 
-    #[cfg(test)]
     fn check_call_argument_reference_provenance(
         &self,
         body: &Body,
@@ -6624,7 +7266,6 @@ impl FlowGraph {
         Ok(())
     }
 
-    #[cfg(test)]
     fn check_stored_reference_provenance(
         &self,
         body: &Body,
@@ -6675,7 +7316,6 @@ impl FlowGraph {
         Ok(())
     }
 
-    #[cfg(test)]
     fn check_referent_replacements_and_entry_requirements(
         &self,
         body: &Body,
@@ -7883,9 +8523,11 @@ impl FlowGraph {
         #[cfg(test)]
         let mut worklist_visits = 0;
         while let Some(id) = pending.pop_front() {
-            #[cfg(test)]
             {
-                worklist_visits += 1;
+                #[cfg(test)]
+                {
+                    worklist_visits += 1;
+                }
             }
             queued[id.0] = false;
             // Compute one word at a time in the existing snapshots. Successor
@@ -8052,7 +8694,6 @@ impl FlowGraph {
     }
 }
 
-#[cfg(test)]
 pub(crate) fn split_referent_effect_place(
     body: &Body,
     place: &Place,
@@ -8191,7 +8832,6 @@ fn consumed_coverage_contains(consumed: &HashSet<Place>, place: &Place) -> bool 
     false
 }
 
-#[cfg(test)]
 fn has_dynamic_projection(place: &Place) -> bool {
     place
         .segments
@@ -8201,7 +8841,6 @@ fn has_dynamic_projection(place: &Place) -> bool {
 
 /// A wildcard names possible storage, not an identity shared by independent
 /// index evaluations. A known consumed parent can still cover any child.
-#[cfg(test)]
 fn definite_place_covers(ancestor: &Place, descendant: &Place) -> bool {
     !has_dynamic_projection(ancestor) && place_covers(ancestor, descendant)
 }
@@ -8216,7 +8855,6 @@ fn release_operand_is_linear(body: &Body, value: NodeId, types: &LinearTypes) ->
         .is_some_and(|ty| types.is_linear(ty))
 }
 
-#[cfg(test)]
 fn pattern_binding_path(body: &Body, id: NodeId, binding: BindingId) -> Option<Vec<Segment>> {
     match &body.nodes[id.0].kind {
         NodeKind::Symbol {
@@ -8260,7 +8898,6 @@ fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
     for (held, other) in existing.iter_mut().zip(incoming.iter()) {
         changed |= merge_loan_origins(held, other);
     }
-    #[cfg(test)]
     if let (Some(held), Some(other)) = (
         &mut existing.parameter_contents,
         &incoming.parameter_contents,
@@ -8269,7 +8906,6 @@ fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
             changed |= merge_loan_origins(held.entry(key.clone()).or_default(), contents);
         }
     }
-    #[cfg(test)]
     existing.global_known_contents.retain(|global, paths| {
         let previous = paths.clone();
         let Some(other) = incoming.global_known_contents.get(global) else {
@@ -8290,7 +8926,6 @@ fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
     changed
 }
 
-#[cfg(test)]
 fn seed_parameter_contents(body: &Body) -> HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>> {
     let mut contents = HashMap::new();
     for (parameter, slots) in body.parameter_referent_loan_slots.iter().enumerate() {
@@ -8323,7 +8958,6 @@ fn seed_parameter_contents(body: &Body) -> HashMap<(PlaceRoot, Vec<Segment>), Ve
     contents
 }
 
-#[cfg(test)]
 fn loaded_parameter_value_origins(origin: &LoanOrigin, state: &LoanState) -> Vec<LoanOrigin> {
     if !matches!(
         origin.place.root,
@@ -8390,7 +9024,6 @@ fn loaded_parameter_value_origins(origin: &LoanOrigin, state: &LoanState) -> Vec
     result
 }
 
-#[cfg(test)]
 fn store_parameter_contents(
     state: &mut LoanState,
     destination: &LoanOrigin,
@@ -8452,7 +9085,6 @@ fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -
 
 /// Resolve the container storage destroyed by a release, not any reference
 /// pointees retained inside the released value. Unresolved paths stay empty.
-#[cfg(test)]
 fn released_reference_destinations(
     body: &Body,
     flow: &FlowGraph,
@@ -8565,7 +9197,6 @@ fn apply_parameter_loan_summary(
         .collect()
 }
 
-#[cfg(test)]
 fn apply_store_variant_facts(state: &mut HashMap<Place, VariantId>, store: &LoanStore) {
     let destination = store.destination.referent_place();
     state.retain(|place, _| !destination.overlaps(place));
@@ -8585,7 +9216,6 @@ fn apply_store_variant_facts(state: &mut HashMap<Place, VariantId>, store: &Loan
     }
 }
 
-#[cfg(test)]
 fn joined_call_variant_stores(
     body: &Body,
     flow: &FlowGraph,
@@ -8658,7 +9288,6 @@ fn joined_call_variant_stores(
     result.unwrap_or_default()
 }
 
-#[cfg(test)]
 fn call_parameter_clears(
     body: &Body,
     flow: &FlowGraph,
@@ -8680,7 +9309,6 @@ fn call_parameter_clears(
     substitute_call_clears(body, flow, before, state, children, clears)
 }
 
-#[cfg(test)]
 fn substitute_call_clears(
     body: &Body,
     flow: &FlowGraph,
@@ -8711,7 +9339,6 @@ fn substitute_call_clears(
 }
 
 /// Never erase fresh contents on the strength of an old outcome tag.
-#[cfg(test)]
 fn correlated_call_variant_clears(
     body: &Body,
     flow: &FlowGraph,
@@ -8743,7 +9370,6 @@ fn correlated_call_variant_clears(
 }
 
 /// Matching mutually exclusive calls proves only their common physical clears.
-#[cfg(test)]
 fn joined_call_variant_clears(
     body: &Body,
     flow: &FlowGraph,
@@ -8800,7 +9426,6 @@ fn joined_call_variant_clears(
     result.unwrap_or_default()
 }
 
-#[cfg(test)]
 fn call_loan_stores(
     body: &Body,
     flow: &FlowGraph,
@@ -8821,7 +9446,6 @@ fn call_loan_stores(
     substitute_call_stores(body, flow, before, value, state, stores)
 }
 
-#[cfg(test)]
 fn substitute_call_stores(
     body: &Body,
     flow: &FlowGraph,
@@ -8873,7 +9497,6 @@ fn substitute_call_stores(
     result
 }
 
-#[cfg(test)]
 fn one_concrete_store_destination(destinations: &[LoanOrigin]) -> bool {
     let Some(first) = destinations.first() else {
         return false;
@@ -8892,7 +9515,6 @@ fn one_concrete_store_destination(destinations: &[LoanOrigin]) -> bool {
     })
 }
 
-#[cfg(test)]
 fn select_summary_inputs(
     origin: LoanOrigin,
     path: &[Segment],
@@ -8923,7 +9545,6 @@ fn select_summary_inputs_with_slots(
         }];
     };
     if *head == Segment::Dereference && origin.storage.is_empty() && !origin.lifetime_only {
-        #[cfg(test)]
         if matches!(origin.place.root, PlaceRoot::Global(_)) && state.parameter_contents.is_some() {
             let mut result = Vec::new();
             for loaded in loaded_parameter_value_origins(&origin, state) {
@@ -8936,7 +9557,6 @@ fn select_summary_inputs_with_slots(
             return result;
         }
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
-            #[cfg(test)]
             if state.parameter_contents.is_some() {
                 let mut result = Vec::new();
                 for loaded in loaded_parameter_value_origins(&origin, state) {
@@ -9097,14 +9717,12 @@ fn projected_value_origins(
         if !borrowed_container || origin.lifetime_only {
             continue;
         }
-        #[cfg(test)]
         if matches!(origin.place.root, PlaceRoot::Global(_)) && state.parameter_contents.is_some() {
             origin.place.segments.push(slot.clone());
             merge_loan_origins(&mut result, &loaded_parameter_value_origins(&origin, state));
             continue;
         }
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
-            #[cfg(test)]
             if state.parameter_contents.is_some() {
                 origin.place.segments.push(slot.clone());
                 merge_loan_origins(&mut result, &loaded_parameter_value_origins(&origin, state));
@@ -9250,7 +9868,6 @@ fn dereference_value_origins(
         if origin.lifetime_only || !origin.storage.is_empty() {
             continue;
         }
-        #[cfg(test)]
         if state.parameter_contents.is_some()
             && matches!(
                 origin.place.root,
@@ -9301,7 +9918,6 @@ fn dereference_value_origins(
 /// array as one element. Slice ranges and split views retain a region anchor,
 /// not an exact offset mapping: even literal indexes must not fabricate a
 /// physical element identity or a definite restoration destination.
-#[cfg(test)]
 fn project_slice_element_origins(origins: &mut [LoanOrigin], state: &LoanState) {
     if state.parameter_contents.is_none() {
         return;
@@ -9313,7 +9929,6 @@ fn project_slice_element_origins(origins: &mut [LoanOrigin], state: &LoanState) 
     }
 }
 
-#[cfg(test)]
 fn global_storage_address(global: crate::typed_ir::GlobalId, span: Option<Span>) -> LoanOrigin {
     LoanOrigin {
         place: Place::root(PlaceRoot::Global(global)),
@@ -9335,7 +9950,6 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             binding: Some(binding),
             ..
         } => state[binding.0].clone(),
-        #[cfg(test)]
         NodeKind::Declaration(DeclarationId::Global(global)) => {
             loaded_parameter_value_origins(&global_storage_address(*global, node.span), state)
         }
@@ -9490,7 +10104,6 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     origin.borrowed_from = borrowed_from;
                 }
             }
-            #[cfg(test)]
             if matches!(head.as_str(), "slice-idx" | "slice-mut-idx") {
                 project_slice_element_origins(&mut origins, state);
             }
@@ -9787,7 +10400,6 @@ fn value_loan_origins_at_events(
             // Moving from a parameter consumes its contents at Evaluate. A
             // later Bind must transfer the value from the pre-move snapshot,
             // not reload either empty storage or a subsequent replacement.
-            #[cfg(test)]
             let state = if body.consuming_pin_reads.contains(&value)
                 && state.parameter_contents.is_some()
             {
@@ -9838,7 +10450,6 @@ fn value_loan_origins_at_events(
                     origin.borrowed_from = borrowed_from;
                 }
             }
-            #[cfg(test)]
             if matches!(head.as_str(), "slice-idx" | "slice-mut-idx") {
                 project_slice_element_origins(&mut loans, state);
             }
@@ -9878,7 +10489,6 @@ fn value_loan_origins_at_events(
             );
         }
         if let Some(callee) = callee {
-            #[cfg(test)]
             let state = if body
                 .call_store_origins
                 .get(callee)
@@ -10078,7 +10688,6 @@ fn constructor_values_start(ty: Option<&Type>, child_count: usize) -> usize {
     }
 }
 
-#[cfg(test)]
 enum CallInputComponent {
     Selected(NodeId, Vec<Segment>),
     Missing,
@@ -10086,7 +10695,6 @@ enum CallInputComponent {
     Inactive,
 }
 
-#[cfg(test)]
 fn inactive_variant_slot(
     state: &HashMap<Place, VariantId>,
     base: &Place,
@@ -10107,13 +10715,315 @@ fn inactive_variant_slot(
     false
 }
 
-#[cfg(test)]
+fn writes_only_scalar_storage(body: &Body, value: NodeId) -> bool {
+    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+        return false;
+    };
+    let source = match head.as_str() {
+        "deref-set" | "pin-write" => children.get(2),
+        "pin-set-field" => children.get(3),
+        _ => None,
+    };
+    source
+        .and_then(|source| body.nodes[source.0].ty.as_ref())
+        .is_some_and(|ty| {
+            matches!(
+                ty,
+                Type::Bool
+                    | Type::Char
+                    | Type::U8
+                    | Type::U16
+                    | Type::U32
+                    | Type::U64
+                    | Type::U128
+                    | Type::I8
+                    | Type::I16
+                    | Type::I32
+                    | Type::I64
+                    | Type::I128
+                    | Type::Usize
+                    | Type::Isize
+                    | Type::F32
+                    | Type::F64
+            )
+        })
+}
+
+fn replace_storage_variant_bounds(
+    state: &mut StorageVariantBounds,
+    target: &Place,
+    incoming: VariantBounds,
+) {
+    state.retain(|known, _| !target.overlaps(known));
+    if !has_dynamic_projection(target) {
+        for (path, variants) in incoming {
+            let mut destination = target.clone();
+            destination.segments.extend(path);
+            state.insert(destination, variants);
+        }
+    }
+}
+
+fn distribute_pattern_bounds(
+    body: &Body,
+    pattern: NodeId,
+    incoming: &VariantBounds,
+    state: &mut StorageVariantBounds,
+) {
+    match &body.nodes[pattern.0].kind {
+        NodeKind::Symbol {
+            binding: Some(binding),
+            ..
+        } => {
+            replace_storage_variant_bounds(
+                state,
+                &Place::root(PlaceRoot::Local(*binding)),
+                incoming.clone(),
+            );
+        }
+        NodeKind::Form { head, children, .. } => {
+            for (index, child) in children.iter().skip(1).enumerate() {
+                let Some(slot) = aggregate_slot(body, head, children, index) else {
+                    continue;
+                };
+                let nested = incoming
+                    .iter()
+                    .filter_map(|(path, variants)| {
+                        (path.first() == Some(&slot))
+                            .then(|| (path[1..].to_vec(), variants.clone()))
+                    })
+                    .collect();
+                distribute_pattern_bounds(body, *child, &nested, state);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn value_storage_variant_bounds(
+    body: &Body,
+    value: NodeId,
+    state: &StorageVariantBounds,
+    context: StorageVariantContext<'_>,
+) -> VariantBounds {
+    let StorageVariantContext {
+        flow,
+        origins,
+        event,
+        snapshots,
+    } = context;
+    let facts = origins
+        .variants
+        .get()
+        .expect("physical tag facts prepared before bounds");
+    let events = captured_variant_events((flow, origins, event, facts), value);
+    if !events.is_empty() {
+        let mut common = None;
+        for event in events {
+            let Some(state) = &snapshots[event.0] else {
+                continue;
+            };
+            let incoming = value_storage_variant_bounds(
+                body,
+                value,
+                state,
+                StorageVariantContext { event, ..context },
+            );
+            if let Some(held) = &mut common {
+                join_variant_bounds(held, &incoming);
+            } else {
+                common = Some(incoming);
+            }
+        }
+        return common.unwrap_or_default();
+    }
+    if matches!(
+        body.nodes[value.0].ty,
+        Some(Type::Reference { .. } | Type::PinnedReference { .. } | Type::RawPointer { .. })
+    ) {
+        return HashMap::new();
+    }
+    let mut alternatives = Vec::new();
+    collect_result_alternatives(body, value, &mut alternatives);
+    if alternatives.len() != 1 || alternatives[0] != value {
+        let mut common = None;
+        for alternative in alternatives {
+            if value_has_only_unreachable_events(flow, body, origins, alternative) {
+                continue;
+            }
+            let candidates = origins.events_by_value[alternative.0]
+                .iter()
+                .copied()
+                .filter(|event| flow_action_has_value(&flow.nodes[*event].action, alternative))
+                .collect::<Vec<_>>();
+            if !candidates.is_empty() && candidates.iter().all(|event| snapshots[*event].is_none())
+            {
+                continue;
+            }
+            let incoming = value_storage_variant_bounds(body, alternative, state, context);
+            if let Some(held) = &mut common {
+                join_variant_bounds(held, &incoming);
+            } else {
+                common = Some(incoming);
+            }
+        }
+        return common.unwrap_or_default();
+    }
+    if let Some(source) = Place::from_expression(body, value) {
+        let sources = if source.segments.contains(&Segment::Dereference)
+            || reads_through_reference(body, value)
+        {
+            match source.root {
+                PlaceRoot::Local(binding) => {
+                    origins.projected_referents(event, binding, &source.segments)
+                }
+                _ => Vec::new(),
+            }
+        } else {
+            vec![source]
+        };
+        let mut common = None;
+        for source in sources {
+            let incoming = state
+                .iter()
+                .filter_map(|(place, variants)| {
+                    (place.root == source.root && place.segments.starts_with(&source.segments))
+                        .then(|| {
+                            (
+                                place.segments[source.segments.len()..].to_vec(),
+                                variants.clone(),
+                            )
+                        })
+                })
+                .collect::<VariantBounds>();
+            if let Some(held) = &mut common {
+                join_variant_bounds(held, &incoming);
+            } else {
+                common = Some(incoming);
+            }
+        }
+        return common.unwrap_or_default();
+    }
+    let mut result = HashMap::new();
+    if let Some(variant) = constructor_variant_at_storage(body, value, &[]) {
+        result.insert(Vec::new(), HashSet::from([variant]));
+    }
+    let NodeKind::Form {
+        head,
+        children,
+        callee,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return result;
+    };
+    if let Some(callee) = callee {
+        let mut result = body
+            .call_return_variant_bounds
+            .get(callee)
+            .cloned()
+            .unwrap_or_default();
+        if let (Some(slots), Some(summary)) = (
+            body.call_return_reference_slots.get(callee),
+            body.call_return_origins.get(callee),
+        ) {
+            for slot in slots {
+                let guards = slot
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, segment)| match segment {
+                        Segment::Payload(variant, _) => Some((index, *variant)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                if guards.is_empty() {
+                    continue;
+                }
+                let sources = summary.iter().filter(|source| {
+                    source.storage.len() == slot.len()
+                        && slot
+                            .iter()
+                            .zip(&source.storage)
+                            .all(|(expected, actual)| storage_slot_matches(expected, actual))
+                });
+                if !sources.into_iter().all(|source| {
+                    if source.global.is_some()
+                        || source.input_storage.contains(&Segment::Dereference)
+                    {
+                        return false;
+                    }
+                    let Some(argument) = children.get(source.parameter + 1) else {
+                        return false;
+                    };
+                    let bounds = value_storage_variant_bounds(body, *argument, state, context);
+                    inactive_variant_bound_slot(&bounds, &source.input_storage)
+                }) {
+                    continue;
+                }
+                // Eliminate the deepest impossible payload. If its enum has
+                // no remaining possible tag, its mandatory containing field
+                // makes the containing payload impossible as well.
+                for (index, variant) in guards.into_iter().rev() {
+                    let prefix = &slot[..index];
+                    let Some(possible) = result.get_mut(prefix) else {
+                        break;
+                    };
+                    possible.remove(&variant);
+                    let empty = possible.is_empty();
+                    result.retain(|path, _| !(path.len() > prefix.len() && path.starts_with(prefix)
+                        && matches!(path[prefix.len()], Segment::Payload(selected, _) if selected == variant)));
+                    if !empty {
+                        break;
+                    }
+                    result.remove(prefix);
+                }
+            }
+        }
+        return result;
+    }
+    if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
+        return value_storage_variant_bounds(body, children[1], state, context);
+    }
+    let start = if matches!(head.as_str(), "tuple" | "array" | "array-of") {
+        constructor_values_start(body.nodes[value.0].ty.as_ref(), children.len())
+    } else {
+        1
+    };
+    for (index, child) in children.iter().skip(start).enumerate() {
+        let Some(slot) = aggregate_slot(body, head, children, index) else {
+            continue;
+        };
+        for (mut path, variants) in value_storage_variant_bounds(body, *child, state, context) {
+            path.insert(0, slot.clone());
+            result.insert(path, variants);
+        }
+    }
+    result
+}
+
 fn value_variant_bounds(
     body: &Body,
     value: NodeId,
     state: &HashMap<Place, VariantId>,
     context: Option<VariantContext<'_>>,
 ) -> VariantBounds {
+    if let Some((flow, origins, event, _)) = context {
+        if let Some(snapshots) = origins.storage_variant_bounds.get() {
+            if let Some(state) = &snapshots[event.0] {
+                return value_storage_variant_bounds(
+                    body,
+                    value,
+                    state,
+                    StorageVariantContext {
+                        flow,
+                        origins,
+                        event,
+                        snapshots,
+                    },
+                );
+            }
+        }
+    }
     if let Some((flow, origins, _, snapshots)) = context {
         let events = captured_variant_events(context.unwrap(), value);
         if !events.is_empty() {
@@ -10148,6 +11058,11 @@ fn value_variant_bounds(
     if alternatives.len() != 1 || alternatives[0] != value {
         let mut result = None;
         for alternative in alternatives {
+            if context.is_some_and(|(flow, origins, _, _)| {
+                value_has_only_unreachable_events(flow, body, origins, alternative)
+            }) {
+                continue;
+            }
             let incoming = value_variant_bounds(body, alternative, state, context);
             if let Some(held) = &mut result {
                 join_variant_bounds(held, &incoming);
@@ -10197,7 +11112,6 @@ fn value_variant_bounds(
     result
 }
 
-#[cfg(test)]
 fn value_variant_facts(
     body: &Body,
     value: NodeId,
@@ -10219,13 +11133,32 @@ fn value_variant_facts(
                     Some((flow, origins, event, snapshots)),
                 );
                 if let Some(held) = &mut common {
-                    held.retain(|place, variant| incoming.get(place) == Some(variant));
+                    join_variant_facts(held, &incoming);
                 } else {
                     common = Some(incoming);
                 }
             }
             return common.unwrap_or_default();
         }
+    }
+    let mut alternatives = Vec::new();
+    collect_result_alternatives(body, value, &mut alternatives);
+    if alternatives.len() != 1 || alternatives[0] != value {
+        let mut result = None;
+        for alternative in alternatives {
+            if context.is_some_and(|(flow, origins, _, _)| {
+                value_has_only_unreachable_events(flow, body, origins, alternative)
+            }) {
+                continue;
+            }
+            let incoming = value_variant_facts(body, alternative, state, context);
+            if let Some(held) = &mut result {
+                join_variant_facts(held, &incoming);
+            } else {
+                result = Some(incoming);
+            }
+        }
+        return result.unwrap_or_default();
     }
     if let NodeKind::Declaration(DeclarationId::Variant(variant)) = body.nodes[value.0].kind {
         return HashMap::from([(Place::root(PlaceRoot::Local(BindingId(0))), variant)]);
@@ -10284,7 +11217,7 @@ fn value_variant_facts(
         return HashMap::new();
     };
     if let Some(callee) = callee {
-        return body
+        let mut facts = body
             .call_return_variants
             .get(callee)
             .map_or_else(HashMap::new, |facts| {
@@ -10301,6 +11234,20 @@ fn value_variant_facts(
                     })
                     .collect()
             });
+        if let Some(bounds) = body.call_return_variant_bounds.get(callee) {
+            for (path, variants) in bounds {
+                if variants.len() == 1 {
+                    facts.insert(
+                        Place {
+                            root: PlaceRoot::Local(BindingId(0)),
+                            segments: path.clone(),
+                        },
+                        *variants.iter().next().unwrap(),
+                    );
+                }
+            }
+        }
+        return facts;
     }
     if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
         return value_variant_facts(body, children[1], state, context);
@@ -10328,7 +11275,6 @@ fn value_variant_facts(
     result
 }
 
-#[cfg(test)]
 fn distribute_pattern_variants(
     body: &Body,
     pattern: NodeId,
@@ -10378,7 +11324,6 @@ fn distribute_pattern_variants(
     }
 }
 
-#[cfg(test)]
 fn known_variant_slot(state: &HashMap<Place, VariantId>, base: &Place, path: &[Segment]) -> bool {
     let mut place = base.clone();
     for segment in path {
@@ -10392,7 +11337,6 @@ fn known_variant_slot(state: &HashMap<Place, VariantId>, base: &Place, path: &[S
     true
 }
 
-#[cfg(test)]
 fn collect_call_input_components(
     body: &Body,
     value: NodeId,
@@ -10468,7 +11412,6 @@ fn collect_call_input_components(
     }
 }
 
-#[cfg(test)]
 fn returned_provenance_components(body: &Body, value: NodeId) -> Vec<NodeId> {
     let mut pending = vec![value];
     let mut seen = HashSet::new();
@@ -10506,7 +11449,6 @@ fn returned_provenance_components(body: &Body, value: NodeId) -> Vec<NodeId> {
     components
 }
 
-#[cfg(test)]
 fn constructor_variant_at_storage(
     body: &Body,
     mut value: NodeId,
@@ -11224,6 +12166,191 @@ mod tests {
     use super::*;
 
     #[test]
+    fn boolean_partition_widening_is_bounded_and_conservative() {
+        let program =
+            crate::parse_program("(#enum Tag ((Before) (After))) (#fn main () u64 (#return 0u64))")
+                .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let ty = Type::Named("Tag".to_owned());
+        let before = declarations.variant_id(&ty, "Before").unwrap();
+        let after = declarations.variant_id(&ty, "After").unwrap();
+        let root = Place::root(PlaceRoot::Local(BindingId(0)));
+        let mut partitions = Vec::new();
+        let mut widened = false;
+        for bits in 0..17 {
+            let mut booleans = (0..5)
+                .map(|index| (BindingId(index), bits & (1 << index) != 0))
+                .collect::<HashMap<_, _>>();
+            booleans.insert(BindingId(99), false);
+            let incoming = VariantPartition {
+                booleans,
+                bounds: HashMap::from([(
+                    root.clone(),
+                    HashSet::from([if bits % 2 == 0 { before } else { after }]),
+                )]),
+            };
+            merge_variant_partition(&mut partitions, incoming, &mut widened);
+        }
+        assert!(widened);
+        assert_eq!(partitions.len(), 1);
+        assert_eq!(
+            partitions[0].booleans,
+            HashMap::from([(BindingId(99), false)])
+        );
+        assert_eq!(partitions[0].bounds[&root], HashSet::from([before, after]));
+        let unknown = VariantPartition {
+            booleans: HashMap::new(),
+            bounds: HashMap::new(),
+        };
+        assert!(merge_variant_partition(
+            &mut partitions,
+            unknown.clone(),
+            &mut widened
+        ));
+        assert!(partitions[0].bounds.is_empty());
+        assert!(partitions[0].booleans.is_empty());
+        assert!(
+            !merge_variant_partition(&mut partitions, unknown, &mut widened),
+            "widened joins must converge"
+        );
+    }
+
+    #[test]
+    fn loop_exit_bounds_require_an_unescaped_boolean_condition() {
+        for aliased_flag in [false, true] {
+            let alias = if aliased_flag {
+                "(#let flag (#ref-mut bool) (#borrow-mut stopped))
+                 (#call stop (: target flag)) (#drop flag)"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#enum State ((Initial) (Complete))) (#linear State)
+              (#fn stop ((target (#ref-mut bool))) () (#deref-set target true) (#return ()))
+              (#fn finish () State
+                (#let-mut state State (Initial)) (#let-mut stopped bool false)
+                {alias}
+                (#while (#bool.== stopped false)
+                  (#set state (#match state
+                    (#case (Initial) (Complete)) (#case (Complete) (Complete))))
+                  (#set stopped true))
+                (#return state))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let declarations = checked.declarations();
+            let body = &declarations.bodies["finish"];
+            let flow = &declarations.flows["finish"];
+            let bounds = flow.returned_variant_bounds(body, &flow.loan_origins(body));
+            let ty = Type::Named("State".to_owned());
+            let complete = declarations.variant_id(&ty, "Complete").unwrap();
+            if aliased_flag {
+                let initial = declarations.variant_id(&ty, "Initial").unwrap();
+                assert_eq!(bounds[&Vec::new()], HashSet::from([initial, complete]));
+            } else {
+                assert_eq!(bounds[&Vec::new()], HashSet::from([complete]));
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_release_after_pinned_extraction_does_not_read_empty_field() {
+        let source = "(#struct Item ((number u64))) (#linear Item)
+          (#struct Pair ((left Item) (right Item)))
+          (#fn main () u64
+            (#let-mut pair Pair (#struct-literal Pair
+              (: left (#struct-literal Item (: number 1u64))
+               : right (#struct-literal Item (: number 2u64)))))
+            (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
+            (#let slot (#pin-ref-mut Item) (#pin-borrow-mut (#get pinned left)))
+            (#let held Item (#unsafe (#pin-read slot)))
+            (#drop slot)
+            (#drop pinned)
+            (#forget held)
+            (#forget pair)
+            (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        for result in declarations.flows["main"].check_linear_ownership(
+            &declarations.bodies["main"],
+            &LinearTypes::from_program(&program),
+            declarations,
+        ) {
+            result.unwrap();
+        }
+        for replacement in [
+            "(#forget pair) (#forget pair)",
+            "(#forget pair) (#forget (#get pair right))",
+            "(#forget (#clone pair))",
+        ] {
+            let invalid = source.replace("(#forget pair)", replacement);
+            assert!(
+                crate::check_types(&crate::parse_program(&invalid).unwrap()).is_err(),
+                "must reject reading or reusing forgotten storage: {replacement}"
+            );
+        }
+    }
+
+    #[test]
+    fn guarded_variant_joins_preserve_only_proven_payload_bounds() {
+        let program = crate::parse_program(
+            "(#enum Inner ((Left) (Right)))
+             (#enum Outer ((Present Inner) (Absent)))
+             (#fn main () u64 (#return 0u64))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let outer = Type::Named("Outer".to_owned());
+        let inner = Type::Named("Inner".to_owned());
+        let present = declarations.variant_id(&outer, "Present").unwrap();
+        let absent = declarations.variant_id(&outer, "Absent").unwrap();
+        let left = declarations.variant_id(&inner, "Left").unwrap();
+        let right = declarations.variant_id(&inner, "Right").unwrap();
+        let root = Place::root(PlaceRoot::Local(BindingId(0)));
+        let nested = Place {
+            root: root.root.clone(),
+            segments: vec![Segment::Payload(present, 0)],
+        };
+        let active = HashMap::from([(root.clone(), present), (nested.clone(), left)]);
+        let inactive = HashMap::from([(root.clone(), absent)]);
+        let unknown = HashMap::new();
+        let conflicting = HashMap::from([(root.clone(), present), (nested.clone(), right)]);
+        for (first, second) in [(&active, &inactive), (&inactive, &active)] {
+            let mut facts = first.clone();
+            join_variant_facts(&mut facts, second);
+            assert_eq!(facts, HashMap::from([(nested.clone(), left)]));
+            assert!(
+                !known_variant_slot(&facts, &root, &nested.segments),
+                "a guarded fact cannot establish its containing variant"
+            );
+            let bounds = |facts: &HashMap<Place, VariantId>| {
+                facts
+                    .iter()
+                    .map(|(place, variant)| (place.segments.clone(), HashSet::from([*variant])))
+                    .collect::<VariantBounds>()
+            };
+            let mut joined = bounds(first);
+            join_variant_bounds(&mut joined, &bounds(second));
+            assert_eq!(joined[&Vec::new()], HashSet::from([present, absent]));
+            assert_eq!(joined[&nested.segments], HashSet::from([left]));
+            assert!(!known_variant_bound_slot(&joined, &nested.segments));
+            join_variant_bounds(&mut joined, &VariantBounds::new());
+            assert!(
+                joined.is_empty(),
+                "unknown alternatives must remove every bound"
+            );
+        }
+        for second in [&unknown, &conflicting] {
+            let mut facts = active.clone();
+            join_variant_facts(&mut facts, second);
+            assert!(!facts.contains_key(&nested));
+        }
+    }
+
+    #[test]
     fn global_contents_keep_identity_and_do_not_invent_unknown_entry_loans() {
         let program =
             crate::parse_program("(#static Shared u64 0u64) (#fn main () u64 (#return 0u64))")
@@ -11774,6 +12901,7 @@ mod tests {
             },
         });
         let mut graph = FlowGraph {
+            variant_pruned_edges: HashMap::new(),
             nodes: vec![
                 FlowNode {
                     action: FlowAction::Exit,
@@ -12646,6 +13774,7 @@ mod tests {
         });
         let place = Place::root(PlaceRoot::Local(BindingId(0)));
         let graph = FlowGraph {
+            variant_pruned_edges: HashMap::new(),
             nodes: vec![
                 FlowNode {
                     action: FlowAction::Entry,
@@ -14671,6 +15800,7 @@ mod tests {
             segments: vec![Segment::Index(0)],
         };
         let graph_for = |replacement: Place| FlowGraph {
+            variant_pruned_edges: HashMap::new(),
             nodes: vec![
                 FlowNode {
                     action: FlowAction::Exit,
@@ -14724,6 +15854,7 @@ mod tests {
     fn definite_release_fixed_point_respects_zero_iteration_path() {
         let place = Place::root(PlaceRoot::Local(BindingId(0)));
         let graph = FlowGraph {
+            variant_pruned_edges: HashMap::new(),
             nodes: vec![
                 FlowNode {
                     action: FlowAction::Exit,

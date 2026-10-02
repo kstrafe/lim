@@ -61,6 +61,7 @@ pub(crate) fn capture_store_summaries(
 }
 
 pub(crate) struct CapturedWorkerContract {
+    #[cfg(test)]
     pub worker: FunctionId,
     pub facts: ReferentFunctionEffects,
 }
@@ -345,7 +346,7 @@ impl Captures {
 }
 
 pub(crate) fn capture_worker_contract(
-    worker: FunctionId,
+    _worker: FunctionId,
     owner: AggregateId,
     parameters: usize,
     facts: &ReferentFunctionEffects,
@@ -372,7 +373,8 @@ pub(crate) fn capture_worker_contract(
         })
         .collect::<Option<HashMap<_, _>>>()?;
     Some(CapturedWorkerContract {
-        worker,
+        #[cfg(test)]
+        worker: _worker,
         facts: ReferentFunctionEffects {
             has_normal_return: facts.has_normal_return,
             effects: captures.effects(&facts.effects)?,

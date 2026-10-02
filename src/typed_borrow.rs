@@ -1718,6 +1718,7 @@ mod tests {
                 span: None,
             });
             let flow = FlowGraph {
+                variant_pruned_edges: Default::default(),
                 nodes,
                 entry: FlowNodeId(0),
                 exit: FlowNodeId(count + 1),

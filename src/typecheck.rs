@@ -1675,6 +1675,23 @@ fn check_types_inner(
         *diagnostic_span = span;
         message
     })?;
+    *diagnostic_code = crate::DiagnosticCode::Linear;
+    declarations
+        .check_referent_entry_contracts(&linear_types)
+        .map_err(|error| match error {
+            crate::typed_ir::StagedReferentError::Dependency => {
+                "cannot resolve ownership contracts for function dependencies".to_owned()
+            }
+            crate::typed_ir::StagedReferentError::Use { function, conflict }
+            | crate::typed_ir::StagedReferentError::Replacement { function, conflict } => {
+                *diagnostic_span = conflict
+                    .span
+                    .or_else(|| program.declaration_spans.get(&function).copied());
+                *diagnostic_labels = conflict.labels;
+                record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                conflict.message
+            }
+        })?;
     Ok(declarations)
 }
 
@@ -17097,6 +17114,14 @@ mod typed_ownership_tests {
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations.flows["echo"]
+                .infer_referent_consumed_entry_with_call_facts(
+                    &declarations.bodies["echo"],
+                    &types,
+                    &declarations,
+                    &crate::typed_flow::ReferentCallFacts::default(),
+                )
+                .unwrap();
             declarations
                 .staged_referent_entry_contracts(&types)
                 .unwrap();
@@ -17108,6 +17133,20 @@ mod typed_ownership_tests {
                 .unwrap()
                 .parameter_loan_slots[0]
                 .remove(0);
+            let production = declarations.flows["echo"]
+                .infer_referent_consumed_entry_with_call_facts(
+                    &declarations.bodies["echo"],
+                    &types,
+                    &declarations,
+                    &crate::typed_flow::ReferentCallFacts::default(),
+                );
+            let missing = production.unwrap_err();
+            assert!(
+                missing.message.contains("missing slot provenance"),
+                "{missing:?}"
+            );
+            let span = missing.span.unwrap();
+            assert_eq!(&source[span.start..span.end], "(#return value)");
             let error = declarations
                 .staged_referent_entry_contracts(&types)
                 .unwrap_err();
@@ -18306,10 +18345,21 @@ mod typed_ownership_tests {
             .staged_contents_referent_entry_contracts(&types)
             .unwrap();
         let factory = declarations.function_id("factory").unwrap();
-        assert!(
-            !declarations.bodies["factory"].call_return_variant_bounds[&factory]
-                .contains_key(&vec![crate::typed_place::Segment::Tuple(0)])
+        let before = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Before")
+            .unwrap();
+        let after = declarations
+            .variant_id(&Type::Named("Outcome".into()), "After")
+            .unwrap();
+        // Zero/one iteration returns Before; later iterations capture After.
+        // Upper bounds retain both possibilities, but no singleton tag may
+        // survive the later snapshot updates.
+        let path = vec![crate::typed_place::Segment::Tuple(0)];
+        assert_eq!(
+            declarations.bodies["factory"].call_return_variant_bounds[&factory][&path],
+            std::collections::HashSet::from([before, after])
         );
+        assert!(!declarations.bodies["factory"].call_return_variants[&factory].contains_key(&path));
     }
 
     #[test]
@@ -18401,6 +18451,180 @@ mod typed_ownership_tests {
         let exit = &contracts[&join][&(path, restored)];
         assert!(exit.restored.is_empty());
         assert!(exit.effects.iter().any(|effect| effect.definitely_consumed));
+    }
+
+    #[test]
+    fn production_impossible_result_arms_do_not_require_fabricated_loans() {
+        let source = "(#enum Output ((Pending (#ref u64)) (Ready u64)))
+            (#fn factory () Output (#return (Ready 42u64)))
+            (#fn wrap () Output
+              (#return (#match (#call factory ())
+                (#case (Pending value) (Pending value))
+                (#case (Ready value) (Ready value)))))
+            (#fn main () u64
+              (#return (#match (#call wrap ())
+                (#case (Pending value) (#deref value))
+                (#case (Ready value) value))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        crate::codegen::generate_assembly(&program).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.check_referent_entry_contracts(&types).unwrap();
+        assert!(!declarations.flows["wrap"].variant_pruned_edges.is_empty());
+        declarations.bodies.remove("factory");
+        declarations.flows.remove("factory");
+        assert!(declarations.check_referent_entry_contracts(&types).is_err());
+        assert!(
+            declarations.flows["wrap"].variant_pruned_edges.is_empty(),
+            "a removed callee must not leave its old impossible-arm proof"
+        );
+    }
+
+    #[test]
+    fn prepared_variant_tags_require_verified_callee_bodies() {
+        let source = "(#enum Choice ((Empty) (Full (#ref u64))))
+            (#fn noop ((target (#ref-mut Choice))) () (#return ()))
+            (#fn forward ((target (#ref-mut Choice))) ()
+              (#call noop (: target target)) (#return ()))
+            (#fn write ((target (#ref-mut Choice))) ()
+              (#deref-set target (Empty)) (#return ()))
+            (#fn caller ((target (#ref-mut Choice))) ()
+              (#call forward (: target target)) (#call write (: target target)) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let forward = declarations.function_id("forward").unwrap();
+        let write = declarations.function_id("write").unwrap();
+        let caller = &declarations.bodies["caller"];
+        assert!(caller.call_preserves_variant_tags.contains(&forward));
+        assert!(!caller.call_preserves_variant_tags.contains(&write));
+        assert!(!declarations.flows["write"]
+            .preserves_variant_tags(&declarations.bodies["write"], &HashSet::new()));
+
+        // A forwarding proof must disappear when its real dependency does.
+        // Reanalysis must not reuse the previous prepared whitelist.
+        declarations.bodies.remove("noop");
+        declarations.flows.remove("noop");
+        declarations.staged_parameter_contents_summaries();
+        assert!(!declarations.bodies["caller"]
+            .call_preserves_variant_tags
+            .contains(&forward));
+    }
+
+    #[test]
+    fn production_owned_call_outputs_exclude_absent_input_payload_loans() {
+        let source = "(#enum Task ((Waiting) (Holding (#ref u64))))
+          (#enum Outcome ((Pending Task) (Ready u64)))
+          (#fn poll ((task Task)) Outcome
+            (#return (#match task
+              (#case (Waiting) (Ready 37u64))
+              (#case (Holding held) (Pending (Holding held))))))
+          (#fn wrapper () Outcome (#return (#call poll (: task (Waiting)))))
+          (#fn main () u64 (#return (#match (#call wrapper (:))
+            (#case (Ready value) value)
+            (#case (Pending task) (#match task
+              (#case (Waiting) 0u64)
+              (#case (Holding held) (#deref held)))))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        crate::codegen::generate_assembly(&program).unwrap();
+
+        // Known inactive inputs must not conceal a producer with incomplete
+        // mandatory slots: the producer itself still has to validate.
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        declarations
+            .bodies
+            .get_mut("poll")
+            .unwrap()
+            .parameter_loan_slots[0]
+            .clear();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let error = declarations
+            .staged_referent_entry_contracts(&types)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::typed_ir::StagedReferentError::Use { .. }
+                | crate::typed_ir::StagedReferentError::Replacement { .. }
+        ));
+    }
+
+    #[test]
+    fn production_call_entry_reads_use_non_singleton_owned_variant_bounds() {
+        let prefix = "(#struct Resource ((number u64))) (#linear Resource)
+          (#enum Stage ((Start (#ref-mut Resource))
+            (WaitA (#ref-mut Resource)) (WaitB (#ref-mut Resource))))
+          (#linear Stage)
+          (#fn inspect ((stage Stage)) ()
+            (#match stage
+              (#case (Start active) (#block (#assert (#u64.== (#get active number) 0u64)) ()))
+              (#case (WaitA paused-a) ())
+              (#case (WaitB paused-b) ()))
+            (#return ()))";
+        for start_possible in [false, true] {
+            let alternate = if start_possible { "Start" } else { "WaitB" };
+            let source = format!(
+                "{prefix}
+              (#fn suspend ((target (#ref-mut Resource)) (choose bool)) Stage
+                (#return (#if choose (WaitA target) ({alternate} target))))
+              (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
+                (#forget (#deref target))
+                (#let stage Stage (#call suspend (: target target : choose choose)))
+                (#call inspect (: stage stage))
+                (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            if start_possible {
+                let error = crate::check_types(&program).unwrap_err();
+                assert!(error.contains("call reads a linear referent"), "{error}");
+            } else {
+                crate::check_types(&program).unwrap();
+                crate::codegen::generate_assembly(&program).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn production_call_entry_reads_require_initialized_referents() {
+        for restore in [false, true] {
+            let initialize = if restore {
+                "(#call initialize (: target target))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#fn read ((target (#ref-mut Resource))) u64 (#return (#get target number)))
+                 (#fn forward ((target (#ref-mut Resource))) u64 (#return (#call read (: target target))))
+                 (#fn initialize ((target (#ref-mut Resource))) ()
+                   (#deref-set target (#struct-literal Resource (: number 42u64))) (#return ()))
+                 (#fn caller ((target (#ref-mut Resource))) u64
+                   (#forget (#deref target)) {initialize}
+                   (#return (#call forward (: target target))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            if restore {
+                crate::check_types(&program).unwrap();
+                crate::codegen::generate_assembly(&program).unwrap();
+            } else {
+                let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+                assert!(
+                    message.contains("call reads a linear referent"),
+                    "{message}"
+                );
+                let span = span.unwrap();
+                assert_eq!(
+                    &source[span.start..span.end],
+                    "(#call forward (: target target))"
+                );
+                assert!(labels
+                    .iter()
+                    .any(|(span, _)| &source[span.start..span.end] == "(#forget (#deref target))"));
+            }
+        }
     }
 
     #[test]

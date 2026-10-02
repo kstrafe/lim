@@ -10,7 +10,6 @@ pub(crate) enum Segment {
     Dereference,
     Field(FieldId),
     /// Logical storage owned by an opaque thread task, not a runtime field.
-    #[cfg(test)]
     ThreadCapture(crate::typed_ir::AggregateId, usize),
     Tuple(usize),
     Payload(VariantId, usize),
@@ -161,7 +160,6 @@ fn literal_index(body: &Body, id: NodeId) -> Option<u128> {
 /// Classify an access using checked base types, including nested projections.
 /// An exact projection from owned storage. The base can be a call result,
 /// not just an addressable local; references need a separate provenance proof.
-#[cfg(test)]
 pub(crate) fn owned_output_projection(body: &Body, value: NodeId) -> Option<(NodeId, Segment)> {
     let NodeKind::Form {
         head,

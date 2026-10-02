@@ -277,14 +277,12 @@ pub(crate) struct FunctionDeclaration {
     pub span: Option<Span>,
 }
 
-#[cfg(test)]
 pub(crate) struct ThreadCaptureSchema {
     pub worker: FunctionId,
     pub worker_name: String,
     pub parameters: Vec<Type>,
 }
 
-#[cfg(test)]
 fn referent_free_abi_value(ty: &Type) -> bool {
     matches!(
         ty,
@@ -309,7 +307,6 @@ fn referent_free_abi_value(ty: &Type) -> bool {
     )
 }
 
-#[cfg(test)]
 #[derive(Debug)]
 pub(crate) enum StagedReferentError {
     Dependency,
@@ -333,9 +330,7 @@ pub(crate) struct Declarations {
     pub globals: HashMap<String, Type>,
     functions: Vec<FunctionDeclaration>,
     function_ids: HashMap<String, FunctionId>,
-    #[cfg(test)]
     external_function_ids: HashSet<FunctionId>,
-    #[cfg(test)]
     pub thread_capture_schemas: HashMap<String, ThreadCaptureSchema>,
     global_names: Vec<String>,
     global_ids: HashMap<String, GlobalId>,
@@ -629,9 +624,7 @@ impl Declarations {
             globals,
             functions,
             function_ids,
-            #[cfg(test)]
             external_function_ids: HashSet::new(),
-            #[cfg(test)]
             thread_capture_schemas: HashMap::new(),
             global_names,
             global_ids,
@@ -716,7 +709,6 @@ impl Declarations {
         statement_spans: &HashMap<StatementId, Span>,
         statement_ids: &HashMap<usize, StatementId>,
     ) -> Result<(), String> {
-        #[cfg(test)]
         {
             self.thread_capture_schemas = program
                 .items
@@ -800,7 +792,6 @@ impl Declarations {
                 _ => None,
             })
             .collect();
-        #[cfg(test)]
         {
             let linear = crate::linearcheck::LinearTypes::from_program(program);
             for body in self.bodies.values_mut() {
@@ -898,19 +889,26 @@ impl Declarations {
     /// Prepare actual parameter contents and interprocedural store/clear
     /// summaries before enforcing initialized entry and escape contracts.
     /// Keeping these phases together avoids validating later calls against
-    /// the legacy symbolic-load summaries. This is a migration gate, not a
-    /// replacement for production ownership validation yet.
+    /// the legacy symbolic-load summaries. Legacy ownership and borrowing
+    /// validation remain independent gates during the frontend migration.
+    pub fn check_referent_entry_contracts(
+        &mut self,
+        types: &crate::linearcheck::LinearTypes,
+    ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
+    {
+        self.summarize_parameter_loans_with_contents(true);
+        self.staged_referent_analysis(types, false, false, true)
+    }
+
     #[cfg(test)]
     pub fn staged_contents_referent_entry_contracts(
         &mut self,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
     {
-        self.staged_parameter_contents_summaries();
-        self.staged_referent_entry_contracts(types)
+        self.check_referent_entry_contracts(types)
     }
 
-    #[cfg(test)]
     fn staged_referent_analysis(
         &self,
         types: &crate::linearcheck::LinearTypes,
@@ -1089,6 +1087,7 @@ impl Declarations {
                 // divergence-adjusted graph. Solve provenance once per body,
                 // not once for every invocation in the body.
                 let origins = flow.loan_origins(body);
+                flow.prepare_storage_variant_bounds(body, &origins);
                 let mut calls = Vec::new();
                 let reachable = flow.reachable();
                 let mut call_reads = Vec::new();
@@ -1344,26 +1343,50 @@ impl Declarations {
     /// preserving parameter and aggregate-slot identities without a repeated
     /// whole-program fixed-point pass.
     fn summarize_returned_parameter_loans(&mut self) {
-        self.summarize_parameter_loans_with_contents(
-            #[cfg(test)]
-            false,
-        );
+        self.summarize_parameter_loans_with_contents(false);
     }
 
-    /// Recompute interprocedural contracts using actual parameter contents.
-    /// This remains staged until initialization and restoration are enforced.
+    /// Test entry point for recomputing actual parameter-content summaries
+    /// independently of the production initialization/restoration gate.
     #[cfg(test)]
     pub fn staged_parameter_contents_summaries(&mut self) {
         self.summarize_parameter_loans_with_contents(true);
     }
 
-    fn summarize_parameter_loans_with_contents(
-        &mut self,
-        #[cfg(test)] include_parameter_contents: bool,
-    ) {
-        #[cfg(test)]
+    fn summarize_parameter_loans_with_contents(&mut self, include_parameter_contents: bool) {
+        let mut preserves_tags = HashSet::new();
+        for flow in self.flows.values_mut() {
+            flow.restore_variant_paths();
+        }
+        if include_parameter_contents {
+            loop {
+                let count = preserves_tags.len();
+                for (name, body) in &self.bodies {
+                    let id = self.function_id(name).unwrap();
+                    if !preserves_tags.contains(&id)
+                        && self.flows[name].preserves_variant_tags(body, &preserves_tags)
+                    {
+                        preserves_tags.insert(id);
+                    }
+                }
+                if preserves_tags.len() == count {
+                    break;
+                }
+            }
+        }
         for body in self.bodies.values_mut() {
             body.staged_parameter_contents = include_parameter_contents;
+            body.call_preserves_variant_tags = Arc::new(
+                body.nodes
+                    .iter()
+                    .filter_map(|node| match &node.kind {
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(id), ..
+                        } if preserves_tags.contains(id) => Some(*id),
+                        _ => None,
+                    })
+                    .collect(),
+            );
         }
         let mut names = self.bodies.keys().cloned().collect::<Vec<_>>();
         names.sort();
@@ -1412,7 +1435,6 @@ impl Declarations {
             .collect::<HashMap<_, _>>();
         let mut remaining_dependencies = HashMap::new();
         let mut callers = HashMap::<String, Vec<String>>::new();
-        #[cfg(test)]
         let thread_workers = self.thread_operation_workers();
         for name in &names {
             let body = &self.bodies[name];
@@ -1424,7 +1446,6 @@ impl Declarations {
                         callee: Some(callee),
                         ..
                     } => {
-                        #[cfg(test)]
                         let callee = thread_workers.get(callee).unwrap_or(callee);
                         names_by_id
                             .get(callee)
@@ -1477,31 +1498,22 @@ impl Declarations {
         }
 
         let mut summaries = HashMap::new();
-        #[cfg(test)]
         let mut store_summaries = HashMap::new();
-        #[cfg(test)]
         let mut clear_summaries =
             HashMap::<FunctionId, Vec<crate::typed_body::ParameterLoanSummary>>::new();
-        #[cfg(test)]
         let mut clear_variants = HashMap::<
             FunctionId,
             HashMap<VariantId, Vec<crate::typed_body::ParameterLoanSummary>>,
         >::new();
-        #[cfg(test)]
         let mut return_variants =
             HashMap::<FunctionId, HashMap<Vec<crate::typed_place::Segment>, VariantId>>::new();
-        #[cfg(test)]
         let mut return_bounds = HashMap::<FunctionId, crate::typed_flow::VariantBounds>::new();
-        #[cfg(test)]
         let mut store_variants = HashMap::<
             FunctionId,
             HashMap<VariantId, Vec<crate::typed_body::ParameterStoreSummary>>,
         >::new();
-        #[cfg(test)]
         let mut output_store_variants = crate::typed_body::OutputVariantMap::new();
-        #[cfg(test)]
         let mut output_clear_variants = crate::typed_body::OutputVariantMap::new();
-        #[cfg(test)]
         {
             let (origins, bounds) = self.thread_call_return_metadata();
             summaries.extend(origins);
@@ -1526,7 +1538,41 @@ impl Declarations {
                 })
                 .collect();
             self.bodies.get_mut(&name).unwrap().call_return_origins = Arc::new(needed);
-            #[cfg(test)]
+            let reference_slots = if include_parameter_contents {
+                self.bodies[&name]
+                    .nodes
+                    .iter()
+                    .filter_map(|node| {
+                        let crate::typed_body::NodeKind::Form {
+                            callee: Some(callee),
+                            ..
+                        } = node.kind
+                        else {
+                            return None;
+                        };
+                        if !names_by_id
+                            .get(&callee)
+                            .is_some_and(|name| self.bodies.contains_key(name))
+                        {
+                            return None;
+                        }
+                        let ty = node.ty.as_ref()?;
+                        Some((
+                            callee,
+                            self.reference_storage_slots(ty)
+                                .into_iter()
+                                .map(|slot| slot.storage)
+                                .collect(),
+                        ))
+                    })
+                    .collect()
+            } else {
+                HashMap::new()
+            };
+            self.bodies
+                .get_mut(&name)
+                .unwrap()
+                .call_return_reference_slots = Arc::new(reference_slots);
             let needed_stores = self.bodies[&name]
                 .nodes
                 .iter()
@@ -1542,7 +1588,6 @@ impl Declarations {
                     _ => None,
                 })
                 .collect();
-            #[cfg(test)]
             {
                 self.bodies.get_mut(&name).unwrap().call_store_origins = Arc::new(needed_stores);
                 let needed_variants = self.bodies[&name]
@@ -1656,56 +1701,50 @@ impl Declarations {
                     .unwrap()
                     .call_return_variant_bounds = Arc::new(needed);
             }
+            if include_parameter_contents {
+                self.flows
+                    .get_mut(&name)
+                    .unwrap()
+                    .prune_impossible_variant_patterns(&self.bodies[&name]);
+            }
             let body = &self.bodies[&name];
             let flow = &self.flows[&name];
-            #[cfg(not(test))]
-            let origins = flow.loan_origins(body);
-            #[cfg(test)]
             let origins = if include_parameter_contents {
                 flow.staged_parameter_store_loan_origins(body)
             } else {
                 flow.loan_origins(body)
             };
             let mut returned = Vec::new();
-            #[cfg(test)]
             let store_origins = if include_parameter_contents {
                 flow.staged_parameter_store_loan_origins(body)
             } else {
                 flow.staged_store_loan_origins(body)
             };
-            #[cfg(test)]
             let stores = flow.parameter_store_summaries(body, &store_origins);
-            #[cfg(test)]
             let output_stores = flow.parameter_output_store_variant_summaries(body, &store_origins);
-            #[cfg(test)]
             let variants = output_stores
                 .iter()
                 .filter_map(|((path, variant), stores)| {
                     path.is_empty().then_some((*variant, stores.clone()))
                 })
                 .collect();
-            #[cfg(test)]
             let clears = if include_parameter_contents {
                 flow.parameter_clear_summaries(body, &store_origins)
             } else {
                 Vec::new()
             };
-            #[cfg(test)]
             let returned_bounds = flow.returned_variant_bounds(body, &store_origins);
-            #[cfg(test)]
             let returned_variants = returned_bounds
                 .iter()
                 .filter_map(|(path, variants)| {
                     (variants.len() == 1).then(|| (path.clone(), *variants.iter().next().unwrap()))
                 })
                 .collect();
-            #[cfg(test)]
             let output_clears = if include_parameter_contents {
                 flow.parameter_output_clear_variant_summaries(body, &store_origins)
             } else {
                 HashMap::new()
             };
-            #[cfg(test)]
             let conditional_clears = output_clears
                 .iter()
                 .filter_map(|((path, variant), clears)| {
@@ -1744,19 +1783,12 @@ impl Declarations {
                 // An empty summary distinguishes a known body with no
                 // parameter-derived loans from an unavailable external body.
                 summaries.insert(id, returned);
-                #[cfg(test)]
                 store_summaries.insert(id, stores);
-                #[cfg(test)]
                 store_variants.insert(id, variants);
-                #[cfg(test)]
                 clear_summaries.insert(id, clears);
-                #[cfg(test)]
                 clear_variants.insert(id, conditional_clears);
-                #[cfg(test)]
                 output_store_variants.insert(id, output_stores);
-                #[cfg(test)]
                 output_clear_variants.insert(id, output_clears);
-                #[cfg(test)]
                 for (task, captures) in &self.thread_capture_schemas {
                     if captures.worker != id {
                         continue;
@@ -1868,32 +1900,21 @@ impl Declarations {
                     return_variants.insert(join, joined_variants);
                     return_bounds.insert(join, joined_bounds);
                 }
-                #[cfg(test)]
                 return_variants.insert(id, returned_variants);
-                #[cfg(test)]
                 return_bounds.insert(id, returned_bounds);
             }
         }
         let shared = Arc::new(summaries);
-        #[cfg(test)]
         let shared_stores = Arc::new(store_summaries);
-        #[cfg(test)]
         let shared_variants = Arc::new(store_variants);
-        #[cfg(test)]
         let shared_clears = Arc::new(clear_summaries);
-        #[cfg(test)]
         let shared_clear_variants = Arc::new(clear_variants);
-        #[cfg(test)]
         let shared_output_store_variants = Arc::new(output_store_variants);
-        #[cfg(test)]
         let shared_output_clear_variants = Arc::new(output_clear_variants);
-        #[cfg(test)]
         let shared_return_variants = Arc::new(return_variants);
-        #[cfg(test)]
         let shared_return_bounds = Arc::new(return_bounds);
         for body in self.bodies.values_mut() {
             body.call_return_origins = shared.clone();
-            #[cfg(test)]
             {
                 body.call_store_origins = shared_stores.clone();
                 body.call_store_variants = shared_variants.clone();
@@ -1907,7 +1928,6 @@ impl Declarations {
         }
     }
 
-    #[cfg(test)]
     fn staged_add_thread_operation_contracts(
         &self,
         summaries: &mut HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>,
@@ -2003,7 +2023,6 @@ impl Declarations {
         )
     }
 
-    #[cfg(test)]
     fn thread_operation_workers(&self) -> HashMap<FunctionId, FunctionId> {
         self.thread_capture_schemas
             .iter()
@@ -2016,7 +2035,6 @@ impl Declarations {
             .collect()
     }
 
-    #[cfg(test)]
     fn thread_call_return_metadata(
         &self,
     ) -> (
@@ -2111,7 +2129,6 @@ impl Declarations {
         (origins, bounds)
     }
 
-    #[cfg(test)]
     pub fn reference_storage_slots(&self, ty: &Type) -> Vec<crate::typed_body::ParameterLoanSeed> {
         let mut slots = Vec::new();
         self.collect_parameter_loan_slots(
@@ -2222,7 +2239,6 @@ impl Declarations {
                 }
             }
             Type::Named(name) if seen.insert(name.clone()) => {
-                #[cfg(test)]
                 if let Some(captures) = self.thread_capture_schemas.get(name) {
                     if let Some(owner) = self.aggregate_ids.get(name).copied() {
                         for (index, ty) in captures.parameters.iter().enumerate() {
