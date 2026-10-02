@@ -1731,6 +1731,7 @@ impl FlowGraph {
                                     | "array-repeat"
                                     | "slice-of"
                                     | "slice-len"
+                                    | "#variant-is"
                                     | "slice-idx"
                                     | "deref"
                                     | "get"
@@ -4282,7 +4283,7 @@ impl FlowGraph {
                 continue;
             }
             if let FlowAction::Evaluate(value) = node.action {
-                if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "pin-read")
+                if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if matches!(head.as_str(), "pin-read" | "#variant-is"))
                 {
                     let places = dereferenced_value_places(body, self, event, value, &origins)
                         .unwrap_or_default();
@@ -5715,6 +5716,7 @@ impl FlowGraph {
                         | "addr-of-mut"
                         | "ptr-read"
                         | "ptr-is-null"
+                        | "#variant-is"
                         | "ptr-borrow"
                         | "ptr-borrow-mut"
                         | "pin-ptr-borrow"
@@ -9553,7 +9555,9 @@ fn dereferenced_value_places(
     let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
         return None;
     };
-    if !matches!(head.as_str(), "deref" | "pin-read") || children.len() != 2 {
+    if !((matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2)
+        || (head == "#variant-is" && children.len() == 3))
+    {
         return None;
     }
     let loans = origins.value_before(body, flow, event, children[1]);
@@ -12692,6 +12696,34 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enum_tag_reads_are_nonconsuming_proven_referent_reads() {
+        for reference in ["#ref", "#ref-mut", "#pin-ref", "#pin-ref-mut"] {
+            let source = format!(
+                "(#enum Choice ((Some u64) Empty)) (#linear Choice)
+              (#fn inspect ((value ({reference} Choice))) bool
+                (#return (#variant-is value Some)))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let declarations = checked.declarations();
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
+            let (reads, unresolved) = flow.referent_reads(body);
+            assert!(unresolved.is_empty(), "{source}");
+            assert_eq!(reads.len(), 1, "{source}");
+            assert_eq!(
+                reads[0].place,
+                Place::root(PlaceRoot::Parameter(BindingId(0)))
+            );
+            assert!(flow.preserves_variant_tags(body, &HashSet::new()));
+            let types = LinearTypes::from_program(&program);
+            let moves = flow.consumptions(body, &types);
+            let slot = Place::root(PlaceRoot::Local(BindingId(0)));
+            assert!((0..flow.nodes.len()).all(|index| !moves.consumes_at(FlowNodeId(index), &slot)));
+        }
+    }
 
     #[test]
     fn boolean_partition_widening_is_bounded_and_conservative() {

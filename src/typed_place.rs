@@ -217,6 +217,9 @@ pub(crate) fn reads_through_reference(body: &Body, value: NodeId) -> bool {
             reads_through_reference(body, children[1])
         }
         NodeKind::Form { head, children, .. } if head == "deref" && children.len() == 2 => true,
+        NodeKind::Form { head, children, .. } if head == "#variant-is" && children.len() == 3 => {
+            true
+        }
         NodeKind::Form { head, children, .. }
             if matches!(
                 head.as_str(),

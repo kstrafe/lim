@@ -2126,15 +2126,26 @@ impl Builder<'_> {
             }
         } else if matches!(
             head.as_str(),
-            "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "pin-set-field"
+            "get"
+                | "get-payload"
+                | "pin-get-payload"
+                | "pin-get-payload-mut"
+                | "pin-set-field"
+                | "#variant-is"
         ) {
             let owner = self.body.nodes[children[1].0]
                 .ty
                 .as_ref()
                 .and_then(|owner| {
-                    if matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut") {
+                    if matches!(
+                        head.as_str(),
+                        "pin-get-payload" | "pin-get-payload-mut" | "#variant-is"
+                    ) {
                         match owner {
                             Type::PinnedReference { target, .. } => Some(target.as_ref()),
+                            Type::Reference { target, .. } if head == "#variant-is" => {
+                                Some(target.as_ref())
+                            }
                             _ => None,
                         }
                     } else {

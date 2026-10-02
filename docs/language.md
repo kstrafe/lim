@@ -1265,6 +1265,14 @@ Discriminants are assigned from zero, or can be explicitly supplied using a
 numeric value after the variant name.  Variant names are global within a
 program and must be unique.
 
+To inspect an enum without extracting its owner or payload, use
+`(#variant-is reference Variant)`. It works through ordinary and pinned,
+shared and exclusive references. The reference is evaluated once; only the
+discriminant is read. The test grants no permission to move a payload or ignore
+a live loan. Later payload projections still check the active variant at
+runtime. See `examples/variant_is.lim` for inspection of a linear owner followed
+by explicit consumption.
+
 ### Globals and statics
 
 Top-level `#const`/`#let` values are immutable compile-time values. `#static`
@@ -1760,6 +1768,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#unsafe` | `(#unsafe expression)` | `(#unsafe (#ptr-read p))` (expression) | Marks a region allowed to contain raw memory, static access, assembly, and raw syscalls. |
 | `#unsafe-fn` | `(#unsafe-fn name ((arg Type)...) ReturnType body...)` | `(#unsafe-fn read-byte ((p (#ptr u8))) u8 (#return (#unsafe (#ptr-read p))))` (top level) | Declares caller safety obligations: calls require `#unsafe`, and raw operations in the body still need explicit unsafe blocks. |
 | `#unsafe-impl` | `(#unsafe-impl property Type)` | `(#unsafe-impl #send NativeHandle)` (top level) | Unsafely overrides a type's structural thread-safety property; this is an author promise. |
+| `#variant-is` | `(#variant-is enum-reference Variant)` | `(#let is-some bool (#variant-is value Some))` (expression) | Tests an enum reference's active variant without consuming the reference or enum; accepts ordinary or pinned shared/exclusive references. It does not statically refine later payload projections, which retain their runtime active-variant check. |
 | `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64.> x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
 | `#while` | `(#while condition body...)` | `(#while (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)))` (statement) | Repeats while its boolean condition is true. |
 | `#while-let` | `(#while-let pattern value body...)` | `(#while-let (Some x) next (#set total x))` (statement) | Repeatedly matches a value and runs the body while the pattern succeeds. Inside async functions, the scrutinee may remain synchronous while the body suspends. |

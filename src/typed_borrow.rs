@@ -138,12 +138,24 @@ pub(crate) fn check_live_direct_loans_cached(
     for index in accesses {
         let node = &flow.nodes[index];
         // Computed reference operands have no syntactic place, so lowering
-        // represents their write as Evaluate. Resolve the evaluated target
-        // rather than silently omitting the write from conflict checking.
+        // represents their write or tag read as Evaluate. Resolve the actual
+        // evaluated target instead of omitting the access from loan checks.
+        let tag_receiver = match node.action {
+            FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
+                NodeKind::Form { head, children, .. }
+                    if head == "#variant-is" && children.len() == 3 =>
+                {
+                    Some(children[1])
+                }
+                _ => None,
+            },
+            _ => None,
+        };
         let computed_targets = match node.action {
             FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
-                    if head == "deref-set" && children.len() == 3 =>
+                    if matches!(head.as_str(), "deref-set" | "#variant-is")
+                        && children.len() == 3 =>
                 {
                     origins.value_before(body, flow, FlowNodeId(index), children[1])
                 }
@@ -152,9 +164,14 @@ pub(crate) fn check_live_direct_loans_cached(
             _ => Vec::new(),
         };
         let (place, access) = match &node.action {
-            FlowAction::Evaluate(_) if !computed_targets.is_empty() => {
-                (&computed_targets[0].place, AccessKind::Write)
-            }
+            FlowAction::Evaluate(_) if !computed_targets.is_empty() => (
+                &computed_targets[0].place,
+                if tag_receiver.is_some() {
+                    AccessKind::Read
+                } else {
+                    AccessKind::Write
+                },
+            ),
             FlowAction::Read {
                 place,
                 place_base: false,
@@ -181,6 +198,7 @@ pub(crate) fn check_live_direct_loans_cached(
             FlowAction::Read { value, .. } | FlowAction::Clone { value, .. } => {
                 reads_through_reference(body, value)
             }
+            FlowAction::Evaluate(_) if tag_receiver.is_some() => true,
             _ => false,
         };
         let event = FlowNodeId(index);
@@ -214,8 +232,22 @@ pub(crate) fn check_live_direct_loans_cached(
         } else {
             projected
         };
+        let mut tag_sources = Vec::new();
+        if let Some(receiver) = tag_receiver {
+            // Reuse ordinary argument-result slot permissions. A reference
+            // stored in an owned field grants access from that exact slot,
+            // not from every other reference stored in the same aggregate.
+            call_argument_slots(body, receiver, &mut tag_sources);
+        }
         let mut suspended_parents = HashSet::new();
         let mut pending_parents = reborrow_parent.into_iter().collect::<Vec<_>>();
+        if tag_receiver.is_some() {
+            pending_parents.extend(
+                computed_targets
+                    .iter()
+                    .filter_map(|origin| origin.borrowed_from),
+            );
+        }
         while let Some(parent) = pending_parents.pop() {
             if !suspended_parents.insert(parent) {
                 continue;
@@ -237,6 +269,11 @@ pub(crate) fn check_live_direct_loans_cached(
                 continue;
             }
             for held in origins.before(event, binding) {
+                if tag_sources.iter().any(|source| {
+                    source.root == PlaceRoot::Local(binding) && source.segments == held.storage
+                }) {
+                    continue;
+                }
                 let slot = Place {
                     root: PlaceRoot::Local(binding),
                     segments: held.storage.clone(),

@@ -1,0 +1,5 @@
+(#enum Choice (Ready Stop))
+(#fn main () u64
+  (#let value Choice Ready)
+  (#variant-is (#borrow value) Missing)
+  (#return 0u64))

@@ -10596,6 +10596,7 @@ impl FunctionContext<'_> {
             "get" => self.field_expression(items),
             "get-payload" => self.enum_payload_expression(items),
             "pin-get-payload" | "pin-get-payload-mut" => self.pinned_enum_payload_expression(items),
+            "#variant-is" => self.enum_variant_test_expression(items),
             "!" => self.boolean_not(items),
             "&&" | "||" => self.boolean_logic(operator, items),
             "assert" | "debug-assert" => self.assert_expression(operator, items),
@@ -13483,6 +13484,34 @@ impl FunctionContext<'_> {
                 Ok(())
             }
         }
+    }
+
+    fn enum_variant_test_expression(&mut self, items: &[Expr]) -> Result<(), String> {
+        let Some(Expr::Symbol(variant)) = items.get(2) else {
+            return Err("checked variant-is has no variant identity".into());
+        };
+        let reference = self
+            .expression_type(&items[1])
+            .ok_or_else(|| "variant-is has no checked reference type".to_owned())?;
+        let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) = reference
+        else {
+            return Err("variant-is requires a checked enum reference".into());
+        };
+        let Type::Named(enum_name) = *target else {
+            return Err("variant-is has no checked enum target".into());
+        };
+        let (owner, discriminant, _) = self
+            .enum_variant_info(&items[2], variant)?
+            .ok_or_else(|| "variant-is has no checked variant".to_owned())?;
+        if owner != enum_name {
+            return Err("checked variant-is owner changed before emission".into());
+        }
+        // Tagged reference layout only affects payload direction; the first
+        // word is always the discriminant. Do not load/copy any payload words.
+        self.expression(&items[1])?;
+        self.output.push_str(&format!(
+            "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    mov rax, {discriminant}\n    cmp rcx, rax\n    sete al\n    movzx eax, al\n"));
+        Ok(())
     }
 
     fn pinned_enum_payload_expression(&mut self, items: &[Expr]) -> Result<(), String> {

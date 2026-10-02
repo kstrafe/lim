@@ -1227,6 +1227,7 @@ fn check_expr(
                 || head == "deref"
                 || head == "ptr-read"
                 || head == "ptr-is-null"
+                || head == "#variant-is"
                 || head == "ptr-borrow"
                 || head == "ptr-borrow-mut"
                 || head == "pin-ptr-borrow"

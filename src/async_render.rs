@@ -396,6 +396,8 @@ impl<'a> RenderContext<'a> {
                         numeric.scalar_name(),
                         numeric.operation.as_str()
                     ))
+                } else if operation.head.starts_with('#') {
+                    symbol(&operation.head)
                 } else {
                     symbol(format!("#{}", operation.head))
                 }
@@ -894,6 +896,32 @@ mod tests {
             text(&context.render_pattern(pattern.source, &names).unwrap()),
             "(Some _)"
         );
+    }
+
+    #[test]
+    fn enum_tag_test_replaces_only_the_handle_and_retains_variant_identity() {
+        let (declarations, graph) = prepare(
+            "(#enum Choice ((Some u64) Empty)) (#linear Choice)
+             (#fn inspect ((value (#pin-ref Choice))) bool
+               (#return (#variant-is value Some)))",
+            "inspect",
+        );
+        let compute = operation(&graph, "#variant-is");
+        let Compute::Checked(operation) = compute else {
+            unreachable!()
+        };
+        assert_eq!(operation.operands.len(), 1);
+        let context =
+            RenderContext::new(&declarations.bodies["inspect"], &declarations, &graph).unwrap();
+        let rendered = context
+            .render_compute(compute, &stored(compute, "stored"))
+            .unwrap();
+        assert_eq!(text(&rendered), "(#variant-is stored0 Some)");
+        check(&format!(
+            "(#enum Choice ((Some u64) Empty)) (#linear Choice)
+          (#fn again ((stored0 (#pin-ref Choice))) bool (#return {}))",
+            text(&rendered)
+        ));
     }
 
     #[test]

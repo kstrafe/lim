@@ -4998,6 +4998,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "index"
             | "get"
             | "get-payload"
+            | "variant-is"
             | "pin-get-payload"
             | "pin-get-payload-mut"
             | "size-of"
@@ -5114,6 +5115,9 @@ fn requires_explicit_operator_type(name: &str) -> bool {
 
 pub(crate) fn normalize_keywords(expression: Expr) -> Expr {
     match expression {
+        // New intrinsic spelling stays distinct from a user function with
+        // the same unprefixed name throughout ordinary call lowering.
+        Expr::Symbol(name) if name == "#variant-is" => Expr::Symbol(name),
         Expr::Symbol(name) => Expr::Symbol(if let Some(keyword) = name.strip_prefix('#') {
             keyword.to_owned()
         } else {

@@ -6637,6 +6637,7 @@ fn list_expression(
             raw_operator,
             "get"
                 | "get-payload"
+                | "#variant-is"
                 | "pin-get-payload"
                 | "index"
                 | "match"
@@ -8328,6 +8329,46 @@ fn list_expression(
                     ))
                     .at(ErrorSite::Argument("get".into(), 2))
                 })
+        }
+        "#variant-is" => {
+            // Source error sites use the keyword stem, even though this
+            // intrinsic retains its sigil to distinguish ordinary calls.
+            require_arity("variant-is", items, 3)?;
+            let reference = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let target = match reference {
+                Type::Reference { target, .. } | Type::PinnedReference { target, .. } => *target,
+                _ => {
+                    return Err(semantic_at!(
+                        ErrorSite::Argument("variant-is".into(), 1),
+                        "variant-is requires an enum reference"
+                    ))
+                }
+            };
+            let Type::Named(enum_name) = resolve_type(&target, aliases)? else {
+                return Err(semantic_at!(
+                    ErrorSite::Argument("variant-is".into(), 1),
+                    "variant-is requires a reference to an enum"
+                ));
+            };
+            let variants = enums.get(&enum_name).ok_or_else(|| {
+                SemanticError::from("variant-is requires a reference to an enum")
+                    .at(ErrorSite::Argument("variant-is".into(), 1))
+            })?;
+            let Some(Expr::Symbol(variant_name)) = items.get(2) else {
+                return Err(semantic_at!(
+                    ErrorSite::Argument("variant-is".into(), 2),
+                    "variant-is requires a variant name"
+                ));
+            };
+            if !variants.iter().any(|variant| variant.name == *variant_name) {
+                return Err(semantic_at!(
+                    ErrorSite::Argument("variant-is".into(), 2),
+                    "enum '{enum_name}' has no variant '{variant_name}'"
+                ));
+            }
+            Ok(Type::Bool)
         }
         "get-payload" => {
             if items.len() != 4 {
