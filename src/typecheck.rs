@@ -18269,6 +18269,152 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_return_bounds_use_captured_operand_tags_before_later_calls() {
+        let program = crate::parse_program(
+            "(#enum Outcome ((Before) (After)))
+             (#fn change ((target (#ref-mut Outcome))) () (#deref-set target (After)) (#return ()))
+             (#fn factory () (#tuple Outcome ())
+               (#let-mut tag Outcome (Before))
+               (#return (#tuple tag (#call change (: target (#borrow-mut tag))))))",
+        )
+        .unwrap();
+        check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let factory = declarations.function_id("factory").unwrap();
+        let before = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Before")
+            .unwrap();
+        let body = &declarations.bodies["factory"];
+        assert_eq!(
+            body.call_return_variant_bounds[&factory][&vec![crate::typed_place::Segment::Tuple(0)]],
+            std::collections::HashSet::from([before])
+        );
+    }
+
+    #[test]
+    fn staged_captured_operand_tags_recompute_after_loop_snapshot_changes() {
+        let program = crate::parse_program(
+            "(#enum Outcome ((Before) (After)))
+             (#fn change ((target (#ref-mut Outcome))) () (#deref-set target (After)) (#return ()))
+             (#fn factory ((count u64)) (#tuple Outcome ())
+               (#let-mut tag Outcome (Before))
+               (#let-mut output (#tuple Outcome ()) (#tuple (Before) ()))
+               (#let-mut index u64 0u64)
+               (#while (#u64.< index count)
+                 (#set output (#tuple tag (#call change (: target (#borrow-mut tag)))))
+                 (#set index (#u64.+.wrap index 1u64)))
+               (#return output))",
+        )
+        .unwrap();
+        check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let factory = declarations.function_id("factory").unwrap();
+        assert!(
+            !declarations.bodies["factory"].call_return_variant_bounds[&factory]
+                .contains_key(&vec![crate::typed_place::Segment::Tuple(0)])
+        );
+    }
+
+    #[test]
+    fn staged_worker_returned_aliases_preserve_nested_outcome_contracts() {
+        for slot in [0, 1] {
+            let source = format!(
+                "(#struct Resource ((number u64))) (#linear Resource)
+                 (#enum Outcome ((Restored) (Consumed)))
+                 (#fn worker ((target (#ref-mut Resource)) (choose bool)) (#tuple Outcome Outcome)
+                   (#forget (#deref target))
+                   (#return (#if choose
+                     (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
+                       (#let first (#tuple Outcome Outcome) (#tuple (Restored) (Consumed))) first)
+                     (#block (#let second (#tuple Outcome Outcome) (#tuple (Consumed) (Restored))) second))))
+                 (@thread-spawn (: task Task : worker worker))
+                 (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
+                   (#return (#match (#call Task-spawn (: target target : choose choose))
+                     (#case (Task-spawn-ok task)
+                       (#match (#call Task-join (: task task))
+                         (#case (Task-join-ok output)
+                           (#match (#get output {slot})
+                             (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
+                             (#case (Consumed) (#panic))))
+                         (#case (Task-join-error (#tuple retry error)) (#panic))))
+                     (#case (Task-spawn-error error) (#panic)))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_contents_referent_entry_contracts(&types);
+            if slot == 0 {
+                result.unwrap();
+            } else {
+                let crate::typed_ir::StagedReferentError::Use { conflict, .. } =
+                    result.unwrap_err()
+                else {
+                    panic!("wrong alias slot must not restore the referent");
+                };
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#get target number)");
+            }
+        }
+    }
+
+    #[test]
+    fn staged_worker_returned_alias_uses_replacement_not_initial_tags() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#enum Outcome ((Restored) (Consumed)))
+            (#fn worker ((target (#ref-mut Resource))) (#tuple Outcome Outcome)
+              (#forget (#deref target))
+              (#let-mut output (#tuple Outcome Outcome) (#tuple (Restored) (Consumed)))
+              (#set output (#tuple (Consumed) (Restored))) (#return output))
+            (@thread-spawn (: task Task : worker worker))
+            (#fn caller ((target (#ref-mut Resource))) ()
+              (#return (#match (#call Task-spawn (: target target))
+                (#case (Task-spawn-ok task)
+                  (#match (#call Task-join (: task task))
+                    (#case (Task-join-ok output)
+                      (#match (#get output 1)
+                        (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
+                        (#case (Consumed) (#panic))))
+                    (#case (Task-join-error (#tuple retry error)) (#panic))))
+                (#case (Task-spawn-error error) (#panic)))))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let crate::typed_ir::StagedReferentError::Use { conflict, .. } = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap_err()
+        else {
+            panic!("a replacement tag is not a restoration guarantee");
+        };
+        let span = conflict.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#get target number)");
+        let join = declarations.function_id("Task-join").unwrap();
+        let ok = declarations
+            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .unwrap();
+        let restored = declarations
+            .variant_id(&Type::Named("Outcome".into()), "Restored")
+            .unwrap();
+        let contracts = declarations.bodies["caller"]
+            .call_output_variant_exits
+            .borrow();
+        let path = vec![
+            crate::typed_place::Segment::Payload(ok, 0),
+            crate::typed_place::Segment::Tuple(1),
+        ];
+        let exit = &contracts[&join][&(path, restored)];
+        assert!(exit.restored.is_empty());
+        assert!(exit.effects.iter().any(|effect| effect.definitely_consumed));
+    }
+
+    #[test]
     fn staged_direct_call_output_projections_select_nested_outcomes() {
         for slot in [0, 1] {
             let source = format!(

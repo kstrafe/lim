@@ -26,6 +26,35 @@ type CallResultRefinement = (
     Vec<FlowNodeId>,
 );
 
+#[cfg(test)]
+type VariantState = HashMap<Place, VariantId>;
+#[cfg(test)]
+type VariantContext<'a> = (
+    &'a FlowGraph,
+    &'a FlowLoanOrigins,
+    FlowNodeId,
+    &'a [Option<VariantState>],
+);
+
+#[cfg(test)]
+fn captured_variant_events(context: VariantContext<'_>, value: NodeId) -> Vec<FlowNodeId> {
+    let (flow, origins, event, _) = context;
+    let matches = |index: usize| {
+        matches!(flow.nodes[index].action,
+        FlowAction::Evaluate(found) | FlowAction::Read { value: found, .. }
+        | FlowAction::Clone { value: found, .. } | FlowAction::Borrow { value: found, .. } if found == value)
+    };
+    if matches(event.0) {
+        return Vec::new();
+    }
+    origins.events_by_value[value.0]
+        .iter()
+        .copied()
+        .filter(|index| origins.before[*index].is_some() && matches(*index))
+        .map(FlowNodeId)
+        .collect()
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum FlowAction {
     Entry,
@@ -1250,7 +1279,7 @@ impl FlowGraph {
                         body,
                         alternative,
                         state,
-                        Some((self, origins, event)),
+                        Some((self, origins, event, &states)),
                     );
                     if let NodeKind::Symbol {
                         binding: Some(binding),
@@ -1301,6 +1330,22 @@ impl FlowGraph {
         origins: &FlowLoanOrigins,
     ) -> Vec<Option<HashMap<Place, VariantId>>> {
         let refinements = self.call_result_refinements(body);
+        let mut dependencies = vec![Vec::new(); self.nodes.len()];
+        let mut snapshot_users = vec![Vec::new(); self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            let value = match node.action {
+                FlowAction::Bind { value, .. }
+                | FlowAction::Assign { value, .. }
+                | FlowAction::Pattern { value, .. }
+                | FlowAction::Write { value, .. } => value,
+                _ => continue,
+            };
+            dependencies[index] = self.variant_snapshot_dependencies(body, origins, value);
+            dependencies[index].retain(|event| event.0 != index);
+            for event in &dependencies[index] {
+                snapshot_users[event.0].push(FlowNodeId(index));
+            }
+        }
         let mut before = vec![None; self.nodes.len()];
         before[self.entry.0] = Some(HashMap::new());
         let mut pending = VecDeque::from([self.entry]);
@@ -1308,6 +1353,12 @@ impl FlowGraph {
         queued[self.entry.0] = true;
         while let Some(event) = pending.pop_front() {
             queued[event.0] = false;
+            if dependencies[event.0]
+                .iter()
+                .any(|source| before[source.0].is_none())
+            {
+                continue;
+            }
             let mut state = before[event.0].as_ref().unwrap().clone();
             let node = &self.nodes[event.0];
             match &node.action {
@@ -1354,14 +1405,22 @@ impl FlowGraph {
                             state.insert(place, variant);
                         }
                     }
-                    let incoming =
-                        value_variant_facts(body, *value, &state, Some((self, origins, event)));
+                    let incoming = value_variant_facts(
+                        body,
+                        *value,
+                        &state,
+                        Some((self, origins, event, &before)),
+                    );
                     distribute_pattern_variants(body, *pattern, &incoming, &mut state);
                 }
                 FlowAction::Bind { binding, value } => {
                     let target = Place::root(PlaceRoot::Local(*binding));
-                    let incoming =
-                        value_variant_facts(body, *value, &state, Some((self, origins, event)));
+                    let incoming = value_variant_facts(
+                        body,
+                        *value,
+                        &state,
+                        Some((self, origins, event, &before)),
+                    );
                     state.retain(|place, _| !target.overlaps(place));
                     for (mut place, variant) in incoming {
                         place.root = target.root.clone();
@@ -1378,8 +1437,12 @@ impl FlowGraph {
                     {
                         state.clear();
                     } else {
-                        let incoming =
-                            value_variant_facts(body, *value, &state, Some((self, origins, event)));
+                        let incoming = value_variant_facts(
+                            body,
+                            *value,
+                            &state,
+                            Some((self, origins, event, &before)),
+                        );
                         state.retain(|place, _| !target.overlaps(place));
                         if !target.segments.iter().any(|segment| {
                             matches!(segment, Segment::DynamicIndex | Segment::SliceDynamicIndex)
@@ -1432,8 +1495,12 @@ impl FlowGraph {
                     };
                     if one_concrete_store_destination(&targets) {
                         let target = targets[0].referent_place();
-                        let incoming =
-                            value_variant_facts(body, source, &state, Some((self, origins, event)));
+                        let incoming = value_variant_facts(
+                            body,
+                            source,
+                            &state,
+                            Some((self, origins, event, &before)),
+                        );
                         state.retain(|place, _| !target.overlaps(place));
                         for (place, variant) in incoming {
                             let mut destination = target.clone();
@@ -1490,9 +1557,81 @@ impl FlowGraph {
                     queued[successor.0] = true;
                     pending.push_back(*successor);
                 }
+                if changed {
+                    for user in &snapshot_users[successor.0] {
+                        if before[user.0].is_some() && !queued[user.0] {
+                            queued[user.0] = true;
+                            pending.push_back(*user);
+                        }
+                    }
+                }
             }
         }
         before
+    }
+
+    #[cfg(test)]
+    fn variant_snapshot_dependencies(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        value: NodeId,
+    ) -> Vec<FlowNodeId> {
+        let mut pending = vec![value];
+        let mut seen = HashSet::new();
+        let mut events = HashSet::new();
+        while let Some(value) = pending.pop() {
+            if !seen.insert(value) {
+                continue;
+            }
+            for index in &origins.events_by_value[value.0] {
+                if origins.before[*index].is_some()
+                    && matches!(self.nodes[*index].action,
+                    FlowAction::Evaluate(found) | FlowAction::Read { value: found, .. }
+                    | FlowAction::Clone { value: found, .. } | FlowAction::Borrow { value: found, .. } if found == value)
+                {
+                    events.insert(FlowNodeId(*index));
+                }
+            }
+            match &body.nodes[value.0].kind {
+                NodeKind::Form { children, .. } => pending.extend(children.iter().copied()),
+                NodeKind::If {
+                    then_value,
+                    else_value,
+                    ..
+                } => {
+                    pending.push(*then_value);
+                    pending.extend(*else_value);
+                }
+                NodeKind::Match { arms, .. } => pending.extend(arms.iter().copied()),
+                NodeKind::MatchArm { values, .. } => pending.extend(values.last().copied()),
+                NodeKind::Block(instructions) => {
+                    if let Some(Control::Evaluate(value)) =
+                        instructions.last().map(|instruction| &instruction.control)
+                    {
+                        pending.push(*value);
+                    }
+                }
+                NodeKind::Loop(_) => {
+                    for node in &self.nodes {
+                        if let FlowAction::Break {
+                            value: Some(source),
+                            result: Some(result),
+                        } = node.action
+                        {
+                            if result == value {
+                                pending.push(source);
+                            }
+                        }
+                    }
+                }
+                NodeKind::Labeled(_, inner) => pending.push(*inner),
+                _ => {}
+            }
+        }
+        let mut events = events.into_iter().collect::<Vec<_>>();
+        events.sort_by_key(|event| event.0);
+        events
     }
 
     pub fn lower(body: &Body) -> Result<Self, String> {
@@ -2255,7 +2394,7 @@ impl FlowGraph {
                                 body,
                                 source,
                                 state,
-                                Some((self, origins, event)),
+                                Some((self, origins, event, &variant_states)),
                             )
                             .into_iter()
                             .map(|(place, variant)| (place.segments, variant))
@@ -2500,6 +2639,8 @@ impl FlowGraph {
         &self,
         body: &Body,
     ) -> HashMap<(Vec<Segment>, VariantId), Self> {
+        let origins = self.staged_parameter_store_loan_origins(body);
+        let states = self.variant_facts_with_origins(body, &origins);
         let mut alternatives = Vec::new();
         for node in &self.nodes {
             if let FlowAction::Return(Some(value)) = node.action {
@@ -2528,7 +2669,31 @@ impl FlowGraph {
                     }
                 }
             } else {
-                let variants = value_variant_facts(body, value, &HashMap::new(), None)
+                let mut observed: Option<HashMap<Place, VariantId>> = None;
+                for index in &origins.events_by_value[value.0] {
+                    if !matches!(self.nodes[*index].action,
+                        FlowAction::Read { value: found, .. } | FlowAction::Evaluate(found)
+                        | FlowAction::Clone { value: found, .. } if found == value)
+                    {
+                        continue;
+                    }
+                    let Some(state) = &states[*index] else {
+                        continue;
+                    };
+                    let facts = value_variant_facts(
+                        body,
+                        value,
+                        state,
+                        Some((self, &origins, FlowNodeId(*index), &states)),
+                    );
+                    if let Some(held) = &mut observed {
+                        held.retain(|place, variant| facts.get(place) == Some(variant));
+                    } else {
+                        observed = Some(facts);
+                    }
+                }
+                let variants = observed
+                    .unwrap_or_else(|| value_variant_facts(body, value, &HashMap::new(), None))
                     .into_iter()
                     .map(|(place, variant)| (place.segments, variant))
                     .collect::<HashMap<_, _>>();
@@ -6268,10 +6433,20 @@ impl FlowGraph {
                 .variants
                 .get_or_init(|| self.variant_facts_with_origins(body, origins));
             let stored_variants = variant_states[event.0].as_ref().map(|state| {
-                value_variant_facts(body, alternative, state, Some((self, origins, event)))
+                value_variant_facts(
+                    body,
+                    alternative,
+                    state,
+                    Some((self, origins, event, variant_states)),
+                )
             });
             let stored_bounds = variant_states[event.0].as_ref().map(|state| {
-                value_variant_bounds(body, alternative, state, Some((self, origins, event)))
+                value_variant_bounds(
+                    body,
+                    alternative,
+                    state,
+                    Some((self, origins, event, variant_states)),
+                )
             });
             for slot in slots {
                 if slot.storage.iter().enumerate().any(|(index, segment)| {
@@ -9832,8 +10007,31 @@ fn value_variant_bounds(
     body: &Body,
     value: NodeId,
     state: &HashMap<Place, VariantId>,
-    context: Option<(&FlowGraph, &FlowLoanOrigins, FlowNodeId)>,
+    context: Option<VariantContext<'_>>,
 ) -> VariantBounds {
+    if let Some((flow, origins, _, snapshots)) = context {
+        let events = captured_variant_events(context.unwrap(), value);
+        if !events.is_empty() {
+            let mut common = None;
+            for event in events {
+                let Some(state) = &snapshots[event.0] else {
+                    return HashMap::new();
+                };
+                let incoming = value_variant_bounds(
+                    body,
+                    value,
+                    state,
+                    Some((flow, origins, event, snapshots)),
+                );
+                if let Some(held) = &mut common {
+                    join_variant_bounds(held, &incoming);
+                } else {
+                    common = Some(incoming);
+                }
+            }
+            return common.unwrap_or_default();
+        }
+    }
     if matches!(
         body.nodes[value.0].ty,
         Some(Type::Reference { .. } | Type::PinnedReference { .. } | Type::RawPointer { .. })
@@ -9899,8 +10097,31 @@ fn value_variant_facts(
     body: &Body,
     value: NodeId,
     state: &HashMap<Place, VariantId>,
-    context: Option<(&FlowGraph, &FlowLoanOrigins, FlowNodeId)>,
+    context: Option<VariantContext<'_>>,
 ) -> HashMap<Place, VariantId> {
+    if let Some((flow, origins, _, snapshots)) = context {
+        let events = captured_variant_events(context.unwrap(), value);
+        if !events.is_empty() {
+            let mut common: Option<HashMap<Place, VariantId>> = None;
+            for event in events {
+                let Some(state) = &snapshots[event.0] else {
+                    return HashMap::new();
+                };
+                let incoming = value_variant_facts(
+                    body,
+                    value,
+                    state,
+                    Some((flow, origins, event, snapshots)),
+                );
+                if let Some(held) = &mut common {
+                    held.retain(|place, variant| incoming.get(place) == Some(variant));
+                } else {
+                    common = Some(incoming);
+                }
+            }
+            return common.unwrap_or_default();
+        }
+    }
     if let NodeKind::Declaration(DeclarationId::Variant(variant)) = body.nodes[value.0].kind {
         return HashMap::from([(Place::root(PlaceRoot::Local(BindingId(0))), variant)]);
     }
@@ -9915,7 +10136,7 @@ fn value_variant_facts(
     if let Some(source) = Place::from_expression(body, value) {
         let sources = if reads_through_reference(body, value) {
             match (context, source.root) {
-                (Some((_, origins, event)), PlaceRoot::Local(binding)) => {
+                (Some((_, origins, event, _)), PlaceRoot::Local(binding)) => {
                     origins.projected_referents(event, binding, &source.segments)
                 }
                 _ => Vec::new(),
