@@ -1701,6 +1701,24 @@ impl Declarations {
                         join,
                         HashMap::from([(join_ok, captured_clears), (join_error, Vec::new())]),
                     );
+                    // Worker output lives inside the successful join payload,
+                    // not in task capture storage. Preserve full paths so two
+                    // fields of the same enum type cannot share a selector.
+                    let mut joined_bounds = return_bounds.get(&join).cloned().unwrap_or_default();
+                    for (path, variants) in &returned_bounds {
+                        let mut nested = vec![crate::typed_place::Segment::Payload(join_ok, 0)];
+                        nested.extend_from_slice(path);
+                        joined_bounds.insert(nested, variants.clone());
+                    }
+                    let joined_variants = joined_bounds
+                        .iter()
+                        .filter_map(|(path, variants)| {
+                            (variants.len() == 1)
+                                .then(|| (path.clone(), *variants.iter().next().unwrap()))
+                        })
+                        .collect();
+                    return_variants.insert(join, joined_variants);
+                    return_bounds.insert(join, joined_bounds);
                 }
                 #[cfg(test)]
                 return_variants.insert(id, returned_variants);

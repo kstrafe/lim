@@ -18697,6 +18697,149 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_join_preserves_distinct_nested_worker_result_constructors() {
+        let source = "(#enum Decision ((Ready) (Failed))) (#linear Decision)
+          (#struct Packet ((first Decision) (second Decision))) (#linear Packet)
+          (#fn factory () Packet
+            (#return (#struct-literal Packet (: first (Ready) : second (Failed)))))
+          (#fn worker () Packet (#return (#call factory ())))
+          (@thread-spawn (: task Task : worker worker))
+          (#fn caller () ()
+            (#return (#match (#call Task-spawn ())
+              (#case (Task-spawn-ok task)
+                (#match (#call Task-join (: task task))
+                  (#case (Task-join-ok packet)
+                    (#block (#let observed Packet packet) (#forget observed) ()))
+                  (#case (Task-join-error (#tuple retry error)) (#panic))))
+              (#case (Task-spawn-error error) (#panic)))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        crate::generate_assembly(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let join = declarations.function_id("Task-join").unwrap();
+        let ok = declarations
+            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+            .unwrap();
+        let retry = declarations
+            .variant_id(&Type::Named("Task-join-result".into()), "Task-join-error")
+            .unwrap();
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let facts = flow.variant_facts(body);
+        let event = flow.nodes.iter().position(|node| matches!(node.action,
+            crate::typed_flow::FlowAction::Bind { binding, .. } if body.bindings[binding.0].name == "observed")).unwrap();
+        let packet = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "packet")
+                .unwrap(),
+        );
+        use crate::typed_place::{Place, Segment};
+        for (field, constructor) in [("first", "Ready"), ("second", "Failed")] {
+            let field = declarations
+                .field_id(&Type::Named("Packet".into()), field)
+                .unwrap();
+            let variant = declarations
+                .variant_id(&Type::Named("Decision".into()), constructor)
+                .unwrap();
+            let path = vec![Segment::Payload(ok, 0), Segment::Field(field)];
+            assert_eq!(
+                body.call_return_variant_bounds[&join][&path],
+                std::collections::HashSet::from([variant])
+            );
+            assert_eq!(body.call_return_variants[&join][&path], variant);
+            assert!(!body.call_return_variant_bounds[&join]
+                .contains_key(&vec![Segment::Payload(retry, 0), Segment::Field(field)]));
+            assert_eq!(
+                facts[event].as_ref().unwrap().get(&Place {
+                    root: crate::typed_body::PlaceRoot::Local(packet),
+                    segments: vec![Segment::Field(field)]
+                }),
+                Some(&variant)
+            );
+        }
+        declarations.bodies.remove("worker");
+        declarations.staged_parameter_contents_summaries();
+        assert!(
+            !declarations.bodies["caller"]
+                .call_return_variant_bounds
+                .contains_key(&join),
+            "stale worker result shapes cannot survive removal of the actual body"
+        );
+    }
+
+    #[test]
+    fn staged_join_keeps_worker_variant_unions_and_unknown_outputs() {
+        for (parameters, returned, caller_parameters, arguments, known) in [
+            (
+                "((choose bool))",
+                "(#if choose (Ready) (Failed))",
+                "((choose bool))",
+                ": choose choose",
+                true,
+            ),
+            (
+                "((source Decision))",
+                "source",
+                "((input Decision))",
+                ": source input",
+                false,
+            ),
+        ] {
+            let source = format!(
+                "(#enum Decision ((Ready) (Failed))) (#linear Decision)
+                 (#fn worker {parameters} Decision (#return {returned}))
+                 (@thread-spawn (: task Task : worker worker))
+                 (#fn caller {caller_parameters} ()
+                   (#return (#match (#call Task-spawn ({arguments}))
+                     (#case (Task-spawn-ok task)
+                       (#match (#call Task-join (: task task))
+                         (#case (Task-join-ok decision) (#block (#forget decision) ()))
+                         (#case (Task-join-error (#tuple retry error)) (#panic))))
+                     (#case (Task-spawn-error error) (#panic)))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            crate::generate_assembly(&program).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap();
+            let join = declarations.function_id("Task-join").unwrap();
+            let ok = declarations
+                .variant_id(&Type::Named("Task-join-result".into()), "Task-join-ok")
+                .unwrap();
+            let path = vec![crate::typed_place::Segment::Payload(ok, 0)];
+            let body = &declarations.bodies["caller"];
+            if known {
+                let variants = ["Ready", "Failed"]
+                    .into_iter()
+                    .map(|name| {
+                        declarations
+                            .variant_id(&Type::Named("Decision".into()), name)
+                            .unwrap()
+                    })
+                    .collect();
+                assert_eq!(body.call_return_variant_bounds[&join][&path], variants);
+            } else {
+                assert!(
+                    !body.call_return_variant_bounds[&join].contains_key(&path),
+                    "unknown worker output must not acquire a constructor bound"
+                );
+            }
+            assert!(
+                !body.call_return_variants[&join].contains_key(&path),
+                "multiple or unknown variants cannot become a must-known tag"
+            );
+        }
+    }
+
+    #[test]
     fn staged_thread_global_clears_are_deferred_to_successful_join() {
         let source = "(#enum Holder ((Empty) (Filled (#ref u64)))) (#linear Holder)
             (#static Snapshot Holder (Empty))
