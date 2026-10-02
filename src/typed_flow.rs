@@ -5878,7 +5878,8 @@ impl FlowGraph {
                 Some(&moves),
                 false,
             ),
-            self.check_linear_projected_replacements(body, types, declarations, &moves),
+            self.check_linear_projected_replacements(body, types, declarations, &moves)
+                .and_then(|_| self.check_returned_referents_not_consumed(body, &origins, &moves)),
         ];
         (results, moves.local_pin_accesses)
     }
@@ -6183,7 +6184,7 @@ impl FlowGraph {
             let FlowAction::Return(Some(value)) = node.action else {
                 continue;
             };
-            let Some(state) = moves.before[index].as_ref() else {
+            let Some(_) = moves.before[index].as_ref() else {
                 continue;
             };
             let event = FlowNodeId(index);
@@ -6196,6 +6197,26 @@ impl FlowGraph {
                     labels: Vec::new(),
                 });
             }
+        }
+        self.check_returned_referents_not_consumed(body, origins, moves)
+    }
+
+    /// Physical storage reached by an escaping reference must still be live
+    /// at return. Complete slot coverage and call effects are separate gates.
+    fn check_returned_referents_not_consumed(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        moves: &FlowConsumptions,
+    ) -> Result<(), ReleaseConflict> {
+        for (index, node) in self.nodes.iter().enumerate() {
+            let FlowAction::Return(Some(value)) = node.action else {
+                continue;
+            };
+            let Some(state) = moves.before[index].as_ref() else {
+                continue;
+            };
+            let event = FlowNodeId(index);
             let snapshots = self
                 .transparent_return_alternatives(body, origins, event, value)
                 .unwrap_or_else(|| vec![(event, value)]);
@@ -6242,7 +6263,6 @@ impl FlowGraph {
     /// is followed by structural merge/scope nodes and this exact return.
     /// A later operand, mutation, call, or loop edge needs the merged proof;
     /// an earlier snapshot alone cannot establish initialization at escape.
-    #[cfg(test)]
     fn transparent_return_alternatives(
         &self,
         body: &Body,

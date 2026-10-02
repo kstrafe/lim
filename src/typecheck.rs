@@ -18404,6 +18404,75 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn production_returned_references_keep_branch_specific_consumption() {
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#fn select ((first (#ref-mut Resource)) (second (#ref-mut Resource)) (choose bool))
+              (#ref-mut Resource)
+              (#return (#if choose
+                (#block (#forget (#deref second)) first)
+                (#block (#forget (#deref first)) second))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        crate::codegen::generate_assembly(&program).unwrap();
+
+        // Later constructor operands mutate storage after the reference has
+        // been evaluated, so its earlier snapshot cannot prove safe escape.
+        let source = "(#struct Resource ((number u64))) (#linear Resource)
+            (#fn select ((first (#ref-mut Resource)) (second (#ref-mut Resource)) (choose bool))
+              (#tuple (#ref-mut Resource) ())
+              (#return (#tuple (#if choose first second)
+                (#block (#forget (#deref first)) (#forget (#deref second)) ()))))";
+        let program = crate::parse_program(source).unwrap();
+        let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+        assert!(message.contains("returned reference"), "{message}");
+        let span = span.unwrap();
+        assert!(source[span.start..span.end].starts_with("(#return"));
+        assert!(!labels.is_empty());
+    }
+
+    #[test]
+    fn production_returned_references_require_unconsumed_storage() {
+        for aggregate in [false, true] {
+            for restore in [false, true] {
+                let replacement = if restore {
+                    "(#deref-set target (#struct-literal Resource (: number 42u64)))"
+                } else {
+                    ""
+                };
+                let (output, returned) = if aggregate {
+                    ("Holder", "(#struct-literal Holder (: value target))")
+                } else {
+                    ("(#ref-mut Resource)", "target")
+                };
+                let source = format!(
+                    "(#struct Resource ((number u64))) (#linear Resource)
+                     (#struct Holder ((value (#ref-mut Resource))))
+                     (#fn inspect ((target (#ref-mut Resource))) {output}
+                       (#forget (#deref target))
+                       {replacement}
+                       (#return {returned}))"
+                );
+                let program = crate::parse_program(&source).unwrap();
+                if restore {
+                    crate::check_types(&program).unwrap();
+                } else {
+                    let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
+                    assert!(message.contains("returned reference"), "{message}");
+                    let span = span.unwrap();
+                    assert_eq!(
+                        &source[span.start..span.end],
+                        format!("(#return {returned})")
+                    );
+                    assert!(labels
+                        .iter()
+                        .any(|(span, _)| &source[span.start..span.end]
+                            == "(#forget (#deref target))"));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn production_referent_consumption_restores_storage_not_reference_handles() {
         for restore in [false, true] {
             let replacement = if restore {
