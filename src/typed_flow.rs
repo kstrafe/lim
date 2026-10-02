@@ -2666,10 +2666,30 @@ impl FlowGraph {
         use_event: FlowNodeId,
         predecessors: &[Vec<FlowNodeId>],
     ) -> Option<Vec<(NodeId, Vec<Segment>)>> {
+        self.owned_call_result_producers(body, value, use_event, predecessors, false)
+    }
+
+    /// For payload initialization only, a whole replacement is a new owned
+    /// value definition. It is not the original call's effect receiver, so
+    /// effect/outcome correlation keeps using the stricter wrapper above.
+    fn owned_call_result_producers(
+        &self,
+        body: &Body,
+        value: NodeId,
+        use_event: FlowNodeId,
+        predecessors: &[Vec<FlowNodeId>],
+        replacements: bool,
+    ) -> Option<Vec<(NodeId, Vec<Segment>)>> {
         let reachable = self.reachable();
         let mut pending_values = vec![(value, use_event, Vec::new(), Vec::new())];
         let mut calls = Vec::new();
         while let Some((value, use_event, mut bindings, mut path)) = pending_values.pop() {
+            if replacements
+                && matches!(&body.nodes[value.0].kind,
+                NodeKind::Form { head, .. } if matches!(head.as_str(), "unreachable" | "panic"))
+            {
+                continue;
+            }
             // Reference handles do not have their referent's owned output
             // layout. Following them needs a separate provenance proof.
             if reads_through_reference(body, value)
@@ -2721,6 +2741,12 @@ impl FlowGraph {
             }
             if alternatives != [value] {
                 for alternative in alternatives {
+                    if replacements
+                        && matches!(&body.nodes[alternative.0].kind,
+                        NodeKind::Form { head, .. } if matches!(head.as_str(), "unreachable" | "panic"))
+                    {
+                        continue;
+                    }
                     let mut evaluations =
                         self.nodes.iter().enumerate().filter_map(|(index, node)| {
                             flow_action_has_value(&node.action, alternative)
@@ -2767,6 +2793,62 @@ impl FlowGraph {
             selected.append(&mut path);
             path = selected;
             bindings.push(binding);
+            if replacements {
+                let target = Place::root(PlaceRoot::Local(binding));
+                let mut pending = predecessors[use_event.0].clone();
+                let mut visited = HashSet::new();
+                let mut definitions = Vec::new();
+                while let Some(event) = pending.pop() {
+                    if !reachable.contains(&event) || !visited.insert(event) {
+                        continue;
+                    }
+                    let definition = match &self.nodes[event.0].action {
+                        FlowAction::Bind {
+                            binding: found,
+                            value,
+                        } if *found == binding => Some((*value, Vec::new())),
+                        FlowAction::Assign { place, value } if *place == target => {
+                            Some((*value, Vec::new()))
+                        }
+                        FlowAction::Pattern { pattern, value } => {
+                            pattern_binding_path(body, *pattern, binding).map(|path| (*value, path))
+                        }
+                        FlowAction::Assign { place, .. } | FlowAction::Release { place, .. }
+                            if place.overlaps(&target) =>
+                        {
+                            return None
+                        }
+                        FlowAction::ScopeExit(locals) if locals.contains(&binding) => return None,
+                        FlowAction::Borrow { place, .. } if place.overlaps(&target) => return None,
+                        FlowAction::Evaluate(value)
+                            if matches!(
+                                &body.nodes[value.0].kind,
+                                NodeKind::Form {
+                                    callee: Some(_),
+                                    ..
+                                }
+                            ) || matches!(&body.nodes[value.0].kind,
+                                NodeKind::Form { head, .. } if matches!(head.as_str(),
+                                    "ptr-write" | "linux-syscall" | "pin-read")) =>
+                        {
+                            return None
+                        }
+                        FlowAction::Entry | FlowAction::Write { .. } => return None,
+                        _ => None,
+                    };
+                    if let Some((source, mut prefix)) = definition {
+                        prefix.extend_from_slice(&path);
+                        definitions.push((source, event, bindings.clone(), prefix));
+                    } else {
+                        pending.extend(predecessors[event.0].iter().copied());
+                    }
+                }
+                if definitions.is_empty() {
+                    return None;
+                }
+                pending_values.extend(definitions);
+                continue;
+            }
             let mut definitions =
                 self.nodes
                     .iter()
@@ -6840,7 +6922,7 @@ impl FlowGraph {
 
     /// Preserve branch-specific origins and consumption only when evaluation
     /// is followed by structural merge/scope nodes, proved initializer-alias
-    /// binds/reads, and this exact return.
+    /// binds/reads, and this exact escape event (return, store, or call).
     /// A later operand, mutation, call, or loop edge needs the merged proof;
     /// an earlier snapshot alone cannot establish initialization at escape.
     fn transparent_return_alternatives(
@@ -6939,6 +7021,24 @@ impl FlowGraph {
         value: NodeId,
     ) -> bool {
         self.prepare_storage_variant_bounds(body, origins);
+        // A reference-bearing result may be stored or passed as well as
+        // returned. Use branch-local facts only when evaluation reaches this
+        // exact escape event without any intervening effect. Otherwise the
+        // ordinary merged provenance remains mandatory.
+        if let Some(alternatives) =
+            self.transparent_return_alternatives(body, origins, event, value)
+        {
+            return alternatives.into_iter().any(|(snapshot, alternative)| {
+                self.value_missing_reference_provenance_inner(
+                    body,
+                    declarations,
+                    origins,
+                    snapshot,
+                    alternative,
+                    &mut HashSet::new(),
+                )
+            });
+        }
         self.value_missing_reference_provenance_inner(
             body,
             declarations,
@@ -7217,11 +7317,136 @@ impl FlowGraph {
                             }
                         }
                     }
+                    if self.inactive_reference_call_slot(
+                        body,
+                        declarations,
+                        origins,
+                        event,
+                        alternative,
+                        &slot.storage,
+                    ) {
+                        continue;
+                    }
                     return true;
                 }
             }
         }
         false
+    }
+
+    /// A concrete owned call output payload is impossible when every checked
+    /// supplying input payload was absent at the call. Preserve that proof
+    /// through owned constructors and unchanged projected call-result locals;
+    /// never use it across reference boundaries or unknown/bodyless callees.
+    fn inactive_reference_call_slot(
+        &self,
+        body: &Body,
+        declarations: &crate::typed_ir::Declarations,
+        origins: &FlowLoanOrigins,
+        event: FlowNodeId,
+        mut value: NodeId,
+        mut storage: &[Segment],
+    ) -> bool {
+        while let NodeKind::Form {
+            head,
+            children,
+            callee: None,
+            ..
+        } = &body.nodes[value.0].kind
+        {
+            if storage.is_empty() {
+                break;
+            }
+            let start = if matches!(head.as_str(), "tuple" | "array" | "array-of") {
+                constructor_values_start(body.nodes[value.0].ty.as_ref(), children.len())
+            } else {
+                1
+            };
+            let Some((_, child)) = children.iter().skip(start).enumerate().find(|(index, _)| {
+                aggregate_slot(body, head, children, *index).as_ref() == storage.first()
+            }) else {
+                break;
+            };
+            value = *child;
+            storage = &storage[1..];
+        }
+        let mut predecessors = vec![Vec::new(); self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            for successor in &node.successors {
+                predecessors[successor.0].push(FlowNodeId(index));
+            }
+        }
+        let Some(calls) = self.owned_call_result_producers(body, value, event, &predecessors, true)
+        else {
+            return false;
+        };
+        let variants = origins
+            .variants
+            .get_or_init(|| self.variant_facts_with_origins(body, origins));
+        calls.into_iter().all(|(call, mut path)| {
+            path.extend_from_slice(storage);
+            if !path.iter().any(|part| matches!(part, Segment::Payload(..))) {
+                return false;
+            }
+            let NodeKind::Form {
+                callee: Some(callee),
+                children,
+                ..
+            } = &body.nodes[call.0].kind
+            else {
+                return false;
+            };
+            if !declarations
+                .bodies
+                .keys()
+                .any(|name| declarations.function_id(name) == Some(*callee))
+            {
+                return false;
+            }
+            let Some(summary) = body.call_return_origins.get(callee) else {
+                return false;
+            };
+            let mut events = origins.events_by_value[call.0].iter().copied().filter(|index|
+                matches!(self.nodes[*index].action, FlowAction::Evaluate(found) if found == call));
+            let Some(call_event) = events.next() else {
+                return false;
+            };
+            if events.next().is_some() {
+                return false;
+            }
+            let Some(state) = &variants[call_event] else {
+                return false;
+            };
+            summary
+                .iter()
+                .filter(|source| {
+                    source.storage.len() == path.len()
+                        && path
+                            .iter()
+                            .zip(&source.storage)
+                            .all(|(expected, actual)| storage_slot_matches(expected, actual))
+                })
+                .all(|source| {
+                    if source.global.is_some()
+                        || source
+                            .input_storage
+                            .iter()
+                            .any(|part| matches!(part, Segment::Dereference))
+                    {
+                        return false;
+                    }
+                    let Some(argument) = children.get(source.parameter + 1) else {
+                        return false;
+                    };
+                    let bounds = value_variant_bounds(
+                        body,
+                        *argument,
+                        state,
+                        Some((self, origins, FlowNodeId(call_event), variants)),
+                    );
+                    inactive_variant_bound_slot(&bounds, &source.input_storage)
+                })
+        })
     }
 
     fn check_call_argument_reference_provenance(
@@ -16111,6 +16336,65 @@ mod tests {
     }
 
     #[test]
+    fn owned_result_replacements_trace_current_values_not_original_effect_receivers() {
+        for (replacement, expected) in [
+            ("(#set saved (#call second ()))", Some(1)),
+            ("(#set saved (#call second ())) (#let view (#ref Outcome) (#borrow saved)) (#drop view)", None),
+            ("(#set saved (#call second ())) (#call touch ())", None),
+            ("(#if selected (#block (#set saved (#call first ())) ()) (#block (#set saved (#call second ())) ()))", Some(2)),
+            ("(#if selected (#block (#set saved (#call second ())) ()) (#block (#set saved Pending) ()))", None),
+            ("(#set saved Pending)", None),
+        ] {
+            let source = format!("(#enum Outcome (Ready Pending))
+              (#fn first () Outcome (#return Ready))
+              (#fn second () Outcome (#return Pending))
+              (#fn touch () () (#return ()))
+              (#fn main ((selected bool)) u64
+                (#let-mut saved Outcome (#call first ()))
+                {replacement}
+                (#return (#match saved (#case Ready 42u64) (#case Pending 0u64))))");
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["main"];
+            let mut graph = checked.declarations().flows["main"].clone();
+            // Restore all patterns to test reaching values independently of
+            // interprocedural outcome pruning.
+            graph.restore_variant_paths();
+            let mut predecessors = vec![Vec::new(); graph.nodes.len()];
+            for (index, node) in graph.nodes.iter().enumerate() {
+                for successor in &node.successors {
+                    predecessors[successor.0].push(FlowNodeId(index));
+                }
+            }
+            let (event, value) = graph.nodes.iter().enumerate().find_map(|(index, node)| {
+                let FlowAction::Pattern { value, .. } = node.action else { return None; };
+                Some((FlowNodeId(index), value))
+            }).unwrap();
+            assert!(graph.call_result_producers(body, value, event, &predecessors).is_none());
+            let result = graph.owned_call_result_producers(body, value, event, &predecessors, true);
+            assert_eq!(result.as_ref().map(Vec::len), expected, "{replacement}");
+            if replacement == "(#set saved (#call second ()))" {
+                let [(call, path)] = result.unwrap().try_into().unwrap();
+                assert!(path.is_empty());
+                assert!(matches!(&body.nodes[call.0].kind,
+                    NodeKind::Form { callee: Some(callee), .. }
+                    if Some(*callee) == checked.declarations().function_id("second")));
+                // A later destruction is not a definition and must cut off
+                // even the whole-value initialization proof.
+                let read = graph.nodes.iter().enumerate().find_map(|(index, node)| {
+                    matches!(node.action, FlowAction::Read { value: found, .. } if found == value)
+                        .then_some(FlowNodeId(index))
+                }).unwrap();
+                let FlowAction::Read { place, .. } = graph.nodes[read.0].action.clone() else {
+                    panic!("expected the match scrutinee read");
+                };
+                graph.nodes[read.0].action = FlowAction::Release { place, value };
+                assert!(graph.owned_call_result_producers(body, value, event, &predecessors, true).is_none());
+            }
+        }
+    }
+
+    #[test]
     fn call_result_producers_do_not_follow_implicit_reference_field_reads() {
         let program = crate::parse_program(
             "(#enum Outcome ((Ready) (Pending)))
@@ -16146,6 +16430,9 @@ mod tests {
         assert!(reads_through_reference(body, value));
         assert!(flow
             .call_result_producers(body, value, event, &predecessors)
+            .is_none());
+        assert!(flow
+            .owned_call_result_producers(body, value, event, &predecessors, true)
             .is_none());
     }
 
