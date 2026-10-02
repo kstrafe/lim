@@ -1146,6 +1146,21 @@ impl Declarations {
                         None => unresolved_reads.push(event),
                     }
                 }
+                if validate_uses || infer_entry_contracts {
+                    if let Err(conflict) = flow.check_pending_task_loans(
+                        body,
+                        types,
+                        &origins,
+                        &call_reads,
+                        &consuming_accesses,
+                    ) {
+                        failure = Some(StagedReferentError::Use {
+                            function: name.clone(),
+                            conflict,
+                        });
+                        return true;
+                    }
+                }
                 let consumed_entry = if infer_entry_contracts {
                     let facts = crate::typed_flow::ReferentCallFacts {
                         effects: calls,

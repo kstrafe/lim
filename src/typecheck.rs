@@ -18301,7 +18301,12 @@ mod typed_ownership_tests {
                 );
             } else {
                 let error = result.unwrap_err();
-                assert!(format!("{error:?}").contains("used more than once"));
+                let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                    panic!("expected pending-task conflict: {error:?}");
+                };
+                assert!(conflict.message.contains("pending task"), "{conflict:?}");
+                let span = conflict.span.unwrap();
+                assert_eq!(&source[span.start..span.end], "(#get target number)");
             }
         }
     }
@@ -18332,6 +18337,145 @@ mod typed_ownership_tests {
         ));
         assert_eq!(caller.consumed_entry, vec![place.clone()]);
         assert_eq!(caller.restored_from_consumed_entry, vec![place]);
+    }
+
+    #[test]
+    fn staged_pending_task_borrows_exclude_conflicting_owner_access() {
+        for (reference, borrow, access, phase, accepted) in [
+            (
+                "#ref-mut",
+                "#borrow-mut",
+                "(#let observed u64 owner)",
+                "pending",
+                false,
+            ),
+            (
+                "#ref-mut",
+                "#borrow-mut",
+                "(#set owner 7u64)",
+                "pending",
+                false,
+            ),
+            (
+                "#ref-mut",
+                "#borrow-mut",
+                "(#let shared (#ref u64) (#borrow owner))",
+                "pending",
+                false,
+            ),
+            (
+                "#ref",
+                "#borrow",
+                "(#let observed u64 owner)",
+                "pending",
+                true,
+            ),
+            ("#ref", "#borrow", "(#set owner 7u64)", "pending", false),
+            (
+                "#ref-mut",
+                "#borrow-mut",
+                "(#let observed u64 owner)",
+                "completed",
+                true,
+            ),
+            (
+                "#ref-mut",
+                "#borrow-mut",
+                "(#set owner 7u64)",
+                "retry",
+                false,
+            ),
+            (
+                "#ref-mut",
+                "#borrow-mut",
+                "(#set owner 7u64)",
+                "failed",
+                true,
+            ),
+        ] {
+            let at = |selected| if phase == selected { access } else { "" };
+            let source = format!(
+                "(#fn worker ((target ({reference} u64))) () (#return ()))
+                 (@thread-spawn (: task Task : worker worker))
+                 (#fn caller () ()
+                   (#let-mut owner u64 42u64)
+                   (#let outcome Task-spawn-result (#call Task-spawn (: target ({borrow} owner))))
+                   (#return (#match outcome
+                     (#case (Task-spawn-ok task)
+                       (#block {}
+                         (#match (#call Task-join (: task task))
+                           (#case (Task-join-ok result) (#block {} ()))
+                           (#case (Task-join-error (#tuple retry error)) (#block {} (#panic))))))
+                     (#case (Task-spawn-error error) (#block {} ())))))",
+                at("pending"),
+                at("completed"),
+                at("retry"),
+                at("failed")
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let result = declarations.staged_contents_referent_entry_contracts(&types);
+            if accepted {
+                result.unwrap();
+            } else {
+                assert!(result.is_err(), "{phase}: {reference}, {access}");
+                let crate::typed_ir::StagedReferentError::Use { function, conflict } =
+                    result.unwrap_err()
+                else {
+                    panic!("expected pending-task loan conflict");
+                };
+                assert_eq!(function, "caller");
+                assert!(conflict.message.contains("pending task"), "{conflict:?}");
+                assert!(conflict.span.is_some());
+                assert!(
+                    !conflict.labels.is_empty(),
+                    "capture origin needs a diagnostic label"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn staged_moved_unread_task_retains_loans_for_calls_and_new_captures() {
+        for access in [
+            "(#let observed u64 owner)",
+            "(#call read (: input alias))",
+            "(#call write (: input alias))",
+            "(#call Task-spawn (: target alias))",
+        ] {
+            let source = format!(
+                "(#fn worker ((target (#ref-mut u64))) () (#return ()))
+                 (#fn read ((input (#ref-mut u64))) u64 (#return (#deref input)))
+                 (#fn write ((input (#ref-mut u64))) () (#deref-set input 7u64) (#return ()))
+                 (@thread-spawn (: task Task : worker worker))
+                 (#fn caller () ()
+                   (#let-mut owner u64 42u64)
+                   (#let alias (#ref-mut u64) (#borrow-mut owner))
+                   (#return (#match (#call Task-spawn (: target alias))
+                     (#case (Task-spawn-ok task)
+                       (#block (#let moved Task task) {access} (#panic)))
+                     (#case (Task-spawn-error error) ()))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let error = declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { conflict, .. } = error else {
+                panic!("expected pending-task loan conflict: {error:?}");
+            };
+            assert!(
+                conflict.message.contains("pending task `moved`"),
+                "{access}: {conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            assert!(
+                access.contains(&source[span.start..span.end]),
+                "{access}: {conflict:?}"
+            );
+        }
     }
 
     #[test]

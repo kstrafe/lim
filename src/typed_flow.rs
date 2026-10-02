@@ -1590,6 +1590,177 @@ impl FlowGraph {
         self.solve_loan_origins(body, true, true, true)
     }
 
+    /// Task captures remain borrowed until their linear handle is consumed,
+    /// even when the handle has no future reads. Ordinary reference NLL is not
+    /// sufficient for an independently running worker.
+    #[cfg(test)]
+    pub fn check_pending_task_loans(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        origins: &FlowLoanOrigins,
+        call_reads: &[ReferentRead],
+        consuming_accesses: &[ReferentRead],
+    ) -> Result<(), ReleaseConflict> {
+        if !origins.before.iter().flatten().any(|state| {
+            state.iter().flatten().any(|loan| {
+                loan.storage
+                    .iter()
+                    .any(|slot| matches!(slot, Segment::ThreadCapture(_, _)))
+            })
+        }) {
+            return Ok(());
+        }
+        let active = self.active_bindings_before(body);
+        let moves = self.consumptions_with_origins(body, types, Some(origins));
+        for (index, node) in self.nodes.iter().enumerate() {
+            let event = FlowNodeId(index);
+            let Some(bindings) = &active[index] else {
+                continue;
+            };
+            let Some(consumed) = &moves.definitely_before[index] else {
+                continue;
+            };
+            let mut accesses = Vec::new();
+            let resolve = |place: &Place| {
+                if let PlaceRoot::Local(binding) = place.root {
+                    let projected = origins.projected_referents(event, binding, &place.segments);
+                    if !projected.is_empty() {
+                        return projected;
+                    }
+                }
+                vec![place.clone()]
+            };
+            match &node.action {
+                FlowAction::Read {
+                    value,
+                    place,
+                    place_base: false,
+                } => {
+                    let exclusive = body.nodes[value.0]
+                        .ty
+                        .as_ref()
+                        .is_some_and(|ty| types.is_linear(ty));
+                    accesses.extend(
+                        resolve(place)
+                            .into_iter()
+                            .map(|place| (place, exclusive, node.span)),
+                    );
+                }
+                FlowAction::Clone { place, .. } => {
+                    accesses.extend(
+                        resolve(place)
+                            .into_iter()
+                            .map(|place| (place, false, node.span)),
+                    );
+                }
+                FlowAction::Borrow { place, mutable, .. } => {
+                    accesses.extend(
+                        resolve(place)
+                            .into_iter()
+                            .map(|place| (place, *mutable, node.span)),
+                    );
+                }
+                FlowAction::Release { place, value } => {
+                    let exclusive = release_operand_is_linear(body, *value, types);
+                    accesses.extend(
+                        resolve(place)
+                            .into_iter()
+                            .map(|place| (place, exclusive, node.span)),
+                    );
+                }
+                FlowAction::Assign { place, .. } => {
+                    accesses.extend(
+                        resolve(place)
+                            .into_iter()
+                            .map(|place| (place, true, node.span)),
+                    );
+                }
+                _ => {}
+            }
+            for store in origins.stores_before(body, self, event) {
+                accesses.push((store.destination.referent_place(), true, node.span));
+            }
+            if let FlowAction::Evaluate(value) = node.action {
+                // Acquiring another task capture conflicts even if its worker
+                // never actually reads or writes the captured referent.
+                if matches!(
+                    body.nodes[value.0].kind,
+                    NodeKind::Form {
+                        callee: Some(_),
+                        ..
+                    }
+                ) {
+                    for loan in origins.value_before(body, self, event, value) {
+                        if loan
+                            .storage
+                            .iter()
+                            .any(|slot| matches!(slot, Segment::ThreadCapture(_, _)))
+                        {
+                            accesses.push((loan.referent_place(), loan.mutable, node.span));
+                        }
+                    }
+                }
+                if let Some(state) = &origins.before[index] {
+                    for clear in call_parameter_clears(
+                        body,
+                        self,
+                        LoanSnapshots::new(&origins.before, &origins.events_by_value),
+                        value,
+                        state,
+                    ) {
+                        accesses.push((clear.referent_place(), true, node.span));
+                    }
+                }
+            }
+            for (reads, exclusive) in [(call_reads, false), (consuming_accesses, true)] {
+                for read in reads.iter().filter(|read| read.event == event) {
+                    accesses.push((read.place.clone(), exclusive, node.span.or(read.span)));
+                }
+            }
+            for binding in bindings {
+                for loan in origins.before(event, *binding) {
+                    let Some(capture) = loan
+                        .storage
+                        .iter()
+                        .position(|slot| matches!(slot, Segment::ThreadCapture(_, _)))
+                    else {
+                        continue;
+                    };
+                    let holder = Place {
+                        root: PlaceRoot::Local(*binding),
+                        segments: loan.storage[..capture].to_vec(),
+                    };
+                    if consumed.iter().any(|place| place_covers(place, &holder)) {
+                        continue;
+                    }
+                    let referent = loan.referent_place();
+                    for (place, exclusive, span) in &accesses {
+                        if referent.overlaps(place)
+                            && (*exclusive || (loan.mutable && !loan.lifetime_only))
+                        {
+                            return Err(ReleaseConflict {
+                                message: format!(
+                                    "cannot access `{}` while pending task `{}` holds a {} borrow",
+                                    display_linear_place(body, place),
+                                    body.bindings[binding.0].name,
+                                    if loan.mutable { "mutable" } else { "shared" }
+                                ),
+                                span: *span,
+                                labels: loan
+                                    .span
+                                    .into_iter()
+                                    .map(|span| (span, "borrow retained by pending task".into()))
+                                    .collect(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     fn call_result_refinements(&self, body: &Body) -> Vec<Option<CallResultRefinement>> {
         let reachable = self.reachable();
