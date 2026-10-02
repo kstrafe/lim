@@ -368,6 +368,19 @@ not the first awaited value's type. Returned and suspended references retain
 their source loans; explicitly consuming a cancelled frame releases those
 loans without implicitly destroying resources. See
 `examples/async_branch_results.lim` for selected and immediate linear results.
+Conditional expression helpers return changes to captured mutable locals
+alongside their value, including changes through explicit mutable borrows.
+Linear owners move into the selected child and are restored from its Ready
+payload, not also stored in the parent. Replacing a local after suspension
+does not silently consume its previous owner: that owner must have been
+explicitly consumed or transferred before suspension.
+Child-task expressions execute before the frame snapshots their captures,
+both for the first await and after resume. Their side effects execute once,
+not again when a Pending task is polled. A `#while` condition can await the
+task needed by its outer boolean await; both dependencies run anew for each
+condition evaluation. See `examples/async_condition_dependencies.lim` for
+three condition evaluations, an early continue, and a suspending body. These
+extensions do not complete general typed control-flow lowering.
 Sequential suspension points have no fixed language-level count limit.
 For movable `@async-fn`, references into pre-suspension stack locals cannot be
 retained in the frame; the ordinary borrow checker rejects them. Pinned

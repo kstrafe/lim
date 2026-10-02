@@ -7974,6 +7974,231 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_loop_conditions_can_await_their_task_inputs() {
+    let source = include_str!("../examples/async_early_continue.lim");
+    let definitions = source.split_once("(#fn main").unwrap().0;
+    let factory = "(#enum Factory ((MakeCondition u64) (ResumeCondition u64)))
+      (#linear Factory)
+      (#enum FactoryPoll ((FactoryPending Factory) (FactoryReady ConditionTask)))
+      (#fn factory-poll ((task Factory) (waker (#ref u64))) FactoryPoll
+        (#return (#match task
+          (#case (MakeCondition index) (FactoryPending (ResumeCondition index)))
+          (#case (ResumeCondition index) (FactoryReady (Check index))))))";
+    let source = format!("{factory}\n{}\n
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let-mut task Frame (#call work ()))
+        (#for-range (attempt u64) 0u64 10u64
+          (#let polled Poll (#call poll (: task task : waker (#borrow waker))))
+          (#match polled
+            (#case (Pending next) (#block (#set task next) ()))
+            (#case (Ready result) (#block (#return result)))))
+        (#forget task)
+        (#forget waker)
+        (#return 0u64))", definitions.replace(
+            "condition-poll (Check index)",
+            "condition-poll (#await ConditionTask Factory FactoryPending FactoryReady factory-poll (MakeCondition index))",
+        ));
+    build_and_run(&source, 42);
+    let implicit_condition_type =
+        source.replace("(#await bool ConditionTask", "(#await ConditionTask");
+    build_and_run(&implicit_condition_type, 42);
+    let repeated = source
+        .replace(
+            "(#let-mut index u64 0u64)",
+            "(#let-mut index u64 0u64) (#let-mut total u64 0u64)",
+        )
+        .replace(
+            "(#return (#u64.+.wrap value index))",
+            "(#set total (#u64.+.wrap total value))",
+        )
+        .replacen("(#return 0u64)", "(#return total)", 1);
+    build_and_run(&repeated, 40);
+    let effects = repeated.replace(
+        "factory-poll (MakeCondition index)",
+        "factory-poll (#block (#set total (#u64.+.wrap total 1u64)) (MakeCondition index))",
+    );
+    build_and_run(&effects, 43);
+}
+
+#[test]
+fn async_mutating_branches_restore_their_outputs() {
+    let source = "(#enum Step ((Start u64) (Resume u64))) (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case (Start value) (StepPending (Resume value)))
+          (#case (Resume value) (StepReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work ((selected bool)) u64
+          (#let-mut total u64 0u64)
+          (#let value u64 (#if selected
+            (#block
+              (#set total 1u64)
+              (#let left u64 (#await u64 Step StepPending StepReady step-poll (Start 20u64)))
+              (#set total 22u64)
+              left)
+            (#block
+              (#set total 2u64)
+              (#let right u64 (#await u64 Step StepPending StepReady step-poll (Start 30u64)))
+              (#set total 12u64)
+              right)))
+          (#return (#u64.+.wrap total value)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let-mut task Frame (#call work (: selected true)))
+        (#for-range (attempt u64) 0u64 5u64
+          (#let polled Poll (#call poll (: task task : waker (#borrow waker))))
+          (#match polled
+            (#case (Pending next) (#block (#set task next) ()))
+            (#case (Ready result) (#block (#return result)))))
+        (#forget task)
+        (#return 0u64))";
+    build_and_run(source, 42);
+    build_and_run(&source.replace(": selected true", ": selected false"), 42);
+    let immediate = source.replace("(StepPending (Resume value))", "(StepReady value)");
+    build_and_run(&immediate, 42);
+    let matched = source
+        .replace("(#if selected", "(#match selected (#case true")
+        .replace(
+            "left)\n            (#block",
+            "left))\n            (#case false (#block",
+        )
+        .replace("right)))", "right))))");
+    assert_ne!(matched, source);
+    build_and_run(&matched, 42);
+    build_and_run(&matched.replace(": selected true", ": selected false"), 42);
+    let mixed = source.replace(
+        "(#await u64 Step StepPending StepReady step-poll (Start 30u64))",
+        "30u64",
+    );
+    build_and_run(&mixed, 42);
+    build_and_run(&mixed.replace(": selected true", ": selected false"), 42);
+    let borrowed = format!(
+        "(#fn put ((target (#ref-mut u64)) (value u64)) ()
+      (#deref-set target value) (#return ()))\n{}",
+        source
+            .replace(
+                "(#set total 22u64)",
+                "(#call put (: target (#borrow-mut total) : value 22u64))"
+            )
+            .replace(
+                "(#set total 12u64)",
+                "(#call put (: target (#borrow-mut total) : value 12u64))"
+            )
+    );
+    build_and_run(&borrowed, 42);
+    build_and_run(&borrowed.replace(": selected true", ": selected false"), 42);
+    let linear = format!("(#struct Counter ((value u64))) (#linear Counter)\n{}", source
+        .replace("(#let-mut total u64 0u64)", "(#let-mut total Counter (#struct-literal Counter ((value 0u64))))")
+        .replace("(#set total", "(#set-field total value")
+        .replace("(#return (#u64.+.wrap total value))", "(#let result u64 (#u64.+.wrap (#get total value) value)) (#forget total) (#return result)"));
+    build_and_run(&linear, 42);
+    build_and_run(&linear.replace(": selected true", ": selected false"), 42);
+    let invalid = linear.replace("(#forget total)", "()");
+    let scratch = support::Scratch::new("async-branch-restored-owner");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("restored linear owners still require explicit consumption");
+    assert!(
+        error.message.contains("total") && error.message.contains("consum"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn async_restoring_a_local_does_not_destroy_its_previous_owner() {
+    let source = "(#struct Counter ((value u64))) (#linear Counter)
+      (#enum Step ((Start u64) (Resume u64))) (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case (Start value) (StepPending (Resume value)))
+          (#case (Resume value) (StepReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut total Counter (#struct-literal Counter ((value 0u64))))
+          (#forget total)
+          (#let value u64 (#await u64 Step StepPending StepReady step-poll (Start 40u64)))
+          (#set total (#struct-literal Counter ((value 2u64))))
+          (#let result u64 (#u64.+.wrap value (#get total value)))
+          (#forget total)
+          (#return result))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let first Poll (#call poll (: task (#call work ()) : waker (#borrow waker))))
+        (#let-else (Pending next) Poll first (#unreachable))
+        (#let second Poll (#call poll (: task next : waker (#borrow waker))))
+        (#return (#match second
+          (#case (Ready result) result)
+          (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+    build_and_run(source, 42);
+    let invalid = source.replacen("(#forget total)", "()", 1);
+    let scratch = support::Scratch::new("async-overwritten-owner");
+    let error = lim::compile_source_to_assembly(
+        &invalid,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("an overwritten old owner cannot disappear at suspension");
+    assert!(
+        error.message.contains("total") && error.message.contains("consum"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn async_task_construction_precedes_capture_snapshots() {
+    let source = "(#enum Step ((Start u64) (Resume u64))) (#linear Step)
+      (#enum StepPoll ((StepPending Step) (StepReady u64)))
+      (#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+        (#return (#match task
+          (#case (Start value) (StepPending (Resume value)))
+          (#case (Resume value) (StepReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64
+          (#let-mut total u64 0u64)
+          (#let left u64 (#await u64 Step StepPending StepReady step-poll
+            (#block (#set total (#u64.+.wrap total 1u64)) (Start 20u64))))
+          (#let right u64 (#await u64 Step StepPending StepReady step-poll
+            (#block (#set total (#u64.+.wrap total 1u64)) (Start left))))
+          (#return (#u64.+.wrap (#u64.+.wrap left right) total)))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let-mut task Frame (#call work ()))
+        (#for-range (attempt u64) 0u64 5u64
+          (#let polled Poll (#call poll (: task task : waker (#borrow waker))))
+          (#match polled
+            (#case (Pending next) (#block (#set task next) ()))
+            (#case (Ready result) (#block (#return result)))))
+        (#forget task)
+        (#return 0u64))";
+    build_and_run(source, 42);
+    let immediate = source.replace("(StepPending (Resume value))", "(StepReady value)");
+    build_and_run(&immediate, 42);
+    // Explicit task temporaries and direct task expressions have identical
+    // sequencing, including construction of the second stage after resume.
+    let temporaries = source.replace(
+        "(#let left u64 (#await u64 Step StepPending StepReady step-poll\n            (#block (#set total (#u64.+.wrap total 1u64)) (Start 20u64))))",
+        "(#let first Step (#block (#set total (#u64.+.wrap total 1u64)) (Start 20u64)))\n          (#let left u64 (#await u64 Step StepPending StepReady step-poll first))",
+    ).replace(
+        "(#let right u64 (#await u64 Step StepPending StepReady step-poll\n            (#block (#set total (#u64.+.wrap total 1u64)) (Start left))))",
+        "(#let second Step (#block (#set total (#u64.+.wrap total 1u64)) (Start left)))\n          (#let right u64 (#await u64 Step StepPending StepReady step-poll second))",
+    );
+    assert_ne!(temporaries, source);
+    build_and_run(&temporaries, 42);
+}
+
+#[test]
 fn async_early_continue_skips_the_rest_of_the_iteration() {
     let source = include_str!("../examples/async_early_continue.lim");
     build_and_run(source, 42);

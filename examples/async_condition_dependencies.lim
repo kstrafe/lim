@@ -1,0 +1,51 @@
+; Each condition awaits a factory, then awaits the task returned by it.
+; Task construction increments total once, never again on a Pending retry.
+(#enum ConditionTask ((Check u64) (Recheck u64)))
+(#linear ConditionTask)
+(#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
+(#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+  (#return (#match task
+    (#case (Check index) (ConditionPending (Recheck index)))
+    (#case (Recheck index) (ConditionReady (#u64.< index 2u64))))))
+
+(#enum Factory ((MakeCondition u64) (ResumeCondition u64)))
+(#linear Factory)
+(#enum FactoryPoll ((FactoryPending Factory) (FactoryReady ConditionTask)))
+(#fn factory-poll ((task Factory) (waker (#ref u64))) FactoryPoll
+  (#return (#match task
+    (#case (MakeCondition index) (FactoryPending (ResumeCondition index)))
+    (#case (ResumeCondition index) (FactoryReady (Check index))))))
+
+(#enum BodyTask ((Start u64) (Resume u64)))
+(#linear BodyTask)
+(#enum BodyPoll ((BodyPending BodyTask) (BodyReady u64)))
+(#fn body-poll ((task BodyTask) (waker (#ref u64))) BodyPoll
+  (#return (#match task
+    (#case (Start value) (BodyPending (Resume value)))
+    (#case (Resume value) (BodyReady value)))))
+
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+  (#fn work () u64
+    (#let-mut index u64 0u64)
+    (#let-mut total u64 0u64)
+    (#while (#await bool ConditionTask ConditionPending ConditionReady condition-poll
+      (#await ConditionTask Factory FactoryPending FactoryReady factory-poll
+        (#block
+          (#set total (#u64.+.wrap total 1u64))
+          (MakeCondition index))))
+      (#set index (#u64.+.wrap index 1u64))
+      (#if (#u64.== index 1u64) (#continue) ())
+      (#let value u64 (#await u64 BodyTask BodyPending BodyReady body-poll (Start 40u64)))
+      (#set total (#u64.+.wrap total value)))
+    (#return total))))
+
+(#fn main () u64
+  (#let waker u64 0u64)
+  (#let-mut task Frame (#call work ()))
+  (#for-range (attempt u64) 0u64 10u64
+    (#let polled Poll (#call poll (: task task : waker (#borrow waker))))
+    (#match polled
+      (#case (Pending next) (#block (#set task next) ()))
+      (#case (Ready result) (#block (#return result)))))
+  (#forget task)
+  (#return 0u64))

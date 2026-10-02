@@ -1869,6 +1869,16 @@ the step before reevaluating the condition. `examples/async_early_continue.lim`
 shows a first iteration skipping its body await and a later iteration resuming
 that await before returning.
 
+An awaited `#while` condition may itself await a task-producing dependency.
+The dependency and condition run in order on each iteration, including the
+final false condition. Child construction finishes before live captures are
+saved, and Pending retries do not repeat construction side effects.
+Conditional helpers return mutable updates with their logical result;
+linear updated owners belong to the child until Ready restores them. See
+`examples/async_condition_dependencies.lim`, which exits 43: three condition
+constructions add one each, the first body is skipped by `#continue`, and
+the second body adds 40 after suspension.
+
 `#for-range` is shorthand with a typed binding, start, and end.  Its bounds
 are explicit and the range is half-open:
 

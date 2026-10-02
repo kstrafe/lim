@@ -273,6 +273,98 @@ fn inline_stage_task_temporary(prefix: &mut Vec<String>, task: &str) -> Result<S
     Ok(inlined)
 }
 
+/// A whole-value assignment defines the next value of a local; only its RHS
+/// can need the old value. Projections and nested control flow remain reads
+/// of their owner, so this never drops a live partially updated aggregate.
+fn continuation_live_names(
+    statements: &[Expr],
+    returned: Option<&Expr>,
+    known: &HashMap<String, Binding>,
+) -> HashSet<String> {
+    let mut live = HashSet::new();
+    if let Some(returned) = returned {
+        collect_value_names(returned, &mut live);
+    }
+    for statement in statements.iter().rev() {
+        if let Some(assignment) = form(statement, "#set").filter(|items| items.len() == 3) {
+            if let Expr::Symbol(name) = &assignment[1] {
+                // Retain existing Copy slots and their inspectable cancellation
+                // layout. Unique owners, in contrast, must not be duplicated
+                // merely to provide a slot for a subsequent replacement.
+                if known
+                    .get(name)
+                    .and_then(|binding| crate::parse(&binding.ty).ok())
+                    .and_then(|types| types.into_iter().next())
+                    .and_then(|ty| parse_type(Some(&normalize_keywords(ty.expr))).ok())
+                    .is_some_and(|ty| !async_task_capture_is_copy(&ty))
+                {
+                    live.remove(name);
+                }
+                collect_value_names(&assignment[2], &mut live);
+                continue;
+            }
+        }
+        if let Ok(local) = binding(statement, "continuation liveness") {
+            live.remove(&local.name);
+            if let Expr::List(items) = statement {
+                collect_value_names(&items[3], &mut live);
+            }
+        } else {
+            collect_value_names(statement, &mut live);
+        }
+    }
+    live
+}
+
+/// A dead incoming value needs no frame capture, but its explicit replacement
+/// still needs a local slot in the new resume helper. Declare that slot at the
+/// assignment, after evaluating its RHS. Ordinary ownership checking still
+/// rejects an unconsumed old linear value in the helper that suspended.
+fn resume_prefix(
+    prefix: &[String],
+    stage: &Stage,
+    known: &HashMap<String, Binding>,
+) -> Result<Vec<String>, String> {
+    let mut locals = stage
+        .captures
+        .iter()
+        .map(|binding| binding.name.clone())
+        .collect::<HashSet<_>>();
+    locals.insert(stage.binding.name.clone());
+    let mut rewritten = Vec::with_capacity(prefix.len());
+    for statement in prefix {
+        let mut parsed = crate::parse(statement)?;
+        let Some(expression) = parsed.first_mut().map(|statement| &mut statement.expr) else {
+            rewritten.push(statement.clone());
+            continue;
+        };
+        if let Some(assignment) = form(expression, "#set").filter(|items| items.len() == 3) {
+            if let Expr::Symbol(name) = &assignment[1] {
+                if !locals.contains(name) {
+                    let binding = known
+                        .get(name)
+                        .ok_or_else(|| format!("unknown async assignment target '{name}'"))?;
+                    let ty = crate::parse(&binding.ty)?[0].expr.clone();
+                    locals.insert(name.clone());
+                    *expression = Expr::List(vec![
+                        Expr::Symbol("#let-mut".into()),
+                        assignment[1].clone(),
+                        ty,
+                        assignment[2].clone(),
+                    ]);
+                    rewritten.push(expression_source(expression)?);
+                    continue;
+                }
+            }
+        }
+        if let Ok(local) = binding(expression, "resume local") {
+            locals.insert(local.name);
+        }
+        rewritten.push(statement.clone());
+    }
+    Ok(rewritten)
+}
+
 fn list<'a>(expr: &'a Expr, context: &str) -> Result<&'a [Expr], String> {
     match expr {
         Expr::List(items) => Ok(items),
@@ -1141,6 +1233,21 @@ fn first_async_await(expression: &Expr) -> Option<&[Expr]> {
     }
 }
 
+fn has_suspending_await_input(expression: &Expr) -> bool {
+    let Expr::List(items) = expression else {
+        return false;
+    };
+    if matches!(items.first(), Some(Expr::Symbol(head))
+        if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote"))
+    {
+        return false;
+    }
+    if form(expression, "#await").is_some() && items.last().is_some_and(has_await) {
+        return true;
+    }
+    items.iter().skip(1).any(has_suspending_await_input)
+}
+
 /// Select generated storage from explicit declarations and builtin contracts.
 /// This is not a replacement for expression checking: arity, operand types,
 /// ownership and agreement between branches are checked on the emitted body.
@@ -1241,6 +1348,41 @@ fn async_expression_type(expression: &Expr, known: &HashMap<String, Binding>) ->
                     .get(2..)?
                     .iter()
                     .find_map(|branch| async_expression_type(branch, known)),
+                "match" => {
+                    let input_type = async_expression_type(items.get(1)?, known)
+                        .and_then(|ty| expression_source(&ty).ok());
+                    items.get(2..)?.iter().find_map(|arm| {
+                        let Expr::List(case) = arm else {
+                            return None;
+                        };
+                        let mut scope = known.clone();
+                        if let Some(ty) = &input_type {
+                            let bindings = ASYNC_TYPE_ENVIRONMENTS.with(|stack| {
+                                let stack = stack.borrow();
+                                let mut bindings = Vec::new();
+                                collect_enum_pattern_bindings(
+                                    case.get(1)?,
+                                    ty,
+                                    stack.last()?,
+                                    &mut bindings,
+                                )
+                                .ok()?;
+                                Some(bindings)
+                            });
+                            for (name, ty) in bindings.into_iter().flatten() {
+                                scope.insert(
+                                    name.clone(),
+                                    Binding {
+                                        name,
+                                        ty,
+                                        mutable: false,
+                                    },
+                                );
+                            }
+                        }
+                        async_expression_type(case.last()?, &scope)
+                    })
+                }
                 "block" => {
                     let mut scope = known.clone();
                     for statement in items.iter().skip(1).take(items.len().saturating_sub(2)) {
@@ -2747,6 +2889,17 @@ fn extract_nested_awaits(
             }
         }
     }
+    if extract_mutating_async_choice(
+        expression,
+        generated,
+        generated_helpers,
+        known,
+        source,
+        next_name,
+        waker,
+    )? {
+        return Ok(());
+    }
     if has_await(expression) {
         let conditional = if let Some((protocol, task)) = conditional_await(expression)? {
             Some((protocol, task, None))
@@ -3228,6 +3381,178 @@ fn nested_await_name(source: &str, next_name: &mut usize) -> String {
             return name;
         }
     }
+}
+
+fn async_mutated_names(expression: &Expr, names: &mut HashSet<String>) {
+    fn place_root(expression: &Expr) -> Option<&str> {
+        match expression {
+            Expr::Symbol(name) => Some(name),
+            Expr::List(items)
+                if matches!(items.first(), Some(Expr::Symbol(head))
+                if matches!(head.as_str(), "#get" | "#index" | "#slice-idx" | "#deref" | "#pin-read")) =>
+            {
+                items.get(1).and_then(place_root)
+            }
+            _ => None,
+        }
+    }
+    if let Expr::List(items) = expression {
+        if matches!(items.first(), Some(Expr::Symbol(head))
+            if matches!(head.as_str(), "#quote" | "quote" | "#quasiquote" | "quasiquote" | "#fn" | "fn"))
+        {
+            return;
+        }
+        if let Some(name) = mutable_assignment_target(expression) {
+            names.insert(name.to_owned());
+        }
+        if matches!(items.first(), Some(Expr::Symbol(head))
+            if matches!(head.as_str(), "#borrow-mut" | "#pin-borrow-mut"))
+        {
+            if let Some(name) = items.get(1).and_then(place_root) {
+                names.insert(name.to_owned());
+            }
+        }
+        for item in items.iter().skip(1) {
+            async_mutated_names(item, names);
+        }
+    }
+}
+
+/// Return branch-local mutations with the logical result, then restore them
+/// at the suspension's call site. Capturing mutable locals by value without
+/// these outputs silently loses changes made in a generated branch helper.
+fn extract_mutating_async_choice(
+    expression: &mut Expr,
+    generated: &mut Vec<Expr>,
+    generated_helpers: &mut Vec<String>,
+    known: &HashMap<String, Binding>,
+    source: &str,
+    next_name: &mut usize,
+    waker: &str,
+) -> Result<bool, String> {
+    if !has_await(expression) || contains_return(expression) {
+        return Ok(false);
+    }
+    let is_if = form(expression, "#if").is_some_and(|items| items.len() == 4);
+    if !is_if && form(expression, "#match").is_none() {
+        return Ok(false);
+    }
+    let mut mutated = HashSet::new();
+    async_mutated_names(expression, &mut mutated);
+    let mut outputs = mutated
+        .into_iter()
+        .filter_map(|name| known.get(&name).filter(|binding| binding.mutable).cloned())
+        .collect::<Vec<_>>();
+    outputs.sort_by(|left, right| left.name.cmp(&right.name));
+    if outputs.is_empty() {
+        return Ok(false);
+    }
+    let Some(result_type) = async_expression_type(expression, known) else {
+        return Ok(false);
+    };
+    let mut fields = vec![Expr::Symbol("#tuple".into()), result_type.clone()];
+    for output in &outputs {
+        fields.push(crate::parse(&output.ty)?[0].expr.clone());
+    }
+    let tuple_type = Expr::List(fields);
+    let wrap = |branch: &Expr, next_name: &mut usize| {
+        let result = nested_await_name(source, next_name);
+        let mut tuple = vec![
+            Expr::Symbol("#tuple".into()),
+            tuple_type.clone(),
+            Expr::Symbol(result.clone()),
+        ];
+        tuple.extend(
+            outputs
+                .iter()
+                .map(|output| Expr::Symbol(output.name.clone())),
+        );
+        Expr::List(vec![
+            Expr::Symbol("#block".into()),
+            Expr::List(vec![
+                Expr::Symbol("#let".into()),
+                Expr::Symbol(result),
+                result_type.clone(),
+                branch.clone(),
+            ]),
+            Expr::List(tuple),
+        ])
+    };
+    let mut choice = expression.clone();
+    let Expr::List(items) = &mut choice else {
+        unreachable!()
+    };
+    if is_if {
+        for branch in &mut items[2..] {
+            *branch = wrap(branch, next_name);
+        }
+    } else {
+        for arm in &mut items[2..] {
+            let Expr::List(case) = arm else {
+                return Ok(false);
+            };
+            let Some(branch) = case.last_mut() else {
+                return Ok(false);
+            };
+            *branch = wrap(branch, next_name);
+        }
+    }
+    let Some((protocol, mut task, helper)) =
+        conditional_await_with_immediate(&choice, known, source, next_name, waker)?
+    else {
+        return Ok(false);
+    };
+    generated_helpers.push(helper);
+    extract_nested_awaits(
+        &mut task,
+        generated,
+        generated_helpers,
+        known,
+        source,
+        next_name,
+        waker,
+    )?;
+    let tuple = nested_await_name(source, next_name);
+    generated.push(Expr::List(vec![
+        Expr::Symbol("#let".into()),
+        Expr::Symbol(tuple.clone()),
+        tuple_type,
+        Expr::List(vec![
+            Expr::Symbol("#await".into()),
+            protocol.child_type,
+            protocol.pending,
+            protocol.ready,
+            protocol.poll,
+            task,
+        ]),
+    ]));
+    let field = |index: usize| {
+        Expr::List(vec![
+            Expr::Symbol("#get".into()),
+            Expr::Symbol(tuple.clone()),
+            Expr::Integer(index as i128),
+        ])
+    };
+    let result = nested_await_name(source, next_name);
+    generated.push(Expr::List(vec![
+        Expr::Symbol("#let".into()),
+        Expr::Symbol(result.clone()),
+        result_type,
+        field(0),
+    ]));
+    for (index, output) in outputs.iter().enumerate() {
+        generated.push(Expr::List(vec![
+            Expr::Symbol("#set".into()),
+            Expr::Symbol(output.name.clone()),
+            field(index + 1),
+        ]));
+    }
+    generated.push(Expr::List(vec![
+        Expr::Symbol("#forget".into()),
+        Expr::Symbol(tuple),
+    ]));
+    *expression = Expr::Symbol(result);
+    Ok(true)
 }
 
 fn extract_nested_block_awaits(
@@ -5902,6 +6227,65 @@ fn lower_async_while_with_transfers(
     }
     let mut condition = items[1].clone();
     normalize_short_circuit_await(&mut condition);
+    if has_suspending_await_input(&condition) {
+        // Task-producing awaits belong to every condition evaluation, not to
+        // the statement before the loop. Sequence them at the start of an
+        // iteration and let the ordinary multi-await body machine retain all
+        // local state, mutations and loans between the dependency stages.
+        if let Some(await_form) = form(&condition, "#await") {
+            if await_form.len() == 6 {
+                let Expr::List(items) = &mut condition else {
+                    unreachable!()
+                };
+                items.insert(1, Expr::Symbol("bool".into()));
+            }
+        }
+        let mut iteration = Vec::new();
+        let mut dependencies = Vec::new();
+        extract_nested_awaits(
+            &mut condition,
+            &mut iteration,
+            &mut dependencies,
+            known,
+            source,
+            next_name,
+            waker,
+        )?;
+        let mut body = vec![Expr::Symbol("#loop".into())];
+        body.extend(items[2..].iter().cloned());
+        body.push(Expr::List(vec![Expr::Symbol("#continue".into())]));
+        let mut body = Expr::List(body);
+        terminalize_async_iterations(&mut body, source, next_name)?;
+        let Expr::List(mut body) = body else {
+            unreachable!()
+        };
+        body[0] = Expr::Symbol("#block".into());
+        iteration.push(Expr::List(vec![
+            Expr::Symbol("#if".into()),
+            condition,
+            Expr::List(body),
+            Expr::List(vec![Expr::Symbol("#break".into())]),
+        ]));
+        let mut loop_form = vec![Expr::Symbol("#loop".into())];
+        loop_form.extend(iteration);
+        let Some((replacement, helper, renames)) = lower_async_loop_with_transfers(
+            &Expr::List(loop_form),
+            known,
+            known_order,
+            transfers,
+            following,
+            return_value,
+            return_type,
+            source,
+            next_name,
+            waker,
+        )?
+        else {
+            return Err("@async-fn failed to lower condition task dependencies".into());
+        };
+        dependencies.push(helper);
+        return Ok(Some((replacement, dependencies.join("\n"), renames)));
+    }
     if has_await(&condition) {
         let (mut await_form, condition_helper) = if let Some(await_form) =
             form(&condition, "#await")
@@ -11790,27 +12174,26 @@ fn generated_source_with_capture_selection(
         return Ok(generated);
     }
     for (stage_index, stage) in stages.iter_mut().enumerate() {
-        let mut live = HashSet::new();
-        for statement in &statements[stage.source_index + 1..] {
-            collect_value_names(statement, &mut live);
-        }
-        if return_await.is_none() {
-            collect_value_names(&return_value, &mut live);
-        }
+        let live = continuation_live_names(
+            &statements[stage.source_index + 1..],
+            return_await.is_none().then_some(&return_value),
+            &known,
+        );
         stage.captures = stage
             .available
             .iter()
             .filter(|name| match &capture_selection {
                 CaptureSelection::Syntax => live.contains(name.as_str()),
                 CaptureSelection::Typed(captures) => {
-                    captures
+                    live.contains(name.as_str())
+                        && (captures
                         .get(&stage_index)
                         .is_some_and(|live| live.contains(name.as_str()))
                         // A mutated binding still needs a local slot even if
                         // its incoming value is dead before the first read,
                         // but only when source liveness says it crosses here.
                         || (live.contains(name.as_str())
-                            && known.get(*name).is_some_and(|binding| binding.mutable))
+                            && known.get(*name).is_some_and(|binding| binding.mutable)))
                 }
             })
             .filter_map(|name| known.get(name).cloned())
@@ -12003,8 +12386,13 @@ fn generated_source_with_capture_selection(
             stage.child
         ));
         let continuation = if let Some(next) = stages.get(index + 1) {
-            let mut next_prefix = next.prefix.clone();
-            let next_task = inline_stage_task_temporary(&mut next_prefix, &next.value)?;
+            let mut next_prefix = resume_prefix(&next.prefix, stage, &known)?;
+            let next_value = inline_stage_task_temporary(&mut next_prefix, &next.value)?;
+            // Calls evaluate in parameter declaration order: captures precede
+            // the child parameter. Finish task construction before snapshots
+            // of those captures, including mutations in the task expression.
+            let next_task = fresh_async_name(&source, &mut next_nested_await);
+            next_prefix.push(format!("(#let {next_task} {} {next_value})", next.child));
             format!(
                 "(#return (#block {} (#call {poll}-child-{} ({} : lim.async.task {} : waker waker))))",
                 next_prefix.join(" "),
@@ -12013,7 +12401,10 @@ fn generated_source_with_capture_selection(
                 next_task
             )
         } else {
-            format!("{} (#return ({ready} {returned}))", prefix.join(" "))
+            format!(
+                "{} (#return ({ready} {returned}))",
+                resume_prefix(&prefix, stage, &known)?.join(" ")
+            )
         };
         helpers.push(format!(
             "(#fn {resume} ({} {} (waker (#ref {waker}))) {poll_result}
@@ -12133,12 +12524,14 @@ fn generated_source_with_capture_selection(
             "{self_reference_borrows} (#let outcome {poll_result} (#call {poll} (: task state : waker waker{self_reference_argument_suffix}))) {self_reference_drops}"
         )
     };
+    let first_task = fresh_async_name(&source, &mut next_nested_await);
     let mut generated = format!(
         "{}\n{}
          (#enum {poll_result} (({pending} {frame_state}) ({ready} {result})))
          {}
          (#fn {start_helper} ({} (waker (#ref {waker})) {self_reference_parameter_suffix}) {poll_result}
            {}
+           (#let {first_task} {} {})
            (#return (#call {poll}-child-0 ({} : lim.async.task {} : waker waker))))
          {poll_function}",
         generated_helpers.join("\n"),
@@ -12146,8 +12539,10 @@ fn generated_source_with_capture_selection(
         helpers.join("\n"),
         signature(&start_params),
         first_prefix,
-        named_arguments(&first.captures),
+        first.child,
         first.value,
+        named_arguments(&first.captures),
+        first_task,
     );
     if let Some(config) = &cancel_config {
         let mut cancellation_states = vec![AsyncCancelState {
