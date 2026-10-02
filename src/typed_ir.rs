@@ -1633,6 +1633,61 @@ impl Declarations {
                 #[cfg(test)]
                 clear_variants.insert(id, conditional_clears);
                 #[cfg(test)]
+                for (task, captures) in &self.thread_capture_schemas {
+                    if captures.worker != id {
+                        continue;
+                    }
+                    let (Some(owner), Some(spawn), Some(join), Some(join_ok), Some(join_error)) = (
+                        self.aggregate_id(&Type::Named(task.clone())),
+                        self.function_id(&format!("{task}-spawn")),
+                        self.function_id(&format!("{task}-join")),
+                        self.variant_id(
+                            &Type::Named(format!("{task}-join-result")),
+                            &format!("{task}-join-ok"),
+                        ),
+                        self.variant_id(
+                            &Type::Named(format!("{task}-join-result")),
+                            &format!("{task}-join-error"),
+                        ),
+                    ) else {
+                        continue;
+                    };
+                    let Some(captured_stores) = crate::thread_contract::capture_store_summaries(
+                        owner,
+                        captures.parameters.len(),
+                        &store_summaries[&id],
+                    ) else {
+                        continue;
+                    };
+                    let Some(captured_clears) = clear_summaries[&id]
+                        .iter()
+                        .map(|clear| {
+                            crate::thread_contract::capture_loan_summary(
+                                owner,
+                                captures.parameters.len(),
+                                clear,
+                            )
+                        })
+                        .collect::<Option<Vec<_>>>()
+                    else {
+                        continue;
+                    };
+                    // Neither spawn nor a retrying join proves worker completion.
+                    // Install final storage only under the successful join tag.
+                    store_summaries.insert(spawn, Vec::new());
+                    store_summaries.insert(join, Vec::new());
+                    clear_summaries.insert(spawn, Vec::new());
+                    clear_summaries.insert(join, Vec::new());
+                    store_variants.insert(
+                        join,
+                        HashMap::from([(join_ok, captured_stores), (join_error, Vec::new())]),
+                    );
+                    clear_variants.insert(
+                        join,
+                        HashMap::from([(join_ok, captured_clears), (join_error, Vec::new())]),
+                    );
+                }
+                #[cfg(test)]
                 return_variants.insert(id, returned_variants);
                 #[cfg(test)]
                 return_bounds.insert(id, returned_bounds);
@@ -1678,42 +1733,38 @@ impl Declarations {
             let Some(worker_summary) = summaries.get(&captures.worker) else {
                 continue;
             };
-            // Stored/cleared reference contents need deferred, outcome-aware
-            // provenance transfer as well as ownership effects. Do not erase
-            // those facts by installing an incomplete operation contract.
-            let unsupported_store = |store: &crate::typed_body::ParameterStoreSummary| {
-                !store.sources.is_empty()
-                    || store.destination.global.is_some()
-                    || worker_body
-                        .parameter_referent_loan_slots
-                        .get(store.destination.parameter)
-                        .is_none_or(|slots| {
-                            slots.iter().any(|slot| {
-                                slot.storage
-                                    .contains(&crate::typed_place::Segment::Dereference)
-                            })
-                        })
-            };
+            // Global reference contents are not represented by parameter
+            // contents yet; do not pretend those deferred writes are known.
             if worker_body
                 .call_store_origins
                 .get(&captures.worker)
-                .is_some_and(|stores| stores.iter().any(unsupported_store))
+                .is_some_and(|stores| {
+                    stores
+                        .iter()
+                        .any(|store| store.destination.global.is_some())
+                })
                 || worker_body
                     .call_parameter_clears
                     .get(&captures.worker)
-                    .is_some_and(|clears| !clears.is_empty())
+                    .is_some_and(|clears| clears.iter().any(|clear| clear.global.is_some()))
                 || worker_body
                     .call_store_variants
                     .get(&captures.worker)
                     .is_some_and(|variants| {
                         variants
                             .values()
-                            .any(|stores| stores.iter().any(unsupported_store))
+                            .flatten()
+                            .any(|store| store.destination.global.is_some())
                     })
                 || worker_body
                     .call_clear_variants
                     .get(&captures.worker)
-                    .is_some_and(|variants| variants.values().any(|clears| !clears.is_empty()))
+                    .is_some_and(|variants| {
+                        variants
+                            .values()
+                            .flatten()
+                            .any(|clear| clear.global.is_some())
+                    })
             {
                 continue;
             }
@@ -1750,6 +1801,19 @@ impl Declarations {
                 continue;
             };
             if summaries.contains_key(&spawn) && summaries.contains_key(&join) {
+                continue;
+            }
+            if worker_body
+                .call_store_variants
+                .get(&join)
+                .and_then(|variants| variants.get(&join_ok))
+                .is_none()
+                || worker_body
+                    .call_clear_variants
+                    .get(&join)
+                    .and_then(|variants| variants.get(&join_ok))
+                    .is_none()
+            {
                 continue;
             }
             if let Some((spawn_summary, join_summary)) = crate::thread_contract::operation_summaries(

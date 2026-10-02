@@ -2358,39 +2358,8 @@ impl FlowGraph {
                 FlowAction::Pattern { pattern, value } => {
                     #[cfg(test)]
                     if let Some((calls, variant, region)) = &refinements[id.0] {
-                        for store in joined_call_variant_stores(
-                            body,
-                            self,
-                            LoanSnapshots::new(&before, &events_by_value),
-                            calls,
-                            *variant,
-                        ) {
-                            let PlaceRoot::Local(target) = store.destination.place.root else {
-                                continue;
-                            };
-                            if !store.definitely_written
-                                || store.destination.lifetime_only
-                                || region
-                                    .iter()
-                                    .any(|event| match &self.nodes[event.0].action {
-                                        FlowAction::Assign { place, .. }
-                                        | FlowAction::Release { place, .. } => {
-                                            place.root == PlaceRoot::Local(target)
-                                        }
-                                        FlowAction::ScopeExit(bindings) => {
-                                            bindings.contains(&target)
-                                        }
-                                        _ => false,
-                                    })
-                            {
-                                continue;
-                            }
-                            replace_projected_origins(
-                                &mut state[target.0],
-                                &store.destination.place.segments,
-                                store.incoming,
-                            );
-                        }
+                        // Clear old reference contents before installing the
+                        // completed worker's replacement contents.
                         if include_parameter_contents {
                             for clear in correlated_call_variant_clears(
                                 body,
@@ -2404,6 +2373,63 @@ impl FlowGraph {
                                         &mut state[binding.0],
                                         &clear.place.segments,
                                         Vec::new(),
+                                    );
+                                }
+                            }
+                        }
+                        for store in joined_call_variant_stores(
+                            body,
+                            self,
+                            LoanSnapshots::new(&before, &events_by_value),
+                            calls,
+                            *variant,
+                        ) {
+                            if store.destination.lifetime_only
+                                || region
+                                    .iter()
+                                    .any(|event| match &self.nodes[event.0].action {
+                                        FlowAction::Assign { place, .. }
+                                        | FlowAction::Release { place, .. } => {
+                                            place.root == store.destination.place.root
+                                                || matches!(
+                                                    store.destination.place.root,
+                                                    PlaceRoot::Parameter(_)
+                                                )
+                                        }
+                                        FlowAction::ScopeExit(bindings) => {
+                                            match store.destination.place.root {
+                                                PlaceRoot::Local(target)
+                                                | PlaceRoot::Parameter(target) => {
+                                                    bindings.contains(&target)
+                                                }
+                                                _ => true,
+                                            }
+                                        }
+                                        _ => false,
+                                    })
+                            {
+                                continue;
+                            }
+                            if include_parameter_contents {
+                                store_parameter_contents(
+                                    &mut state,
+                                    &store.destination,
+                                    store.incoming.clone(),
+                                    store.definitely_written,
+                                );
+                            }
+                            if let PlaceRoot::Local(target) = store.destination.place.root {
+                                if store.definitely_written {
+                                    replace_projected_origins(
+                                        &mut state[target.0],
+                                        &store.destination.place.segments,
+                                        store.incoming,
+                                    );
+                                } else {
+                                    extend_projected_origins(
+                                        &mut state[target.0],
+                                        &store.destination.place.segments,
+                                        store.incoming,
                                     );
                                 }
                             }
@@ -7753,32 +7779,37 @@ fn joined_call_variant_stores(
         else {
             return Vec::new();
         };
-        let stores = substitute_call_stores(body, flow, before, *call, entry, summaries);
+        let stores = substitute_call_stores(body, flow, before, *call, entry, summaries)
+            .into_iter()
+            .filter(|store| {
+                !store.destination.lifetime_only
+                    && matches!(
+                        store.destination.place.root,
+                        PlaceRoot::Local(_) | PlaceRoot::Parameter(_)
+                    )
+            })
+            .collect::<Vec<_>>();
         if let Some(common) = &mut result {
-            common.retain_mut(|held| {
-                let mut found = false;
+            for held in common.iter_mut() {
+                let mut definitely_written = false;
                 for incoming in &stores {
-                    if incoming.definitely_written
-                        && !incoming.destination.lifetime_only
-                        && incoming.destination.place == held.destination.place
-                    {
-                        found = true;
+                    if incoming.destination.referent_place() == held.destination.referent_place() {
+                        definitely_written |= incoming.definitely_written;
                         merge_loan_origins(&mut held.incoming, &incoming.incoming);
                     }
                 }
-                found
-            });
+                held.definitely_written &= definitely_written;
+            }
+            for mut incoming in stores {
+                if !common.iter().any(|held| {
+                    held.destination.referent_place() == incoming.destination.referent_place()
+                }) {
+                    incoming.definitely_written = false;
+                    common.push(incoming);
+                }
+            }
         } else {
-            result = Some(
-                stores
-                    .into_iter()
-                    .filter(|store| {
-                        store.definitely_written
-                            && !store.destination.lifetime_only
-                            && matches!(store.destination.place.root, PlaceRoot::Local(_))
-                    })
-                    .collect(),
-            );
+            result = Some(stores);
         }
     }
     result.unwrap_or_default()

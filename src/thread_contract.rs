@@ -12,6 +12,53 @@ use crate::typed_ir::{AggregateId, FunctionId};
 use crate::typed_place::{Place, Segment};
 use std::collections::HashMap;
 
+/// Rebase an input selector onto a task capture, without changing its position
+/// in the value being stored. Those output slots are not task fields.
+pub(crate) fn capture_loan_summary(
+    owner: AggregateId,
+    parameters: usize,
+    loan: &crate::typed_body::ParameterLoanSummary,
+) -> Option<crate::typed_body::ParameterLoanSummary> {
+    let mut captured = loan.clone();
+    if loan.global.is_none() {
+        if loan.parameter >= parameters {
+            return None;
+        }
+        captured.parameter = 0;
+        captured
+            .input_storage
+            .insert(0, Segment::ThreadCapture(owner, loan.parameter));
+        for index in captured.storage_inputs.iter_mut().flatten() {
+            if *index >= loan.input_storage.len() {
+                return None;
+            }
+            *index += 1;
+        }
+    }
+    Some(captured)
+}
+
+pub(crate) fn capture_store_summaries(
+    owner: AggregateId,
+    parameters: usize,
+    stores: &[crate::typed_body::ParameterStoreSummary],
+) -> Option<Vec<crate::typed_body::ParameterStoreSummary>> {
+    stores
+        .iter()
+        .map(|store| {
+            Some(crate::typed_body::ParameterStoreSummary {
+                destination: capture_loan_summary(owner, parameters, &store.destination)?,
+                sources: store
+                    .sources
+                    .iter()
+                    .map(|source| capture_loan_summary(owner, parameters, source))
+                    .collect::<Option<Vec<_>>>()?,
+                definitely_written: store.definitely_written,
+            })
+        })
+        .collect()
+}
+
 pub(crate) struct CapturedWorkerContract {
     pub worker: FunctionId,
     pub facts: ReferentFunctionEffects,

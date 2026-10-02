@@ -18335,8 +18335,19 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_thread_reference_storage_transfer_remains_unresolved() {
-        let source = "(#struct Holder ((value (#ref u64)))) (#linear Holder)
+    fn staged_thread_reference_storage_becomes_visible_on_successful_join() {
+        for phase in ["completed", "pending", "retry", "failed"] {
+            let read = "(#let loaded (#ref u64) (#get target value))";
+            let pending = if phase == "pending" { read } else { "" };
+            let completed = if phase == "completed" { read } else { "" };
+            let retry = if phase == "retry" { read } else { "" };
+            let failed = if phase == "failed" {
+                format!("(#block {read} ())")
+            } else {
+                "(#panic)".into()
+            };
+            let source = format!(
+                "(#struct Holder ((value (#ref u64)))) (#linear Holder)
           (#fn worker ((target (#ref-mut Holder)) (source (#ref u64))) ()
             (#forget (#deref target))
             (#deref-set target (#struct-literal Holder ((value source)))) (#return ()))
@@ -18344,23 +18355,184 @@ mod typed_ownership_tests {
           (#fn caller ((target (#ref-mut Holder)) (source (#ref u64))) ()
             (#return (#match (#call Task-spawn (: target target : source source))
               (#case (Task-spawn-ok task)
+                (#block {pending}
                 (#match (#call Task-join (: task task))
-                  (#case (Task-join-ok result) ())
+                  (#case (Task-join-ok result)
+                    (#block {completed} ()))
+                  (#case (Task-join-error (#tuple retry error)) (#block {retry} (#panic))))))
+              (#case (Task-spawn-error error) {failed}))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let checked = declarations.staged_contents_referent_entry_contracts(&types);
+            if matches!(phase, "completed" | "failed") {
+                checked.unwrap();
+            } else {
+                assert!(checked.is_err(), "{phase} cannot prove initialized access");
+            }
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let origins = flow.staged_parameter_store_loan_origins(body);
+            let (event, value) = flow
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    let crate::typed_flow::FlowAction::Bind { binding, value } = node.action else {
+                        return None;
+                    };
+                    (body.bindings[binding.0].name == "loaded")
+                        .then_some((crate::typed_flow::FlowNodeId(index), value))
+                })
+                .unwrap();
+            let loaded = origins.value_before(body, flow, event, value);
+            assert_eq!(loaded.len(), 1, "{loaded:?}");
+            assert_eq!(
+                loaded[0].place,
+                crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Parameter(
+                    crate::typed_body::BindingId(if phase == "completed" { 1 } else { 0 })
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn staged_thread_conditional_write_retains_old_and_new_reference_loans() {
+        let program = crate::parse_program(
+            "(#struct Holder ((value (#ref u64)))) (#linear Holder)
+             (#fn worker ((target (#ref-mut Holder)) (source (#ref u64)) (choose bool)) ()
+               (#if choose
+                 (#block (#forget (#deref target))
+                   (#deref-set target (#struct-literal Holder ((value source))))) ())
+               (#return ()))
+             (@thread-spawn (: task Task : worker worker))
+             (#fn caller ((target (#ref-mut Holder)) (source (#ref u64)) (choose bool)) ()
+               (#return (#match (#call Task-spawn (: target target : source source : choose choose))
+                 (#case (Task-spawn-ok task)
+                   (#match (#call Task-join (: task task))
+                     (#case (Task-join-ok result)
+                       (#block (#let loaded (#ref u64) (#get target value)) ()))
+                     (#case (Task-join-error (#tuple retry error)) (#panic))))
+                 (#case (Task-spawn-error error) (#panic)))))",
+        )
+        .unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        // Establish actual worker summaries even if other staged ownership
+        // gates remain incomplete; this test specifically checks loan transfer.
+        let _ = declarations.staged_contents_referent_entry_contracts(&types);
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        let (event, value) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Bind { binding, value } = node.action else {
+                    return None;
+                };
+                (body.bindings[binding.0].name == "loaded")
+                    .then_some((crate::typed_flow::FlowNodeId(index), value))
+            })
+            .unwrap();
+        let loaded = origins.value_before(body, flow, event, value);
+        assert_eq!(
+            loaded.len(),
+            2,
+            "conditional writes must preserve both loans: {loaded:?}"
+        );
+        for parameter in [0, 1] {
+            assert!(
+                loaded.iter().any(|loan| loan.place.root
+                    == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(
+                        parameter
+                    ))),
+                "missing parameter {parameter}: {loaded:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn staged_thread_capture_storage_selectors_preserve_output_positions() {
+        let program = crate::parse_program("(#fn worker ((value (#ref u64))) () (#return ())) (@thread-spawn (: task Task : worker worker))").unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let owner = declarations
+            .aggregate_id(&Type::Named("Task".into()))
+            .unwrap();
+        use crate::typed_place::Segment;
+        let loan = crate::typed_body::ParameterLoanSummary {
+            global: None,
+            parameter: 0,
+            mutable: true,
+            pinned: true,
+            lifetime_only: true,
+            referent_projection: vec![Segment::Tuple(2)],
+            input_storage: vec![Segment::Tuple(0), Segment::DynamicIndex],
+            storage: vec![Segment::DynamicIndex],
+            storage_inputs: vec![Some(1)],
+        };
+        let captured = crate::thread_contract::capture_loan_summary(owner, 1, &loan).unwrap();
+        assert_eq!(
+            captured.input_storage,
+            vec![
+                Segment::ThreadCapture(owner, 0),
+                Segment::Tuple(0),
+                Segment::DynamicIndex
+            ]
+        );
+        assert_eq!(captured.storage, loan.storage);
+        assert_eq!(captured.storage_inputs, vec![Some(2)]);
+        assert_eq!(captured.referent_projection, loan.referent_projection);
+        assert!(captured.mutable && captured.pinned && captured.lifetime_only);
+        let mut malformed = loan.clone();
+        malformed.parameter = 1;
+        assert!(crate::thread_contract::capture_loan_summary(owner, 1, &malformed).is_none());
+        malformed.parameter = 0;
+        malformed.storage_inputs = vec![Some(2)];
+        assert!(crate::thread_contract::capture_loan_summary(owner, 1, &malformed).is_none());
+    }
+
+    #[test]
+    fn staged_thread_successful_join_clears_removed_reference_contents() {
+        let source = "(#enum Holder ((Filled (#ref u64)) (Empty))) (#linear Holder)
+          (#fn worker ((target (#ref-mut Holder))) ()
+            (#forget (#deref target)) (#deref-set target (Empty)) (#return ()))
+          (@thread-spawn (: task Task : worker worker))
+          (#fn caller ((target (#ref-mut Holder))) ()
+            (#return (#match (#call Task-spawn (: target target))
+              (#case (Task-spawn-ok task)
+                (#match (#call Task-join (: task task))
+                  (#case (Task-join-ok result)
+                    (#block (#let observed Holder (#deref target)) (#forget observed) ()))
                   (#case (Task-join-error (#tuple retry error)) (#panic))))
               (#case (Task-spawn-error error) (#panic)))))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
-        let error = declarations
+        declarations
             .staged_contents_referent_entry_contracts(&types)
-            .unwrap_err();
-        let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
-            panic!("expected unresolved operation inputs");
-        };
-        assert_eq!(function, "caller");
-        assert!(conflict.message.contains("unresolved call inputs"));
-        let span = conflict.span.unwrap();
-        assert!(source[span.start..span.end].contains("Task-join"));
+            .unwrap();
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        let (event, value) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| {
+                let crate::typed_flow::FlowAction::Bind { binding, value } = node.action else {
+                    return None;
+                };
+                (body.bindings[binding.0].name == "observed")
+                    .then_some((crate::typed_flow::FlowNodeId(index), value))
+            })
+            .unwrap();
+        assert!(
+            origins.value_before(body, flow, event, value).is_empty(),
+            "completed empty variant must not retain old loans"
+        );
     }
 
     #[test]
