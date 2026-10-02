@@ -17,6 +17,38 @@ use crate::{Expr, Function, Item, Program, Statement};
 
 #[cfg(test)]
 #[test]
+fn typed_symbol_assignment_replaces_reference_provenance() {
+    let source = "(#fn main () u64
+      (#let-mut left u64 1u64)
+      (#let-mut right u64 42u64)
+      (#let-mut view (#ref u64) (#borrow left))
+      (#let next (#ref u64) (#borrow right))
+      (#set view next)
+      (#set left 2u64)
+      (#let result u64 (#deref view))
+      (#drop view) (#drop next)
+      (#set right 43u64)
+      (#return result))";
+    crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
+    let invalid = source.replace("(#set left 2u64)", "(#set right 2u64)");
+    let error = crate::check_types(&crate::parse_program(&invalid).unwrap()).unwrap_err();
+    assert!(
+        error.contains("right") && error.contains("borrow"),
+        "{error}"
+    );
+    let exclusive = source
+        .replace("(#ref u64)", "(#ref-mut u64)")
+        .replace("(#borrow left)", "(#borrow-mut left)")
+        .replace("(#borrow right)", "(#borrow-mut right)")
+        .replace("(#drop next)", "()");
+    crate::check_types(&crate::parse_program(&exclusive).unwrap()).unwrap();
+    let escaped = source.replace("(#set view next)",
+        "(#block (#let local u64 3u64) (#let temporary (#ref u64) (#borrow local)) (#set view temporary) ())");
+    assert!(crate::check_types(&crate::parse_program(&escaped).unwrap()).is_err());
+}
+
+#[cfg(test)]
+#[test]
 fn borrow_released_on_every_if_branch_allows_later_mutation() {
     let program = crate::parse_program(
         "(#fn main () u64
@@ -1137,6 +1169,21 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             context.scope_bindings.extend(names);
         }
         Statement::Assign { name, value } => {
+            // A typed whole-value move restores both the slot and its loan
+            // provenance. Do not treat a reference-bearing Pending frame as
+            // retaining its previous contents after ownership transferred it.
+            let store = context
+                .typed_local_loads
+                .get(&(std::ptr::from_ref(value) as usize))
+                .filter(|store| store.source == *name && store.store_type.is_some())
+                .cloned();
+            if let Some(store) = store {
+                let ty = store.store_type.as_ref().unwrap();
+                if contains_reference_type(ty, &context.reference_types) {
+                    context.write(name)?;
+                    return check_let_binding(name, ty, value, &true, context, true);
+                }
+            }
             let transfers_existing_reference_owner = matches!(value, Expr::List(items)
                 if items.len() >= 3
                     && matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#match" | "match"))
@@ -3051,6 +3098,36 @@ fn typed_borrow_facts(
     let loan_origins = flow.loan_origins(body);
     let mut parent_by_expression = HashMap::new();
     let mut loads_by_expression = HashMap::new();
+    for node in &flow.nodes {
+        let crate::typed_flow::FlowAction::Assign { place, value } = &node.action else {
+            continue;
+        };
+        let crate::typed_body::PlaceRoot::Local(binding) = place.root else {
+            continue;
+        };
+        if !place.segments.is_empty()
+            || !matches!(
+                body.nodes[value.0].kind,
+                crate::typed_body::NodeKind::Symbol {
+                    binding: Some(_),
+                    ..
+                }
+            )
+        {
+            continue;
+        }
+        let Some(id) = body.nodes[value.0].expression_id else {
+            continue;
+        };
+        loads_by_expression.insert(
+            id,
+            LocalLoad {
+                source: body.bindings[binding.0].name.clone(),
+                moves: false,
+                store_type: Some(body.bindings[binding.0].ty.clone()),
+            },
+        );
+    }
     for (index, node) in flow.nodes.iter().enumerate() {
         let value = match node.action {
             crate::typed_flow::FlowAction::Evaluate(value)

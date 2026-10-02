@@ -5001,6 +5001,7 @@ fn statement_type_in_context(
                     && matches!(items.get(1), Some(Expr::Symbol(scrutinee)) if scrutinee == name));
             if contains_reference_type(&ty, structs, enums, &mut HashSet::new())
                 && !transfers_existing_reference_owner
+                && !matches!(value, Expr::Symbol(_))
             {
                 return Err(semantic_format!(
                     "cannot replace '{name}' because its type retains references"

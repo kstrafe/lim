@@ -1291,6 +1291,16 @@ aggregate local:
 (#set total (#u64.+.wrap total 1u64))
 ```
 
+A whole reference-bearing local may also be assigned from another typed
+binding, for example `(#set view next)`. The replacement installs that
+binding's reference origins and releases the old binding's loans. Shared
+references remain Copy; exclusive references transfer without duplication.
+An outstanding borrow of the destination still prevents replacement, and a
+linear old value must already have been consumed. Arbitrary reference-bearing
+RHS expressions and member replacement retain their existing restrictions.
+`examples/reference_assignment.lim` releases the old owner, reads the new
+owner, then drops both shared handles before mutating the new owner.
+
 Struct types are not constructors. Create a value with `#struct-literal`, or
 write a named free-standing constructor function that returns one. Every field
 must be supplied exactly once; fields may appear in any order, and omitted
