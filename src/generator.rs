@@ -19,6 +19,7 @@ const MAX_GENERATED_NODES: usize = 1_000_000;
 const MAX_EXPANSION_DEPTH: usize = 128;
 const MAX_CACHE_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
 static CACHE_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+static INTERPRETER_HASH: OnceLock<u128> = OnceLock::new();
 // Housekeeping is independent of cache correctness. Bound both its frequency
 // and retained directory history for callers compiling many projects.
 const CACHE_CLEANUP_INTERVAL: Duration = Duration::from_secs(60);
@@ -364,7 +365,7 @@ fn expand_with_generated_cached_and_hits(
         remaining.push(expression);
     }
 
-    let interpreter_hash = stable_hash(include_bytes!("generator.rs"));
+    let interpreter_hash = interpreter_hash();
     let capability_hash = hash_capability_definitions(&capabilities);
     let function_hashes = generator_function_hashes(&functions, interpreter_hash)?;
     let generator_hashes = generator_hashes(&generators, &function_hashes, interpreter_hash);
@@ -1221,6 +1222,10 @@ fn cleanup_abandoned_staging(directory: &Path) {
     }
 }
 
+fn interpreter_hash() -> u128 {
+    *INTERPRETER_HASH.get_or_init(|| stable_hash(include_bytes!("generator.rs")))
+}
+
 pub(crate) fn stable_hash(bytes: &[u8]) -> u128 {
     stable_hash_parts(&[bytes])
 }
@@ -1638,6 +1643,13 @@ fn expression_nodes(expression: &Expr) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interpreter_fingerprint_matches_embedded_source() {
+        let expected = stable_hash(include_bytes!("generator.rs"));
+        assert_eq!(interpreter_hash(), expected);
+        assert_eq!(interpreter_hash(), expected);
+    }
 
     #[test]
     fn segmented_hash_preserves_generated_source_digest_format() {
