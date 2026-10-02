@@ -602,3 +602,11 @@ Pending, and linear leaves require explicit consumption on every path.
 `examples/async_pattern_blocks.lim` runs both the selected and skipped branch
 and exits with 47. These extensions do not remove the remaining general
 control-flow and pinned-frame restrictions.
+
+A selected branch can explicitly consume a prefix-local linear owner before
+its first await. The generated helper captures only values needed to construct
+the child or run the continuation, not already-consumed owners. Unused linear
+prefix values still require explicit consumption; using a consumed value in
+the child or continuation remains an error. `examples/async_prefix_cleanup.lim`
+calls a destruction function before awaiting and retains only its plain result
+(exit 47). The prefix runs once, not again on each Pending poll.

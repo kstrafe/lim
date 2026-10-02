@@ -7974,6 +7974,115 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
 }
 
 #[test]
+fn async_branch_prefixes_capture_only_live_values() {
+    let source = include_str!("../examples/async_await_destructure.lim");
+    let block = source
+        .replace(
+            "(#let (Values (#tuple left right) bias) Values",
+            "(#let result u64 (#block (#let (Values (#tuple left right) bias) Values",
+        )
+        .replace(
+            "(#return (#u64.+.wrap (#u64.+.wrap (#as left u64) second) bias))",
+            "(#u64.+.wrap (#u64.+.wrap (#as left u64) second) bias))) (#return result)",
+        );
+    build_and_run(&block, 42);
+    let branch = block
+        .replace(
+            "(#let result u64 (#block",
+            "(#let result u64 (#if true (#block",
+        )
+        .replace(
+            "bias))) (#return result)",
+            "bias)) (#block (#forget values) 5u64))) (#return result)",
+        );
+    build_and_run(&branch, 42);
+    let consumed_prefix = format!(
+        "(#struct Token ((value u64))) (#linear Token)\n{}",
+        include_str!("../examples/async_pattern_blocks.lim")
+            .replace("(a u64)", "(a Token)")
+            .replace(": a 22u64", ": a (#struct-literal Token (: value 22u64))")
+            .replace(
+                "(#let first u64",
+                "(#let bias-value u64 (#get bias value)) (#forget bias) (#let first u64",
+            )
+            .replace("first second) bias)", "first second) bias-value)")
+    );
+    build_and_run(&consumed_prefix, 47);
+    build_and_run(
+        &consumed_prefix.replace("(StepPending (Resume value))", "(StepReady value)"),
+        47,
+    );
+    build_and_run(
+        &consumed_prefix
+            .replace("(StepPending (Resume value))", "(#panic)")
+            .replace(": choose true : waker", ": choose false : waker"),
+        10,
+    );
+    let destructor = format!(
+        "(#fn destroy-token ((token Token)) u64
+          (#let value u64 (#get token value)) (#forget token) (#return value))\n{}",
+        consumed_prefix.replace(
+            "(#let bias-value u64 (#get bias value)) (#forget bias)",
+            "(#let bias-value u64 (#call destroy-token (: token bias)))",
+        )
+    );
+    build_and_run(&destructor, 47);
+    build_and_run(include_str!("../examples/async_prefix_cleanup.lim"), 47);
+    let first_child_only = consumed_prefix
+        .replace(
+            "(Start (#as left u64))",
+            "(Start (#u64.+.wrap (#as left u64) bias-value))",
+        )
+        .replace("first second) bias-value)", "first second) 0u64)");
+    build_and_run(&first_child_only, 47);
+    // An outer value used only by the first child, not by its continuation,
+    // must also be an explicit helper parameter.
+    let outer_child_only = include_str!("../examples/async_pattern_blocks.lim")
+        .replace(
+            "((choose bool) (values Values))",
+            "((choose bool) (values Values) (offset u64))",
+        )
+        .replace(
+            "(Start (#as left u64))",
+            "(Start (#u64.+.wrap (#as left u64) offset))",
+        )
+        .replace(
+            ": choose choose : values",
+            ": choose choose : offset 3u64 : values",
+        );
+    build_and_run(&outer_child_only, 50);
+    let scratch = support::Scratch::new("async-prefix-ownership");
+    let error_for = |source: &str| {
+        lim::compile_source_to_assembly(
+            source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err()
+    };
+    let missing_cleanup = error_for(&consumed_prefix.replace("(#forget bias)", "()"));
+    assert_eq!(
+        missing_cleanup.code,
+        lim::DiagnosticCode::Linear,
+        "{missing_cleanup:?}"
+    );
+    assert!(
+        missing_cleanup.message.contains("bias"),
+        "{missing_cleanup:?}"
+    );
+    assert!(missing_cleanup.span.is_some(), "{missing_cleanup:?}");
+    let reused = error_for(&consumed_prefix.replace(
+        "first second) bias-value)",
+        "first second) (#get bias value))",
+    ));
+    assert_eq!(reused.code, lim::DiagnosticCode::Linear, "{reused:?}");
+    assert!(reused.message.contains("bias"), "{reused:?}");
+    assert!(reused.span.is_some(), "{reused:?}");
+}
+
+#[test]
 fn async_scoped_blocks_keep_nested_pattern_captures() {
     let source = include_str!("../examples/async_destructure.lim");
     let block = source

@@ -393,3 +393,4 @@ exit 42 async_destructure.lim - -
 exit 45 async_resume_destructure.lim - -
 exit 42 async_await_destructure.lim - -
 exit 47 async_pattern_blocks.lim - -
+exit 47 async_prefix_cleanup.lim - -

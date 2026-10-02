@@ -1061,6 +1061,10 @@ fn conditional_block_continuation(
     let await_local = block.binding.as_deref().expect("validated binding");
     let mut continuation_names = HashSet::new();
     collect_value_names(&block.continuation, &mut continuation_names);
+    // The helper constructs the first child as well as running its Ready
+    // continuation. Capture only values used by either, not every prefix
+    // declaration: a linear prefix owner may already have been consumed.
+    collect_value_names(&block.await_expression, &mut continuation_names);
     continuation_names.remove(await_local);
     continuation_names.remove("true");
     continuation_names.remove("false");
@@ -1079,9 +1083,10 @@ fn conditional_block_continuation(
         }
         if let Some(locals) = current_local_bindings(statement)? {
             for local in locals {
-                continuation_names.remove(&local.name);
-                let ty = crate::parse(&local.ty)?.remove(0).expr;
-                prefix_bindings.push((local, ty));
+                if continuation_names.remove(&local.name) {
+                    let ty = crate::parse(&local.ty)?.remove(0).expr;
+                    prefix_bindings.push((local, ty));
+                }
             }
         }
     }
