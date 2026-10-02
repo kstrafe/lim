@@ -18496,43 +18496,115 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_successful_join_clears_removed_reference_contents() {
-        let source = "(#enum Holder ((Filled (#ref u64)) (Empty))) (#linear Holder)
-          (#fn worker ((target (#ref-mut Holder))) ()
-            (#forget (#deref target)) (#deref-set target (Empty)) (#return ()))
+        for (target_type, write, declarations_source) in [
+            ("Holder", "(#deref-set target (Empty))", ""),
+            (
+                "Holder",
+                "(#let replacement Holder (Empty)) (#deref-set target replacement)",
+                "",
+            ),
+            (
+                "Wrapper",
+                "(#deref-set target (#struct-literal Wrapper (: inner (Empty))))",
+                "(#struct Wrapper ((inner Holder))) (#linear Wrapper)",
+            ),
+        ] {
+            let source = format!(
+                "(#enum Holder ((Filled (#ref u64)) (Empty))) (#linear Holder)
+          {declarations_source}
+          (#fn worker ((target (#ref-mut {target_type}))) ()
+            (#forget (#deref target)) {write} (#return ()))
           (@thread-spawn (: task Task : worker worker))
-          (#fn caller ((target (#ref-mut Holder))) ()
+          (#fn caller ((target (#ref-mut {target_type}))) ()
             (#return (#match (#call Task-spawn (: target target))
               (#case (Task-spawn-ok task)
                 (#match (#call Task-join (: task task))
                   (#case (Task-join-ok result)
-                    (#block (#let observed Holder (#deref target)) (#forget observed) ()))
+                    (#block (#let observed {target_type} (#deref target)) (#forget observed) ()))
                   (#case (Task-join-error (#tuple retry error)) (#panic))))
-              (#case (Task-spawn-error error) (#panic)))))";
-        let program = crate::parse_program(source).unwrap();
-        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
-        let types = crate::linearcheck::LinearTypes::from_program(&program);
-        declarations
-            .staged_contents_referent_entry_contracts(&types)
+              (#case (Task-spawn-error error) (#panic)))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap();
+            let body = &declarations.bodies["caller"];
+            let flow = &declarations.flows["caller"];
+            let origins = flow.staged_parameter_store_loan_origins(body);
+            let (event, value) = flow
+                .nodes
+                .iter()
+                .enumerate()
+                .find_map(|(index, node)| {
+                    let crate::typed_flow::FlowAction::Bind { binding, value } = node.action else {
+                        return None;
+                    };
+                    (body.bindings[binding.0].name == "observed")
+                        .then_some((crate::typed_flow::FlowNodeId(index), value))
+                })
+                .unwrap();
+            assert!(
+                origins.value_before(body, flow, event, value).is_empty(),
+                "completed empty variant must not retain old loans"
+            );
+        }
+    }
+
+    #[test]
+    fn stored_enum_constructors_require_agreement_across_worker_paths() {
+        let clear = "(#forget (#deref target))";
+        let empty = "(#deref-set target (Empty))";
+        let filled = "(#deref-set target (Filled source))";
+        for (writes, expected) in [
+            (
+                format!("(#if choose (#block {clear} {empty}) (#block {clear} {empty}))"),
+                Some("Empty"),
+            ),
+            (
+                format!("(#if choose (#block {clear} {empty}) (#block {clear} {filled}))"),
+                None,
+            ),
+            (format!("(#if choose (#block {clear} {empty}) ())"), None),
+        ] {
+            let program = crate::parse_program(&format!(
+                "(#enum Holder ((Filled (#ref u64)) (Empty))) (#linear Holder)
+                 (#fn worker ((target (#ref-mut Holder)) (source (#ref u64)) (choose bool)) ()
+                   {writes} (#return ()))
+                 (@thread-spawn (: task Task : worker worker))"
+            ))
             .unwrap();
-        let body = &declarations.bodies["caller"];
-        let flow = &declarations.flows["caller"];
-        let origins = flow.staged_parameter_store_loan_origins(body);
-        let (event, value) = flow
-            .nodes
-            .iter()
-            .enumerate()
-            .find_map(|(index, node)| {
-                let crate::typed_flow::FlowAction::Bind { binding, value } = node.action else {
-                    return None;
-                };
-                (body.bindings[binding.0].name == "observed")
-                    .then_some((crate::typed_flow::FlowNodeId(index), value))
-            })
-            .unwrap();
-        assert!(
-            origins.value_before(body, flow, event, value).is_empty(),
-            "completed empty variant must not retain old loans"
-        );
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap();
+            let body = &declarations.bodies["worker"];
+            let flow = &declarations.flows["worker"];
+            let origins = flow.staged_parameter_store_loan_origins(body);
+            let stores = flow.parameter_store_summaries(body, &origins);
+            assert_eq!(stores.len(), 1);
+            let expected = expected.map(|name| {
+                declarations
+                    .variant_id(&Type::Named("Holder".into()), name)
+                    .unwrap()
+            });
+            assert_eq!(
+                stores[0].variants.get(&Vec::new()).copied(),
+                expected,
+                "{writes}"
+            );
+            let owner = declarations
+                .aggregate_id(&Type::Named("Task".into()))
+                .unwrap();
+            let captures =
+                crate::thread_contract::capture_store_summaries(owner, 3, &stores).unwrap();
+            assert_eq!(
+                captures[0].variants, stores[0].variants,
+                "constructors are relative to written values, not task capture fields"
+            );
+        }
     }
 
     #[test]

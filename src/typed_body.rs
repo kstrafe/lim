@@ -1072,6 +1072,9 @@ pub(crate) struct ParameterStoreSummary {
     pub destination: ParameterLoanSummary,
     pub sources: Vec<ParameterLoanSummary>,
     pub definitely_written: bool,
+    /// Must-known constructors inside the written value, relative to its root.
+    /// An empty loan set does not imply any constructor.
+    pub variants: HashMap<Vec<crate::typed_place::Segment>, crate::typed_ir::VariantId>,
 }
 
 #[derive(Clone, Debug)]
