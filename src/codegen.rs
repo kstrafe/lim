@@ -13559,10 +13559,12 @@ impl FunctionContext<'_> {
         let done = self.label("inactive_pinned_enum_payload_borrow_done");
         self.expression(&items[1])?;
         self.output.push_str(&format!(
-            "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
+            "    mov rcx, rax\n    and rcx, -2\n    mov rcx, QWORD PTR [rcx]\n    mov r11, {}\n    cmp rcx, r11\n    jne {inactive}\n",
             discriminant
         ));
-        self.emit_reference_field_address(&items[1], payload_offset, true)?;
+        // The receiver may evaluate an index or call. Its original address
+        // and layout tag are still in rax; never evaluate it a second time.
+        self.offset_reference_field_address(payload_offset, true);
         self.output
             .push_str(&format!("    jmp {done}\n{inactive}:\n    ud2\n{done}:\n"));
         Ok(())

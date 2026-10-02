@@ -3,6 +3,54 @@ use std::{fs, process::Command, time::Duration};
 
 mod support;
 
+#[test]
+fn pinned_payload_projection_evaluates_a_computed_receiver_once() {
+    for mutable in [false, true] {
+        for discriminant in [7u64, u64::MAX] {
+            let suffix = if mutable { "-mut" } else { "" };
+            let write = if mutable {
+                "(#unsafe (#pin-write payload 42u64))"
+            } else {
+                ""
+            };
+            let source = format!(
+                "(#enum Choice ((Number {discriminant} u64) (Empty 0)))
+          (#fn main () u64
+            (#let-mut counter u64 0u64)
+            (#let-mut owner (#array Choice 1)
+              (#array-of (#array Choice 1) (Number 42u64)))
+            (#let payload (#pin-ref{suffix} u64)
+              (#pin-get-payload{suffix}
+                (#pin-borrow{suffix} (#index owner
+                  (#block (#set counter (#u64.+.wrap counter 1u64)) 0usize))) Number 0))
+            {write}
+            (#let result u64 (#deref payload))
+            (#drop payload)
+            (#assert (#u64.== counter 1u64))
+            (#forget owner) (#return result))"
+            );
+            check(&source).unwrap();
+            let scratch = support::Scratch::new("pinned-computed-payload");
+            let input = scratch.path().join("main.lim");
+            let binary = scratch.path().join("program");
+            fs::write(&input, source).unwrap();
+            let (status, _, stderr) = support::run(
+                Command::new(env!("CARGO_BIN_EXE_lim"))
+                    .arg(&input)
+                    .arg("-o")
+                    .arg(&binary),
+                Duration::from_secs(20),
+                64 * 1024,
+            )
+            .unwrap();
+            assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+            let (status, _, stderr) =
+                support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+            assert_eq!(status.code(), Some(42), "{status:?} {stderr:?}");
+        }
+    }
+}
+
 fn check(source: &str) -> Result<(), String> {
     let program = parse_program(source).map_err(|error| error.to_string())?;
     check_types(&program).map_err(|error| error.to_string())
