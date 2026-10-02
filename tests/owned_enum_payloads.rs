@@ -1,6 +1,49 @@
 mod support;
 use std::{fs, process::Command};
 
+#[test]
+fn enum_match_destinations_preserve_checked_nested_expressions() {
+    for (ty, subject, yes, no) in [
+        ("bool", "true", "true", "false"),
+        (
+            "(#tuple bool u64)",
+            "(#tuple true 1u64)",
+            "(#tuple true _)",
+            "_",
+        ),
+        (
+            "(#array bool 2)",
+            "(#array-of true false)",
+            "(#array true _)",
+            "_",
+        ),
+        (
+            "(#array bool 10)",
+            "(#array-repeat true)",
+            "(#array true _ _ _ _ _ _ _ _ _)",
+            "_",
+        ),
+    ] {
+        let source = format!(
+            "(#enum E ((Value u64) (Padding (#array u64 10))))
+          (#fn answer ((value u64)) u64 (#return value))
+          (#fn make ((choose {ty})) E
+            (#return (#match (#clone choose)
+              (#case {yes} (Value (#match (#u64.== 1u64 1u64)
+                (#case true (#call answer (: value 42u64))) (#case false 0u64))))
+              (#case {no} (Value 0u64)))))
+          (#fn main () u64
+            (#let subject {ty} {subject})
+            (#let-mut value E (Value 0u64))
+            (#set value (#match (#clone subject)
+              (#case {yes} (#call make (: choose (#clone subject))))
+              (#case {no} (Value 0u64))))
+            (#return (#get-payload value Value 0)))"
+        );
+        assert_eq!(run(&source).code(), Some(42), "{source}");
+    }
+}
+
 fn run(source: &str) -> std::process::ExitStatus {
     let scratch = support::Scratch::new("owned-enum-payloads");
     let input = scratch.path().join("main.lim");

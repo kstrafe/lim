@@ -5247,6 +5247,13 @@ fn normalize_global_integer(value: i128, ty: &Type) -> i128 {
     }
 }
 
+#[derive(Clone, Copy)]
+enum MatchDestination<'a> {
+    Value,
+    Indirect(&'a Type, usize),
+    EnumLocal(&'a str, &'a str),
+}
+
 struct FunctionContext<'a> {
     expression_types: crate::typed_body::EmissionTypes,
     locals_by_binding: HashMap<crate::typed_body::BindingId, Storage>,
@@ -7461,22 +7468,8 @@ impl FunctionContext<'_> {
     fn return_indirect_enum_value(&mut self, enum_name: &str, value: &Expr) -> Result<(), String> {
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
-                let mut staged_match = items.clone();
-                for arm in &mut staged_match[2..] {
-                    let Expr::List(parts) = arm else {
-                        return Err("match arms must have the form (pattern expression)".into());
-                    };
-                    let body_index = match parts.len() {
-                        2 => 1,
-                        3 => 2,
-                        _ => {
-                            return Err("match arms must have the form (pattern expression)".into())
-                        }
-                    };
-                    let body = parts[body_index].clone();
-                    parts[body_index] = Expr::Block(vec![Statement::Return(Some(body))]);
-                }
-                return self.expression(&Expr::List(staged_match));
+                let ty = Type::Named(enum_name.to_owned());
+                return self.match_expression(items, None, Some(&ty), Some((&ty, 0)));
             }
         }
         if self.enums.get(enum_name).is_some_and(|variants| {
@@ -8590,28 +8583,12 @@ impl FunctionContext<'_> {
         }
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
-                let mut staged_match = items.clone();
-                for arm in &mut staged_match[2..] {
-                    let Expr::List(parts) = arm else {
-                        return Err("match arms must have the form (pattern expression)".into());
-                    };
-                    let body_index = match parts.len() {
-                        2 => 1,
-                        3 => 2,
-                        _ => {
-                            return Err("match arms must have the form (pattern expression)".into())
-                        }
-                    };
-                    let body = parts[body_index].clone();
-                    parts[body_index] = Expr::Block(vec![
-                        Statement::Assign {
-                            name: name.to_owned(),
-                            value: body,
-                        },
-                        Statement::Expr(Expr::List(Vec::new())),
-                    ]);
-                }
-                return self.expression(&Expr::List(staged_match));
+                return self.match_expression_with_destination(
+                    items,
+                    None,
+                    None,
+                    MatchDestination::EnumLocal(name, enum_name),
+                );
             }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if") {
                 if items.len() != 4 {
@@ -10997,18 +10974,60 @@ impl FunctionContext<'_> {
         result_type: Option<&Type>,
         indirect_result: Option<(&Type, usize)>,
     ) -> Result<(), String> {
+        self.match_expression_with_destination(
+            items,
+            float_type,
+            result_type,
+            indirect_result.map_or(MatchDestination::Value, |(ty, offset)| {
+                MatchDestination::Indirect(ty, offset)
+            }),
+        )
+    }
+
+    fn emit_match_result(
+        &mut self,
+        body: &Expr,
+        float_type: Option<&Type>,
+        result_type: Option<&Type>,
+        destination: MatchDestination<'_>,
+    ) -> Result<(), String> {
+        match destination {
+            MatchDestination::Indirect(ty, offset) => {
+                self.store_indirect_value_words(body, ty, offset)
+            }
+            MatchDestination::EnumLocal(name, ty) => self.store_enum(name, ty, body),
+            MatchDestination::Value => {
+                if let Some(ty) = float_type {
+                    self.expression_as_float(body, ty)
+                } else if let Some(ty) = result_type {
+                    self.expression_as_expected(body, ty)
+                } else {
+                    self.expression(body)
+                }
+            }
+        }
+    }
+
+    fn match_expression_with_destination(
+        &mut self,
+        items: &[Expr],
+        float_type: Option<&Type>,
+        result_type: Option<&Type>,
+        destination: MatchDestination<'_>,
+    ) -> Result<(), String> {
         if items.len() < 3 {
             return Err("match requires a value and an arm".into());
         }
-        let scrutinee = strip_unsafe_wrappers(&items[1]);
-        if let Expr::List(clone) = scrutinee {
-            if matches!(clone.first(), Some(Expr::Symbol(head)) if head == "clone")
-                && clone.len() == 2
+        let mut scrutinee = strip_unsafe_wrappers(&items[1]);
+        while let Expr::List(clone) = scrutinee {
+            if !matches!(clone.first(), Some(Expr::Symbol(head)) if head == "clone")
+                || clone.len() != 2
             {
-                let mut unwrapped = items.to_vec();
-                unwrapped[1] = clone[1].clone();
-                return self.match_expression(&unwrapped, float_type, result_type, indirect_result);
+                break;
             }
+            // Borrow the original checked nodes. Cloning the entire match
+            // would erase numeric, callee, and binding identities in its arms.
+            scrutinee = strip_unsafe_wrappers(&clone[1]);
         }
         if let Some(Type::Tuple(fields)) = self.expression_type(scrutinee) {
             return self.aggregate_match_expression(
@@ -11019,6 +11038,7 @@ impl FunctionContext<'_> {
                 Type::Tuple(fields.clone()),
                 float_type,
                 result_type,
+                destination,
             );
         }
         if let Some(Type::Array(element, length)) = self.expression_type(scrutinee) {
@@ -11032,6 +11052,7 @@ impl FunctionContext<'_> {
                 Type::Array(Box::new(element_type), length),
                 float_type,
                 result_type,
+                destination,
             );
         }
         if let Some(Type::Named(name)) = self.expression_type(scrutinee) {
@@ -11045,6 +11066,7 @@ impl FunctionContext<'_> {
                     Type::Named(name.clone()),
                     float_type,
                     result_type,
+                    destination,
                 );
             }
         }
@@ -11466,15 +11488,7 @@ impl FunctionContext<'_> {
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {next}\n"));
             }
-            if let Some((ty, offset)) = indirect_result {
-                self.store_indirect_value_words(body, ty, offset)?;
-            } else if let Some(ty) = float_type {
-                self.expression_as_float(body, ty)?;
-            } else if let Some(ty) = result_type {
-                self.expression_as_expected(body, ty)?;
-            } else {
-                self.expression(body)?;
-            }
+            self.emit_match_result(body, float_type, result_type, destination)?;
             self.output
                 .push_str(&format!("    add rsp, {}\n", staged_words * 8));
             self.stack_depth -= staged_words;
@@ -11801,6 +11815,7 @@ impl FunctionContext<'_> {
         ty: Type,
         float_type: Option<&Type>,
         result_type: Option<&Type>,
+        destination: MatchDestination<'_>,
     ) -> Result<(), String> {
         let storage_words = storage_word_count(&ty, &self.structs, &self.enums)?;
         if storage_words > VALUE_REGISTERS.len() {
@@ -11817,6 +11832,7 @@ impl FunctionContext<'_> {
                             &source_slots,
                             float_type,
                             result_type,
+                            destination,
                         );
                     }
                 }
@@ -11834,6 +11850,7 @@ impl FunctionContext<'_> {
                                 &source_slots,
                                 float_type,
                                 result_type,
+                                destination,
                             );
                         }
                     }
@@ -11863,6 +11880,7 @@ impl FunctionContext<'_> {
                     storage_words,
                     float_type,
                     result_type,
+                    destination,
                 );
             }
             if let Expr::List(value_items) = scrutinee {
@@ -11880,6 +11898,7 @@ impl FunctionContext<'_> {
                         float_type,
                         result_type,
                         base_depth,
+                        destination,
                     );
                 }
             }
@@ -11899,6 +11918,7 @@ impl FunctionContext<'_> {
                             float_type,
                             result_type,
                             base_depth,
+                            destination,
                         );
                     }
                 }
@@ -12003,23 +12023,11 @@ impl FunctionContext<'_> {
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {next}\n"));
             }
-            if let Some(ty) = float_type {
-                self.expression_as_float(body, ty)?;
-                self.output.push_str(&format!(
-                    "    add rsp, {}\n    jmp {end}\n{next}:\n",
-                    words * 8
-                ));
-            } else {
-                if let Some(ty) = result_type {
-                    self.expression_as_expected(body, ty)?;
-                } else {
-                    self.expression(body)?;
-                }
-                self.output.push_str(&format!(
-                    "    add rsp, {}\n    jmp {end}\n{next}:\n",
-                    words * 8
-                ));
-            }
+            self.emit_match_result(body, float_type, result_type, destination)?;
+            self.output.push_str(&format!(
+                "    add rsp, {}\n    jmp {end}\n{next}:\n",
+                words * 8
+            ));
             self.stack_depth = base_depth + words;
         }
         self.output.push_str(&format!("    ud2\n{end}:\n"));
@@ -12036,6 +12044,7 @@ impl FunctionContext<'_> {
         storage_words: usize,
         float_type: Option<&Type>,
         result_type: Option<&Type>,
+        destination: MatchDestination<'_>,
     ) -> Result<(), String> {
         if source_slots.len() != storage_words {
             return Err("large aggregate match has an inconsistent storage layout".into());
@@ -12054,6 +12063,7 @@ impl FunctionContext<'_> {
             float_type,
             result_type,
             base_depth,
+            destination,
         )
     }
 
@@ -12066,6 +12076,7 @@ impl FunctionContext<'_> {
         float_type: Option<&Type>,
         result_type: Option<&Type>,
         base_depth: usize,
+        destination: MatchDestination<'_>,
     ) -> Result<(), String> {
         let end = self.label("aggregate_match_end");
         for arm in &items[2..] {
@@ -12094,13 +12105,7 @@ impl FunctionContext<'_> {
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {next}\n"));
             }
-            if let Some(ty) = float_type {
-                self.expression_as_float(body, ty)?;
-            } else if let Some(ty) = result_type {
-                self.expression_as_expected(body, ty)?;
-            } else {
-                self.expression(body)?;
-            }
+            self.emit_match_result(body, float_type, result_type, destination)?;
             self.output.push_str(&format!(
                 "    add rsp, {}\n    jmp {end}\n{next}:\n",
                 storage_words * 8
@@ -12120,6 +12125,7 @@ impl FunctionContext<'_> {
         source_slots: &[usize],
         float_type: Option<&Type>,
         result_type: Option<&Type>,
+        destination: MatchDestination<'_>,
     ) -> Result<(), String> {
         if source_slots.len() != fields.len() {
             return Err("large aggregate match has an inconsistent local layout".into());
@@ -12155,13 +12161,7 @@ impl FunctionContext<'_> {
                 self.output
                     .push_str(&format!("    test rax, rax\n    jz {next}\n"));
             }
-            if let Some(ty) = float_type {
-                self.expression_as_float(body, ty)?;
-            } else if let Some(ty) = result_type {
-                self.expression_as_expected(body, ty)?;
-            } else {
-                self.expression(body)?;
-            }
+            self.emit_match_result(body, float_type, result_type, destination)?;
             self.output.push_str(&format!("    jmp {end}\n{next}:\n"));
         }
         self.output.push_str(&format!("    ud2\n{end}:\n"));
@@ -14726,7 +14726,7 @@ impl FunctionContext<'_> {
     ) -> Result<(), String> {
         if let Expr::List(items) = value {
             if items.len() == 2
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "unsafe" | "clone"))
             {
                 return self.store_value_to_slots(&items[1], ty, slots);
             }
