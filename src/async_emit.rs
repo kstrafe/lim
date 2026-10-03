@@ -279,8 +279,8 @@ impl<'a> Emitter<'a> {
 
     fn value(&self, value: ValueId, transfer: bool) -> String {
         if let Some(lease) = self.leases.get(value) {
-            // The verifier permits only immediate leaf readers to consume
-            // this recipe. It must never become an owned reference value.
+            // Only certified immediate readers/calls may use this recipe.
+            // It must never become an owned reference value.
             assert!(
                 !transfer,
                 "an in-place read lease cannot transfer ownership"
@@ -948,9 +948,20 @@ impl<'a> Emitter<'a> {
                     _ => Vec::new(),
                 };
                 for id in ids {
+                    let transfer = match self.leases.get(id) {
+                        Some(lease) => {
+                            assert_eq!(
+                                lease.consumer,
+                                crate::async_lease::Consumer::Call,
+                                "a leaf read lease cannot be a call operand"
+                            );
+                            false
+                        }
+                        None => true,
+                    };
                     inputs.insert(
                         id,
-                        crate::parse(&self.value(id, true))
+                        crate::parse(&self.value(id, transfer))
                             .map_err(|_| error("stored value expression did not parse"))?
                             .remove(0)
                             .expr,
@@ -2099,13 +2110,41 @@ mod tests {
     }
 
     #[test]
-    fn exclusive_handle_calls_fail_closed_until_call_lending_is_emitted() {
-        let planning = prepare_function(
-            "(#fn work (: view (#ref-mut u64)) u64
+    fn exclusive_call_operands_fail_closed_across_later_effects() {
+        for amount in [
+            "(#call later ())",
+            "(#await Child ChildPending ChildReady child-poll (Start 2u64))",
+        ] {
+            let planning = prepare_function(
+                &format!(
+                    "(#fn work (: view (#ref-mut u64)) u64
               (#let before u64 (#deref view))
               (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
-              (#return (#u64.+.wrap before (#call read-view (: view view)))))",
-            "(#fn read-view (: view (#ref-mut u64)) u64 (#return (#deref view)))
+              (#return (#u64.+.wrap before (#call read-view (: view view : amount {amount})))))"
+                ),
+                "(#fn read-view (: view (#ref-mut u64) : amount u64) u64 (#return (#deref view)))
+              (#fn later () u64 (#return 0u64))
+              (#fn main () u64 (#return 0u64))",
+            );
+            let error = generate(&planning).err().unwrap();
+            assert!(
+                error.message.contains("checked lending lease"),
+                "{}",
+                error.message
+            );
+            let source = &planning.program.source_files[error.span.source_id as usize].source;
+            assert_eq!(&source[error.span.start..error.span.end], "view");
+        }
+    }
+
+    #[test]
+    fn exclusive_calls_returning_children_require_retained_leases() {
+        let planning = prepare_function(
+            "(#fn work (: view (#ref-mut u64)) u64
+              (#let returned (#ref-mut u64) (#call echo (: view view)))
+              (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#return (#u64.+.wrap (#deref returned) child)))",
+            "(#fn echo (: view (#ref-mut u64)) (#ref-mut u64) (#return view))
               (#fn main () u64 (#return 0u64))",
         );
         let error = generate(&planning).err().unwrap();
@@ -2116,6 +2155,103 @@ mod tests {
         );
         let source = &planning.program.source_files[error.span.source_id as usize].source;
         assert_eq!(&source[error.span.start..error.span.end], "view");
+    }
+
+    #[test]
+    fn exclusive_immediate_calls_keep_the_parent_handle_across_pending() {
+        for (ty, borrow) in [
+            ("#ref-mut", "#borrow-mut"),
+            ("#pin-ref-mut", "#pin-borrow-mut"),
+        ] {
+            let write = if ty == "#pin-ref-mut" {
+                "(#unsafe (#pin-write view (#u64.+.wrap (#deref view) amount)))"
+            } else {
+                "(#deref-set view (#u64.+.wrap (#deref view) amount))"
+            };
+            let function = format!(
+                "(#fn work (: view ({ty} u64) : count (#ptr-mut u64)) u64
+                  (#let first u64 (#call adjust (: view view : amount 10u64 : count count)))
+                  (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                  (#let second u64 (#call adjust (: view view : amount 20u64 : count count)))
+                  (#return (#u64.+.wrap second child)))"
+            );
+            let main = format!(
+                "(#fn adjust (: count (#ptr-mut u64) : amount u64 : view ({ty} u64)) u64
+                  (#unsafe (#ptr-write count (#u64.+.wrap (#ptr-read count) 1u64))) {write}
+                  (#return (#deref view)))
+                  (#fn main () u64
+                    (#let waker u64 0u64) (#let-mut value u64 10u64)
+                    (#let-mut count u64 0u64)
+                    (#let pointer (#ptr-mut u64) (#unsafe (#asm (#ptr-mut u64)
+                      ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
+                    (#let task Frame (#call work (: view ({borrow} value) : count pointer)))
+                    (#assert (#u64.== count 0u64))
+                    (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+                    (#let-else (Pending next) Poll first (#unreachable))
+                    (#assert (#u64.== count 1u64))
+                    (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                      (#case (Ready answer) answer)
+                      (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                    (#assert (#u64.== count 2u64))
+                    (#assert (#u64.== value 40u64)) (#set value 99u64) (#return answer))"
+            );
+            // Named argument spelling is deliberately reversed: checked
+            // declaration order evaluates amount before lending view.
+            runtime_planned(prepare_function(&function, &main), 42);
+            let bad = main.replace(
+                "(#let-else (Pending next)",
+                "(#set value 99u64) (#let-else (Pending next)",
+            );
+            let planning = prepare_function(&function, &bad);
+            let generated = generate(&planning).unwrap();
+            let proposed = program(&planning, &generated).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&proposed)
+                .err()
+                .unwrap();
+            assert_eq!(error.1, DiagnosticCode::Borrow);
+            let span = error.2.unwrap();
+            let source = &proposed.source_files[span.source_id as usize].source;
+            assert_eq!(&source[span.start..span.end], "#set");
+        }
+    }
+
+    #[test]
+    fn immediate_call_results_do_not_retain_released_reference_inputs() {
+        for (ty, borrow) in [
+            ("#ref-mut", "#borrow-mut"),
+            ("#pin-ref-mut", "#pin-borrow-mut"),
+        ] {
+            let write = if ty == "#pin-ref-mut" {
+                "(#unsafe (#pin-write view (#u64.+.wrap (#deref view) 1u64)))"
+            } else {
+                "(#deref-set view (#u64.+.wrap (#deref view) 1u64))"
+            };
+            let function = format!(
+                "(#fn work (: view ({ty} u64)) u64
+                  (#call increment (: view view))
+                  (#let owned Owned (#call capture (: view view))) (#drop view)
+                  (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                  (#let answer u64 (#u64.+.wrap (#get owned value) child))
+                  (#forget owned) (#return answer))"
+            );
+            let main = format!(
+                "(#struct Owned (: value u64)) (#linear Owned)
+                  (#fn increment (: view ({ty} u64)) ()
+                    {write} (#return ()))
+                  (#fn capture (: view ({ty} u64)) Owned
+                    (#return (#struct-literal Owned (: value (#deref view)))))
+                  (#fn main () u64
+                    (#let waker u64 0u64) (#let-mut value u64 39u64)
+                    (#let task Frame (#call work (: view ({borrow} value))))
+                    (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+                    (#let-else (Pending next) Poll first (#unreachable))
+                    (#assert (#u64.== value 40u64)) (#set value 99u64)
+                    (#return (#match (#call poll (: task next : waker (#borrow waker)))
+                      (#case (Ready answer) answer)
+                      (#case (Pending bad) (#block (#forget bad) (#unreachable))))))"
+            );
+            runtime_planned(prepare_function(&function, &main), 42);
+        }
     }
 
     #[test]

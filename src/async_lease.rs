@@ -1,7 +1,8 @@
 //! Storage proofs for nonmoving reference reads in the ordinary dispatcher.
 //!
 //! An in-place window keeps the owning handle Full. Its only consumer is a
-//! Copy leaf load after pure address formation in the same executable block.
+//! Copy leaf load or resolved call without reference-bearing results, after
+//! pure address formation in the same executable block.
 //! No handle is copied, captured in another cell, or reevaluated after an
 //! effect or a suspension. This is an emission proof, not borrow permission:
 //! the original source and the generated ordinary program remain mandatory.
@@ -10,7 +11,7 @@
 use std::collections::HashMap;
 
 use crate::async_exec::{
-    Action, AddressProjection, AddressRoot, Argument, BlockId, Graph, LoadKind, ValueId,
+    Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Graph, LoadKind, ValueId,
 };
 use crate::async_lend::{Access, Plan as Accesses};
 use crate::linearcheck::LinearTypes;
@@ -19,11 +20,18 @@ use crate::typed_place::Place;
 use crate::Type;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum Consumer {
+    Leaf,
+    Call,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Lease {
     pub binding: BindingId,
     pub block: BlockId,
     pub load: usize,
     pub read: usize,
+    pub consumer: Consumer,
 }
 
 pub(crate) struct Plan {
@@ -135,18 +143,40 @@ impl Plan {
                                 && types.can_repeat(&graph.places[place.0].ty)
                                 && !types.contains_reference(&graph.places[place.0].ty) =>
                         {
-                            if consumer.replace(index).is_some() {
+                            if consumer.replace((index, Consumer::Leaf)).is_some() {
                                 valid = false
+                            }
+                        }
+                        Action::Compute {
+                            dst: result,
+                            operation: Compute::Checked(operation),
+                        } if operation.callee.is_some()
+                            && !types.contains_reference(&graph.values[result.0].ty)
+                            && operation
+                                .operands
+                                .iter()
+                                .filter(|operand| operand.value == dst)
+                                .count()
+                                == 1 =>
+                        {
+                            // The ordinary callee contract still authorizes
+                            // pointee access. This proof only avoids moving
+                            // the parent handle, and cannot store a returned
+                            // child reference without a retained lease.
+                            if consumer.replace((index, Consumer::Call)).is_some() {
+                                valid = false;
                             }
                         }
                         _ => valid = false,
                     }
                 }
-                let Some(read) = consumer else { continue };
+                let Some((read, consumer)) = consumer else {
+                    continue;
+                };
                 // Not merely "no writes to this binding": calls, pointer
                 // writes, checks, and unrelated operations can change the
                 // evaluated pointer or permissions. Nothing effectful may
-                // occur between the original handle read and its leaf load.
+                // occur between the original handle read and its consumer.
                 if !valid || graph.blocks[block.0].actions[load + 1..read].iter().any(|user|
                     !matches!(&user.action, Action::Place { descriptor, .. } if pure_path(descriptor, dst))) {
                     continue;
@@ -158,6 +188,7 @@ impl Plan {
                         block,
                         load,
                         read,
+                        consumer,
                     },
                 );
             }
@@ -222,6 +253,7 @@ mod tests {
             assert_eq!(plan.leases, checked.plan().leases);
             for (value, lease) in &plan.leases {
                 assert_eq!(lease.binding, BindingId(0));
+                assert_eq!(lease.consumer, Consumer::Leaf);
                 assert!(lease.load < lease.read);
                 let actions = &checked.graph.blocks[lease.block.0].actions;
                 assert!(
@@ -237,8 +269,51 @@ mod tests {
         for source in [
             "(#fn work (: view (#ref-mut u64)) (#ref-mut u64) (#return view))",
             "(#fn work (: view (#ref u64)) u64 (#return (#deref view)))",
-            "(#fn read (: view (#ref-mut u64)) u64 (#return (#deref view)))
-              (#fn work (: view (#ref-mut u64)) u64 (#return (#call read (: view view))))",
+        ] {
+            assert!(Checked::new(source).plan().leases.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn immediate_resolved_calls_lend_without_retaining_results() {
+        for ty in ["#ref-mut", "#pin-ref-mut"] {
+            for result in ["u64", "()", "Owned"] {
+                let value = match result {
+                    "u64" => "(#deref view)",
+                    "()" => "()",
+                    _ => "(#struct-literal Owned (: value (#deref view)))",
+                };
+                let checked = Checked::new(&format!(
+                    "(#struct Owned (: value u64)) (#linear Owned)
+                     (#fn read (: view ({ty} u64)) {result} (#return {value}))
+                     (#fn work (: view ({ty} u64)) {result} (#return (#call read (: view view))))"
+                ));
+                let plan = checked.plan();
+                assert_eq!(plan.leases.len(), 1, "{ty} {result}");
+                let lease = plan.leases.values().next().unwrap();
+                assert_eq!(lease.consumer, Consumer::Call);
+                assert!(matches!(
+                    checked.graph.blocks[lease.block.0].actions[lease.read].action,
+                    Action::Compute {
+                        operation: Compute::Checked(_),
+                        ..
+                    }
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn returned_references_and_later_operands_require_retained_storage() {
+        for source in [
+            "(#fn read (: view (#ref-mut u64)) (#ref-mut u64) (#return view))
+             (#fn work (: view (#ref-mut u64)) (#ref-mut u64) (#return (#call read (: view view))))",
+            "(#struct Source (: leaf (#ref u64))) (#struct Holder (: view (#ref u64)))
+             (#fn read (: view (#ref-mut Source)) Holder (#return (#struct-literal Holder (: view (#get view leaf)))))
+             (#fn work (: view (#ref-mut Source)) Holder (#return (#call read (: view view))))",
+            "(#fn read (: view (#ref-mut u64) : amount u64) u64 (#return amount))
+             (#fn later () u64 (#return 42u64))
+             (#fn work (: view (#ref-mut u64)) u64 (#return (#call read (: view view : amount (#call later ())))))",
         ] {
             assert!(Checked::new(source).plan().leases.is_empty(), "{source}");
         }
