@@ -1,0 +1,231 @@
+//! Stable owner projections for the pinned executable async graph.
+//!
+//! Local bindings are physically initialized only when their source Bind runs.
+//! Borrowing uses their actual Full payload in the stationary frame; neither
+//! factory-time hoisting nor copying an owner creates that address. This plan
+//! checks representation only. Source and generated ordinary checking remain
+//! mandatory, including ownership, self-aliasing and cancellation contracts.
+#![allow(dead_code)]
+
+use crate::async_exec::{Action, AddressRoot, Graph, PlaceDescriptor};
+use crate::typed_body::BindingId;
+use crate::typed_ir::{resolve_type, Declarations};
+use crate::Type;
+
+pub(crate) struct Borrow {
+    pub binding: BindingId,
+    pub input: Type,
+    pub output: Type,
+    pub mutable: bool,
+    fields: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::async_exec::{AddressProjection, ValueId};
+
+    fn fixture(mutable: bool, whole: bool) -> (Graph, PlaceDescriptor, Declarations) {
+        let path = if whole {
+            "owner"
+        } else {
+            "(#get (#get owner pair) 1)"
+        };
+        let leaf = if whole { "Outer" } else { "u64" };
+        let source = format!("(#struct Outer (: pair (#tuple u64 u64))) (#linear Outer)
+          (#type Owner Outer)
+          (#fn work (: seed u64) u64
+            (#let-mut owner Owner (#struct-literal Outer (: pair (#tuple (#tuple u64 u64) 7u64 seed))))
+            (#let view (#pin-ref{} {leaf}) (#pin-borrow{} {path}))
+            (#drop view) (#forget owner) (#return seed))",
+            if mutable { "-mut" } else { "" }, if mutable { "-mut" } else { "" });
+        let program = crate::parse_program(&source).unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let graph = crate::async_exec::build(&declarations.bodies["work"], &[]).unwrap();
+        let place = graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .find_map(|action| match action.action {
+                Action::Borrow { place, .. } => Some(place),
+                _ => None,
+            })
+            .unwrap();
+        let place = graph.places[place.0].clone();
+        (graph, place, declarations)
+    }
+
+    #[test]
+    fn stable_whole_and_nested_owner_projections_use_checked_ordinary_functions() {
+        for mutable in [false, true] {
+            for whole in [false, true] {
+                let (graph, place, declarations) = fixture(mutable, whole);
+                let plan = Borrow::new(&graph, &place, &declarations, mutable, true, true).unwrap();
+                let source = format!(
+                    "(#struct Outer (: pair (#tuple u64 u64))) (#linear Outer) {}",
+                    plan.declaration("project", "input")
+                );
+                let program = crate::parse_program(&source).unwrap();
+                crate::CheckedProgram::validate(&program)
+                    .unwrap_or_else(|error| panic!("{error}\n{source}"));
+                assert_eq!(
+                    plan.binding,
+                    BindingId(
+                        graph
+                            .bindings
+                            .iter()
+                            .position(|binding| binding.name == "owner")
+                            .unwrap()
+                    )
+                );
+                if whole {
+                    assert!(source.contains("(#return input)"));
+                } else {
+                    assert!(source.contains("(#get (#get input pair) 1)"));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn mutable_owner_projection_requires_the_actual_declared_mutable_binding() {
+        let (mut graph, place, declarations) = fixture(true, false);
+        let plan = Borrow::new(&graph, &place, &declarations, true, true, true).unwrap();
+        for action in graph.blocks.iter_mut().flat_map(|block| &mut block.actions) {
+            if let Action::Bind {
+                binding, mutable, ..
+            } = &mut action.action
+            {
+                if *binding == plan.binding {
+                    *mutable = false;
+                }
+            }
+        }
+        assert!(Borrow::new(&graph, &place, &declarations, true, true, true).is_err());
+        assert!(Borrow::new(&graph, &place, &declarations, false, true, true).is_ok());
+    }
+
+    #[test]
+    fn checked_field_identity_tuple_bounds_and_leaf_type_are_preserved() {
+        let (graph, place, declarations) = fixture(false, false);
+        let mut bad = place.clone();
+        if let AddressProjection::Field(field) = &mut bad.projections[0] {
+            field.index = usize::MAX;
+        }
+        assert!(Borrow::new(&graph, &bad, &declarations, false, true, true).is_err());
+        let mut bad = place.clone();
+        bad.projections[1] = AddressProjection::Tuple(usize::MAX);
+        assert!(Borrow::new(&graph, &bad, &declarations, false, true, true).is_err());
+        let mut bad = place;
+        bad.ty = Type::Bool;
+        assert!(Borrow::new(&graph, &bad, &declarations, false, true, true).is_err());
+    }
+
+    #[test]
+    fn unstabilized_owners_and_unchecked_selected_addresses_are_not_emitted() {
+        let (graph, place, declarations) = fixture(false, false);
+        assert!(Borrow::new(&graph, &place, &declarations, false, true, false).is_err());
+        assert!(Borrow::new(&graph, &place, &declarations, false, false, true).is_err());
+        let mut bad = place.clone();
+        bad.projections.push(AddressProjection::Index(ValueId(0)));
+        assert!(Borrow::new(&graph, &bad, &declarations, false, true, true).is_err());
+        bad.checked_prefix = bad.projections.len();
+        assert!(Borrow::new(&graph, &bad, &declarations, false, true, true).is_err());
+        let mut bad = place;
+        bad.root = AddressRoot::Value(ValueId(0));
+        assert!(Borrow::new(&graph, &bad, &declarations, false, true, true).is_err());
+        bad.root = AddressRoot::Local(BindingId(usize::MAX));
+        assert!(Borrow::new(&graph, &bad, &declarations, false, true, true).is_err());
+    }
+}
+
+impl Borrow {
+    pub fn new(
+        graph: &Graph,
+        place: &PlaceDescriptor,
+        declarations: &Declarations,
+        mutable: bool,
+        pinned: bool,
+        stationary: bool,
+    ) -> Result<Self, String> {
+        if !stationary {
+            return Err(
+                "local borrows require stable frame-owner storage, not a handle projection".into(),
+            );
+        }
+        if !pinned {
+            return Err(
+                "ordinary local references require a checked projection from pinned owner storage"
+                    .into(),
+            );
+        }
+        let AddressRoot::Local(binding) = place.root else {
+            return Err("stable owner borrow requires a checked local binding".into());
+        };
+        let owner = graph
+            .bindings
+            .get(binding.0)
+            .ok_or("stable owner borrow lost its binding")?;
+        let declared_mutable = graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .any(|action| match &action.action {
+                Action::Bind {
+                    binding: declared,
+                    mutable,
+                    ..
+                } => *declared == binding && *mutable,
+                Action::Commit(pattern) => pattern.mutable && pattern.bindings.contains(&binding),
+                _ => false,
+            });
+        if mutable && !declared_mutable {
+            return Err("stable owner borrow cannot make an immutable binding exclusive".into());
+        }
+        if !place.checks().is_empty() {
+            return Err("stable owner projection needs its selected address snapshot".into());
+        }
+        let owner = resolve_type(&owner.ty, &declarations.aliases)?;
+        let (fields, target) = crate::async_projection::checked_path(
+            owner.clone(),
+            &place.projections,
+            &place.ty,
+            declarations,
+        )?;
+        Ok(Self {
+            binding,
+            mutable,
+            input: Type::PinnedReference {
+                mutable,
+                target: Box::new(owner),
+            },
+            output: Type::PinnedReference {
+                mutable,
+                target: Box::new(target),
+            },
+            fields,
+        })
+    }
+
+    pub fn declaration(&self, name: &str, argument: &str) -> String {
+        let value = if self.fields.is_empty() {
+            argument.to_owned()
+        } else {
+            let place = self
+                .fields
+                .iter()
+                .fold(argument.to_owned(), |place, field| {
+                    format!("(#get {place} {field})")
+                });
+            format!(
+                "(#pin-borrow{} {place})",
+                if self.mutable { "-mut" } else { "" }
+            )
+        };
+        format!(
+            "(#fn {name} (: {argument} {}) {} (#return {value}))",
+            crate::type_source(&self.input),
+            crate::type_source(&self.output)
+        )
+    }
+}

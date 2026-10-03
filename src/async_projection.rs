@@ -69,47 +69,8 @@ impl Reborrow {
                 "borrow projection requires a field path without deferred address checks".into(),
             );
         }
-        let mut fields = Vec::new();
-        for projection in projections {
-            target = resolve_type(&target, &declarations.aliases)?;
-            match projection {
-                AddressProjection::Field(field) => {
-                    let Type::Named(owner) = &target else {
-                        return Err("borrow projection lost its checked struct type".into());
-                    };
-                    let declaration = declarations
-                        .structs
-                        .get(owner)
-                        .and_then(|fields| fields.get(field.index))
-                        .ok_or("borrow projection has no checked field")?;
-                    if declarations.field_id(&target, &declaration.name) != Some(*field) {
-                        return Err("borrow projection lost its checked field identity".into());
-                    }
-                    fields.push(declaration.name.clone());
-                    target = declaration.ty.clone();
-                }
-                AddressProjection::Tuple(index) => {
-                    let Type::Tuple(elements) = target else {
-                        return Err("borrow projection lost its checked tuple type".into());
-                    };
-                    target = elements
-                        .get(*index)
-                        .cloned()
-                        .ok_or("borrow projection tuple index is out of bounds")?;
-                    fields.push(index.to_string());
-                }
-                _ => {
-                    return Err(
-                        "borrow projection with selected addresses requires a checked snapshot"
-                            .into(),
-                    )
-                }
-            }
-        }
-        target = resolve_type(&target, &declarations.aliases)?;
-        if target != resolve_type(&place.ty, &declarations.aliases)? {
-            return Err("borrow projection disagrees with its checked leaf type".into());
-        }
+        let (fields, leaf) = checked_path(target, projections, &place.ty, declarations)?;
+        target = leaf;
         let output = if pinned {
             Type::PinnedReference {
                 mutable,
@@ -153,6 +114,58 @@ impl Reborrow {
                 format!("(#get {place} {field})")
             })
     }
+}
+
+/// Shared representation validation for external handles and stable owners.
+/// The returned names render already checked declaration identities; they do
+/// not perform field lookup during runtime evaluation.
+pub(crate) fn checked_path(
+    mut target: Type,
+    projections: &[AddressProjection],
+    leaf: &Type,
+    declarations: &Declarations,
+) -> Result<(Vec<String>, Type), String> {
+    let mut fields = Vec::new();
+    for projection in projections {
+        target = resolve_type(&target, &declarations.aliases)?;
+        match projection {
+            AddressProjection::Field(field) => {
+                let Type::Named(owner) = &target else {
+                    return Err("borrow projection lost its checked struct type".into());
+                };
+                let declaration = declarations
+                    .structs
+                    .get(owner)
+                    .and_then(|fields| fields.get(field.index))
+                    .ok_or("borrow projection has no checked field")?;
+                if declarations.field_id(&target, &declaration.name) != Some(*field) {
+                    return Err("borrow projection lost its checked field identity".into());
+                }
+                fields.push(declaration.name.clone());
+                target = declaration.ty.clone();
+            }
+            AddressProjection::Tuple(index) => {
+                let Type::Tuple(elements) = target else {
+                    return Err("borrow projection lost its checked tuple type".into());
+                };
+                target = elements
+                    .get(*index)
+                    .cloned()
+                    .ok_or("borrow projection tuple index is out of bounds")?;
+                fields.push(index.to_string());
+            }
+            _ => {
+                return Err(
+                    "borrow projection with selected addresses requires a checked snapshot".into(),
+                )
+            }
+        }
+    }
+    target = resolve_type(&target, &declarations.aliases)?;
+    if target != resolve_type(leaf, &declarations.aliases)? {
+        return Err("borrow projection disagrees with its checked leaf type".into());
+    }
+    Ok((fields, target))
 }
 
 pub(crate) struct Write {

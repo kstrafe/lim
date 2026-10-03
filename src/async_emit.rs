@@ -855,6 +855,46 @@ impl<'a> Emitter<'a> {
         mutable: bool,
         pinned: bool,
     ) -> Result<String, Error> {
+        if matches!(descriptor.root, AddressRoot::Local(_)) {
+            let owner = crate::async_owner::Borrow::new(
+                &self.function.graph,
+                descriptor,
+                &self.planning.declarations,
+                mutable,
+                pinned,
+                self.pinned,
+            )
+            .map_err(|message| fail(self.function, message))?;
+            let slot = self.bindings.get(&owner.binding).ok_or_else(|| {
+                fail(
+                    self.function,
+                    "stable owner borrow has no physical binding cell",
+                )
+            })?;
+            let slot = &self.slots[*slot];
+            let input = format!(
+                "(#pin-get-payload{} {} {} 0)",
+                if mutable { "-mut" } else { "" },
+                Self::slot_ref(slot, mutable),
+                slot.full
+            );
+            let name = self.fresh("owner-project");
+            let argument = self.fresh("owner-project-input");
+            self.projections.push(owner.declaration(&name, &argument));
+            if owner.output
+                != crate::typed_ir::resolve_type(
+                    &self.function.graph.values[dst.0].ty,
+                    &self.planning.declarations.aliases,
+                )
+                .map_err(|message| fail(self.function, message))?
+            {
+                return Err(fail(
+                    self.function,
+                    "stable owner borrow disagrees with its checked result type",
+                ));
+            }
+            return Ok(self.put_value(dst, &format!("(#call {name} (: {argument} {input}))")));
+        }
         let project = crate::async_projection::Reborrow::new(
             &self.function.graph,
             descriptor,
@@ -936,9 +976,21 @@ impl<'a> Emitter<'a> {
     /// Empty. Source borrowing/linearity must still pass ordinary validation.
     fn check_owned_cells(&self) -> Result<(), Error> {
         let graph = &self.function.graph;
-        if !graph.places.iter().any(|descriptor| {
-            matches!(descriptor.root, AddressRoot::Local(_)) && !descriptor.projections.is_empty()
-        }) {
+        let whole_owner_borrow =
+            graph
+                .blocks
+                .iter()
+                .flat_map(|block| &block.actions)
+                .any(|located| {
+                    matches!(located.action, Action::Borrow { place, .. }
+                if matches!(graph.places[place.0].root, AddressRoot::Local(_)))
+                });
+        if !whole_owner_borrow
+            && !graph.places.iter().any(|descriptor| {
+                matches!(descriptor.root, AddressRoot::Local(_))
+                    && !descriptor.projections.is_empty()
+            })
+        {
             return Ok(());
         }
         let mut live = graph.reachable().into_iter().collect::<Vec<_>>();
@@ -1047,7 +1099,9 @@ impl<'a> Emitter<'a> {
                     ..
                 }) = descriptor
                 {
-                    if !projections.is_empty() && !full[binding.0] {
+                    if (!projections.is_empty() || matches!(located.action, Action::Borrow { .. }))
+                        && !full[binding.0]
+                    {
                         return Err(Error {
                             message: "projected access requires a definitely Full owning cell; partial reconstruction needs leaf-aware storage".into(),
                             span: located.span.unwrap_or(self.function.source.function.span),
@@ -2745,6 +2799,319 @@ mod tests {
         );
         let original = &planning.program.source_files[error.span.source_id as usize].source;
         assert!(original[error.span.start..error.span.end].starts_with("(#fn work"));
+    }
+
+    #[test]
+    fn whole_owner_borrows_require_an_initialized_physical_cell() {
+        let function = "(#fn work (: seed u64) u64
+          (#let owner Source (#struct-literal Source (: amount seed)))
+          (#forget owner)
+          (#let view (#pin-ref Source) (#pin-borrow owner))
+          (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#drop view) (#return child))";
+        let planning = prepare_generator(
+            "async-fn-pinned",
+            function,
+            "(#struct Source (: amount u64)) (#linear Source)",
+        );
+        let error = generate(&planning)
+            .err()
+            .expect("an Empty owner cannot supply a borrow");
+        assert!(
+            error.message.contains("definitely Full"),
+            "{}",
+            error.message
+        );
+        let source = &planning.program.source_files[error.span.source_id as usize].source;
+        assert_eq!(
+            &source[error.span.start..error.span.end],
+            "(#pin-borrow owner)"
+        );
+    }
+
+    #[test]
+    fn zero_sized_local_owner_borrows_have_a_real_stable_cell() {
+        let function = "(#fn work (: seed u64) u64
+          (#let owner Empty (#struct-literal Empty ()))
+          (#let view (#pin-ref Empty) (#pin-borrow owner))
+          (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#drop view) (#forget owner) (#return (#u64.+.wrap seed child)))";
+        let main = "(#struct Empty ()) (#linear Empty)
+          (#fn main () u64 (#let waker u64 0u64)
+          (#let-mut task Frame (#call work (: seed 40u64)))
+          (#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (Pending next) Poll first (#unreachable))
+          (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+            (#case (Ready answer) answer)
+            (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+          (#forget task) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+    }
+
+    #[test]
+    fn disjoint_mutable_owner_fields_stay_stationary_through_repeated_pending() {
+        let function = "(#fn work (: seed u64) u64
+          (#let-mut owner Source (#struct-literal Source (: left seed : right 2u64)))
+          (#let left (#pin-ref-mut u64) (#pin-borrow-mut (#get owner left)))
+          (#let right (#pin-ref u64) (#pin-borrow (#get owner right)))
+          (#for (#let-mut index u64 0u64) (#u64.< index 2u64) (#set index (#u64.+.wrap index 1u64))
+            (#unsafe (#pin-write left (#u64.+.wrap (#deref left) 1u64)))
+            (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 1u64))))
+          (#let answer u64 (#u64.+.wrap (#deref left) (#deref right)))
+          (#drop left) (#drop right) (#forget owner) (#return answer))";
+        let main = "(#struct Source (: left u64 : right u64)) (#linear Source)
+          (#fn main () u64 (#let waker u64 0u64)
+            (#let-mut task Frame (#call work (: seed 38u64)))
+            (#let-mut running (#pin-ref-mut Frame) (#pin-borrow-mut task))
+            (#let-mut retries u64 0u64) (#let-mut answer u64 0u64)
+            (#loop (#match (#call poll (: task running : waker (#borrow waker)))
+              (#case (Pending next) (#block (#set running next) (#set retries (#u64.+.wrap retries 1u64)) ()))
+              (#case (Ready result) (#block (#set answer result) (#break) (#unreachable)))))
+            (#drop running) (#forget task) (#assert (#u64.== retries 2u64)) (#return answer))";
+        // Preserve this full caller-loop witness as a fail-closed gate. Its
+        // returned parent handle must carry frame-internal loan relationships
+        // into later calls, not merely suppress the existing child-loan check.
+        let planning = prepare_generator("async-fn-pinned", function, main);
+        let generated = generate(&planning).unwrap();
+        let proposed = program(&planning, &generated).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&proposed)
+            .err()
+            .expect("named parent-handle recycling still requires internal-loan remapping");
+        assert_eq!(error.1, DiagnosticCode::Borrow, "{}", error.0);
+        assert!(error.0.contains("for call to 'poll'"), "{}", error.0);
+        let span = error.2.unwrap();
+        assert_eq!(
+            &proposed.source_files[span.source_id as usize].source[span.start..span.end],
+            "running"
+        );
+
+        // Distinct consumed continuation handles already retain those loans.
+        // The source async loop itself is unchanged and suspends twice.
+        let main = "(#struct Source (: left u64 : right u64)) (#linear Source)
+          (#fn main () u64 (#let waker u64 0u64)
+            (#let-mut task Frame (#call work (: seed 38u64)))
+            (#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (Pending next) Poll first (#unreachable))
+            (#let second Poll (#call poll (: task next : waker (#borrow waker))))
+            (#let-else (Pending last) Poll second (#unreachable))
+            (#let answer u64 (#match (#call poll (: task last : waker (#borrow waker)))
+              (#case (Ready answer) answer)
+              (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+            (#forget task) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        let invalid = function.replace(
+            "(#pin-borrow (#get owner right))",
+            "(#pin-borrow (#get owner left))",
+        );
+        let planning = prepare_generator("async-fn-pinned", &invalid, main);
+        let generated = generate(&planning).unwrap();
+        let proposed = program(&planning, &generated).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&proposed)
+            .err()
+            .unwrap();
+        assert_eq!(error.1, DiagnosticCode::Borrow, "{}", error.0);
+        let span = error.2.unwrap();
+        assert!((span.source_id as usize) < planning.program.source_files.len());
+        assert_eq!(
+            &proposed.source_files[span.source_id as usize].source[span.start..span.end],
+            "#pin-borrow"
+        );
+    }
+
+    #[test]
+    fn pinned_owner_cancellation_ends_internal_loans_before_transferring_owners() {
+        let function = "(#fn work (: seed u64) u64
+          (#let offset u64 (#await Child ChildPending ChildReady child-poll (Start 5u64)))
+          (#let-mut owner Source (#struct-literal Source (: amount (#u64.+.wrap seed offset))))
+          (#let view (#pin-ref-mut u64) (#pin-borrow-mut (#get owner amount)))
+          (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#let observed u64 (#deref view)) (#drop view) (#forget owner)
+          (#return (#u64.+.wrap observed child)))";
+        let first =
+            "(#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (Pending next) Poll first (#unreachable))";
+        let second = "(#let second Poll (#call poll (: task next : waker (#borrow waker))))
+          (#let-else (Pending last) Poll second (#unreachable))";
+        for (phase, polls, receiver, owners, children, child_value) in [
+            ("initial", String::new(), "(#pin-borrow-mut task)", 0, 0, 0),
+            ("before-owner", first.into(), "next", 0, 1, 5),
+            ("after-owner", format!("{first}\n{second}"), "last", 1, 1, 2),
+            (
+                "ready",
+                format!(
+                    "{first}\n{second}
+                  (#let answer u64 (#match (#call poll (: task last : waker (#borrow waker)))
+                    (#case (Ready answer) answer)
+                    (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                  (#assert (#u64.== answer 42u64))"
+                ),
+                "(#pin-borrow-mut task)",
+                0,
+                0,
+                0,
+            ),
+        ] {
+            let planning = prepare_generator(
+                "async-fn-pinned",
+                function,
+                "(#struct Source (: amount u64)) (#linear Source)",
+            );
+            let mut generated = generate(&planning).unwrap();
+            let parsed = program(&planning, &generated).unwrap();
+            let fields = parsed
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    Item::Struct { name, fields, .. } if name == "Frame-state" => Some(fields),
+                    _ => None,
+                })
+                .unwrap();
+            let mut cleanup = Vec::new();
+            let mut owner_cells = 0;
+            for field in fields {
+                let Type::Named(slot) = &field.ty else {
+                    continue;
+                };
+                let variants = parsed
+                    .items
+                    .iter()
+                    .find_map(|item| match item {
+                        Item::Enum { name, variants, .. } if name == slot => Some(variants),
+                        _ => None,
+                    })
+                    .unwrap();
+                let Some(full) = variants.iter().find(|variant| {
+                    variant.fields == [Type::Named("Source".into())]
+                        || variant.fields == [Type::Named("Child".into())]
+                }) else {
+                    continue;
+                };
+                let empty = &variants
+                    .iter()
+                    .find(|variant| variant.fields.is_empty())
+                    .unwrap()
+                    .name;
+                let destroy = if full.fields == [Type::Named("Source".into())] {
+                    owner_cells += 1;
+                    "(#assert (#u64.== (#get value amount) 40u64)) (#forget value)
+                     (#deref-set owners (#u64.+.wrap (#deref owners) 1u64))"
+                        .to_string()
+                } else {
+                    format!(
+                        "(#match value
+                      (#case (Start amount) (#assert false))
+                      (#case (Resume amount) (#assert (#u64.== amount {child_value}u64))))
+                      (#deref-set children (#u64.+.wrap (#deref children) 1u64))"
+                    )
+                };
+                cleanup.push(format!(
+                    "(#match (#get state {})
+                  (#case {empty} ()) (#case ({} value) (#block {destroy} ())))",
+                    field.name, full.name
+                ));
+            }
+            assert!(
+                owner_cells > 0,
+                "{phase}: no actual owner storage inspected"
+            );
+            let extra = format!("(#fn destroy-state
+                (: state Frame-state : owners (#ref-mut u64) : children (#ref-mut u64)) ()
+                {} (#forget state) (#return ()))
+              (#fn main () u64 (#let waker u64 0u64)
+                (#let-mut owners u64 0u64) (#let-mut children u64 0u64)
+                (#let-mut task Frame (#call work (: seed 35u64)))
+                {polls}
+                (#let state Frame-state (#call poll-cancel (: task {receiver})))
+                (#call destroy-state (: state state : owners (#borrow-mut owners) : children (#borrow-mut children)))
+                (#let again Frame-state (#call poll-cancel (: task (#pin-borrow-mut task))))
+                (#assert (#u32.== (#get again pc) 4294967295u32))
+                (#call destroy-state (: state again : owners (#borrow-mut owners) : children (#borrow-mut children)))
+                (#assert (#u64.== owners {owners}u64))
+                (#assert (#u64.== children {children}u64))
+                (#forget task) (#return 42u64))", cleanup.join("\n"));
+            generated[0].source = crate::generator::format_generated_source(&format!(
+                "{}\n{extra}",
+                generated[0].source,
+            ))
+            .unwrap();
+            runtime_generated(planning, generated, 42);
+        }
+    }
+
+    #[test]
+    fn local_owner_initialization_after_await_is_lazy_and_runs_exactly_once() {
+        let function = "(#fn work (: seed u64 : count (#ptr-mut u64)) u64
+          (#let offset u64 (#await Child ChildPending ChildReady child-poll (Start 5u64)))
+          (#let owner Source (#call make-owner (: seed (#u64.+.wrap seed offset) : count count)))
+          (#let view (#pin-ref u64) (#pin-borrow (#get owner amount)))
+          (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#let observed u64 (#deref view)) (#drop view) (#forget owner)
+          (#return (#u64.+.wrap observed child)))";
+        let main = "(#struct Source (: padding u64 : amount u64)) (#linear Source)
+          (#fn make-owner (: seed u64 : count (#ptr-mut u64)) Source
+            (#unsafe (#ptr-write count (#u64.+.wrap (#ptr-read count) 1u64)))
+            (#return (#struct-literal Source (: padding 99u64 : amount seed))))
+          (#fn main () u64 (#let waker u64 0u64) (#let-mut count u64 0u64)
+            (#let pointer (#ptr-mut u64) (#unsafe (#asm (#ptr-mut u64)
+              ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
+            (#let-mut task Frame (#call work (: seed 35u64 : count pointer)))
+            (#assert (#u64.== count 0u64))
+            (#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (Pending next) Poll first (#unreachable))
+            (#assert (#u64.== count 0u64))
+            (#let second Poll (#call poll (: task next : waker (#borrow waker))))
+            (#let-else (Pending last) Poll second (#unreachable))
+            (#assert (#u64.== count 1u64))
+            (#let answer u64 (#match (#call poll (: task last : waker (#borrow waker)))
+              (#case (Ready answer) answer)
+              (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+            (#forget task) (#assert (#u64.== count 1u64)) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+    }
+
+    #[test]
+    fn pinned_local_owner_borrows_are_initialized_during_poll_and_stay_stationary() {
+        let function = "(#fn work (: seed u64) u64
+          (#let owner Source (#struct-literal Source (: amount seed)))
+          (#let view (#pin-ref u64) (#pin-borrow (#get owner amount)))
+          (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#let observed u64 (#deref view)) (#drop view) (#forget owner)
+          (#return (#u64.+.wrap observed child)))";
+        let main = "(#struct Source (: amount u64)) (#linear Source)
+          (#fn main () u64 (#let waker u64 0u64)
+            (#let-mut task Frame (#call work (: seed 40u64)))
+            (#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (Pending next) Poll first (#unreachable))
+            (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+              (#case (Ready answer) answer)
+              (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+            (#forget task) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        for action in ["(#forget task)", "(#let moved Frame task) (#forget moved)"] {
+            let bad = format!("(#struct Source (: amount u64)) (#linear Source)
+              (#fn main () u64 (#let waker u64 0u64)
+                (#let-mut task Frame (#call work (: seed 40u64)))
+                (#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                (#let-else (Pending next) Poll first (#unreachable)) (#drop next)
+                {action} (#return 0u64))");
+            let planning = prepare_generator("async-fn-pinned", function, &bad);
+            let generated = generate(&planning).unwrap();
+            let proposed = program(&planning, &generated).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&proposed)
+                .err()
+                .expect("a stored internal reference must protect its stationary frame");
+            assert_eq!(error.1, DiagnosticCode::Borrow, "{}", error.0);
+            let span = error.2.unwrap();
+            assert_eq!(span.source_id, 0);
+            assert_eq!(
+                &proposed.source_files[span.source_id as usize].source[span.start..span.end],
+                if action.starts_with("(#forget") {
+                    "#forget"
+                } else {
+                    "task"
+                }
+            );
+        }
     }
 
     #[test]
