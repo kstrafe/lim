@@ -1493,9 +1493,17 @@ impl<'a> Emitter<'a> {
                 let edge = self.edge(block, 0, ready, Some(&result))?;
                 let retired = self.retire_edge(block, 1);
                 let empty = self.expose_empty_reference_cells(block, false);
+                // A movable graph frame has no retained self-loans. Internal
+                // field pinning is retired by explicit unsafe extraction;
+                // forgetting a temporary pin must not authorize a safe move.
+                let pending_task = if self.pinned {
+                    "task"
+                } else {
+                    "(#unsafe (#pin-read (#pin-borrow-mut task)))"
+                };
                 Ok(format!("(#let {polled} {} {call})\n\
                   (#match {polled}\n\
-                    (#case ({} {next}) (#block {store} {retired} {empty} {} (#return ({} task)) (#unreachable)))\n\
+                    (#case ({} {next}) (#block {store} {retired} {empty} {} (#return ({} {pending_task})) (#unreachable)))\n\
                     (#case ({} {result}) (#block {edge} (#unreachable))))", crate::type_source(poll_type), protocol.pending, self.set_pc(pending.0 as u32), self.pending, protocol.ready))
             }
             Terminator::Return(value) => {
@@ -1521,7 +1529,9 @@ impl<'a> Emitter<'a> {
                         .join("\n");
                     format!("{clear}\n{owners}\n{}", self.set_pc(u32::MAX))
                 } else {
-                    format!("(#call {finish} (: task task))")
+                    format!(
+                        "(#call {finish} (: task (#unsafe (#pin-read (#pin-borrow-mut task)))))"
+                    )
                 };
                 Ok(format!(
                     "(#let {name} {} {value})\n{empty}\n{complete}\n(#return ({} {name}))",

@@ -1918,7 +1918,7 @@ impl Builder<'_> {
         let root = match root {
             PlaceRoot::Local(binding) => AddressRoot::Local(*binding),
             PlaceRoot::Global(global) => AddressRoot::Global(*global),
-            PlaceRoot::Parameter(_) => {
+            PlaceRoot::Parameter(_) | PlaceRoot::Allocation(_, _) => {
                 return Err(error(
                     Some(source),
                     "analysis referent root is not executable storage",

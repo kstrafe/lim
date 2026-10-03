@@ -204,6 +204,7 @@ fn async_task_capture_is_copy(ty: &Type) -> bool {
         | Type::PinnedReference { mutable: true, .. }
         | Type::MutableSlice(_)
         | Type::Atomic(_)
+        | Type::PinOwned(_)
         | Type::Generic(_) => false,
         Type::Named(name) => is_named_copy_type(name),
     }

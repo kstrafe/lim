@@ -2165,6 +2165,12 @@ fn check_types_inner(
         .keys()
         .map(|name| (name.as_str(), std::cell::OnceCell::new()))
         .collect::<HashMap<_, _>>();
+    crate::pin_ownership::check(&declarations, &linear_types, &loan_caches).map_err(|error| {
+        *diagnostic_span = error.span;
+        *diagnostic_labels = error.labels;
+        record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+        error.message
+    })?;
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let (Some(body), Some(flow)) = (
@@ -2744,6 +2750,7 @@ fn type_mentions_task(
         Type::Reference { target, .. }
         | Type::PinnedReference { target, .. }
         | Type::RawPointer { target, .. }
+        | Type::PinOwned(target)
         | Type::Array(target, _) => type_mentions_task(target, tasks, enums, seen),
         Type::Tuple(fields) => fields
             .iter()
@@ -3619,6 +3626,9 @@ fn type_has_thread_property_inner(
         | Type::F64 => Ok(true),
         Type::Generic(_) => Ok(false),
         Type::RawPointer { .. } => Ok(false),
+        Type::PinOwned(target) => {
+            type_has_thread_property_inner(target, property, structs, enums, overrides, active)
+        }
         Type::Reference { mutable, target } => match (property, mutable) {
             (ThreadProperty::Send, false) | (ThreadProperty::Sync, _) => {
                 type_has_thread_property_inner(
@@ -5258,6 +5268,7 @@ fn first_unresolved_type<'a>(
         | Type::Slice(target)
         | Type::MutableSlice(target)
         | Type::Atomic(target)
+        | Type::PinOwned(target)
         | Type::Array(target, _) => first_unresolved_type(target, declared_types, aliases),
         Type::Tuple(fields) => fields
             .iter()
@@ -6683,6 +6694,7 @@ fn type_contains_thread_task_value(
         Type::Reference { target, .. }
         | Type::PinnedReference { target, .. }
         | Type::RawPointer { target, .. }
+        | Type::PinOwned(target)
         | Type::Array(target, _) => {
             type_contains_thread_task_value(target, functions, enums, aliases, seen)
         }
@@ -6969,6 +6981,12 @@ fn list_expression(
             let cloned = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, expected,
             )?;
+            if type_contains_pin_owner(&cloned, structs, enums, &mut HashSet::new()) {
+                return Err(
+                    "an owning pin cannot be cloned; create a separate allocation explicitly"
+                        .into(),
+                );
+            }
             if type_contains_mutable_reference(&cloned, structs, enums, &mut HashSet::new()) {
                 return Err("a mutable reference cannot be cloned".into());
             }
@@ -7615,6 +7633,100 @@ fn list_expression(
                     Ok(*target)
                 }
                 _ => Err("deref requires a reference".into()),
+            }
+        }
+        "@pin-init" => {
+            require_arity(operator, items, 2)?;
+            expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, expected,
+            )
+        }
+        "pin-end" => {
+            require_arity(operator, items, 2)?;
+            expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            if !matches!(items[1], Expr::Symbol(_)) {
+                return Err("pin-end requires a stationary local binding".into());
+            }
+            Ok(Type::Unit)
+        }
+        "pin-own-of" => {
+            require_arity(operator, items, 3)?;
+            match expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )? {
+                Type::RawPointer {
+                    mutable: true,
+                    target,
+                } => {
+                    if type_contains_borrowed_storage(&target, structs, enums, &mut HashSet::new())
+                    {
+                        return Err("pin-own-of currently requires a pointee without reference or owning-pin fields; allocation contents need explicit lifetime provenance".into());
+                    }
+                    let actual = expression(&items[2], variables, functions, structs, enums, mutable, aliases, Some(&target))?;
+                    require_type(&actual, &target, "pin-own-of initializer")?;
+                    Ok(Type::PinOwned(target))
+                }
+                _ => Err(
+                    "pin-own-of requires uniquely owned writable allocation storage and an initializer"
+                        .into(),
+                ),
+            }
+        }
+        "pin-own-borrow" | "pin-own-borrow-mut" => {
+            if !matches!(items.len(), 2 | 3) {
+                return Err(
+                    "pin-own-borrow requires an owner and optional allocator reference".into(),
+                );
+            }
+            if let Some(anchor) = items.get(2) {
+                if !matches!(
+                    expression(
+                        anchor, variables, functions, structs, enums, mutable, aliases, None
+                    )?,
+                    Type::Reference { .. } | Type::PinnedReference { .. }
+                ) {
+                    return Err("pin-own-borrow allocator anchor must be a reference".into());
+                }
+            }
+            let owner = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let wants_mutable = operator == "pin-own-borrow-mut";
+            let (owner, writable) = match owner {
+                Type::Reference { mutable, target } | Type::PinnedReference { mutable, target } => {
+                    (*target, mutable)
+                }
+                owner => (
+                    owner,
+                    matches!(&items[1], Expr::Symbol(name) if mutable.contains(name)),
+                ),
+            };
+            let Type::PinOwned(target) = owner else {
+                return Err("pin-own-borrow requires an owning pin or a reference to one".into());
+            };
+            if type_contains_borrowed_storage(&target, structs, enums, &mut HashSet::new()) {
+                return Err("pin-own-borrow currently requires a pointee without reference or owning-pin fields; allocation contents need explicit lifetime provenance".into());
+            }
+            if wants_mutable && !writable {
+                return Err("pin-own-borrow-mut requires a mutable owner binding or mutable owner reference".into());
+            }
+            Ok(Type::PinnedReference {
+                mutable: wants_mutable,
+                target,
+            })
+        }
+        "pin-release" => {
+            require_arity(operator, items, 2)?;
+            match expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )? {
+                Type::PinOwned(target) => Ok(Type::RawPointer {
+                    mutable: true,
+                    target,
+                }),
+                _ => Err("pin-release requires an owning heap pin".into()),
             }
         }
         "pin-read" => {
@@ -9714,6 +9826,7 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
             target: Box::new(substitute_type(target, substitutions)),
         },
         Type::Atomic(target) => Type::Atomic(Box::new(substitute_type(target, substitutions))),
+        Type::PinOwned(target) => Type::PinOwned(Box::new(substitute_type(target, substitutions))),
         _ => ty.clone(),
     }
 }
@@ -9913,6 +10026,75 @@ fn contains_reference_type(
     }
 }
 
+fn type_contains_borrowed_storage(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    seen: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        Type::Reference { .. }
+        | Type::PinnedReference { .. }
+        | Type::Slice(_)
+        | Type::MutableSlice(_)
+        | Type::PinOwned(_) => true,
+        Type::Array(element, _) | Type::Atomic(element) => {
+            type_contains_borrowed_storage(element, structs, enums, seen)
+        }
+        Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| type_contains_borrowed_storage(field, structs, enums, seen)),
+        Type::Named(name) if seen.insert(name.clone()) => {
+            let result = structs.get(name).is_some_and(|fields| {
+                fields
+                    .iter()
+                    .any(|field| type_contains_borrowed_storage(&field.ty, structs, enums, seen))
+            }) || enums.get(name).is_some_and(|variants| {
+                variants
+                    .iter()
+                    .flat_map(|variant| &variant.fields)
+                    .any(|field| type_contains_borrowed_storage(field, structs, enums, seen))
+            });
+            seen.remove(name);
+            result
+        }
+        _ => false,
+    }
+}
+
+fn type_contains_pin_owner(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    seen: &mut HashSet<String>,
+) -> bool {
+    match ty {
+        Type::PinOwned(_) => true,
+        Type::Array(element, _) | Type::Atomic(element) => {
+            type_contains_pin_owner(element, structs, enums, seen)
+        }
+        Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| type_contains_pin_owner(field, structs, enums, seen)),
+        Type::Named(name) if seen.insert(name.clone()) => {
+            let result = structs.get(name).is_some_and(|fields| {
+                fields
+                    .iter()
+                    .any(|field| type_contains_pin_owner(&field.ty, structs, enums, seen))
+            }) || enums.get(name).is_some_and(|variants| {
+                variants
+                    .iter()
+                    .flat_map(|variant| &variant.fields)
+                    .any(|field| type_contains_pin_owner(field, structs, enums, seen))
+            });
+            seen.remove(name);
+            result
+        }
+        // A reference or raw pointer does not duplicate ownership.
+        _ => false,
+    }
+}
+
 fn type_contains_mutable_reference(
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
@@ -9969,6 +10151,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::F64 => "f64",
         Type::Reference { .. } => "reference",
         Type::PinnedReference { .. } => "pinned reference",
+        Type::PinOwned(_) => "owning pin",
         Type::Slice(_) => "slice",
         Type::MutableSlice(_) => "mutable slice",
         Type::Atomic(_) => "atomic",
@@ -21444,6 +21627,8 @@ mod typed_ownership_tests {
             .unwrap();
         use crate::typed_place::Segment;
         let loan = crate::typed_body::ParameterLoanSummary {
+            fresh_allocation: None,
+            owned_allocation: false,
             global: None,
             parameter: 0,
             mutable: true,
@@ -22166,16 +22351,19 @@ mod typed_ownership_tests {
             assert_eq!(slots, expected);
             assert_eq!(slots.len(), 8);
             assert!(slots.contains(&ParameterLoanSeed {
+                owned_allocation: false,
                 storage: vec![Segment::ThreadCapture(owner, 0)],
                 mutable: false,
                 pinned: false,
             }));
             assert!(slots.contains(&ParameterLoanSeed {
+                owned_allocation: false,
                 storage: vec![Segment::ThreadCapture(owner, 1)],
                 mutable: true,
                 pinned: false,
             }));
             assert!(slots.contains(&ParameterLoanSeed {
+                owned_allocation: false,
                 storage: vec![Segment::ThreadCapture(owner, 5)],
                 mutable: false,
                 pinned: true,

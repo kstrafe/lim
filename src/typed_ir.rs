@@ -1905,21 +1905,8 @@ impl Declarations {
                 for origin in
                     origins.value_before(body, flow, crate::typed_flow::FlowNodeId(index), *value)
                 {
-                    let (parameter, global) = match origin.place.root {
-                        crate::typed_body::PlaceRoot::Parameter(binding) => (binding.0, None),
-                        crate::typed_body::PlaceRoot::Global(global) => (0, Some(global)),
-                        _ => continue,
-                    };
-                    let summary = crate::typed_body::ParameterLoanSummary {
-                        parameter,
-                        global,
-                        mutable: origin.mutable,
-                        pinned: origin.pinned,
-                        lifetime_only: origin.lifetime_only,
-                        referent_projection: origin.place.segments,
-                        input_storage: origin.parameter_storage.unwrap_or_default(),
-                        storage: origin.storage,
-                        storage_inputs: origin.storage_inputs,
+                    let Some(summary) = origin.parameter_summary() else {
+                        continue;
                     };
                     if !returned.contains(&summary) {
                         returned.push(summary);
@@ -2238,6 +2225,8 @@ impl Declarations {
                     let mut spawn_inputs = vec![None, None];
                     spawn_inputs.extend((0..seed.storage.len()).map(Some));
                     spawned.push(ParameterLoanSummary {
+                        fresh_allocation: None,
+                        owned_allocation: seed.owned_allocation,
                         parameter,
                         global: None,
                         mutable: seed.mutable,
@@ -2254,6 +2243,8 @@ impl Declarations {
                     let mut retry_inputs = vec![None, None];
                     retry_inputs.extend((0..captured_slot.len()).map(Some));
                     retried.push(ParameterLoanSummary {
+                        fresh_allocation: None,
+                        owned_allocation: seed.owned_allocation,
                         parameter: 0,
                         global: None,
                         mutable: seed.mutable,
@@ -2303,8 +2294,15 @@ impl Declarations {
     ) {
         use crate::typed_place::Segment;
         match ty {
+            Type::PinOwned(_) => output.push(crate::typed_body::ParameterLoanSeed {
+                owned_allocation: true,
+                mutable: true,
+                pinned: true,
+                storage: path.clone(),
+            }),
             Type::Reference { mutable, target } | Type::PinnedReference { mutable, target } => {
                 output.push(crate::typed_body::ParameterLoanSeed {
+                    owned_allocation: false,
                     mutable: *mutable,
                     pinned: matches!(ty, Type::PinnedReference { .. }),
                     storage: path.clone(),
@@ -2324,6 +2322,7 @@ impl Declarations {
             }
             Type::Slice(element) | Type::MutableSlice(element) => {
                 output.push(crate::typed_body::ParameterLoanSeed {
+                    owned_allocation: false,
                     mutable: matches!(ty, Type::MutableSlice(_)),
                     pinned: false,
                     storage: path.clone(),
@@ -2484,6 +2483,7 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
                 Type::MutableSlice(Box::new(resolve(element, aliases, seen)?))
             }
             Type::Atomic(element) => Type::Atomic(Box::new(resolve(element, aliases, seen)?)),
+            Type::PinOwned(element) => Type::PinOwned(Box::new(resolve(element, aliases, seen)?)),
             Type::Reference { mutable, target } => Type::Reference {
                 mutable: *mutable,
                 target: Box::new(resolve(target, aliases, seen)?),

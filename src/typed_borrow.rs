@@ -70,6 +70,11 @@ pub(crate) fn check_live_direct_loans_cached(
                 .call_return_origins
                 .get(callee)
                 .is_some_and(|summary| summary.iter().any(|origin| origin.global.is_some())),
+            NodeKind::Form { head, .. }
+                if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut") =>
+            {
+                true
+            }
             _ => false,
         })
     {
@@ -152,7 +157,28 @@ pub(crate) fn check_live_direct_loans_cached(
             _ => None,
         };
         let computed_targets = match node.action {
+            FlowAction::Borrow { value, .. } => match &body.nodes[value.0].kind {
+                NodeKind::Form { head, .. }
+                    if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut") =>
+                {
+                    origins
+                        .value_before(body, flow, FlowNodeId(index), value)
+                        .into_iter()
+                        .filter(|origin| !origin.lifetime_only)
+                        .collect()
+                }
+                _ => Vec::new(),
+            },
             FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
+                NodeKind::Form { head, .. }
+                    if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut") =>
+                {
+                    origins
+                        .value_before(body, flow, FlowNodeId(index), value)
+                        .into_iter()
+                        .filter(|origin| !origin.lifetime_only)
+                        .collect()
+                }
                 NodeKind::Form { head, children, .. }
                     if matches!(head.as_str(), "deref-set" | "#variant-is")
                         && children.len() == 3 =>
@@ -163,10 +189,23 @@ pub(crate) fn check_live_direct_loans_cached(
             },
             _ => Vec::new(),
         };
+        let computed_borrow = match node.action {
+            FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
+                NodeKind::Form { head, .. }
+                    if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut") =>
+                {
+                    Some(head == "pin-own-borrow-mut")
+                }
+                _ => None,
+            },
+            _ => None,
+        };
         let (place, access) = match &node.action {
             FlowAction::Evaluate(_) if !computed_targets.is_empty() => (
                 &computed_targets[0].place,
-                if tag_receiver.is_some() {
+                if let Some(mutable) = computed_borrow {
+                    AccessKind::Borrow { mutable }
+                } else if tag_receiver.is_some() {
                     AccessKind::Read
                 } else {
                     AccessKind::Write
@@ -274,6 +313,9 @@ pub(crate) fn check_live_direct_loans_cached(
                 continue;
             }
             for held in origins.before(event, binding) {
+                if held.owned_allocation {
+                    continue;
+                }
                 if tag_sources.iter().any(|source| {
                     source.root == PlaceRoot::Local(binding) && source.segments == held.storage
                 }) {
@@ -353,6 +395,7 @@ pub(crate) fn check_live_direct_loans_cached(
                             body.bindings[binding.0].name.as_str()
                         }
                         PlaceRoot::Global(_) => "static",
+                        PlaceRoot::Allocation(_, _) => "pinned allocation",
                     };
                     return Err(BorrowConflict {
                         message: crate::analysis_error::failure!(
@@ -387,6 +430,7 @@ pub(crate) fn check_live_direct_loans_cached(
                                 body.bindings[binding.0].name.clone()
                             }
                             PlaceRoot::Global(_) => "static".into(),
+                            PlaceRoot::Allocation(_, _) => "pinned allocation".into(),
                         }
                     };
                     let message = match access {
@@ -515,6 +559,7 @@ pub(crate) fn check_live_direct_loans_cached(
                         body.bindings[binding.0].name.clone()
                     }
                     PlaceRoot::Global(_) => "static".into(),
+                    PlaceRoot::Allocation(_, _) => "pinned allocation".into(),
                 }
             };
             let message = match access {
@@ -561,6 +606,7 @@ fn diagnostic_place_name(body: &Body, place: &Place) -> String {
             body.bindings[binding.0].name.clone()
         }
         PlaceRoot::Global(_) => "static".into(),
+        PlaceRoot::Allocation(_, _) => "pinned allocation".into(),
     };
     for segment in &place.segments {
         match segment {
@@ -829,6 +875,7 @@ fn check_call_reborrow_parents(
                             body.bindings[binding.0].name.as_str()
                         }
                         PlaceRoot::Global(_) => "static",
+                        PlaceRoot::Allocation(_, _) => "pinned allocation",
                     };
                     return Err(BorrowConflict {
                         message: crate::analysis_error::failure!(
@@ -1339,6 +1386,14 @@ fn origin_alternatives(
     held: &[LoanOrigin],
     span: Option<Span>,
 ) -> Result<Option<Vec<Vec<DirectBorrow>>>, BorrowConflict> {
+    if held.iter().any(|origin| origin.owned_allocation) {
+        let borrowed = held
+            .iter()
+            .filter(|origin| !origin.owned_allocation)
+            .cloned()
+            .collect::<Vec<_>>();
+        return origin_alternatives(&borrowed, span);
+    }
     if held.is_empty() {
         return Ok(None);
     }
@@ -2198,6 +2253,7 @@ mod tests {
     fn symbolic_pointer_boundaries_preserve_aliasing_within_the_same_input_slot() {
         use crate::typed_place::Segment;
         let origin = |root, slot, projection| LoanOrigin {
+            owned_allocation: false,
             place: Place {
                 root,
                 segments: projection,
@@ -4086,6 +4142,7 @@ mod tests {
     fn joined_reference_origins_are_checked_as_alternatives() {
         let held = [
             LoanOrigin {
+                owned_allocation: false,
                 place: Place::root(PlaceRoot::Local(BindingId(0))),
                 mutable: true,
                 pinned: false,
@@ -4099,6 +4156,7 @@ mod tests {
                 lifetime_only: false,
             },
             LoanOrigin {
+                owned_allocation: false,
                 place: Place::root(PlaceRoot::Local(BindingId(1))),
                 mutable: true,
                 pinned: false,
@@ -4148,6 +4206,7 @@ mod tests {
         let first = variants[0];
         let second = variants[1];
         let variant = |variant, field| LoanOrigin {
+            owned_allocation: false,
             place: Place::root(PlaceRoot::Local(BindingId(0))),
             mutable: true,
             pinned: false,

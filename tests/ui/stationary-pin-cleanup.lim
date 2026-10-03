@@ -1,0 +1,3 @@
+(#fn main () ()
+  (#let-pin value u64 42u64)
+  (#return ()))

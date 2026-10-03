@@ -1,0 +1,7 @@
+(#fn main () u64
+  (#let-pin value u64 42u64)
+  (#let view (#pin-ref u64) (#pin-borrow value))
+  (#forget view)
+  (#let moved u64 value)
+  (#unsafe (#pin-end value))
+  (#return moved))

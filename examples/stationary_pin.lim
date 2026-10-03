@@ -1,0 +1,14 @@
+;; Storage remains stationary after a view is forgotten. Only in-place
+;; access and explicit end-of-storage cleanup are permitted.
+(#struct Frame (: value u64))
+(#linear Frame)
+
+(#fn main () u64
+  (#let-pin frame Frame (#struct-literal Frame (: value 42u64)))
+  (#let pin (#pin-ref-mut Frame) (#pin-borrow-mut frame))
+  (#let result u64 (#get pin value))
+  (#forget pin)
+  ;; Moving frame here, or replacing it, is still a compilation error.
+  ;; A real resource-bearing frame must clean up its resources in place first.
+  (#unsafe (#pin-end frame))
+  (#return result))

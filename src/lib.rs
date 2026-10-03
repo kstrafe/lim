@@ -43,6 +43,7 @@ mod linearcheck;
 mod native_assembly;
 mod native_linker;
 mod output;
+mod pin_ownership;
 mod reachability;
 mod source_error;
 mod stack_usage;
@@ -966,7 +967,8 @@ pub(crate) fn source_value_expression(expression: &SpannedExpr) -> &SpannedExpr 
         return expression;
     };
     let value_index = match head.as_str() {
-        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" => Some(3),
+        "#let" | "#let-mut" | "#let-pin" | "let" | "let-mut" | "let-pin" | "#let-else"
+        | "let-else" => Some(3),
         "#return" | "return" | "#break" | "break" | "#break-to" => Some(1),
         "#set" | "set" => Some(2),
         "#set-field" | "set-field" | "#set-index" | "set-index" => Some(3),
@@ -1396,6 +1398,9 @@ pub enum Type {
         mutable: bool,
         target: Box<Type>,
     },
+    /// Linear ownership of a stationary allocation. Moving this pointer-sized
+    /// value transfers ownership without moving the allocation.
+    PinOwned(Box<Type>),
     RawPointer {
         mutable: bool,
         target: Box<Type>,
@@ -3655,7 +3660,7 @@ fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span
     };
     match head {
         Some("#quote" | "#quasiquote" | "#literal") => None,
-        Some("#let" | "#let-mut") => visit(3),
+        Some("#let" | "#let-mut" | "#let-pin") => visit(3),
         Some("#let-else") => visit(4).or_else(|| visit(3)),
         Some("#fn" | "#unsafe-fn") => children
             .iter()
@@ -5021,6 +5026,13 @@ fn is_builtin_form(name: &str) -> bool {
             | "borrow-mut"
             | "pin-borrow"
             | "pin-borrow-mut"
+            | "let-pin"
+            | "pin-end"
+            | "pin-own"
+            | "pin-own-of"
+            | "pin-own-borrow"
+            | "pin-own-borrow-mut"
+            | "pin-release"
             | "pin-set-field"
             | "ref"
             | "ref-mut"
@@ -6259,6 +6271,7 @@ fn type_source(ty: &Type) -> String {
             if *mutable { "pin-ref-mut" } else { "pin-ref" },
             type_source(target)
         ),
+        Type::PinOwned(target) => format!("(#pin-own {})", type_source(target)),
         Type::RawPointer { mutable, target } => format!(
             "(#{} {})",
             if *mutable { "ptr-mut" } else { "ptr" },
@@ -8466,6 +8479,21 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
     }
     let lowered = lower_expr(expression)?;
     let expression = &lowered;
+    if is_form(expression, "let-pin") {
+        let items = expect_list(expression, "stationary binding")?;
+        if items.len() != 4 {
+            return Err("let-pin requires (#let-pin name Type value)".into());
+        }
+        return Ok(Statement::Let {
+            name: expect_symbol(items.get(1), "stationary binding name")?.to_owned(),
+            ty: parse_type(items.get(2))?,
+            value: Expr::List(vec![
+                Expr::Symbol("@pin-init".into()),
+                lower_expr(&items[3])?,
+            ]),
+            mutable: true,
+        });
+    }
     if is_form(expression, "let") || is_form(expression, "let-mut") {
         let items = expect_list(expression, "let statement")?;
         let mutable = is_form(expression, "let-mut");
@@ -8711,6 +8739,9 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
         return Ok(Type::Unit);
     }
     if let Some(Expr::List(items)) = expression {
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "pin-own") {
+            return Ok(Type::PinOwned(Box::new(parse_type(items.get(1))?)));
+        }
         if items.len() >= 2 && matches!(&items[0], Expr::Symbol(name) if name == "tuple") {
             let fields = items[1..]
                 .iter()

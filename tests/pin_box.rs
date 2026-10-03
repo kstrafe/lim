@@ -49,7 +49,8 @@ fn allocator_owned_pin_box_runs_and_generated_code_is_inspectable() {
             "{function}"
         );
     }
-    assert!(generated.contains("(#pin-ptr-borrow owner"));
+    assert!(generated.contains("(#pin-own-borrow"));
+    assert!(generated.contains("(#pin-release pointer)"));
 
     let (status, _, stderr) =
         support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
@@ -65,10 +66,9 @@ fn allocator_owned_pin_box_runs_and_generated_code_is_inspectable() {
 fn derived_pin_prevents_destroying_its_box() {
     let scratch = support::Scratch::new("pin-box-borrow");
     let input = scratch.path().join("main.lim");
-    let source = example_source().replace(
-        "          (#drop value-reference)",
-        "          (#call pin-u64-destroy (: owner owner))",
-    );
+    let source = example_source()
+        .replace("          (#call pin-u64-destroy (: owner moved-owner))", "")
+        .replace("          (#let value u64 (#deref value-reference))", "          (#call pin-u64-destroy (: owner moved-owner))\n          (#let value u64 (#deref value-reference))");
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(
         Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -83,6 +83,32 @@ fn derived_pin_prevents_destroying_its_box() {
     let diagnostic = String::from_utf8_lossy(&stderr);
     assert!(
         diagnostic.contains("borrow") || diagnostic.contains("pinned"),
+        "{diagnostic}"
+    );
+}
+
+#[test]
+fn a_pointee_view_retains_the_allocator_after_leaking_the_movable_owner() {
+    let scratch = support::Scratch::new("pin-box-allocator");
+    let input = scratch.path().join("main.lim");
+    let source = example_source()
+        .replace("(#let arena Arena", "(#let-mut arena Arena")
+        .replace("          (#call pin-u64-destroy (: owner moved-owner))", "")
+        .replace("          (#let value u64 (#deref value-reference))", "          (#forget moved-owner)\n          (#set-field arena identity 2u64)\n          (#let value u64 (#deref value-reference))");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg("--emit-asm")
+            .arg(&input)
+            .arg(scratch.path().join("program.s")),
+        Duration::from_secs(20),
+        1024 * 1024,
+    )
+    .unwrap();
+    assert!(!status.success());
+    let diagnostic = String::from_utf8_lossy(&stderr);
+    assert!(
+        diagnostic.contains("borrow") && diagnostic.contains("arena"),
         "{diagnostic}"
     );
 }

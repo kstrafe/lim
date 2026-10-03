@@ -1,0 +1,4 @@
+(#fn main () ()
+  (#let-pin value u64 false)
+  (#unsafe (#pin-end value))
+  (#return ()))

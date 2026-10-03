@@ -1088,10 +1088,15 @@ pub(crate) enum PlaceRoot {
     /// boundary; distinct from the local slot that stores the reference.
     Parameter(BindingId),
     Global(GlobalId),
+    /// Stationary heap storage, independent of the local owner handle. A call
+    /// site and output slot distinguish allocations returned by a callee.
+    Allocation(NodeId, Vec<usize>),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ParameterLoanSummary {
+    pub fresh_allocation: Option<Vec<usize>>,
+    pub owned_allocation: bool,
     /// When present, this is a static origin; `parameter` is unused.
     pub global: Option<crate::typed_ir::GlobalId>,
     pub parameter: usize,
@@ -1112,6 +1117,7 @@ pub(crate) struct ParameterLoanSummary {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ParameterLoanSeed {
+    pub owned_allocation: bool,
     pub mutable: bool,
     pub pinned: bool,
     pub storage: Vec<crate::typed_place::Segment>,
@@ -1697,6 +1703,9 @@ impl Body {
             },
             Control::Assign(root, projection, value) => {
                 let name = match root {
+                    PlaceRoot::Allocation(_, _) => {
+                        unreachable!("allocation identities are not lexical assignment targets")
+                    }
                     PlaceRoot::Local(id) => self.bindings[id.0].name.clone(),
                     PlaceRoot::Parameter(id) => self.bindings[id.0].name.clone(),
                     PlaceRoot::Global(id) => {

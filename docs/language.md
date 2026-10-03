@@ -359,6 +359,39 @@ The caller must ensure the pointer is valid, stable, and uniquely accessible
 as required for the full anchor lifetime. These forms do not make allocation
 or pointer validity safe by themselves.
 
+Use `#let-pin` for stationary stack ownership. Initialization moves a value
+into its final stack slot; afterward only pinned views and in-place field
+operations are allowed. Forgetting a view never makes that binding movable.
+Cleanup must occur in place, and every reachable exit must explicitly end the
+storage with unsafe `#pin-end`. Ending it does not extract its contents, and
+the binding cannot be accessed or re-pinned afterward. See
+`examples/stationary_pin.lim`. Ordinary `#pin-borrow` also permanently prevents
+moving a linear local after its first pin, even after its last view is forgotten;
+its existing explicit `#forget`/`#drop` cleanup ends that local's lifetime.
+Plain copy referents retain the original short-lived borrow rules; use
+`#let-pin` to make even copy storage permanently stationary. Within an
+ordinary pinned linear local, nonmoving Copy field reads and field updates
+remain allowed, subject to the existing field-loan checks.
+
+`(#pin-own T)` is a linear, movable owner of stationary heap storage. Unsafe
+`#pin-own-of pointer value` initializes uniquely owned writable allocation
+storage using Lim's native value layout and adopts it; safe
+`#pin-own-borrow` and `#pin-own-borrow-mut` borrow the allocation identity, not
+the handle's address. Views remain valid across handle moves, aggregate moves,
+and function returns. An optional allocator-reference argument keeps the
+allocator borrowed for the entire view lifetime. Forgetting an owner leaks
+the allocation rather than moving, freeing, or unpinning its contents.
+In-place cleanup precedes unsafe `#pin-release`, which returns the pointer for
+deallocation. Retained views block release, including release in called helpers.
+Calls that obtain conflicting pointee access also reject retained views; a
+pure owner-forwarding function does not. Transferring an owning allocation to
+a thread requires retirement of its existing pointee views.
+The caller still guarantees validity, alignment, unique raw ownership, and
+retirement of untracked raw pointers. Reference-bearing and nested owning-pin
+pointees are currently rejected: their heap-content lifetime provenance needs
+a separate extension. `library/pin_box.lim` generates this owning protocol;
+`examples/pin_box.lim` demonstrates moving a handle while a view stays live.
+
 `#pin-read` and `#pin-write` are lower-level unsafe operations for compiler-
 generated pinned state machines. They access aggregate referents at their
 existing storage address. A read can duplicate a linear value, and a write can
@@ -1689,6 +1722,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
 | `#let-else` | `(#let-else pattern Type value else-statement...)` | `(#let-else (Some x) Maybe maybe (#return 0u64))` (function body) | Destructures on success; the else branch must diverge. |
 | `#let-mut` | `(#let-mut name-or-pattern Type value)` | `(#let-mut count u32 0u32)` (function body) | Declares a mutable local with an explicit type. |
+| `#let-pin` | `(#let-pin name Type value)` | `(#let-pin frame Frame (#call make-frame (:)))` (function body) | Initializes stationary stack storage. Its contents cannot be copied, moved, replaced, or ordinarily mutably borrowed. Every exit requires explicit in-place cleanup followed by unsafe `#pin-end`. Forgetting a reference does not remove this obligation. |
 | `#linear` | `(#linear TypeName)` | `(#linear FileHandle)` (top level) | Disables structural Copy for the named struct/enum, making its values linear. |
 | `#linux-syscall` | `(#linux-syscall ResultType number (arg...))` | `(#unsafe (#linux-syscall i64 39usize ()))` (expression) | Emits a raw Linux x86-64 syscall instruction with up to six machine-word arguments and unmodified negative-errno results. |
 | `#literal` | `(#literal NumericType literal)` | `(#let n u16 (#literal u16 42))` (expression) | Gives an integer/float literal an explicit numeric type. |
@@ -1707,13 +1741,19 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
 | `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. While any derived pin is live, safe code cannot copy, move, replace, or destroy the referent. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
+| `#pin-end` | `(#pin-end stationary-local)` | `(#unsafe (#pin-end frame))` (function body) | Ends stationary stack storage in place, without moving its contents. Requires retirement of tracked views. The caller guarantees in-place resource cleanup and retirement of untracked pointers. The binding cannot be used or re-pinned afterward. |
 | `#pin-get-payload` | `(#pin-get-payload pinned-enum-reference variant index)` | `(#let payload (#pin-ref u64) (#pin-get-payload slot Full 0))` (expression) | Borrows a selected enum payload in place as a shared pinned reference. Unlike `#get-payload`, it never extracts or moves the payload value. |
 | `#pin-get-payload-mut` | `(#pin-get-payload-mut mutable-pinned-enum-reference variant index)` | `(#let payload (#pin-ref-mut u64) (#pin-get-payload-mut slot Full 0))` (expression) | Borrows a selected enum payload in place as an exclusive pinned reference; requires a mutable pinned reference to the enum. |
+| `#pin-own` | `(#pin-own TargetType)` | `(#let owner (#pin-own u64) (#unsafe (#pin-own-of pointer 42u64)))` (type) | Linear pointer-sized owner of stationary heap storage. Moving the owner does not move the pointee or invalidate its views. It cannot be cloned; forgetting it leaks the allocation. |
+| `#pin-own-borrow` | `(#pin-own-borrow owner-or-reference [allocator-reference])` | `(#let view (#pin-ref u64) (#pin-own-borrow owner allocator))` (expression) | Borrows the allocation, independently of the owner's stack address. An optional allocator anchor remains borrowed for the view's lifetime, even after moving or forgetting the owner. |
+| `#pin-own-borrow-mut` | `(#pin-own-borrow-mut mutable-owner-or-reference [allocator-reference])` | `(#let view (#pin-ref-mut u64) (#pin-own-borrow-mut owner))` (expression) | Exclusively borrows stationary heap storage. Requires a mutable owner binding or reference; rejects overlapping retained views. |
+| `#pin-own-of` | `(#pin-own-of mutable-pointer initializer)` | `(#let owner (#pin-own u64) (#unsafe (#pin-own-of pointer 42u64)))` (expression) | Consumes an initializer into aligned, uniquely owned writable storage using Lim's native layout, then adopts it as stationary. The caller ensures sufficient space, validity until release, and no raw-pointer aliases that move or free it. Reference-bearing and nested owning-pin pointees are currently rejected because their lifetime provenance is not yet represented. |
 | `#pin-ptr-borrow` | `(#pin-ptr-borrow pinned-anchor pointer)` | `(#unsafe (#pin-ptr-borrow pinned pointer))` (expression) | Unsafe shared pointer borrow tied to a pinned-reference anchor; returns a pinned reference and preserves anchor provenance. The caller proves pointer validity and address stability for the anchor lifetime. |
 | `#pin-ptr-borrow-mut` | `(#pin-ptr-borrow-mut pinned-mut-anchor mutable-pointer)` | `(#unsafe (#pin-ptr-borrow-mut pinned pointer))` (expression) | Unsafe exclusive pointer borrow tied to a mutable pinned-reference anchor; returns a mutable pinned reference. The caller proves validity, stability, and unique access. |
 | `#pin-read` | `(#pin-read pinned-reference)` | `(#unsafe (#pin-read pinned))` (expression) | Reads a pinned referent by value. Unsafe because the caller must prevent aliasing and must not duplicate ownership of linear data. |
 | `#pin-ref` | `(#pin-ref TargetType)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (type) | Shared pinned-reference type. It is distinct from an ordinary reference and keeps its referent immovable while the loan is live. |
 | `#pin-ref-mut` | `(#pin-ref-mut TargetType)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (type) | Exclusive pinned-reference type; it cannot be used to replace the complete referent. |
+| `#pin-release` | `(#pin-release owner)` | `(#let pointer (#ptr-mut u64) (#unsafe (#pin-release owner)))` (expression) | Consumes the owning heap pin after in-place cleanup, returning its pointer for deallocation. Retained pointee views block release, including through helper calls. Unsafe: untracked pointers and address-sensitive cleanup remain the caller's responsibility. |
 | `#pin-set-field` | `(#pin-set-field pinned-reference field copy-or-shared-reference-value)` | `(#pin-set-field pinned state 2u32)` (statement) | Replaces one scalar/fieldless-enum or shared-reference struct field through a mutable pinned reference. The field loan is checked independently; it does not move or replace the pinned struct. |
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |

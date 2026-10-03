@@ -449,6 +449,7 @@ fn specialized_type_name(ty: &Type) -> String {
             if *mutable { "mut_" } else { "_" },
             specialized_type_name(target)
         ),
+        Type::PinOwned(target) => format!("pin_own_{}", specialized_type_name(target)),
         Type::Slice(target) => format!("slice_{}", specialized_type_name(target)),
         Type::MutableSlice(target) => format!("slice_mut_{}", specialized_type_name(target)),
         Type::Atomic(target) => format!("atomic_{}", specialized_type_name(target)),
@@ -4290,7 +4291,10 @@ fn is_float_type(ty: &Type) -> bool {
 fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> Result<(), String> {
     if matches!(
         ty,
-        Type::Reference { .. } | Type::PinnedReference { .. } | Type::RawPointer { .. }
+        Type::Reference { .. }
+            | Type::PinnedReference { .. }
+            | Type::RawPointer { .. }
+            | Type::PinOwned(_)
     ) {
         return Ok(());
     }
@@ -7522,7 +7526,7 @@ impl FunctionContext<'_> {
         value: &Expr,
     ) -> Result<(), String> {
         if let Expr::List(items) = value {
-            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "deref")
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "deref" | "pin-read"))
                 && items.len() == 2
             {
                 let ty = Type::Named(struct_name.to_owned());
@@ -8113,7 +8117,7 @@ impl FunctionContext<'_> {
         }
         if let Expr::List(items) = value {
             if items.len() == 2
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "unsafe" | "@pin-init"))
             {
                 return self.store_indirect_value_words(&items[1], ty, offset);
             }
@@ -8157,7 +8161,7 @@ impl FunctionContext<'_> {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
                 return self.match_expression(items, None, Some(ty), Some((ty, offset)));
             }
-            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "deref")
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "deref" | "pin-read"))
                 && items.len() == 2
             {
                 self.expression(&items[1])?;
@@ -10266,6 +10270,52 @@ impl FunctionContext<'_> {
             return Ok(());
         }
         match operator {
+            "@pin-init" | "pin-release" => self.expression(&items[1]),
+            "pin-own-of" => {
+                let Some(Type::RawPointer { target, .. }) = self.expression_type(&items[1]) else {
+                    return Err("checked owning-pin allocation lost its pointer type".into());
+                };
+                let words = storage_word_count(&target, &self.structs, &self.enums)?;
+                self.expression(&items[1])?;
+                self.push_rax();
+                self.push_value_words(&items[2], &target, false)?;
+                self.output
+                    .push_str(&format!("    mov r11, QWORD PTR [rsp+{}]\n", words * 8));
+                for index in (0..words).rev() {
+                    self.output.push_str(&format!(
+                        "    pop rax\n    mov QWORD PTR [r11+{}], rax\n",
+                        index * 8
+                    ));
+                    self.stack_depth -= 1;
+                }
+                self.output.push_str("    pop rax\n");
+                self.stack_depth -= 1;
+                Ok(())
+            }
+            "pin-end" => {
+                // End the stationary lifetime without copying its contents.
+                self.output.push_str("    xor eax, eax\n");
+                Ok(())
+            }
+            "pin-own-borrow" | "pin-own-borrow-mut" => {
+                let indirect = matches!(
+                    self.expression_type(&items[1]),
+                    Some(Type::Reference { .. } | Type::PinnedReference { .. })
+                );
+                self.expression(&items[1])?;
+                if indirect {
+                    self.output
+                        .push_str("    and rax, -2\n    mov rax, QWORD PTR [rax]\n");
+                }
+                if let Some(anchor) = items.get(2) {
+                    self.output.push_str("    push rax\n");
+                    self.stack_depth += 1;
+                    self.expression(anchor)?;
+                    self.output.push_str("    pop rax\n");
+                    self.stack_depth -= 1;
+                }
+                Ok(())
+            }
             "clone" => {
                 if items.len() != 2 {
                     return Err("clone requires one value".into());
@@ -13960,6 +14010,7 @@ impl FunctionContext<'_> {
             | Type::F64
             | Type::Reference { .. }
             | Type::PinnedReference { .. }
+            | Type::PinOwned(_)
             | Type::RawPointer { .. } => Ok(8),
             Type::I128 | Type::U128 => Ok(16),
             _ => self.native_type_size(ty),
@@ -14045,6 +14096,7 @@ impl FunctionContext<'_> {
             | Type::Usize
             | Type::F64
             | Type::PinnedReference { .. }
+            | Type::PinOwned(_)
             | Type::RawPointer { .. } => Some((8, 8)),
             _ => None,
         };
@@ -14960,7 +15012,7 @@ impl FunctionContext<'_> {
         }
         if words > VALUE_REGISTERS.len() {
             if let Expr::List(items) = value {
-                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "deref")
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "deref" | "pin-read"))
                     && items.len() == 2
                 {
                     self.copy_reference_to_slots(&items[1], slots)?;
@@ -16040,7 +16092,7 @@ impl FunctionContext<'_> {
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
         if let Expr::List(items) = value {
             if items.len() == 2
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "unsafe" | "@pin-init"))
             {
                 return self.push_value_words(&items[1], ty, reverse);
             }

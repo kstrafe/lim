@@ -202,7 +202,9 @@ impl LinearTypes {
             output: &mut Vec<Vec<LinearProjection>>,
         ) {
             match ty {
-                Type::Atomic(_) | Type::MutableSlice(_) => output.push(path.clone()),
+                Type::Atomic(_) | Type::MutableSlice(_) | Type::PinOwned(_) => {
+                    output.push(path.clone())
+                }
                 Type::Named(name) => {
                     if let Some(alias) = types.aliases.get(name) {
                         if seen.insert(name.clone()) {
@@ -695,7 +697,7 @@ fn is_linear(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool
         | Type::PinnedReference { .. }
         | Type::RawPointer { .. }
         | Type::Slice(_) => false,
-        Type::MutableSlice(_) | Type::Atomic(_) => true,
+        Type::MutableSlice(_) | Type::Atomic(_) | Type::PinOwned(_) => true,
         Type::Tuple(items) => items.iter().any(|item| is_linear(item, types, seen)),
         Type::Array(element, _) => is_linear(element, types, seen),
         Type::Named(name) => {
@@ -935,7 +937,9 @@ fn check_expr(
                     return Err("clone requires exactly one value".into());
                 }
                 check_clone(&items[1], bindings, moved, types)?;
-            } else if matches!(head, "forget" | "drop") && items.len() == 2 {
+            } else if matches!(head, "forget" | "drop" | "pin-end" | "pin-release")
+                && items.len() == 2
+            {
                 if let Some(key) = place_key(&items[1]) {
                     let root = place_root(&key);
                     if types.binding_types.borrow().contains_key(root) {

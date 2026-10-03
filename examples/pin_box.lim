@@ -31,9 +31,11 @@
   (#assert (#i64.== status 0i64))
   (#return ()))
 
-(#fn destroy-u64 ((allocator (#ref Arena)) (value u64)) ()
-  (#forget value)
+(#fn destroy-u64 ((allocator (#ref Arena)) (value (#pin-ref-mut u64))) ()
   (#return ()))
+
+(#fn forward-owner (: owner PinU64Box) PinU64Box
+  (#return owner))
 
 (#fn main () u64
   (#let failed-arena Arena (#struct-literal Arena ((identity 0u64) (fail true))))
@@ -57,13 +59,12 @@
     (#match created
       (#case (PinU64Created owner)
         (#block
-          (#let pinned-owner (#pin-ref PinU64Box) (#pin-borrow owner))
           (#let value-reference (#pin-ref u64)
-            (#call pin-u64-borrow (: owner pinned-owner)))
+            (#call pin-u64-borrow (: owner (#borrow owner))))
+          (#let moved-owner PinU64Box (#call forward-owner (: owner owner)))
           (#let value u64 (#deref value-reference))
           (#drop value-reference)
-          (#drop pinned-owner)
-          (#call pin-u64-destroy (: owner owner))
+          (#call pin-u64-destroy (: owner moved-owner))
           (#if failure-was-preserved
             (#if (#u64.== value 42u64) 42u64 1u64)
             1u64)))
