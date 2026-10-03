@@ -66,6 +66,115 @@ fn a_pinned_shared_reference_can_read_its_referent() {
 }
 
 #[test]
+fn returned_projections_through_stored_references_keep_the_actual_pointee_borrowed() {
+    for pinned in [false, true] {
+        let source = include_str!("ui/stored-reference-projection-replacement.lim");
+        let source = if pinned {
+            source.to_owned()
+        } else {
+            source
+                .replace("#pin-ref", "#ref")
+                .replace("#pin-borrow", "#borrow")
+        };
+        let scratch = support::Scratch::new("stored-reference-projection-error");
+        let error = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join(".lim"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        let span = error.span.unwrap();
+        assert_eq!(span.line, 9, "{error:?}");
+        assert_eq!(&source[span.start..span.end], "#set", "{error:?}");
+    }
+}
+
+#[test]
+fn returned_stored_reference_projections_outlive_their_pointer_container_natively() {
+    for pinned in [false, true] {
+        let source = include_str!("ui/stored-reference-projection-replacement.lim").replace(
+            "  (#set values (#tuple (#tuple u64 u64) 99u64 100u64))\n",
+            "",
+        );
+        let source = if pinned {
+            source
+        } else {
+            source
+                .replace("#pin-ref", "#ref")
+                .replace("#pin-borrow", "#borrow")
+        };
+        check(&source).unwrap();
+        let scratch = support::Scratch::new("stored-reference-projection-native");
+        let input = scratch.path().join("main.lim");
+        let binary = scratch.path().join("program");
+        fs::write(&input, &source).unwrap();
+        let (status, _, stderr) = support::run(
+            Command::new(env!("CARGO_BIN_EXE_lim"))
+                .arg(&input)
+                .arg("-o")
+                .arg(&binary),
+            Duration::from_secs(20),
+            64 * 1024,
+        )
+        .unwrap();
+        assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+        let (status, _, stderr) =
+            support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+        assert_eq!(status.code(), Some(42), "{status:?} {stderr:?}");
+    }
+}
+
+#[test]
+fn projected_borrow_receivers_are_snapshotted_before_effectful_indices_natively() {
+    let source = "(#struct Holder (: view (#pin-ref (#array u64 2))))
+      (#fn select-element (: holder (#pin-ref-mut Holder) : replacement (#pin-ref (#array u64 2))) (#pin-ref u64)
+        (#return (#pin-borrow (#index (#get holder view)
+          (#block (#pin-set-field holder view replacement) 1usize)))))
+      (#fn main () u64
+        (#let-mut original (#array u64 2) (#array-of (#array u64 2) 40u64 42u64))
+        (#let-mut replacement (#array u64 2) (#array-of (#array u64 2) 99u64 100u64))
+        (#let-mut holder Holder (#struct-literal Holder (: view (#pin-borrow original))))
+        (#let selected (#pin-ref u64) (#call select-element
+          (: holder (#pin-borrow-mut holder) : replacement (#pin-borrow replacement))))
+        (#forget holder)
+        (#set replacement (#array-of (#array u64 2) 7u64 8u64))
+        (#return (#deref selected)))";
+    check(source).unwrap();
+    let scratch = support::Scratch::new("projected-borrow-receiver-snapshot");
+    let bad = source.replace("(#set replacement", "(#set original");
+    let error = lim::compile_source_to_assembly(
+        &bad,
+        &scratch.path().join("bad.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join(".lim"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&bad[span.start..span.end], "#set", "{error:?}");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(42), "{status:?} {stderr:?}");
+}
+
+#[test]
 fn mutable_pinned_reference_and_shared_waker_can_be_passed_together() {
     let source = "(#struct Payload ((value u64)))
       (#fn update ((view (#pin-ref-mut Payload)) (waker (#ref u64))) ()

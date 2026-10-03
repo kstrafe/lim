@@ -342,6 +342,11 @@ pub(crate) struct LoanOrigin {
     /// A call-duration reborrow restricts parent referent access, not lifetime
     /// of the temporary parent handle. Its actual referent remains retained.
     pub call_reborrow: bool,
+    /// Run-local family of a staged incoming self-loan. Transfers and child
+    /// reborrows retain it; a fresh borrow through the owner does not acquire
+    /// it merely because its physical address matches. Never exported in a
+    /// declaration summary or used as an ordinary borrow permission.
+    pub(crate) entry_loan: Option<usize>,
     /// Position inside the value held by a binding, not the referent place.
     pub storage: Vec<Segment>,
     /// Original slot inside a function parameter, retained through projections.
@@ -359,6 +364,7 @@ impl PartialEq for LoanOrigin {
             && self.lifetime_only == other.lifetime_only
             && self.borrowed_from == other.borrowed_from
             && self.call_reborrow == other.call_reborrow
+            && self.entry_loan == other.entry_loan
             && self.storage == other.storage
             && self.parameter_storage == other.parameter_storage
             && self.storage_inputs == other.storage_inputs
@@ -1304,6 +1310,7 @@ impl FlowLoanOrigins {
     pub(crate) fn entry_alias_retained_before(
         &self,
         event: FlowNodeId,
+        family: usize,
         alias: &crate::call_self_loans::Alias,
         live_bindings: &[BindingId],
     ) -> bool {
@@ -1311,9 +1318,10 @@ impl FlowLoanOrigins {
             return false;
         };
         let retained = |origin: &LoanOrigin| {
-            origin.place.root == PlaceRoot::Parameter(alias.parameter)
+            origin.entry_loan == Some(family)
+                && origin.place.root == PlaceRoot::Parameter(alias.parameter)
                 && origin.parameter_storage.as_deref() == Some(alias.owner_input.as_slice())
-                && origin.place.segments == alias.projection
+                && origin.place.segments.starts_with(&alias.projection)
         };
         state
             .parameter_contents
@@ -3956,6 +3964,7 @@ impl FlowGraph {
                     span: None,
                     borrowed_from: None,
                     call_reborrow: false,
+                    entry_loan: None,
                     storage: slot.storage.clone(),
                     parameter_storage: Some(slot.storage.clone()),
                     storage_inputs: (0..slot.storage.len()).map(Some).collect(),
@@ -3965,7 +3974,7 @@ impl FlowGraph {
         }
         if include_parameter_contents {
             let mut contents = seed_parameter_contents(body);
-            for alias in aliases {
+            for (family, alias) in aliases.iter().enumerate() {
                 let boundary = alias
                     .storage
                     .iter()
@@ -3983,6 +3992,7 @@ impl FlowGraph {
                     span: None,
                     borrowed_from: None,
                     call_reborrow: false,
+                    entry_loan: Some(family),
                     parameter_storage: Some(alias.owner_input.clone()),
                     // These positions locate the pointer, not input positions
                     // selecting the owner's physical address.
@@ -9698,6 +9708,7 @@ fn seed_parameter_contents(body: &Body) -> HashMap<(PlaceRoot, Vec<Segment>), Ve
                 span: None,
                 borrowed_from: None,
                 call_reborrow: false,
+                entry_loan: None,
                 storage: slot.storage[boundary + 1..].to_vec(),
                 parameter_storage: Some(slot.storage.clone()),
                 storage_inputs: (boundary + 1..slot.storage.len()).map(Some).collect(),
@@ -10521,6 +10532,7 @@ fn global_summary_origin(summary: &crate::typed_body::ParameterLoanSummary) -> O
         span: None,
         borrowed_from: None,
         call_reborrow: false,
+        entry_loan: None,
         storage: summary.storage.clone(),
         parameter_storage: None,
         storage_inputs: Vec::new(),
@@ -10818,6 +10830,7 @@ fn global_storage_address(global: crate::typed_ir::GlobalId, span: Option<Span>)
         span,
         borrowed_from: None,
         call_reborrow: false,
+        entry_loan: None,
         storage: Vec::new(),
         parameter_storage: None,
         storage_inputs: Vec::new(),
@@ -10855,7 +10868,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     }
                     _ => None,
                 };
-                let places = reborrow_source_origins(&place, state, &mut HashSet::new());
+                let places = borrow_address_origins(body, children[1], state, None);
                 places
                     .into_iter()
                     .map(|mut origin| {
@@ -11291,6 +11304,40 @@ fn value_loan_origins_at_events(
         if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
             return value_loan_origins_at_events(body, flow, before, children[1], state);
         }
+        if matches!(
+            head.as_str(),
+            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+        ) && children.len() == 2
+        {
+            let Some(place) = Place::from_expression(body, children[1]) else {
+                return Vec::new();
+            };
+            let borrowed_from = match place.root {
+                PlaceRoot::Local(binding)
+                    if matches!(
+                        body.bindings[binding.0].ty,
+                        Type::Reference { .. }
+                            | Type::PinnedReference { .. }
+                            | Type::Slice(_)
+                            | Type::MutableSlice(_)
+                    ) =>
+                {
+                    Some(binding)
+                }
+                _ => None,
+            };
+            return borrow_address_origins(body, children[1], state, Some((flow, before)))
+                .into_iter()
+                .map(|mut origin| {
+                    origin.borrowed_from = borrowed_from;
+                    origin.call_reborrow = false;
+                    origin.mutable = matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut");
+                    origin.pinned |= matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut");
+                    origin.span = body.nodes[value.0].span;
+                    origin
+                })
+                .collect();
+        }
         if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2 {
             // Moving from a parameter consumes its contents at Evaluate. A
             // later Bind must transfer the value from the pre-move snapshot,
@@ -11516,6 +11563,76 @@ fn value_loan_origins_at_events(
     value_loan_origins(body, value, state)
 }
 
+/// Resolve a place's address without confusing a loaded pointer's storage
+/// with its physical pointee. Evaluated receivers use their actual snapshots.
+fn borrow_address_origins(
+    body: &Body,
+    value: NodeId,
+    state: &LoanState,
+    events: Option<(&FlowGraph, LoanSnapshots<'_>)>,
+) -> Vec<LoanOrigin> {
+    if let NodeKind::Form {
+        head,
+        children,
+        callee: None,
+        ..
+    } = &body.nodes[value.0].kind
+    {
+        let pointer_value = |base: NodeId| match events {
+            Some((flow, snapshots)) => {
+                let mut evaluated = false;
+                let mut origins = Vec::new();
+                for &index in &snapshots.events_by_value[base.0] {
+                    if flow_action_has_value(&flow.nodes[index].action, base) {
+                        if let Some(snapshot) = snapshots.before[index].as_ref() {
+                            evaluated = true;
+                            merge_loan_origins(
+                                &mut origins,
+                                &value_loan_origins_at_events(
+                                    body, flow, snapshots, base, snapshot,
+                                ),
+                            );
+                        }
+                    }
+                }
+                if evaluated {
+                    origins
+                } else {
+                    value_loan_origins_at_events(body, flow, snapshots, base, state)
+                }
+            }
+            None => value_loan_origins(body, base, state),
+        };
+        if head == "deref" && children.len() == 2 {
+            return pointer_value(children[1]);
+        }
+        if matches!(head.as_str(), "get" | "get-payload" | "index") {
+            if let Some(slot) = value_projection(body, value) {
+                let base = children[1];
+                // Projection through a reference loads that pointer. Its
+                // containing field is not a physical prefix of its pointee.
+                // Projecting owned inline storage instead preserves its
+                // address, including a field holding a reference handle.
+                let mut origins = if matches!(
+                    body.nodes[base.0].ty,
+                    Some(Type::Reference { .. } | Type::PinnedReference { .. })
+                ) {
+                    pointer_value(base)
+                } else {
+                    borrow_address_origins(body, base, state, events)
+                };
+                for origin in &mut origins {
+                    origin.place.segments.push(slot.clone());
+                }
+                return origins;
+            }
+        }
+    }
+    Place::from_expression(body, value).map_or_else(Vec::new, |place| {
+        reborrow_source_origins(&place, state, &mut HashSet::new())
+    })
+}
+
 /// Follow only known, direct reference origins. Unknown parameters, aggregate
 /// slots, and cycles keep their original place for conservative analysis.
 fn reborrow_source_origins(
@@ -11551,6 +11668,9 @@ fn reborrow_source_origins(
                 for mut resolved in reborrow_source_origins(&next.place, state, seen) {
                     resolved.lifetime_only |= next.lifetime_only;
                     resolved.pinned |= next.pinned;
+                    if resolved.entry_loan.is_none() {
+                        resolved.entry_loan = next.entry_loan;
+                    }
                     if resolved.parameter_storage.is_none() {
                         resolved.parameter_storage = next.parameter_storage.clone();
                     }
@@ -11573,6 +11693,7 @@ fn reborrow_source_origins(
         span: None,
         borrowed_from: None,
         call_reborrow: false,
+        entry_loan: None,
         storage: Vec::new(),
         parameter_storage: None,
         storage_inputs: Vec::new(),
@@ -13393,6 +13514,7 @@ mod tests {
             span: None,
             borrowed_from: None,
             call_reborrow: false,
+            entry_loan: None,
             storage: Vec::new(),
             parameter_storage: None,
             storage_inputs: Vec::new(),
@@ -13442,6 +13564,7 @@ mod tests {
             span: None,
             borrowed_from: None,
             call_reborrow: false,
+            entry_loan: None,
             storage: Vec::new(),
             parameter_storage: None,
             storage_inputs: Vec::new(),
@@ -13710,6 +13833,7 @@ mod tests {
             span: None,
             borrowed_from: None,
             call_reborrow: false,
+            entry_loan: None,
             storage: Vec::new(),
             parameter_storage: None,
             storage_inputs: Vec::new(),
@@ -13722,6 +13846,7 @@ mod tests {
             span: None,
             borrowed_from: None,
             call_reborrow: false,
+            entry_loan: None,
             storage: vec![Segment::DynamicIndex],
             parameter_storage: Some(vec![Segment::DynamicIndex]),
             storage_inputs: vec![Some(0)],
@@ -15482,6 +15607,7 @@ mod tests {
             span: None,
             borrowed_from: None,
             call_reborrow: false,
+            entry_loan: None,
             storage,
             parameter_storage: None,
             storage_inputs: Vec::new(),
@@ -15517,6 +15643,7 @@ mod tests {
             span: None,
             borrowed_from: None,
             call_reborrow: false,
+            entry_loan: None,
             storage,
             parameter_storage: None,
             storage_inputs: Vec::new(),

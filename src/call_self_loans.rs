@@ -378,8 +378,8 @@ impl Plan {
                 }
                 _ => {}
             }
-            for alias in &self.aliases {
-                if !origins.entry_alias_retained_before(event, alias, &live_bindings) {
+            for (family, alias) in self.aliases.iter().enumerate() {
+                if !origins.entry_alias_retained_before(event, family, alias, &live_bindings) {
                     continue;
                 }
                 let held = Place {
@@ -793,6 +793,197 @@ mod tests {
                 .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default());
             assert_eq!(result.is_err(), read_after_write, "{result:?}\n{source}");
         }
+    }
+
+    #[test]
+    fn fresh_same_address_borrows_do_not_resurrect_retired_entry_loans() {
+        for keep_copy in [false, true] {
+            let save = if keep_copy {
+                "(#let saved (#pin-ref u64) (#get target view))"
+            } else {
+                ""
+            };
+            let use_copy = if keep_copy {
+                "(#let observed u64 (#deref saved)) (#forget observed)"
+            } else {
+                ""
+            };
+            let operation = format!(
+                "{save}
+              (#pin-set-field target view outside)
+              (#let fresh (#pin-ref u64) (#pin-borrow (#get target value)))
+              (#pin-set-field target view fresh)
+              (#pin-set-field target state 2u32) {use_copy}"
+            );
+            let source = SOURCE
+                .replace(
+                    "(#fn tick (: target (#pin-ref-mut Link))",
+                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref u64))",
+                )
+                .replace(
+                    "(#call tick (: target running))",
+                    "(#call tick (: target running : outside outside))",
+                )
+                .replace("(#pin-set-field target state 2u32)", &operation);
+            let declarations = fixture(&source);
+            let plan = call_plan(&declarations, "driver", "tick");
+            let body = &declarations.bodies["tick"];
+            let flow = &declarations.flows["tick"];
+            let origins = flow.loan_origins_with_entry_aliases(body, &plan.aliases);
+            let state_field = declarations
+                .field_id(&Type::Named("Link".into()), "state")
+                .unwrap();
+            let event = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+                let value = match node.action {
+                    FlowAction::Evaluate(value) | FlowAction::Write { value, .. } => value,
+                    _ => return None,
+                };
+                let NodeKind::Form { head, children, callee: None, .. } = &body.nodes[value.0].kind else { return None; };
+                (head == "pin-set-field" && matches!(body.nodes[children[2].0].kind,
+                    NodeKind::Declaration(crate::typed_ir::DeclarationId::Field(field)) if field == state_field))
+                    .then_some(FlowNodeId(index))
+            }).unwrap();
+            let live = flow
+                .liveness(body)
+                .before(event)
+                .into_iter()
+                .filter(|binding| binding.0 >= body.parameter_count)
+                .collect::<Vec<_>>();
+            assert_eq!(
+                origins.entry_alias_retained_before(event, 0, &plan.aliases[0], &live),
+                keep_copy
+            );
+            let actual =
+                origins.pointee_before(body, event, &origins.before(event, BindingId(0))[0]);
+            assert!(actual.iter().any(|origin| origin.place.root == PlaceRoot::Parameter(BindingId(0))
+                && origin.place.segments == plan.aliases[0].projection && origin.entry_loan.is_none()),
+                "the fresh same-address child exists independently of the incoming family: {actual:?}");
+            assert!(!actual.iter().any(|origin| origin.entry_loan == Some(0)),
+                "replacing the child field retires that stored copy, even when a separate local copy remains");
+        }
+    }
+
+    #[test]
+    fn projected_child_reborrows_retain_the_incoming_family() {
+        let source = SOURCE
+            .replace(": value u64", ": value (#tuple u64 u64)")
+            .replace(
+                ": value 42u64",
+                ": value (#tuple (#tuple u64 u64) 40u64 2u64)",
+            )
+            .replace("#pin-ref u64", "#pin-ref (#tuple u64 u64)")
+            .replace(
+                "(#fn tick (: target (#pin-ref-mut Link))",
+                "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref (#tuple u64 u64)))",
+            )
+            .replace(
+                "(#call tick (: target running))",
+                "(#call tick (: target running : outside outside))",
+            )
+            .replace(
+                "(#pin-set-field target state 2u32)",
+                "(#let child (#pin-ref u64) (#pin-borrow (#get (#get target view) 1)))
+                 (#pin-set-field target view outside)
+                 (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple u64 u64) 99u64 100u64)))
+                 (#let observed u64 (#deref child)) (#forget observed)",
+            );
+        let declarations = fixture(&source);
+        let error = call_plan(&declarations, "driver", "tick")
+            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .unwrap_err();
+        let span = error.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple u64 u64) 99u64 100u64))");
+    }
+
+    #[test]
+    fn separate_incoming_families_at_one_address_retire_independently() {
+        let source = SOURCE
+            .replace(
+                ": view (#pin-ref u64)))",
+                ": view (#pin-ref u64) : second (#pin-ref u64)))",
+            )
+            .replace(": view outside", ": view outside : second outside")
+            .replace(
+                "(#pin-set-field target view view)",
+                "(#pin-set-field target view view) (#pin-set-field target second view)",
+            )
+            .replace(
+                "(#fn tick (: target (#pin-ref-mut Link))",
+                "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref u64))",
+            )
+            .replace(
+                "(#call tick (: target running))",
+                "(#call tick (: target running : outside outside))",
+            )
+            .replace(
+                "(#pin-set-field target state 2u32)",
+                "(#pin-set-field target view outside) (#pin-set-field target state 2u32)",
+            );
+        let declarations = fixture(&source);
+        let plan = call_plan(&declarations, "driver", "tick");
+        assert_eq!(plan.aliases.len(), 2);
+        assert_eq!(plan.aliases[0].projection, plan.aliases[1].projection);
+        let body = &declarations.bodies["tick"];
+        let flow = &declarations.flows["tick"];
+        let origins = flow.loan_origins_with_entry_aliases(body, &plan.aliases);
+        let field = |name| {
+            declarations
+                .field_id(&Type::Named("Link".into()), name)
+                .unwrap()
+        };
+        let event = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match &node.action {
+                FlowAction::Write { place, .. }
+                    if place.segments.last() == Some(&Segment::Field(field("state"))) =>
+                {
+                    Some(FlowNodeId(index))
+                }
+                _ => None,
+            })
+            .unwrap();
+        for (family, alias) in plan.aliases.iter().enumerate() {
+            assert_eq!(
+                origins.entry_alias_retained_before(event, family, alias, &[]),
+                alias.storage.last() == Some(&Segment::Field(field("second")))
+            );
+        }
+    }
+
+    #[test]
+    fn projected_borrows_keep_the_receiver_evaluated_before_index_effects() {
+        let source = SOURCE
+            .replace(": value u64", ": value (#array u64 2)")
+            .replace(
+                ": value 42u64",
+                ": value (#array-of (#array u64 2) 40u64 42u64)",
+            )
+            .replace("#pin-ref u64", "#pin-ref (#array u64 2)")
+            .replace(
+                "(#fn tick (: target (#pin-ref-mut Link))",
+                "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref (#array u64 2)))",
+            )
+            .replace(
+                "(#call tick (: target running))",
+                "(#call tick (: target running : outside outside))",
+            )
+            .replace(
+                "(#pin-set-field target state 2u32)",
+                "(#let child (#pin-ref u64) (#pin-borrow (#index (#get target view)
+                   (#block (#pin-set-field target view outside) 1usize))))
+                 (#unsafe (#pin-write (#pin-borrow-mut (#get target value))
+                   (#array-of (#array u64 2) 99u64 100u64)))
+                 (#let observed u64 (#deref child)) (#forget observed)",
+            );
+        let declarations = fixture(&source);
+        let error = call_plan(&declarations, "driver", "tick")
+            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .unwrap_err();
+        let span = error.span.unwrap();
+        assert_eq!(&source[span.start..span.end],
+            "(#pin-write (#pin-borrow-mut (#get target value))\n                   (#array-of (#array u64 2) 99u64 100u64))");
     }
 
     #[test]

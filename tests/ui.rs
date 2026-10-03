@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "stored-reference-projection-replacement",
+            diagnostic_code: "E4100",
+            offending_line: "  (#set values (#tuple (#tuple u64 u64) 99u64 100u64))",
+            line_number: 9,
+        },
+        Case {
             name: "async-source-type-mismatch",
             diagnostic_code: "E4000",
             offending_line: "    (#let bad u64 false)",
@@ -1153,6 +1159,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unsafe-function-call" => Some("answer"),
             "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
+            "stored-reference-projection-replacement" => Some("#set"),
             "overlapping-call-borrows" => Some("(#borrow value)"),
             "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))"),
             "destructure-reference-escape" => Some("(#tuple (#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local)))"),
