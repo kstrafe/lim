@@ -225,7 +225,7 @@ fn value_has_only_unreachable_events(
     origins: &FlowLoanOrigins,
     value: NodeId,
 ) -> bool {
-    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }
+    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. }
         if matches!(head.as_str(), "panic" | "unreachable"))
     {
         return true;
@@ -2978,7 +2978,7 @@ impl FlowGraph {
         while let Some((value, use_event, mut bindings, mut path)) = pending_values.pop() {
             if replacements
                 && matches!(&body.nodes[value.0].kind,
-                NodeKind::Form { head, .. } if matches!(head.as_str(), "unreachable" | "panic"))
+                NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "unreachable" | "panic"))
             {
                 continue;
             }
@@ -3035,7 +3035,7 @@ impl FlowGraph {
                 for alternative in alternatives {
                     if replacements
                         && matches!(&body.nodes[alternative.0].kind,
-                        NodeKind::Form { head, .. } if matches!(head.as_str(), "unreachable" | "panic"))
+                        NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "unreachable" | "panic"))
                     {
                         continue;
                     }
@@ -12745,6 +12745,20 @@ impl Builder<'_> {
         let node = &self.body.nodes[id.0];
         let span = node.span;
         match &node.kind {
+            // Resolved declarations are actual calls, even when their names
+            // resemble a builtin. Spelling cannot supply termination, borrow,
+            // clone, or short-circuit semantics for a user function.
+            NodeKind::Form {
+                callee: Some(_),
+                children,
+                ..
+            } => {
+                let mut entry = self.push(FlowAction::Evaluate(id), span, vec![next]);
+                for child in children.iter().skip(1).rev() {
+                    entry = self.expression(*child, entry, targets, None)?;
+                }
+                Ok(entry)
+            }
             NodeKind::If {
                 condition,
                 then_value,
@@ -15541,6 +15555,46 @@ mod tests {
             assert_eq!(held.len(), 1, "{name}");
             let span = held[0].span.unwrap();
             assert_eq!(&source[span.start..span.end], expected);
+        }
+    }
+
+    #[test]
+    fn user_calls_named_like_terminators_keep_their_normal_flow() {
+        for name in ["panic", "unreachable"] {
+            let source = format!(
+                "(#fn {name} () u64 (#return 42u64))
+                  (#fn main () u64
+                    (#let answer u64 (#call {name} ()))
+                    (#return answer))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let callee = declarations.function_id(name).unwrap();
+            let value = body.nodes.iter().enumerate().find_map(|(index, node)| {
+                matches!(&node.kind, NodeKind::Form { callee: Some(found), .. } if *found == callee)
+                    .then_some(NodeId(index))
+            }).unwrap();
+            let origins = flow.loan_origins(body);
+            assert!(
+                !value_has_only_unreachable_events(flow, body, &origins, value),
+                "{name} is a returning user call"
+            );
+            let reachable = flow.reachable();
+            assert!(flow.nodes.iter().enumerate().any(|(index, event)|
+                matches!(event.action, FlowAction::Evaluate(found) if found == value)
+                && reachable.contains(&FlowNodeId(index))), "the real invocation must be checked");
+            assert!(
+                flow.nodes.iter().enumerate().any(|(index, event)| matches!(
+                    event.action,
+                    FlowAction::Return(Some(_))
+                ) && reachable
+                    .contains(&FlowNodeId(index))),
+                "normal continuation remains reachable"
+            );
+            crate::CheckedProgram::validate(&program).unwrap();
         }
     }
 
