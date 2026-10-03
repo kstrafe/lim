@@ -5167,6 +5167,13 @@ impl FlowGraph {
                                     continue;
                                 }
                             };
+                            // A terminating branch contributes no value to the
+                            // call. It is not a missing reference input. Use
+                            // the divergence-adjusted graph, just as the loan
+                            // and variant snapshot analyses do.
+                            if value_has_only_unreachable_events(self, body, origins, alternative) {
+                                continue;
+                            }
                             let sources = origins.value_before(body, self, event, alternative);
                             let state = variants.and_then(|facts| facts[event.0].as_ref());
                             let empty = HashMap::new();
@@ -15535,6 +15542,39 @@ mod tests {
             let span = held[0].span.unwrap();
             assert_eq!(&source[span.start..span.end], expected);
         }
+    }
+
+    #[test]
+    fn terminating_owned_argument_branches_do_not_require_reference_inputs() {
+        let source = "(#enum Child ((Start (#ref-mut u64)) (Resume (#ref-mut u64))))
+          (#linear Child)
+          (#enum Cell ((Empty) (Full Child))) (#linear Cell)
+          (#fn read (: child Child) u64
+            (#return (#match child
+              (#case (Start view) (#deref view))
+              (#case (Resume view) (#deref view)))))
+          (#fn main () u64
+            (#let-mut value u64 42u64)
+            (#let-mut cell Cell (Full (Start (#borrow-mut value))))
+            (#let answer u64 (#call read (: child (#block
+              (#let slot (#pin-ref-mut Cell) (#pin-borrow-mut cell))
+              (#let previous Cell (#unsafe (#pin-read slot)))
+              (#unsafe (#pin-write slot (Empty))) (#drop slot)
+              (#match previous (#case Empty (#unreachable))
+                (#case (Full child) child))))))
+            (#forget cell) (#return answer))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let summaries = declarations
+            .staged_referent_entry_contracts(&LinearTypes::from_program(&program))
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("main").unwrap()];
+        assert!(summary.unresolved_reads.is_empty());
+        assert!(
+            summary.entry_reads.is_empty(),
+            "local storage is not a parameter requirement"
+        );
     }
 
     #[test]
