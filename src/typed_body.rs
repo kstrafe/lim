@@ -554,6 +554,59 @@ mod tests {
     }
 
     #[test]
+    fn emission_statement_targets_distinguish_an_initializer_pattern_from_its_destination() {
+        let program = crate::parse_program(
+            "(#enum Maybe ((Some u64) None))
+          (#fn main () u64
+            (#let answer u64 (#match (Some 41u64)
+              (#case (Some answer) answer) (#case None 0u64)))
+            (#return (#u64.+.wrap answer 1u64)))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let function = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => Some(function),
+                _ => None,
+            })
+            .unwrap();
+        let overlay = checked.declarations().bodies["main"]
+            .emission_types(function)
+            .unwrap();
+        let Statement::Let { name, value, .. } = &function.body[0] else {
+            panic!("missing declaration")
+        };
+        let destination = overlay.statement_target(value).unwrap();
+        let ids = overlay
+            .by_id
+            .values()
+            .filter_map(|node| node.binding)
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&destination));
+        assert_eq!(overlay.binding_names.len(), 2);
+        assert_eq!(&overlay.binding_names[destination.0], name);
+        let Expr::List(items) = value else {
+            panic!("missing match")
+        };
+        let Expr::List(arm) = &items[2] else {
+            panic!("missing arm")
+        };
+        let Expr::List(pattern) = &arm[0] else {
+            panic!("missing pattern")
+        };
+        let pattern_binding = overlay.get(&pattern[1]).unwrap().binding.unwrap();
+        let Expr::Symbol(pattern_name) = &pattern[1] else {
+            panic!("missing pattern binding")
+        };
+        assert_eq!(&overlay.binding_names[pattern_binding.0], pattern_name);
+        assert_ne!(destination, pattern_binding);
+        assert_eq!(overlay.statement_target(&pattern[1]), None);
+    }
+
+    #[test]
     fn checked_node_metadata_survives_unsafe_wrapper_lowering() {
         let source = "(#fn main () u64\n\
           (#return (#unsafe (#u64.+.wrap 40u64 2u64))))";
@@ -1175,6 +1228,9 @@ pub(crate) struct EmissionTypes {
     pub binding_names: Vec<String>,
     /// Checked local types in the same identity order.
     pub binding_types: Vec<Type>,
+    /// Checked destinations for bind/assignment RHS expressions. An RHS
+    /// identity is distinct from the bindings it may introduce in inner scopes.
+    pub statement_targets: HashMap<ExpressionId, BindingId>,
     /// Owner names needed to validate aggregate declaration identities.
     pub aggregate_names: HashMap<crate::typed_ir::AggregateId, String>,
     /// Global names addressed by checked declaration identity.
@@ -1198,6 +1254,13 @@ pub(crate) struct EmissionNode {
 }
 
 impl EmissionTypes {
+    pub fn statement_target(&self, expression: &Expr) -> Option<BindingId> {
+        self.address_to_id
+            .get(&(std::ptr::from_ref(expression) as usize))
+            .and_then(|id| self.statement_targets.get(id))
+            .copied()
+    }
+
     pub fn has_checked_identity(&self, expression: &Expr) -> bool {
         self.address_to_id
             .contains_key(&(std::ptr::from_ref(expression) as usize))
@@ -1353,6 +1416,39 @@ impl Body {
             .iter()
             .map(|binding| binding.ty.clone())
             .collect();
+        let mut pending = vec![self.instructions.as_slice()];
+        for node in &self.nodes {
+            if let NodeKind::Block(body) | NodeKind::Loop(body) = &node.kind {
+                pending.push(body.as_slice());
+            }
+        }
+        while let Some(instructions) = pending.pop() {
+            for instruction in instructions {
+                match &instruction.control {
+                    Control::Bind(binding, value, _)
+                    | Control::Assign(PlaceRoot::Local(binding), _, value) => {
+                        let id = self.nodes[value.0].expression_id.ok_or_else(|| {
+                            "internal error: statement RHS lost its checked identity".to_owned()
+                        })?;
+                        emission.statement_targets.insert(id, *binding);
+                    }
+                    Control::While(_, body) | Control::Loop(body) => pending.push(body),
+                    Control::For(init, _, step, body) => {
+                        pending.push(std::slice::from_ref(init.as_ref()));
+                        pending.push(std::slice::from_ref(step.as_ref()));
+                        pending.push(body);
+                    }
+                    Control::Labeled(_, statement) => {
+                        pending.push(std::slice::from_ref(statement.as_ref()));
+                    }
+                    Control::Destructure {
+                        otherwise: Some(body),
+                        ..
+                    } => pending.push(body),
+                    _ => {}
+                }
+            }
+        }
         emission.aggregate_names = self.aggregate_names.clone();
         emission.global_names = self
             .declaration_names

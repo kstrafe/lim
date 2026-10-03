@@ -167,6 +167,84 @@ fn sibling_scopes_may_reuse_local_names() {
 }
 
 #[test]
+fn sibling_enum_patterns_with_the_same_name_have_distinct_typed_storage() {
+    let scratch = support::Scratch::new("pattern-binding-storage");
+    let source = scratch.path().join("main.lim");
+    let executable = scratch.path().join("program");
+    std::fs::write(
+        &source,
+        "(#enum Small ((Number u64) Zero))
+      (#enum Wide ((Words (#tuple u64 u64 u64 u64)) Absent))
+      (#fn main () u64
+        (#let small Small (Number 20u64))
+        (#let wide Wide (Words (#tuple (#tuple u64 u64 u64 u64) 22u64 3u64 4u64 5u64)))
+        (#let first u64 (#match small (#case (Number value) value) (#case Zero 0u64)))
+        (#let second u64 (#match wide (#case (Words value) (#get value 0)) (#case Absent 0u64)))
+        (#return (#u64.+.wrap first second)))",
+    )
+    .unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&source)
+            .arg("-o")
+            .arg(&executable),
+        Duration::from_secs(20),
+        1024 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) = support::run(
+        &mut Command::new(&executable),
+        Duration::from_secs(2),
+        1024 * 1024,
+    )
+    .unwrap();
+    assert_eq!(
+        status.code(),
+        Some(42),
+        "{}",
+        String::from_utf8_lossy(&stderr)
+    );
+}
+
+#[test]
+fn scoped_statement_destinations_do_not_alias_same_spelled_initializer_patterns() {
+    let scratch = support::Scratch::new("scoped-statement-destinations");
+    let executable = scratch.path().join("program");
+    for (index, source) in [
+        "(#enum Maybe ((Some u64) None))
+          (#fn main () u64
+            (#let answer u64 (#match (Some 41u64)
+              (#case (Some answer) answer) (#case None 0u64)))
+            (#return (#u64.+.wrap answer 1u64)))",
+        "(#fn main () u64
+          (#let first u64 (#block (#let-mut value u64 20u64) (#set value 21u64) value))
+          (#let second u64 (#block (#let-mut value (#tuple u64 u64)
+            (#tuple (#tuple u64 u64) 20u64 9u64)) (#set-field value 0 21u64) (#get value 0)))
+          (#return (#u64.+.wrap first second)))",
+        "(#struct Pair (: first u64 : second u64))
+          (#fn main () u64
+            (#let first u64 (#block (#let-mut value Pair
+              (#struct-literal Pair (: first 20u64 : second 9u64)))
+              (#set-field value first 21u64) (#get value first)))
+            (#let second u64 (#block (#let-mut value u128 20u128) (#set value 21u128) (#as value u64)))
+            (#return (#u64.+.wrap first second)))",
+    ].iter().enumerate() {
+        let path = scratch.path().join(format!("main-{index}.lim"));
+        std::fs::write(&path, source).unwrap();
+        let (status, _, stderr) = support::run(
+            Command::new(env!("CARGO_BIN_EXE_lim")).arg(&path).arg("-o").arg(&executable),
+            Duration::from_secs(20), 1024 * 1024,
+        ).unwrap();
+        assert!(status.success(), "case {index}: {}", String::from_utf8_lossy(&stderr));
+        let (status, _, stderr) = support::run(
+            &mut Command::new(&executable), Duration::from_secs(2), 1024 * 1024,
+        ).unwrap();
+        assert_eq!(status.code(), Some(42), "case {index}: {}", String::from_utf8_lossy(&stderr));
+    }
+}
+
+#[test]
 fn actual_static_access_still_requires_unsafe_and_points_at_its_name() {
     let scratch = support::Scratch::new("static-unsafe");
     let source = "(#static TOTAL u64 40u64)\n(#fn main () u64 (#return TOTAL))";

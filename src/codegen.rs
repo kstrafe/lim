@@ -2218,17 +2218,39 @@ fn generate_function(
             &local_types,
         )?;
     }
-    let locals_by_binding = expression_types
-        .binding_names
-        .iter()
-        .enumerate()
-        .filter_map(|(index, name)| {
-            locals
-                .get(name)
-                .cloned()
-                .map(|storage| (crate::typed_body::BindingId(index), storage))
-        })
-        .collect();
+    let mut binding_counts = HashMap::new();
+    for name in &expression_types.binding_names {
+        *binding_counts.entry(name.as_str()).or_insert(0usize) += 1;
+    }
+    let mut locals_by_binding = HashMap::new();
+    for (index, name) in expression_types.binding_names.iter().enumerate() {
+        let storage = if binding_counts[name.as_str()] > 1 {
+            // Sibling pattern scopes may reuse a spelling, even with different
+            // types. Each checked identity needs its own physical storage;
+            // cloning the legacy name entry aliases unrelated bindings and
+            // may give an enum payload the wrong number of stack words.
+            let ty = expression_types
+                .binding_types
+                .get(index)
+                .ok_or_else(|| format!("internal error: checked binding '{name}' lost its type"))?;
+            let mut scoped = HashMap::new();
+            add_local(
+                &mut scoped,
+                name,
+                ty,
+                structs,
+                enums,
+                aliases,
+                &mut next_slot,
+            )?;
+            scoped.remove(name)
+        } else {
+            locals.get(name).cloned()
+        };
+        if let Some(storage) = storage {
+            locals_by_binding.insert(crate::typed_body::BindingId(index), storage);
+        }
+    }
     let indirect_return = functions
         .get(&function.name)
         .is_some_and(|abi| abi.indirect_return);
@@ -2465,6 +2487,7 @@ fn generate_function(
 
     let return_label = format!(".Lreturn_{}", asm_symbol(&function.name));
     let mut context = FunctionContext {
+        statement_target: None,
         expression_types,
         locals_by_binding,
         locals,
@@ -3754,6 +3777,11 @@ fn add_local(
     aliases: &HashMap<String, Type>,
     next_slot: &mut usize,
 ) -> Result<(), String> {
+    // This name table is only a legacy lookup bridge. Checked sibling scopes
+    // have separate BindingIds and allocate their own storage below.
+    if locals.contains_key(name) {
+        return Ok(());
+    }
     let ty = resolve_type(ty, aliases)?;
     let storage = if matches!(ty, Type::Unit | Type::Never) {
         Storage::Zero
@@ -5296,6 +5324,7 @@ enum MatchDestination<'a> {
 }
 
 struct FunctionContext<'a> {
+    statement_target: Option<crate::typed_body::BindingId>,
     expression_types: crate::typed_body::EmissionTypes,
     locals_by_binding: HashMap<crate::typed_body::BindingId, Storage>,
     locals: HashMap<String, Storage>,
@@ -5605,6 +5634,41 @@ fn checked_scalar_arguments_require_retained_types() {
         checked_scalar_argument_type(&argument, Some(callee), &emission).unwrap(),
         Some(Type::U64)
     );
+}
+
+#[cfg(test)]
+#[test]
+fn checked_generated_patterns_allocate_by_identity_without_source_alpha_renaming() {
+    // Generated ordinary declarations also enter via parse_item, without
+    // parse_program's source-name hygiene. BindingId storage must stand on
+    // its own, not depend on an earlier spelling rewrite.
+    let source = "(#enum Small ((Number u64) Zero))
+      (#enum Wide ((Words (#tuple u64 u64 u64 u64)) Absent))
+      (#fn main () u64
+        (#let small Small (Number 20u64))
+        (#let wide Wide (Words (#tuple (#tuple u64 u64 u64 u64) 22u64 3u64 4u64 5u64)))
+        (#let first u64 (#match small (#case (Number value) value) (#case Zero 0u64)))
+        (#let second u64 (#match wide (#case (Words value) (#get value 0)) (#case Absent 0u64)))
+        (#return (#u64.+.wrap first second)))";
+    let mut program = crate::parse_program("").unwrap();
+    for syntax in crate::parse(source).unwrap() {
+        let mut expression = crate::normalize_keywords(syntax.expr);
+        crate::normalize_match_cases_expr(&mut expression);
+        program.items.push(crate::parse_item(&expression).unwrap());
+    }
+    let checked = crate::CheckedProgram::validate(&program).unwrap();
+    let bindings = &checked.declarations().bodies["main"].bindings;
+    assert_eq!(
+        bindings
+            .iter()
+            .filter(|binding| binding.name == "value")
+            .count(),
+        2
+    );
+    let assembly =
+        generate_checked_executable_assembly(&checked, crate::TargetDescription::X86_64_SYSTEM_V)
+            .unwrap();
+    assert!(assembly.contains("main:"));
 }
 
 #[cfg(test)]
@@ -5922,6 +5986,16 @@ fn checked_numeric_operands_require_retained_opcode_types() {
 
 impl FunctionContext<'_> {
     fn local_binding_id(&self, name: &str) -> Option<crate::typed_body::BindingId> {
+        if let Some(binding) = self.statement_target {
+            if self
+                .expression_types
+                .binding_names
+                .get(binding.0)
+                .is_some_and(|target| target == name)
+            {
+                return Some(binding);
+            }
+        }
         let mut matches = self
             .expression_types
             .binding_names
@@ -6055,6 +6129,24 @@ impl FunctionContext<'_> {
     }
 
     fn statement(&mut self, statement: &Statement) -> Result<(), String> {
+        let target = match statement {
+            Statement::Let { value, .. }
+            | Statement::Assign { value, .. }
+            | Statement::ArrayAssign { value, .. }
+            | Statement::FieldAssign { value, .. }
+            | Statement::TupleAssign { value, .. }
+            | Statement::EnumPayloadAssign { value, .. } => {
+                self.expression_types.statement_target(value)
+            }
+            _ => None,
+        };
+        let previous = std::mem::replace(&mut self.statement_target, target);
+        let result = self.emit_statement(statement);
+        self.statement_target = previous;
+        result
+    }
+
+    fn emit_statement(&mut self, statement: &Statement) -> Result<(), String> {
         match statement {
             Statement::Let {
                 name, ty, value, ..
