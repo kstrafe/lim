@@ -40,6 +40,8 @@ struct Slot {
     peek: String,
     clear: String,
     finish: String,
+    lend: String,
+    lend_argument: String,
     ty: Type,
     copy: bool,
     linear: bool,
@@ -56,6 +58,7 @@ struct Emitter<'a> {
     poll: String,
     finish: String,
     result: Type,
+    pinned: bool,
     slots: Vec<Slot>,
     bindings: HashMap<BindingId, usize>,
     values: HashMap<ValueId, usize>,
@@ -102,6 +105,12 @@ impl<'a> Emitter<'a> {
             .validate()
             .and_then(|_| function.graph.validate_against(body))
             .map_err(|error| fail(function, error.message))?;
+        if u32::try_from(function.graph.blocks.len()).is_err() {
+            return Err(fail(
+                function,
+                "async graph exceeds the u32 program-counter range",
+            ));
+        }
         let poll = planning.interfaces.functions.values().find(|interface|
             interface.provenance == crate::async_interfaces::Provenance::AsyncPoll
             && interface.declaration.parameters.first().is_some_and(|parameter|
@@ -149,6 +158,7 @@ impl<'a> Emitter<'a> {
             poll: poll.declaration.name.clone(),
             finish: String::new(),
             result: variants[1].fields[0].clone(),
+            pinned: function.source.pinned_frame.is_some(),
             slots: Vec::new(),
             bindings: HashMap::new(),
             values: HashMap::new(),
@@ -187,7 +197,26 @@ impl<'a> Emitter<'a> {
             let slot = emitter.add_slot(format!("value.{index}"), value.ty.clone());
             emitter.values.insert(ValueId(index), slot);
         }
-        emitter.retirement = crate::async_retire::Plan::new(&function.graph, &emitter.types);
+        let mut exclusive_handles = HashSet::new();
+        for (value, slot) in &emitter.values {
+            let ty = crate::typed_ir::resolve_type(
+                &emitter.slots[*slot].ty,
+                &planning.declarations.aliases,
+            )
+            .map_err(|message| fail(function, message))?;
+            if matches!(
+                ty,
+                Type::Reference { mutable: true, .. } | Type::PinnedReference { mutable: true, .. }
+            ) {
+                exclusive_handles.insert(*value);
+            }
+        }
+        emitter.retirement = crate::async_retire::Plan::with_exclusive_handles(
+            &function.graph,
+            &emitter.types,
+            &exclusive_handles,
+            &planning.declarations.aliases,
+        );
         if let Some(plan) = &emitter.retirement {
             plan.validate(&function.graph)
                 .map_err(|error| fail(function, error.message))?;
@@ -222,6 +251,8 @@ impl<'a> Emitter<'a> {
             peek: self.fresh("peek"),
             clear: self.fresh("clear"),
             finish: self.fresh("finish"),
+            lend: self.fresh("lend"),
+            lend_argument: self.fresh("lend-input"),
             copy: self.types.can_repeat(&ty),
             linear: self.types.is_linear(&ty),
             ty,
@@ -346,8 +377,19 @@ impl<'a> Emitter<'a> {
     }
 
     fn slot_definitions(&self) -> String {
-        self.slots.iter().map(|slot| {
+        let lenders = self
+            .bindings
+            .iter()
+            .filter_map(|(binding, index)| {
+                self.leases.snapshots_binding(*binding).then_some(*index)
+            })
+            .collect::<HashSet<_>>();
+        self.slots.iter().enumerate().map(|(index, slot)| {
             let ty = crate::type_source(&slot.ty);
+            let lend = if lenders.contains(&index) {
+                format!("(#fn {} (: {} {ty}) {ty} (#return {}))\n",
+                    slot.lend, slot.lend_argument, slot.lend_argument)
+            } else { String::new() };
             let occupied = if slot.linear {
                 // This branch is a violated compiler/source invariant, not an
                 // invented destructor for a live owner. It traps explicitly.
@@ -382,7 +424,7 @@ impl<'a> Emitter<'a> {
                 // Owned reference transfers are emitted at the actual local
                 // cell, where input-slot identities and Empty/Full tags stay
                 // visible. Do not emit unused abstract take/put helpers.
-                return format!("(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
+                return format!("{lend}(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
                   (#fn {finish} ((slot {name})) ()\n\
                     (#match slot (#case {empty} ()) (#case ({full} occupied) {occupied}))\n\
                     (#return ()))\n\
@@ -500,7 +542,7 @@ impl<'a> Emitter<'a> {
             .filter_map(|cell| match cell {
                 crate::async_cells::Cell::Binding(binding) => self.bindings.get(binding).copied(),
                 crate::async_cells::Cell::Value(value) => {
-                    // Copy retirement already makes this particular Empty write
+                    // Handle retirement already makes this particular Empty write
                     // visible on Pending; do not emit it a second time.
                     if !exit
                         && self
@@ -668,17 +710,17 @@ impl<'a> Emitter<'a> {
         )
         .map_err(|message| fail(self.function, message))?;
         let (mut ty, pinned) = match &handle_ty {
-            Type::Reference { mutable, target } if !mutable || self.leases.get(value).is_some() => {
+            Type::Reference { mutable, target } if !mutable || self.leases.get(value).is_some() || self.values.contains_key(&value) => {
                 (target.as_ref().clone(), false)
             }
             Type::PinnedReference { mutable, target }
-                if !mutable || self.leases.get(value).is_some() =>
+                if !mutable || self.leases.get(value).is_some() || self.values.contains_key(&value) =>
             {
                 (target.as_ref().clone(), true)
             }
             _ => {
                 return Err(reject(
-                    "address loads require a shared handle or a certified exclusive read window",
+                    "address loads require a shared handle, certified exclusive window, or materialized reference cell",
                 ))
             }
         };
@@ -693,11 +735,26 @@ impl<'a> Emitter<'a> {
             ));
         }
         // Preserve incoming loan provenance. Shared handles use immediate
-        // reborrows; exclusive read windows keep the owning cell in place.
-        let (mut steps, mut reference) = if self.leases.get(value).is_some() {
+        // reborrows; exclusive windows and materialized reborrows read their
+        // owning cell in place, without moving or duplicating the handle.
+        let exclusive = matches!(
+            handle_ty,
+            Type::Reference { mutable: true, .. } | Type::PinnedReference { mutable: true, .. }
+        );
+        let (mut steps, mut reference) = if exclusive {
             // Keep the exclusive handle in its owner. Naming a loaded
             // #ref-mut would be an owned move, not this nonmoving read.
-            (Vec::new(), self.value(value, false))
+            let reference = if self.leases.get(value).is_some() {
+                self.value(value, false)
+            } else {
+                let slot = &self.slots[self.values[&value]];
+                format!(
+                    "(#deref (#pin-get-payload-mut {} {} 0))",
+                    Self::slot_ref(slot, true),
+                    slot.full
+                )
+            };
+            (Vec::new(), reference)
         } else {
             let name = self.fresh("shared-handle");
             (
@@ -737,7 +794,7 @@ impl<'a> Emitter<'a> {
             };
             ty = crate::typed_ir::resolve_type(&ty, &self.planning.declarations.aliases)
                 .map_err(|message| fail(self.function, message))?;
-            if self.leases.get(value).is_some() {
+            if exclusive {
                 // This is still one variable-rooted owning-cell recipe, not
                 // a moved intermediate aggregate or a stored derived ref.
                 // The checked Copy leaf getter reads through the handle.
@@ -781,7 +838,7 @@ impl<'a> Emitter<'a> {
             steps.join("\n"),
             if ty == Type::Unit {
                 "()".into()
-            } else if self.leases.get(value).is_some() && !projections.is_empty() {
+            } else if exclusive && !projections.is_empty() {
                 reference
             } else {
                 format!("(#deref {reference})")
@@ -849,7 +906,7 @@ impl<'a> Emitter<'a> {
                                         .and_then(|source| self.lending.as_ref()?.access(source));
                                     // Lending keeps the owner Full. Nonmoving
                                     // access still requires a certified window
-                                    // when the action is actually emitted.
+                                    // or a materialized reborrow at emission.
                                     if !matches!(lending, Some(crate::async_lend::Access::Lend(_)))
                                     {
                                         full[binding.0] = false;
@@ -1056,6 +1113,17 @@ impl<'a> Emitter<'a> {
                             {
                                 return Ok(String::new());
                             }
+                            if self.leases.snapshot(*dst) == Some(binding) {
+                                let slot = &self.slots[*slot];
+                                let reborrow = format!(
+                                    "(#call {} (: {} (#deref (#pin-get-payload-mut {} {} 0))))",
+                                    slot.lend,
+                                    slot.lend_argument,
+                                    Self::slot_ref(slot, true),
+                                    slot.full
+                                );
+                                return Ok(self.put_value(*dst, &reborrow));
+                            }
                             return Err(error(
                                 "nonmoving exclusive handle reads require a checked lending lease",
                             ));
@@ -1188,12 +1256,19 @@ impl<'a> Emitter<'a> {
             stores.push(self.put_value(*parameter, &name));
         }
         Ok(format!(
-            "{}\n{}\n{}\n(#set-field task pc {}u32)\n(#continue)",
+            "{}\n{}\n{}\n{}\n(#continue)",
             stages.join("\n"),
             self.retire_edge(block, index),
             stores.join("\n"),
-            edge.target.0
+            self.set_pc(edge.target.0 as u32)
         ))
+    }
+
+    fn set_pc(&self, pc: u32) -> String {
+        format!(
+            "(#{}set-field task pc {pc}u32)",
+            if self.pinned { "pin-" } else { "" }
+        )
     }
 
     fn terminal(&mut self, block: BlockId, terminal: &Terminator) -> Result<String, Error> {
@@ -1247,15 +1322,39 @@ impl<'a> Emitter<'a> {
                 let empty = self.expose_empty_reference_cells(block, false);
                 Ok(format!("(#let {polled} {} {call})\n\
                   (#match {polled}\n\
-                    (#case ({} {next}) (#block {store} {retired} {empty} (#set-field task pc {}u32) (#return ({} task)) (#unreachable)))\n\
-                    (#case ({} {result}) (#block {edge} (#unreachable))))", crate::type_source(poll_type), protocol.pending, pending.0, self.pending, protocol.ready))
+                    (#case ({} {next}) (#block {store} {retired} {empty} {} (#return ({} task)) (#unreachable)))\n\
+                    (#case ({} {result}) (#block {edge} (#unreachable))))", crate::type_source(poll_type), protocol.pending, self.set_pc(pending.0 as u32), self.pending, protocol.ready))
             }
             Terminator::Return(value) => {
                 let value = value.map_or_else(|| "()".into(), |value| self.value(value, true));
                 let name = self.fresh("result");
                 let empty = self.expose_empty_reference_cells(block, true);
-                let finish = &self.finish;
-                Ok(format!("(#let {name} {} {value})\n{empty}\n(#call {finish} (: task task))\n(#return ({} {name}))", crate::type_source(&self.result), self.ready))
+                let finish = self.finish.clone();
+                let complete = if self.pinned {
+                    let refs = self.reference_slots();
+                    let clear = self.clear_handle_slots(&refs);
+                    let owners = self
+                        .slots
+                        .iter()
+                        .filter(|slot| slot.linear)
+                        .map(|slot| {
+                            format!(
+                                "(#assert (#variant-is {} {}))",
+                                Self::slot_ref(slot, false),
+                                slot.empty
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    format!("{clear}\n{owners}\n{}", self.set_pc(u32::MAX))
+                } else {
+                    format!("(#call {finish} (: task task))")
+                };
+                Ok(format!(
+                    "(#let {name} {} {value})\n{empty}\n{complete}\n(#return ({} {name}))",
+                    crate::type_source(&self.result),
+                    self.ready
+                ))
             }
             Terminator::Diverge => Ok("(#unreachable)".into()),
             Terminator::PatternTest { pattern, yes, no } => {
@@ -1316,13 +1415,17 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    fn reference_slots(&self) -> Vec<usize> {
+        self.slots
+            .iter()
+            .enumerate()
+            .filter_map(|(index, slot)| {
+                (!slot.linear && self.types.contains_reference(&slot.ty)).then_some(index)
+            })
+            .collect()
+    }
+
     fn emit(mut self) -> Result<Generated, Error> {
-        if self.function.source.pinned_frame.is_some() {
-            return Err(fail(
-                self.function,
-                "pinned dispatch needs stable alias slots and a checked owner storage map",
-            ));
-        }
         if self
             .planning
             .interfaces
@@ -1334,7 +1437,11 @@ impl<'a> Emitter<'a> {
                         .declaration
                         .parameters
                         .first()
-                        .is_some_and(|parameter| parameter.ty == Type::Named(self.frame.clone()))
+                        .is_some_and(|parameter| {
+                            parameter.ty == Type::Named(self.frame.clone())
+                                || (self.pinned
+                                    && parameter.ty == Type::Named(format!("{}-state", self.frame)))
+                        })
             })
         {
             return Err(fail(
@@ -1411,6 +1518,48 @@ impl<'a> Emitter<'a> {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        let pinned_type = Type::PinnedReference {
+            mutable: true,
+            target: Box::new(Type::Named(self.frame.clone())),
+        };
+        let receiver = if self.pinned {
+            crate::type_source(&pinned_type)
+        } else {
+            self.frame.clone()
+        };
+        let cancel = if self.pinned {
+            let state = format!("{}-state", self.frame);
+            let refs = self.reference_slots();
+            let clear = self.clear_handle_slots(&refs);
+            let pc = self.fresh("cancelled-pc");
+            let mut takes = vec![format!("(#let {pc} u32 (#get task pc))")];
+            let mut captured = vec![format!("(pc {pc})")];
+            for index in 0..self.slots.len() {
+                let value = self.fresh("cancelled-slot");
+                let slot = &self.slots[index];
+                takes.push(format!(
+                    "(#let {value} {} (#unsafe (#pin-read {})))\n\
+                    (#unsafe (#pin-write {} ({})))",
+                    slot.name,
+                    Self::slot_ref(slot, true),
+                    Self::slot_ref(slot, true),
+                    slot.empty
+                ));
+                captured.push(format!("({} {value})", slot.field));
+            }
+            format!(
+                "(#struct {state} ((pc u32) {fields}))\n(#linear {state})\n\
+                (#fn {}-cancel (: task {receiver}) {state}\n\
+                  {clear}\n{}\n{}\n\
+                  (#return (#struct-literal {state} ({}))))\n",
+                self.poll,
+                takes.join("\n"),
+                self.set_pc(u32::MAX),
+                captured.join(" ")
+            )
+        } else {
+            String::new()
+        };
         let source = format!(
             "{}\n\
           (#struct {} ((pc u32) {fields}))\n(#linear {})\n\
@@ -1427,7 +1576,7 @@ impl<'a> Emitter<'a> {
             self.frame,
             self.poll_type,
             self.pending,
-            self.frame,
+            receiver,
             self.ready,
             crate::type_source(&self.result),
             self.function.model.source_name,
@@ -1438,12 +1587,12 @@ impl<'a> Emitter<'a> {
             self.finish,
             self.frame,
             self.poll,
-            self.frame,
+            receiver,
             crate::type_source(&self.function.source.waker),
             self.poll_type,
             cases.join("\n")
         );
-        let source = crate::generator::format_generated_source(&source)
+        let source = crate::generator::format_generated_source(&format!("{source}\n{cancel}"))
             .map_err(|message| fail(self.function, message))?;
         Ok(Generated {
             frame: self.frame,
@@ -1563,9 +1712,13 @@ mod tests {
     }
 
     fn prepare_function(function: &str, main: &str) -> Planning {
+        prepare_generator("async-fn", function, main)
+    }
+
+    fn prepare_generator(generator: &str, function: &str, main: &str) -> Planning {
         let source = format!(
             "{CONTEXT}
-          (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64
+          (@{generator} (: names (Frame Poll Pending Ready poll) : waker u64
             : function {function}))
           {main}"
         );
@@ -1586,8 +1739,16 @@ mod tests {
     }
 
     fn runtime_planned(planning: Planning, expected: i32) -> Vec<Generated> {
-        static NEXT: AtomicUsize = AtomicUsize::new(0);
         let generated = generate(&planning).unwrap();
+        runtime_generated(planning, generated, expected)
+    }
+
+    fn runtime_generated(
+        planning: Planning,
+        generated: Vec<Generated>,
+        expected: i32,
+    ) -> Vec<Generated> {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
         for output in &generated {
             assert_eq!(
                 crate::generator::format_generated_source(&output.source).unwrap(),
@@ -2110,51 +2271,372 @@ mod tests {
     }
 
     #[test]
-    fn exclusive_call_operands_fail_closed_across_later_effects() {
+    fn exclusive_call_operands_retain_their_evaluated_handle_across_effects_and_awaits() {
         for amount in [
             "(#call later ())",
             "(#await Child ChildPending ChildReady child-poll (Start 2u64))",
         ] {
-            let planning = prepare_function(
+            let planning = prepare_generator("async-fn-pinned",
                 &format!(
                     "(#fn work (: view (#ref-mut u64)) u64
               (#let before u64 (#deref view))
               (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
               (#return (#u64.+.wrap before (#call read-view (: view view : amount {amount})))))"
                 ),
-                "(#fn read-view (: view (#ref-mut u64) : amount u64) u64 (#return (#deref view)))
+                "(#fn read-view (: view (#ref-mut u64) : amount u64) u64 (#return (#u64.+.wrap (#deref view) amount)))
               (#fn later () u64 (#return 0u64))
-              (#fn main () u64 (#return 0u64))",
+              (#fn main () u64 (#let waker u64 0u64) (#let-mut value u64 20u64)
+                (#let-mut task Frame (#call work (: view (#borrow-mut value))))
+                (#let-mut running (#pin-ref-mut Frame) (#pin-borrow-mut task))
+                (#let-mut answer u64 0u64)
+                (#loop (#match (#call poll (: task running : waker (#borrow waker)))
+                  (#case (Pending next) (#block (#set running next) ()))
+                  (#case (Ready result) (#block (#set answer result) (#break) (#unreachable)))))
+                (#drop running) (#forget task)
+                (#return answer))",
             );
-            let error = generate(&planning).err().unwrap();
-            assert!(
-                error.message.contains("checked lending lease"),
-                "{}",
-                error.message
-            );
-            let source = &planning.program.source_files[error.span.source_id as usize].source;
-            assert_eq!(&source[error.span.start..error.span.end], "view");
+            runtime_planned(planning, if amount.contains("#await") { 42 } else { 40 });
         }
     }
 
     #[test]
-    fn exclusive_calls_returning_children_require_retained_leases() {
-        let planning = prepare_function(
-            "(#fn work (: view (#ref-mut u64)) u64
-              (#let returned (#ref-mut u64) (#call echo (: view view)))
+    fn exclusive_returned_children_survive_pending_with_parent_permissions() {
+        for (ty, borrow) in [
+            ("#ref-mut", "#borrow-mut"),
+            ("#pin-ref-mut", "#pin-borrow-mut"),
+        ] {
+            let function = format!(
+                "(#fn work (: view ({ty} u64)) u64
+                  (#let returned ({ty} u64) (#call echo (: view view)))
+                  (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                  (#return (#u64.+.wrap (#deref returned) child)))"
+            );
+            let main = format!(
+                "(#fn echo (: view ({ty} u64)) ({ty} u64) (#return view))
+                  (#fn main () u64 (#let waker u64 0u64) (#let-mut value u64 40u64)
+                    (#let-mut task Frame (#call work (: view ({borrow} value))))
+                    (#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                    (#let-else (Pending next) Poll first (#unreachable))
+                    (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                      (#case (Ready answer) answer)
+                      (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                    (#forget task) (#set value 99u64) (#return answer))"
+            );
+            runtime_planned(prepare_generator("async-fn-pinned", &function, &main), 42);
+            let bad = main.replace(
+                "(#let-else (Pending next)",
+                "(#set value 99u64) (#let-else (Pending next)",
+            );
+            let planning = prepare_generator("async-fn-pinned", &function, &bad);
+            let generated = generate(&planning).unwrap();
+            let proposed = program(&planning, &generated).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&proposed)
+                .err()
+                .unwrap();
+            assert_eq!(error.1, DiagnosticCode::Borrow);
+            let span = error.2.unwrap();
+            assert_eq!(
+                &proposed.source_files[span.source_id as usize].source[span.start..span.end],
+                "#set"
+            );
+            let bad_function = function.replace(
+                "(#let child u64",
+                "(#let invalid u64 (#deref view)) (#let child u64",
+            );
+            let planning = prepare_generator("async-fn-pinned", &bad_function, &main);
+            let generated = generate(&planning).unwrap();
+            let proposed = program(&planning, &generated).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&proposed)
+                .err()
+                .unwrap();
+            assert_eq!(error.1, DiagnosticCode::Borrow);
+            let span = error.2.unwrap();
+            assert!((span.source_id as usize) < planning.program.source_files.len());
+            assert_eq!(
+                &proposed.source_files[span.source_id as usize].source[span.start..span.end],
+                "#deref"
+            );
+        }
+    }
+
+    #[test]
+    fn retained_arguments_use_the_snapshot_not_the_replaced_parent() {
+        let function = "(#fn work ((#mut view (#ref-mut u64)) (other (#ref-mut u64))) u64
+            (#let answer u64 (#call read-view (: view view : amount
+              (#block (#set view other)
+                (#await Child ChildPending ChildReady child-poll (Start 2u64))))))
+            (#assert (#u64.== (#deref view) 100u64)) (#return answer))";
+        let main = "(#fn read-view (: view (#ref-mut u64) : amount u64) u64
+              (#return (#u64.+.wrap (#deref view) amount)))
+            (#fn main () u64 (#let waker u64 0u64) (#let-mut first u64 40u64) (#let-mut other u64 100u64)
+              (#let-mut task Frame (#call work (: view (#borrow-mut first) : other (#borrow-mut other))))
+              (#let initial Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+              (#let-else (Pending next) Poll initial (#unreachable))
+              (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                (#case (Ready answer) answer)
+                (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+              (#forget task) (#set first 99u64) (#set other 99u64) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+    }
+
+    #[test]
+    fn computed_exclusive_results_retire_after_their_actual_leaf_read() {
+        let function = "(#fn work (: view (#ref-mut u64)) u64
+            (#let before u64 (#deref (#call echo (: view view)))) (#drop view)
+            (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+            (#return (#u64.+.wrap before child)))";
+        let main = "(#fn echo (: view (#ref-mut u64)) (#ref-mut u64) (#return view))
+            (#fn main () u64 (#let waker u64 0u64) (#let-mut value u64 40u64)
+              (#let-mut task Frame (#call work (: view (#borrow-mut value))))
+              (#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+              (#let-else (Pending next) Poll first (#unreachable))
+              (#set value 99u64)
+              (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                (#case (Ready answer) answer)
+                (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+              (#forget task) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+    }
+
+    #[test]
+    fn pinned_cancellation_transfers_only_initialized_children_to_explicit_cleanup() {
+        for phase in ["initial", "pending", "ready"] {
+            let planning = prepare_generator(
+                "async-fn-pinned",
+                "(#fn work (: view (#ref-mut u64)) u64
+                  (#let returned (#ref-mut u64) (#call echo (: view view)))
+                  (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                  (#return (#u64.+.wrap (#deref returned) child)))",
+                "(#fn echo (: view (#ref-mut u64)) (#ref-mut u64) (#return view))",
+            );
+            // Inspect the proposed storage declarations, rather than assuming
+            // a private fresh-name numbering scheme in the cleanup function.
+            let child = planning.functions[0]
+                .graph
+                .blocks
+                .iter()
+                .find_map(|block| match block.terminator {
+                    Terminator::Await { child, .. } => Some(child),
+                    _ => None,
+                })
+                .unwrap();
+            let mut generated = generate(&planning).unwrap();
+            let parsed = program(&planning, &generated).unwrap();
+            let slot_type = parsed
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    Item::Struct { name, fields, .. } if name == "Frame-state" => fields
+                        .iter()
+                        .find(|field| field.name == format!("value.{}", child.0))
+                        .map(|field| field.ty.clone()),
+                    _ => None,
+                })
+                .unwrap();
+            let Type::Named(slot_name) = slot_type else {
+                panic!("child has no storage enum")
+            };
+            let variants = parsed
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    Item::Enum { name, variants, .. } if name == &slot_name => Some(variants),
+                    _ => None,
+                })
+                .unwrap();
+            let empty = &variants
+                .iter()
+                .find(|variant| variant.fields.is_empty())
+                .unwrap()
+                .name;
+            let full = &variants
+                .iter()
+                .find(|variant| variant.fields == [Type::Named("Child".into())])
+                .unwrap()
+                .name;
+            let polls = match phase {
+                "initial" => String::new(),
+                "pending" => "(#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                    (#let-else (Pending next) Poll first (#unreachable)) (#drop next)".into(),
+                "ready" => "(#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                    (#let-else (Pending next) Poll first (#unreachable))
+                    (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                      (#case (Ready answer) answer)
+                      (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                    (#assert (#u64.== answer 42u64))".into(),
+                _ => unreachable!(),
+            };
+            let expected_count = if phase == "pending" { 1 } else { 0 };
+            let extra = format!(
+                "
+                (#fn cancel-child (: task Child : count (#ref-mut u64)) ()
+                  (#match task
+                    (#case (Start value) (#assert false))
+                    (#case (Resume value) (#assert (#u64.== value 2u64))))
+                  (#deref-set count (#u64.+.wrap (#deref count) 1u64)) (#return ()))
+                (#fn destroy-state (: state Frame-state : count (#ref-mut u64)) ()
+                  (#match (#get state value.{child})
+                    (#case {empty} ())
+                    (#case ({full} child) (#call cancel-child (: task child : count count))))
+                  (#forget state) (#return ()))
+                (#fn main () u64
+                  (#let waker u64 0u64) (#let-mut value u64 40u64) (#let-mut count u64 0u64)
+                  (#let-mut task Frame (#call work (: view (#borrow-mut value))))
+                  {polls}
+                  (#let state Frame-state (#call poll-cancel (: task (#pin-borrow-mut task))))
+                  (#call destroy-state (: state state : count (#borrow-mut count)))
+                  (#set value 99u64)
+                  (#let again Frame-state (#call poll-cancel (: task (#pin-borrow-mut task))))
+                  (#assert (#u32.== (#get again pc) 4294967295u32))
+                  (#call destroy-state (: state again : count (#borrow-mut count)))
+                  (#assert (#u64.== count {expected_count}u64))
+                  (#forget task) (#return 42u64))",
+                child = child.0
+            );
+            generated[0].source = crate::generator::format_generated_source(&format!(
+                "{}\n{extra}",
+                generated[0].source
+            ))
+            .unwrap();
+            runtime_generated(planning, generated, 42);
+        }
+    }
+
+    #[test]
+    fn retained_child_lending_is_recreated_only_on_actual_loop_iterations() {
+        let function = "(#fn work (: view (#ref-mut u64)) u64
+          (#let-mut total u64 0u64)
+          (#while (#u64.< total 42u64)
+            (#let returned (#ref-mut u64) (#call echo (: view view)))
+            (#let amount u64 (#if (#u64.== total 0u64)
+              (#await Child ChildPending ChildReady child-poll (Start 20u64))
+              (#await Child ChildPending ChildReady child-poll (Start 22u64))))
+            (#assert (#u64.== (#deref returned) 40u64))
+            (#set total (#u64.+.wrap total amount)))
+          (#return total))";
+        let main = "(#fn echo (: view (#ref-mut u64)) (#ref-mut u64) (#return view))
+          (#fn main () u64 (#let waker u64 0u64) (#let-mut value u64 40u64)
+            (#let-mut task Frame (#call work (: view (#borrow-mut value))))
+            (#let-mut running (#pin-ref-mut Frame) (#pin-borrow-mut task))
+            (#let-mut answer u64 0u64) (#let-mut retries u64 0u64)
+            (#loop (#match (#call poll (: task running : waker (#borrow waker)))
+              (#case (Pending next) (#block (#set running next)
+                (#set retries (#u64.+.wrap retries 1u64)) ()))
+              (#case (Ready result) (#block (#set answer result) (#break) (#unreachable)))))
+            (#drop running) (#forget task) (#set value 99u64)
+            (#assert (#u64.== retries 2u64)) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+    }
+
+    #[test]
+    fn returned_shared_reference_holders_retain_their_actual_pointees_across_pending() {
+        let function = "(#fn work (: view (#ref-mut Source)) u64
+          (#let holder Holder (#call echo (: view view)))
+          (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#return (#call read-holder (: holder holder : amount child))))";
+        let main = "(#struct Source (: amount u64)) (#struct Holder (: view (#ref u64)))
+          (#fn echo (: view (#ref-mut Source)) Holder
+            (#return (#struct-literal Holder (: view (#borrow (#get view amount))))))
+          (#fn read-holder (: holder Holder : amount u64) u64
+            (#return (#u64.+.wrap (#deref (#get holder view)) amount)))
+          (#fn main () u64 (#let waker u64 0u64)
+            (#let-mut value Source (#struct-literal Source (: amount 40u64)))
+            (#let-mut task Frame (#call work (: view (#borrow-mut value))))
+            (#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (Pending next) Poll first (#unreachable))
+            (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+              (#case (Ready answer) answer)
+              (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+            (#forget task) (#set value (#struct-literal Source (: amount 99u64))) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        let bad = main.replace(
+            "(#let-else (Pending next)",
+            "(#set value (#struct-literal Source (: amount 99u64))) (#let-else (Pending next)",
+        );
+        let planning = prepare_generator("async-fn-pinned", function, &bad);
+        let generated = generate(&planning).unwrap();
+        let proposed = program(&planning, &generated).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&proposed)
+            .err()
+            .unwrap();
+        assert_eq!(error.1, DiagnosticCode::Borrow);
+        let span = error.2.unwrap();
+        assert_eq!(
+            &proposed.source_files[span.source_id as usize].source[span.start..span.end],
+            "#set"
+        );
+    }
+
+    #[test]
+    fn ready_transfers_exclusive_results_without_retaining_the_empty_frame() {
+        for (ty, borrow, write) in [
+            ("#ref-mut", "#borrow-mut", "(#deref-set result 42u64)"),
+            (
+                "#pin-ref-mut",
+                "#pin-borrow-mut",
+                "(#unsafe (#pin-write result 42u64))",
+            ),
+        ] {
+            let function = format!(
+                "(#fn work (: view ({ty} u64)) ({ty} u64)
+              (#let returned ({ty} u64) (#call echo (: view view)))
               (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
-              (#return (#u64.+.wrap (#deref returned) child)))",
-            "(#fn echo (: view (#ref-mut u64)) (#ref-mut u64) (#return view))
-              (#fn main () u64 (#return 0u64))",
+              (#return returned))"
+            );
+            let main = format!("(#fn echo (: view ({ty} u64)) ({ty} u64) (#return view))
+              (#fn main () u64 (#let waker u64 0u64) (#let-mut value u64 40u64)
+                (#let-mut task Frame (#call work (: view ({borrow} value))))
+                (#let first Poll (#call poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                (#let-else (Pending next) Poll first (#unreachable))
+                (#let result ({ty} u64) (#match (#call poll (: task next : waker (#borrow waker)))
+                  (#case (Ready result) result)
+                  (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                (#forget task) {write} (#drop result) (#return value))");
+            runtime_planned(prepare_generator("async-fn-pinned", &function, &main), 42);
+            let bad = main.replace(
+                &format!("(#forget task) {write}"),
+                &format!("(#forget task) (#set value 99u64) {write}"),
+            );
+            let planning = prepare_generator("async-fn-pinned", &function, &bad);
+            let generated = generate(&planning).unwrap();
+            let proposed = program(&planning, &generated).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&proposed)
+                .err()
+                .unwrap();
+            assert_eq!(error.1, DiagnosticCode::Borrow);
+            let span = error.2.unwrap();
+            assert_eq!(
+                &proposed.source_files[span.source_id as usize].source[span.start..span.end],
+                "#set"
+            );
+        }
+    }
+
+    #[test]
+    fn manual_pinned_cancellation_waits_for_checked_state_contracts() {
+        let source = format!(
+            "{CONTEXT}
+          (@async-fn-pinned (: names (Frame Poll Pending Ready poll) : waker u64
+            : cancel (cancel-frame ((Frame-start cancel-start) (Frame-await-0 cancel-await)))
+            : function (#fn work (: seed u64) u64
+              (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))"
         );
+        let syntax = crate::prepare_program_syntax(
+            &source,
+            std::path::Path::new("."),
+            None,
+            &crate::CompileConfig::default(),
+            None,
+        )
+        .unwrap();
+        let planning = crate::async_prepare::prepare(&syntax).unwrap();
         let error = generate(&planning).err().unwrap();
-        assert!(
-            error.message.contains("checked lending lease"),
-            "{}",
-            error.message
+        assert_eq!(
+            error.message,
+            "graph cancellation requires state-specific checked cleanup contracts"
         );
-        let source = &planning.program.source_files[error.span.source_id as usize].source;
-        assert_eq!(&source[error.span.start..error.span.end], "view");
+        let original = &planning.program.source_files[error.span.source_id as usize].source;
+        assert!(original[error.span.start..error.span.end].starts_with("(#fn work"));
     }
 
     #[test]

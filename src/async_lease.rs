@@ -3,12 +3,14 @@
 //! An in-place window keeps the owning handle Full. Its only consumer is a
 //! Copy leaf load or resolved call without reference-bearing results, after
 //! pure address formation in the same executable block.
-//! No handle is copied, captured in another cell, or reevaluated after an
-//! effect or a suspension. This is an emission proof, not borrow permission:
+//! Other exclusive reads materialize an ordinary checked reborrow in a value
+//! cell at the original evaluation point. The parent is not moved or copied,
+//! and its pointer is never reevaluated after an effect or suspension.
+//! This is an emission proof, not borrow permission:
 //! the original source and the generated ordinary program remain mandatory.
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::async_exec::{
     Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Graph, LoadKind, ValueId,
@@ -36,6 +38,8 @@ pub(crate) struct Lease {
 
 pub(crate) struct Plan {
     leases: HashMap<ValueId, Lease>,
+    snapshots: HashMap<ValueId, BindingId>,
+    snapshot_bindings: HashSet<BindingId>,
 }
 
 fn pure_path(descriptor: &crate::async_exec::PlaceDescriptor, value: ValueId) -> bool {
@@ -62,8 +66,13 @@ impl Plan {
     ) -> Result<Self, crate::async_exec::Error> {
         graph.validate()?;
         let mut leases = HashMap::new();
+        let mut snapshots = HashMap::new();
         let Some(accesses) = accesses else {
-            return Ok(Self { leases });
+            return Ok(Self {
+                leases,
+                snapshots,
+                snapshot_bindings: HashSet::new(),
+            });
         };
         let reachable = graph.reachable();
         // Index physical uses once, including recomputed address roots. A
@@ -128,6 +137,10 @@ impl Plan {
                 ) {
                     continue;
                 }
+                // A checked nonmoving load materializes a child reborrow,
+                // never an owned copy of the parent's exclusive handle.
+                // Immediate windows below can elide its physical cell.
+                snapshots.insert(dst, binding);
                 let mut consumer = None;
                 let mut valid = !escapes[dst.0];
                 for &(user_block, index) in &users[dst.0] {
@@ -191,13 +204,27 @@ impl Plan {
                         consumer,
                     },
                 );
+                snapshots.remove(&dst);
             }
         }
-        Ok(Self { leases })
+        let snapshot_bindings = snapshots.values().copied().collect();
+        Ok(Self {
+            leases,
+            snapshots,
+            snapshot_bindings,
+        })
     }
 
     pub(crate) fn get(&self, value: ValueId) -> Option<&Lease> {
         self.leases.get(&value)
+    }
+
+    pub(crate) fn snapshot(&self, value: ValueId) -> Option<BindingId> {
+        self.snapshots.get(&value).copied()
+    }
+
+    pub(crate) fn snapshots_binding(&self, binding: BindingId) -> bool {
+        self.snapshot_bindings.contains(&binding)
     }
 }
 
@@ -250,6 +277,8 @@ mod tests {
             ));
             let plan = checked.plan();
             assert_eq!(plan.leases.len(), 2);
+            assert!(plan.snapshots.is_empty());
+            assert!(plan.snapshot_bindings.is_empty());
             assert_eq!(plan.leases, checked.plan().leases);
             for (value, lease) in &plan.leases {
                 assert_eq!(lease.binding, BindingId(0));
@@ -270,7 +299,12 @@ mod tests {
             "(#fn work (: view (#ref-mut u64)) (#ref-mut u64) (#return view))",
             "(#fn work (: view (#ref u64)) u64 (#return (#deref view)))",
         ] {
-            assert!(Checked::new(source).plan().leases.is_empty(), "{source}");
+            let plan = Checked::new(source).plan();
+            assert!(plan.leases.is_empty(), "{source}");
+            assert!(
+                plan.snapshots.is_empty(),
+                "owned/shared read must not reborrow: {source}"
+            );
         }
     }
 
@@ -290,6 +324,7 @@ mod tests {
                 ));
                 let plan = checked.plan();
                 assert_eq!(plan.leases.len(), 1, "{ty} {result}");
+                assert!(plan.snapshots.is_empty());
                 let lease = plan.leases.values().next().unwrap();
                 assert_eq!(lease.consumer, Consumer::Call);
                 assert!(matches!(
@@ -315,7 +350,13 @@ mod tests {
              (#fn later () u64 (#return 42u64))
              (#fn work (: view (#ref-mut u64)) u64 (#return (#call read (: view view : amount (#call later ())))))",
         ] {
-            assert!(Checked::new(source).plan().leases.is_empty(), "{source}");
+            let checked = Checked::new(source);
+            let plan = checked.plan();
+            assert!(plan.leases.is_empty(), "{source}");
+            assert_eq!(plan.snapshots.len(), 1, "{source}");
+            assert!(plan.snapshots.values().all(|binding| *binding == BindingId(0)));
+            assert_eq!(plan.snapshots, checked.plan().snapshots);
+            assert!(plan.snapshots_binding(BindingId(0)));
         }
     }
 
@@ -353,7 +394,9 @@ mod tests {
             terminator: terminal,
         });
         checked.graph.validate().unwrap();
-        assert!(checked.plan().get(value).is_none());
+        let plan = checked.plan();
+        assert!(plan.get(value).is_none());
+        assert_eq!(plan.snapshot(value), Some(lease.binding));
     }
 
     #[test]
@@ -398,7 +441,9 @@ mod tests {
             },
         );
         checked.graph.validate().unwrap();
-        assert!(checked.plan().get(value).is_none());
+        let plan = checked.plan();
+        assert!(plan.get(value).is_none());
+        assert_eq!(plan.snapshot(value), Some(lease.binding));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Retirement of evaluated Copy handles in the ordinary async dispatcher.
+//! Retirement of evaluated reference handles in the ordinary async dispatcher.
 //!
 //! This verifies value-cell availability, not ownership or borrow permission.
 //! Source and generated ordinary bodies still require their original proofs.
@@ -6,7 +6,7 @@
 //! evaluated roots/indices, not only the graph's formed address token.
 #![allow(dead_code)]
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::async_exec::{
     Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Edge, Graph, Terminator,
@@ -125,13 +125,33 @@ fn sorted(values: impl IntoIterator<Item = ValueId>) -> Vec<ValueId> {
 
 impl Plan {
     pub fn new(graph: &Graph, types: &LinearTypes) -> Option<Self> {
+        Self::with_exclusive_handles(graph, types, &HashSet::new(), &HashMap::new())
+    }
+
+    /// Additional candidates are materialized direct exclusive references,
+    /// not owning aggregates. References have no linear destruction obligation;
+    /// retiring their holder does not destroy the pointee or returned children.
+    pub fn with_exclusive_handles(
+        graph: &Graph,
+        types: &LinearTypes,
+        handles: &HashSet<ValueId>,
+        aliases: &HashMap<String, crate::Type>,
+    ) -> Option<Self> {
         let candidates = graph
             .values
             .iter()
             .enumerate()
             .filter_map(|(index, value)| {
-                (types.can_repeat(&value.ty) && types.contains_reference(&value.ty))
-                    .then_some(ValueId(index))
+                ((types.can_repeat(&value.ty) && types.contains_reference(&value.ty))
+                    || (handles.contains(&ValueId(index))
+                        && crate::typed_ir::resolve_type(&value.ty, aliases).is_ok_and(|ty| {
+                            matches!(
+                                ty,
+                                crate::Type::Reference { mutable: true, .. }
+                                    | crate::Type::PinnedReference { mutable: true, .. }
+                            )
+                        })))
+                .then_some(ValueId(index))
             })
             .collect::<HashSet<_>>();
         if candidates.is_empty() {
@@ -233,7 +253,7 @@ impl Plan {
                 // old handles from a prior state. Before returning Pending,
                 // make ALL non-retry value cells visibly Empty, including
                 // cells not defined on this selected path. Clearing Empty is
-                // valid; Copy-handle retirement never destroys a referent.
+                // valid; reference-handle retirement never destroys a referent.
                 plan.edge[block.0][1] = sorted(candidates.difference(&entry[pending.0]).copied());
             }
             for (index, located) in body.actions.iter().enumerate().rev() {
@@ -284,7 +304,7 @@ impl Plan {
                 if !self.candidates.contains(value) {
                     return Err(failure(
                         None,
-                        "retirement attempts to clear a non-Copy handle value",
+                        "retirement attempts to clear a value outside its reference-handle candidates",
                     ));
                 }
             }
@@ -478,6 +498,83 @@ mod tests {
         plan.after_action[block][index].push(root);
         let error = plan.validate(&graph).unwrap_err();
         assert!(error.message.contains("retired handle cell"), "{error:?}");
+    }
+
+    #[test]
+    fn materialized_exclusive_handles_retire_only_after_their_actual_reader() {
+        for ty in ["#ref-mut", "#pin-ref-mut"] {
+            let (graph, types) = prepare(&format!(
+                "(#type View ({ty} u64))
+                 (#fn echo (: view View) View (#return view))
+                 (#fn work (: view View) u64 (#return (#deref (#call echo (: view view)))))"
+            ));
+            let target = Box::new(crate::Type::U64);
+            let alias = if ty == "#ref-mut" {
+                crate::Type::Reference {
+                    mutable: true,
+                    target,
+                }
+            } else {
+                crate::Type::PinnedReference {
+                    mutable: true,
+                    target,
+                }
+            };
+            let aliases = HashMap::from([("View".into(), alias)]);
+            let requested = (0..graph.values.len()).map(ValueId).collect::<HashSet<_>>();
+            let mut plan =
+                Plan::with_exclusive_handles(&graph, &types, &requested, &aliases).unwrap();
+            plan.validate(&graph).unwrap();
+            assert!(plan.candidates.iter().all(|value| matches!(
+                crate::typed_ir::resolve_type(&graph.values[value.0].ty, &aliases).unwrap(),
+                crate::Type::Reference { mutable: true, .. }
+                    | crate::Type::PinnedReference { mutable: true, .. }
+            )));
+            let (block, index, root) = graph
+                .blocks
+                .iter()
+                .enumerate()
+                .find_map(|(block, body)| {
+                    body.actions.iter().enumerate().find_map(|(index, action)| {
+                        match &action.action {
+                            Action::Place { descriptor, .. } => match descriptor.root {
+                                AddressRoot::Value(root) if plan.candidates.contains(&root) => {
+                                    Some((block, index, root))
+                                }
+                                _ => None,
+                            },
+                            _ => None,
+                        }
+                    })
+                })
+                .unwrap();
+            assert!(!plan.after_action[block][index].contains(&root));
+            assert!(plan.after_action[block]
+                .iter()
+                .skip(index + 1)
+                .any(|values| values.contains(&root)));
+            plan.after_action[block][index].push(root);
+            assert!(plan
+                .validate(&graph)
+                .unwrap_err()
+                .message
+                .contains("retired handle cell"));
+        }
+    }
+
+    #[test]
+    fn exclusive_candidate_requests_cannot_retire_arbitrary_owners() {
+        for source in [
+            "(#fn work (: value u64) u64 (#return value))",
+            "(#struct Holder (: view (#ref-mut u64))) (#linear Holder)
+             (#fn work (: value Holder) Holder (#return value))",
+        ] {
+            let (graph, types) = prepare(source);
+            let requested = (0..graph.values.len()).map(ValueId).collect();
+            assert!(
+                Plan::with_exclusive_handles(&graph, &types, &requested, &HashMap::new()).is_none()
+            );
+        }
     }
 
     #[test]
