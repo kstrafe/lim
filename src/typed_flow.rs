@@ -1714,7 +1714,19 @@ impl FlowGraph {
         if !visiting.insert((event, value)) {
             return HashMap::new();
         }
-        let result = if let NodeKind::Symbol {
+        let result = if let Some(loop_value) = loop_result_identity(body, value) {
+            let mut common = None;
+            for (definition, source) in origins.reachable_loop_breaks(self, loop_value) {
+                let incoming = self
+                    .unchanged_result_variant_bounds(body, origins, definition, source, visiting);
+                if let Some(held) = &mut common {
+                    join_variant_bounds(held, &incoming);
+                } else {
+                    common = Some(incoming);
+                }
+            }
+            common.unwrap_or_default()
+        } else if let NodeKind::Symbol {
             binding: Some(binding),
             ..
         } = body.nodes[value.0].kind
@@ -11346,6 +11358,12 @@ fn loop_result_identity(body: &Body, value: NodeId) -> Option<NodeId> {
     match body.nodes[value.0].kind {
         NodeKind::Loop(_) => Some(value),
         NodeKind::Labeled(_, inner) => loop_result_identity(body, inner),
+        NodeKind::Block(ref instructions) => {
+            match instructions.last().map(|instruction| &instruction.control) {
+                Some(Control::Evaluate(result)) => loop_result_identity(body, *result),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -12117,6 +12135,26 @@ fn value_storage_variant_bounds(
         event,
         snapshots,
     } = context;
+    if let Some(loop_value) = loop_result_identity(body, value) {
+        let mut common = None;
+        for (event, source) in origins.reachable_loop_breaks(flow, loop_value) {
+            let Some(state) = &snapshots[event.0] else {
+                continue;
+            };
+            let incoming = value_storage_variant_bounds(
+                body,
+                source,
+                state,
+                StorageVariantContext { event, ..context },
+            );
+            if let Some(held) = &mut common {
+                join_variant_bounds(held, &incoming);
+            } else {
+                common = Some(incoming);
+            }
+        }
+        return common.unwrap_or_default();
+    }
     let facts = origins
         .variants
         .get()
@@ -12317,6 +12355,24 @@ fn value_variant_bounds(
             }
         }
     }
+    if let (Some(loop_value), Some((flow, origins, _, snapshots))) =
+        (loop_result_identity(body, value), context)
+    {
+        let mut common = None;
+        for (event, source) in origins.reachable_loop_breaks(flow, loop_value) {
+            let Some(state) = &snapshots[event.0] else {
+                continue;
+            };
+            let incoming =
+                value_variant_bounds(body, source, state, Some((flow, origins, event, snapshots)));
+            if let Some(held) = &mut common {
+                join_variant_bounds(held, &incoming);
+            } else {
+                common = Some(incoming);
+            }
+        }
+        return common.unwrap_or_default();
+    }
     if let Some((flow, origins, _, snapshots)) = context {
         let events = captured_variant_events(context.unwrap(), value);
         if !events.is_empty() {
@@ -12411,6 +12467,24 @@ fn value_variant_facts(
     state: &HashMap<Place, VariantId>,
     context: Option<VariantContext<'_>>,
 ) -> HashMap<Place, VariantId> {
+    if let (Some(loop_value), Some((flow, origins, _, snapshots))) =
+        (loop_result_identity(body, value), context)
+    {
+        let mut common = None;
+        for (event, source) in origins.reachable_loop_breaks(flow, loop_value) {
+            let Some(state) = &snapshots[event.0] else {
+                continue;
+            };
+            let incoming =
+                value_variant_facts(body, source, state, Some((flow, origins, event, snapshots)));
+            if let Some(held) = &mut common {
+                join_variant_facts(held, &incoming);
+            } else {
+                common = Some(incoming);
+            }
+        }
+        return common.unwrap_or_default();
+    }
     if let Some((flow, origins, _, snapshots)) = context {
         let events = captured_variant_events(context.unwrap(), value);
         if !events.is_empty() {

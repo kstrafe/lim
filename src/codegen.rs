@@ -2509,7 +2509,7 @@ fn generate_function(
         loop_names: Vec::new(),
         pending_loop_label: None,
         loop_result_types: Vec::new(),
-        loop_indirect_results: Vec::new(),
+        loop_destinations: Vec::new(),
         return_label: return_label.clone(),
         return_pointer_slot,
         aggregate_temp_base,
@@ -5325,6 +5325,14 @@ enum MatchDestination<'a> {
     Value,
     Indirect(&'a Type, usize),
     EnumLocal(&'a str, &'a str),
+    Slots(&'a Type, &'a [usize]),
+}
+
+#[derive(Clone)]
+enum LoopDestination {
+    Registers,
+    Indirect(usize),
+    Slots(Vec<usize>),
 }
 
 struct FunctionContext<'a> {
@@ -5349,7 +5357,7 @@ struct FunctionContext<'a> {
     loop_names: Vec<Option<String>>,
     pending_loop_label: Option<String>,
     loop_result_types: Vec<Option<Type>>,
-    loop_indirect_results: Vec<bool>,
+    loop_destinations: Vec<LoopDestination>,
     return_label: String,
     return_pointer_slot: Option<usize>,
     aggregate_temp_base: Option<usize>,
@@ -6669,14 +6677,14 @@ impl FunctionContext<'_> {
                 self.loop_labels.push((start.clone(), end.clone()));
                 self.loop_names.push(self.pending_loop_label.take());
                 self.loop_result_types.push(None);
-                self.loop_indirect_results.push(false);
+                self.loop_destinations.push(LoopDestination::Registers);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
                 self.loop_names.pop();
                 self.loop_result_types.pop();
-                self.loop_indirect_results.pop();
+                self.loop_destinations.pop();
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
             }
             Statement::Loop { body } => {
@@ -6686,14 +6694,14 @@ impl FunctionContext<'_> {
                 self.loop_labels.push((start.clone(), end.clone()));
                 self.loop_names.push(self.pending_loop_label.take());
                 self.loop_result_types.push(None);
-                self.loop_indirect_results.push(false);
+                self.loop_destinations.push(LoopDestination::Registers);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
                 self.loop_names.pop();
                 self.loop_result_types.pop();
-                self.loop_indirect_results.pop();
+                self.loop_destinations.pop();
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
             }
             Statement::For {
@@ -6713,14 +6721,14 @@ impl FunctionContext<'_> {
                 self.loop_labels.push((step_label.clone(), end.clone()));
                 self.loop_names.push(self.pending_loop_label.take());
                 self.loop_result_types.push(None);
-                self.loop_indirect_results.push(false);
+                self.loop_destinations.push(LoopDestination::Registers);
                 for statement in body {
                     self.statement(statement)?;
                 }
                 self.loop_labels.pop();
                 self.loop_names.pop();
                 self.loop_result_types.pop();
-                self.loop_indirect_results.pop();
+                self.loop_destinations.pop();
                 self.output.push_str(&format!("{step_label}:\n"));
                 self.statement(step)?;
                 self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
@@ -6751,41 +6759,14 @@ impl FunctionContext<'_> {
                     return Err(format!("unknown or inactive loop label '{label}'"));
                 };
                 let end = self.loop_labels[index].1.clone();
-                if self
-                    .loop_indirect_results
-                    .get(index)
-                    .copied()
-                    .unwrap_or(false)
-                {
-                    let ty = self
-                        .loop_result_types
-                        .get(index)
-                        .and_then(Clone::clone)
-                        .ok_or_else(|| "indirect labeled loop result has no type".to_owned())?;
-                    self.store_indirect_value_words(value, &ty, 0)?;
-                } else if let Some(Some(ty)) = self.loop_result_types.get(index).cloned() {
-                    self.expression_as_expected(value, &ty)?;
-                } else {
-                    self.expression(value)?;
-                }
+                self.emit_loop_break_value(index, value)?;
                 self.output.push_str(&format!("    jmp {end}\n"));
             }
             Statement::BreakValue(value) => {
                 let Some((_, end)) = self.loop_labels.last().cloned() else {
                     return Err("break with a value used outside a loop".into());
                 };
-                if self.loop_indirect_results.last().copied().unwrap_or(false) {
-                    let ty = self
-                        .loop_result_types
-                        .last()
-                        .and_then(Clone::clone)
-                        .ok_or_else(|| "indirect loop result has no type".to_owned())?;
-                    self.store_indirect_value_words(value, &ty, 0)?;
-                } else if let Some(Some(ty)) = self.loop_result_types.last().cloned() {
-                    self.expression_as_expected(value, &ty)?;
-                } else {
-                    self.expression(value)?;
-                }
+                self.emit_loop_break_value(self.loop_labels.len() - 1, value)?;
                 self.output.push_str(&format!("    jmp {end}\n"));
             }
             Statement::Continue => {
@@ -6815,9 +6796,7 @@ impl FunctionContext<'_> {
                     .push_str(&format!("    jmp {}\n", self.return_label));
             }
             Statement::Expr(expression) => {
-                if let Some(Some(ty)) = self.loop_result_types.last().cloned() {
-                    self.expression_as_expected(expression, &ty)?;
-                } else if let Some(ty) = self
+                if let Some(ty) = self
                     .expression_type(expression)
                     .filter(|ty| self.is_aggregate_type(ty))
                 {
@@ -8111,6 +8090,15 @@ impl FunctionContext<'_> {
         ty: &Type,
         offset: usize,
     ) -> Result<(), String> {
+        if let Expr::Labeled { label, expression } = value {
+            let previous = self.pending_loop_label.replace(label.clone());
+            let result = self.store_indirect_value_words(expression, ty, offset);
+            self.pending_loop_label = previous;
+            return result;
+        }
+        if let Expr::Loop(body) = value {
+            return self.loop_expression_to(body, Some(ty), LoopDestination::Indirect(offset));
+        }
         if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unreachable"))
         {
             return self.expression(value);
@@ -8138,7 +8126,7 @@ impl FunctionContext<'_> {
                 Statement::Expr(expression) => {
                     self.store_indirect_value_words(expression, ty, offset)
                 }
-                _ => Err("large aggregate block must end in a value expression".into()),
+                _ => self.statement(last),
             };
         }
         if let Expr::List(items) = value {
@@ -8707,6 +8695,12 @@ impl FunctionContext<'_> {
         else {
             return Err(format!("'{name}' is not a payload enum"));
         };
+        if matches!(value, Expr::Loop(_) | Expr::Labeled { .. }) {
+            let slots = std::iter::once(discriminant)
+                .chain(payload.iter().copied())
+                .collect::<Vec<_>>();
+            return self.store_value_to_slots(value, &Type::Named(enum_name.into()), &slots);
+        }
         if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unreachable"))
         {
             return self.expression(value);
@@ -9131,20 +9125,54 @@ impl FunctionContext<'_> {
         body: &[Statement],
         result_type: Option<&Type>,
     ) -> Result<(), String> {
+        self.loop_expression_to(body, result_type, LoopDestination::Registers)
+    }
+
+    fn emit_loop_break_value(&mut self, index: usize, value: &Expr) -> Result<(), String> {
+        let ty = self.loop_result_types.get(index).and_then(Clone::clone);
+        match self
+            .loop_destinations
+            .get(index)
+            .cloned()
+            .unwrap_or(LoopDestination::Registers)
+        {
+            LoopDestination::Indirect(offset) => self.store_indirect_value_words(
+                value,
+                &ty.ok_or("indirect loop result has no type")?,
+                offset,
+            ),
+            LoopDestination::Slots(slots) => self.store_value_to_slots(
+                value,
+                &ty.ok_or("stored loop result has no type")?,
+                &slots,
+            ),
+            LoopDestination::Registers => match ty {
+                Some(ty) => self.expression_as_expected(value, &ty),
+                None => self.expression(value),
+            },
+        }
+    }
+
+    fn loop_expression_to(
+        &mut self,
+        body: &[Statement],
+        result_type: Option<&Type>,
+        destination: LoopDestination,
+    ) -> Result<(), String> {
         let start = self.label("value_loop");
         let end = self.label("end_value_loop");
         self.output.push_str(&format!("{start}:\n"));
         self.loop_labels.push((start.clone(), end.clone()));
         self.loop_names.push(self.pending_loop_label.take());
         self.loop_result_types.push(result_type.cloned());
-        self.loop_indirect_results.push(false);
+        self.loop_destinations.push(destination);
         for statement in body {
             self.statement(statement)?;
         }
         self.loop_labels.pop();
         self.loop_names.pop();
         self.loop_result_types.pop();
-        self.loop_indirect_results.pop();
+        self.loop_destinations.pop();
         self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
         Ok(())
     }
@@ -9154,22 +9182,7 @@ impl FunctionContext<'_> {
         body: &[Statement],
         result_type: &Type,
     ) -> Result<(), String> {
-        let start = self.label("indirect_value_loop");
-        let end = self.label("end_indirect_value_loop");
-        self.output.push_str(&format!("{start}:\n"));
-        self.loop_labels.push((start.clone(), end.clone()));
-        self.loop_names.push(self.pending_loop_label.take());
-        self.loop_result_types.push(Some(result_type.clone()));
-        self.loop_indirect_results.push(true);
-        for statement in body {
-            self.statement(statement)?;
-        }
-        self.loop_labels.pop();
-        self.loop_names.pop();
-        self.loop_result_types.pop();
-        self.loop_indirect_results.pop();
-        self.output.push_str(&format!("    jmp {start}\n{end}:\n"));
-        Ok(())
+        self.loop_expression_to(body, Some(result_type), LoopDestination::Indirect(0))
     }
 
     fn checked_field_index(
@@ -11214,6 +11227,7 @@ impl FunctionContext<'_> {
                 self.store_indirect_value_words(body, ty, offset)
             }
             MatchDestination::EnumLocal(name, ty) => self.store_enum(name, ty, body),
+            MatchDestination::Slots(ty, slots) => self.store_value_to_slots(body, ty, slots),
             MatchDestination::Value => {
                 if let Some(ty) = float_type {
                     self.expression_as_float(body, ty)
@@ -14994,6 +15008,40 @@ impl FunctionContext<'_> {
         ty: &Type,
         slots: &[usize],
     ) -> Result<(), String> {
+        if let Expr::Labeled { label, expression } = value {
+            let previous = self.pending_loop_label.replace(label.clone());
+            let result = self.store_value_to_slots(expression, ty, slots);
+            self.pending_loop_label = previous;
+            return result;
+        }
+        if let Expr::Loop(body) = value {
+            return self.loop_expression_to(body, Some(ty), LoopDestination::Slots(slots.to_vec()));
+        }
+        if let Expr::Block(statements) = value {
+            let Some((last, preceding)) = statements.split_last() else {
+                return Err("stored aggregate block is empty".into());
+            };
+            for statement in preceding {
+                self.statement(statement)?;
+            }
+            return match last {
+                Statement::Expr(value) => self.store_value_to_slots(value, ty, slots),
+                _ => self.statement(last),
+            };
+        }
+        if let Some(items) = match value {
+            Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "match") => {
+                Some(items)
+            }
+            _ => None,
+        } {
+            return self.match_expression_with_destination(
+                items,
+                None,
+                Some(ty),
+                MatchDestination::Slots(ty, slots),
+            );
+        }
         if let Expr::List(items) = value {
             if items.len() == 2
                 && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "unsafe" | "clone"))

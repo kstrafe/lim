@@ -2,6 +2,122 @@ mod support;
 
 use std::{fs, process::Command, time::Duration};
 
+fn assert_single_poll(generated: &str, poll: &str) {
+    let names = lim::parse(generated)
+        .unwrap()
+        .into_iter()
+        .filter_map(|node| {
+            let lim::Expr::List(items) = node.expr else {
+                return None;
+            };
+            if !matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#fn") {
+                return None;
+            }
+            match items.get(1) {
+                Some(lim::Expr::Symbol(name)) => Some(name.clone()),
+                _ => None,
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names.iter().filter(|name| *name == poll).count(), 1);
+    for name in &names {
+        assert!(
+            ![format!("{poll}-start"), format!("{poll}-move")].contains(name),
+            "{name}"
+        );
+        assert!(!name.starts_with(&format!("{poll}-child-")), "{name}");
+        assert!(!name.starts_with(&format!("{poll}-resume-")), "{name}");
+        assert!(!name.starts_with(&format!("{poll}-move-child-")), "{name}");
+        assert!(!name.starts_with(&format!("{poll}-move-resume-")), "{name}");
+    }
+    assert!(generated.contains(".dispatch"), "{generated}");
+    assert!(generated.contains("#continue-to"), "{generated}");
+}
+
+#[test]
+fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
+    let source = include_str!("../examples/async_single_poll.lim").replace(
+        "../library/pin.lim",
+        &format!("{}/library/pin.lim", env!("CARGO_MANIFEST_DIR")),
+    );
+    let generated = build_and_run(&source, 42);
+    assert_single_poll(&generated, "poll");
+    assert!(generated.contains("Frame-await-1"));
+    assert!(generated.contains("(#fn poll-cancel"));
+
+    // Cached inspectable output is precisely the executable dispatcher, not
+    // the private helper-shaped capture-analysis witness.
+    let scratch = support::Scratch::new("async-single-poll-cache");
+    let compile = || {
+        lim::compile_source_with_generated_sources(
+            &source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join(".lim/cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+            None,
+            &scratch.path().join(".lim"),
+        )
+        .unwrap()
+    };
+    let sources = || {
+        let mut artifacts = fs::read_dir(scratch.path().join(".lim/cache"))
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "lim")
+            })
+            .map(|entry| (entry.file_name(), fs::read(entry.path()).unwrap()))
+            .collect::<Vec<_>>();
+        artifacts.sort_by(|left, right| left.0.cmp(&right.0));
+        artifacts
+    };
+    let cold = compile();
+    let artifacts = sources();
+    assert_eq!(compile(), cold);
+    assert_eq!(sources(), artifacts);
+    assert!(artifacts
+        .iter()
+        .any(|(_, source)| String::from_utf8_lossy(source).contains(".dispatch")));
+}
+
+#[test]
+fn many_ready_awaits_advance_within_one_poll_without_stage_calls() {
+    let awaits = (0..16)
+        .map(|index| {
+            format!(
+        "(#let value-{index} u64 (#await Step StepPending StepReady step-poll (Waiting 42u64)))"
+    )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let source = format!("(#enum Step (: Waiting u64)) (#linear Step)
+      (#enum StepPoll (: StepPending Step : StepReady u64))
+      (#fn step-poll (: task Step : waker (#ref u64)) StepPoll
+        (#return (#match task (#case (Waiting value) (StepReady value)))))
+      (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work () u64 {awaits} (#return value-15))))
+      (#fn main () u64 (#let waker u64 0u64)
+        (#let outcome Poll (#call poll (: task (#call work (:)) : waker (#borrow waker))))
+        (#return (#match outcome
+          (#case (Ready value) value) (#case (Pending task) (#block (#forget task) (#unreachable))))))");
+    let generated = build_and_run(&source, 42);
+    assert_single_poll(&generated, "poll");
+    assert!(generated.contains("Frame-await-15"));
+}
+
+#[test]
+fn pinned_dispatcher_preserves_user_task_bindings() {
+    let source = include_str!("../examples/async_fn_pinned.lim").replace(
+        "(#return (#u64.+.wrap value offset))",
+        "(#let task u64 offset) (#return (#u64.+.wrap value task))",
+    );
+    assert_single_poll(&build_and_run(&source, 41), "poll");
+}
+
 #[test]
 fn generator_produced_async_declaration_keeps_its_checked_source_body() {
     let source = "
@@ -614,7 +730,8 @@ fn async_lowering_errors_highlight_the_later_nested_await() {
 fn async_function_suspends_resumes_and_is_inspectable() {
     let generated = build_and_run(&example_source(), 42);
     assert!(generated.contains("(#enum Work ((Work-start u64) (Work-await-0 u64 u64 Step)))"));
-    assert!(generated.contains("(#fn work-poll-resume-0"));
+    assert!(!generated.contains("(#fn work-poll-resume-"));
+    assert!(generated.contains("lim.async.work-poll.dispatch"));
     assert!(generated.contains("(#fn work-poll"));
     assert!(!generated.contains("#await"));
 }
@@ -1044,8 +1161,9 @@ fn async_function_without_await_runs_its_body_on_first_poll() {
         env!("CARGO_MANIFEST_DIR")
     );
     let generated = build_and_run(&source, 42);
-    assert!(generated.contains("poll-start"), "{generated}");
-    assert!(generated.contains("(#return (Ready"), "{generated}");
+    assert!(!generated.contains("(#fn poll-start"), "{generated}");
+    assert!(generated.contains("lim.async.poll.dispatch"), "{generated}");
+    assert!(generated.contains("(Ready"), "{generated}");
 }
 
 #[test]
@@ -1111,10 +1229,9 @@ fn async_function_infers_only_live_across_await_values() {
           (#case (Pending task) (#block (#forget task) (#unreachable))))))";
     let generated = build_and_run(source, 17);
     assert!(generated.contains("Frame-await-0"), "{generated}");
-    assert!(
-        generated.contains("(first u64) (box Box) (result u64)"),
-        "captures must preserve declaration order: {generated}"
-    );
+    let resumed = generated.split_once("(#case (Frame-await-0").unwrap().1;
+    assert!(resumed.find("(#let first u64").unwrap() < resumed.find("(#let box Box").unwrap());
+    assert!(resumed.find("(#let box Box").unwrap() < resumed.find("(#let result u64").unwrap());
 }
 
 #[test]
@@ -1210,7 +1327,8 @@ fn async_function_supports_multiple_awaits() {
         .replace("((offset u64)) u64", "((#mut offset u64)) u64");
     let generated = build_and_run(&source, 48);
     assert!(generated.contains("Work-await-1"));
-    assert!(generated.contains("work-poll-resume-1"));
+    assert!(!generated.contains("(#fn work-poll-resume-1"));
+    assert!(generated.contains("lim.async.work-poll.dispatch"));
 }
 
 #[test]
@@ -1280,7 +1398,7 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll-resume-1"), "{generated}");
+    assert!(generated.contains("lim.async.poll.dispatch"), "{generated}");
     assert!(!generated.contains("(#await"), "{generated}");
 
     // The same task dependency must work when the outer await is an operand,
@@ -1291,7 +1409,7 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
     );
     assert_ne!(nested_operand, source);
     let generated = build_and_run(&nested_operand, 42);
-    assert!(generated.contains("poll-resume-1"), "{generated}");
+    assert!(generated.contains("lim.async.poll.dispatch"), "{generated}");
     assert!(!generated.contains("(#await"), "{generated}");
 
     // Both dependencies may return Pending. Completing the inner await must
@@ -1340,9 +1458,9 @@ fn async_function_awaits_directly_in_explicit_return() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 1);
-    assert!(generated.contains("(#fn poll-resume-0"), "{generated}");
+    assert!(!generated.contains("(#fn poll-resume-0"), "{generated}");
     assert!(
-        generated.contains("(#return (Ready lim.async.return-value))"),
+        generated.contains("(Ready lim.async.return-value)"),
         "{generated}"
     );
 }
@@ -1772,10 +1890,7 @@ fn async_function_suspends_inside_mutable_assignment_rhs() {
         generated.contains("(#set total lim.async.nested-await-0)"),
         "{generated}"
     );
-    assert!(
-        generated.contains("(#fn poll-resume-0 ((#mut total u64)"),
-        "{generated}"
-    );
+    assert!(generated.contains("(#let-mut total u64"), "{generated}");
 }
 
 #[test]
@@ -2442,7 +2557,7 @@ fn async_function_suspends_inside_projected_assignment_rhs() {
         generated.contains("(#set-index values (#literal usize 0) lim.async.nested-await-0)"),
         "{generated}"
     );
-    assert!(generated.contains("(#fn poll-resume-0"), "{generated}");
+    assert!(generated.contains("lim.async.poll.dispatch"), "{generated}");
 }
 
 #[test]
@@ -2568,7 +2683,7 @@ fn async_function_resumes_inside_a_value_producing_block() {
         "{generated}"
     );
     assert!(
-        generated.contains("(#fn poll-resume-0 ((lim.async.nested-await-1 u64)"),
+        generated.contains("(#let lim.async.nested-await-1 u64"),
         "the block-local value must be carried across Pending: {generated}"
     );
     assert!(
@@ -2649,7 +2764,7 @@ fn async_function_resumes_multiple_awaits_inside_one_block() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll-resume-1"), "{generated}");
+    assert!(generated.contains("lim.async.poll.dispatch"), "{generated}");
     assert!(
         generated.contains("lim.async.nested-await-0"),
         "{generated}"
@@ -2698,7 +2813,7 @@ fn async_function_assigns_a_block_local_after_await_resumes() {
         "{generated}"
     );
     assert!(
-        generated.contains("(#fn poll-resume-0 ((#mut total (#array u64 1))"),
+        generated.contains("(#let-mut total (#array u64 1)"),
         "the mutable assignment target must survive Pending: {generated}"
     );
 }
@@ -2736,8 +2851,8 @@ fn async_function_preserves_mutability_of_block_await_bindings() {
         (#return result))";
     let generated = build_and_run(source, 42);
     assert!(
-        generated.contains("(#mut lim.async.nested-await-0 u64)"),
-        "the resumed helper must receive a mutable binding: {generated}"
+        generated.contains("(#let-mut lim.async.nested-await-0 u64"),
+        "the dispatch arm must restore a mutable binding: {generated}"
     );
 }
 
@@ -2807,7 +2922,7 @@ fn async_function_suspends_on_a_discarded_copy_await_in_a_block() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll-child"), "{generated}");
+    assert!(generated.contains("poll.dispatch"), "{generated}");
 }
 
 #[test]
@@ -2929,7 +3044,7 @@ fn async_function_let_else_returns_ready_before_and_after_suspension() {
         (#forget waker)
         (#return (#u64.+.wrap (#u64.+.wrap early post-await) awaited)))";
     let generated = build_and_run(source, 58);
-    assert!(generated.contains("#return (Ready"), "{generated}");
+    assert!(generated.contains("(Ready"), "{generated}");
 }
 
 #[test]
@@ -3035,7 +3150,7 @@ fn async_let_else_can_await_before_an_unreachable_failure() {
         (#forget waker)
         (#return value))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll-child"), "{generated}");
+    assert!(generated.contains("poll.dispatch"), "{generated}");
 }
 
 #[test]
@@ -3067,7 +3182,7 @@ fn async_let_else_can_await_before_a_diverging_panic() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll-child"), "{generated}");
+    assert!(generated.contains("poll.dispatch"), "{generated}");
 }
 
 #[test]
@@ -3101,7 +3216,7 @@ fn async_let_else_can_suspend_in_one_panic_only_branch() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll-child"), "{generated}");
+    assert!(generated.contains("poll.dispatch"), "{generated}");
 }
 
 #[test]
@@ -3136,7 +3251,7 @@ fn async_let_else_can_suspend_in_one_panic_only_match_arm() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll-child"), "{generated}");
+    assert!(generated.contains("poll.dispatch"), "{generated}");
 }
 
 #[test]
@@ -3168,7 +3283,7 @@ fn async_let_else_awaits_inside_an_assertion_before_unreachable() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll-child"), "{generated}");
+    assert!(generated.contains("poll.dispatch"), "{generated}");
 }
 
 #[test]
@@ -4286,8 +4401,8 @@ fn async_function_carries_mutable_locals_across_pending_resume() {
         (#return result))";
     let generated = build_and_run(source, 3);
     assert!(generated.contains("(#mut initial u64)"), "{generated}");
-    assert!(generated.contains("(#mut total u64)"), "{generated}");
-    assert!(generated.contains("(#mut result u64)"), "{generated}");
+    assert!(generated.contains("(#let-mut total u64"), "{generated}");
+    assert!(generated.contains("(#let-mut result u64"), "{generated}");
 }
 
 #[test]
@@ -5996,7 +6111,7 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
         (#return result))";
     let generated = build_and_run(source, 42);
     assert!(generated.contains("body-frame"), "{generated}");
-    assert!(generated.contains("body-poll-resume-1"), "{generated}");
+    assert!(generated.contains("body-poll.dispatch"), "{generated}");
 
     let linear_source = source.replace(
         "(#enum Maybe ((Some u64) None))",
@@ -7192,7 +7307,7 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
         (#return result))";
     let generated = build_and_run(source, 87);
     assert!(generated.contains("body-function"), "{generated}");
-    assert!(generated.contains("body-poll-resume"), "{generated}");
+    assert!(generated.contains("body-poll.dispatch"), "{generated}");
 
     let linear_capture_source = source.replace(
         "(#struct Captures ((left u64) (right u64)))",
@@ -7829,7 +7944,7 @@ fn async_for_let_else_initializer_returns_ready_on_mismatch() {
         (#return (#u64.+.wrap mismatch matched)))";
     let generated = build_and_run(source, 42);
     assert!(
-        generated.contains("(#return (Ready (#literal u64 7)))"),
+        generated.contains("(Ready (#literal u64 7))"),
         "{generated}"
     );
 }
@@ -10020,7 +10135,7 @@ fn async_loop_body_supports_more_than_two_suspensions() {
         (#forget waker)
         (#return result))";
     let generated = build_and_run(source, 42);
-    assert!(generated.contains("body-poll-resume-2"), "{generated}");
+    assert!(generated.contains("body-poll.dispatch"), "{generated}");
 }
 
 #[test]

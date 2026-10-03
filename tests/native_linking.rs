@@ -151,6 +151,46 @@ fn labeled_value_loops_reserve_scratch_for_large_patterns_and_projections() {
 }
 
 #[test]
+fn large_loop_results_keep_their_local_or_indirect_destination() {
+    let scratch = support::Scratch::new("large-loop-result-destinations");
+    let values = "(#array-of (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)";
+    // The label is the final value of a block, not a statement-only loop.
+    // A break in the nested loop must use the outer loop's destination.
+    let result = format!(
+        "(#block (#label outer (#loop
+      (#let unused u64 0u64) (#forget unused)
+      (#loop (#break-to outer {values})))))"
+    );
+    for source in [
+        format!(
+            "(#fn main () u64
+          (#let values (#array u64 7) {result})
+          (#return (#index values 6usize)))"
+        ),
+        format!(
+            "(#enum Packet (: Present (#array u64 7)))
+          (#fn main () u64
+            (#let packet Packet (#block (#label outer (#loop
+              (#forget 0u64) (#break-to outer (Present {values}))))))
+            (#let-else (Present values) Packet packet (#unreachable))
+            (#return (#index values 6usize)))"
+        ),
+        // The loop writes a nested field at a nonzero offset in an indirect
+        // return. Accidentally writing at zero corrupts the sentinel field.
+        format!(
+            "(#struct Packet (: sentinel u64 : values (#array u64 7)))
+          (#fn make () Packet (#return (#struct-literal Packet
+            (: sentinel 9u64 : values {result}))))
+          (#fn main () u64 (#let packet Packet (#call make (:)))
+            (#assert (#u64.== (#get packet sentinel) 9u64))
+            (#return (#index (#get packet values) 6usize)))"
+        ),
+    ] {
+        assert_runs(&compile(&source, scratch.path(), &[]), b"");
+    }
+}
+
+#[test]
 fn constant_data_and_rip_relative_loads_build_without_external_tools() {
     let scratch = support::Scratch::new("internal-constant-link");
     for (name, source) in [

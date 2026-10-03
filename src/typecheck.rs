@@ -18950,15 +18950,33 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_return_tag_alias_tracing_stops_at_calls_and_unproved_cycles() {
-        for (initial, effects, known) in [
-            ("(#loop (#break (Full 1u64)))", "(#call touch ())", false),
+    fn staged_loop_result_tags_survive_unrelated_calls_and_self_assignment() {
+        for (initial, effects, expected_tag) in [
+            (
+                "(#loop (#break (Full 1u64)))",
+                "(#call touch ())",
+                Some("Full"),
+            ),
             (
                 "(#loop (#break (Full 1u64)))",
                 "(#while selected (#set saved saved))",
-                false,
+                Some("Full"),
             ),
-            ("(Full 1u64)", "(#while selected (#set saved saved))", true),
+            (
+                "(Full 1u64)",
+                "(#while selected (#set saved saved))",
+                Some("Full"),
+            ),
+            (
+                "(#loop (#break (#if selected (Full 1u64) Empty)))",
+                "(#call touch ())",
+                None,
+            ),
+            (
+                "(#loop (#break (Full 1u64)))",
+                "(#set saved Empty)",
+                Some("Empty"),
+            ),
         ] {
             let source = format!(
                 "(#enum Choice ((Full u64) Empty))
@@ -18977,9 +18995,9 @@ mod typed_ownership_tests {
                     &program,
                 ))
                 .unwrap();
-            let expected = known.then(|| {
+            let expected = expected_tag.map(|tag| {
                 declarations
-                    .variant_id(&crate::Type::Named("Choice".into()), "Full")
+                    .variant_id(&crate::Type::Named("Choice".into()), tag)
                     .unwrap()
             });
             assert_eq!(
@@ -22743,13 +22761,13 @@ mod typed_ownership_tests {
             };
             assert_eq!(function, poll, "{name}: {conflict:?}");
             assert!(
-                conflict.message.contains("unresolved call inputs"),
+                conflict.message.contains("unresolved target"),
                 "{name}: {conflict:?}"
             );
             let span = conflict.span.unwrap();
             let generated = &program.source_files[span.source_id as usize].source;
             assert!(
-                generated[span.start..span.end].starts_with(&format!("(#call {poll}-move")),
+                generated[span.start..span.end].starts_with("(#pin-write lim.async.ready-state"),
                 "{name}: {}",
                 &generated[span.start..span.end]
             );

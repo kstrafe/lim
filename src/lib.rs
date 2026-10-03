@@ -12,6 +12,7 @@ mod analysis_error;
 mod async_cells;
 mod async_cfg;
 mod async_contract;
+mod async_dispatch;
 mod async_emit;
 mod async_exec;
 mod async_fn;
@@ -2311,7 +2312,19 @@ fn async_generated_source(
 ) -> Result<String, String> {
     let key = (span.source_id, span.start, span.end);
     let captures = capture_plans.and_then(|plans| plans.get(&key));
-    async_fn::generated_source_with_environment(invocation, captures, copy_types, type_environment)
+    let source = async_fn::generated_source_with_environment(
+        invocation,
+        captures,
+        copy_types,
+        type_environment,
+    )?;
+    // The uncollapsed helpers are private capture-analysis witnesses only.
+    // Executable/inspectable output uses one dispatcher per concrete future.
+    if capture_plans.is_some() {
+        async_dispatch::collapse(&source, type_environment)
+    } else {
+        Ok(source)
+    }
 }
 
 fn async_type_environment(expressions: &[SpannedExpr]) -> async_fn::AsyncTypeEnvironment {
@@ -5971,12 +5984,13 @@ fn write_prepared_generated_sources(
         );
         generator::cached_generated_source(&generated_cache, &key, || {
             if matches!(kind, "async-fn" | "async-fn-pinned") {
-                async_fn::generated_source_with_environment(
+                let source = async_fn::generated_source_with_environment(
                     &original,
                     capture_plan,
                     &copy_types,
                     &async_types,
-                )
+                )?;
+                async_dispatch::collapse(&source, &async_types)
             } else {
                 materialize_builtin_generated_source(&kind, &forms, &worker_functions)
             }
@@ -8464,7 +8478,16 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
             return Err("label requires a name and one loop statement".into());
         }
         let label = expect_symbol(items.get(1), "loop label")?.to_owned();
+        if is_form(&items[2], "loop") && labeled_loop_has_value_break(&items[2], &label) {
+            return Ok(Statement::Expr(lower_expr(expression)?));
+        }
         let statement = parse_statement(&items[2])?;
+        if let Statement::Expr(Expr::Loop(body)) = statement {
+            return Ok(Statement::Expr(Expr::Labeled {
+                label,
+                expression: Box::new(Expr::Loop(body)),
+            }));
+        }
         if !matches!(
             statement,
             Statement::While { .. } | Statement::Loop { .. } | Statement::For { .. }
@@ -8684,6 +8707,27 @@ fn loop_has_value_break(expression: &Expr) -> bool {
         return false;
     };
     items[1..].iter().any(loop_body_has_value_break)
+}
+
+fn labeled_loop_has_value_break(expression: &Expr, label: &str) -> bool {
+    let Expr::List(items) = expression else {
+        return false;
+    };
+    if is_form(expression, "break-to")
+        && items.len() == 3
+        && matches!(&items[1], Expr::Symbol(target) if target == label)
+    {
+        return true;
+    }
+    if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "quote" | "quasiquote"))
+    {
+        return false;
+    }
+    // Named transfers can cross nested loops; unnamed breaks cannot.
+    items
+        .iter()
+        .skip(1)
+        .any(|value| labeled_loop_has_value_break(value, label))
 }
 
 fn loop_body_has_value_break(expression: &Expr) -> bool {

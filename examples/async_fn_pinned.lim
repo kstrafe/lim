@@ -1,7 +1,9 @@
 ; @async-fn-pinned returns a movable frame value that must be pinned before
 ; polling. While a poll is Pending, the returned PinRefMut keeps the frame at
-; its storage location and is passed into the next poll. Internal self-refs
-; are not supported by this generator yet.
+; its storage location and is passed into the next poll. One generated poll
+; loop dispatches on the state tag. See async_single_poll.lim for opaque pins
+; with privately owned stationary storage and async_fn_self_reference.lim for the
+; supported internal-reference form.
 (#enum Child ((Waiting u64)))
 (#linear Child)
 (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))

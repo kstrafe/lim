@@ -296,7 +296,13 @@ bare `@async-wake` expansion does not perform registration itself. See
 `@async-fn` is a built-in inspectable code generator. It reads a `#fn` form
 whose declared result type is the eventual value, then emits an ordinary
 linear frame enum, poll-result enum, start function (using the source function
-name), and named poll/stage helpers. `@async-fn-pinned` emits a stable `Frame`
+name), and one state-dispatching poll function per concrete future. The frame
+enum's discriminant is the state index: Start runs the initial body, await-N
+polls the saved child, and Ready advances to the next state in the same poll
+call. Pending returns to the caller without reconstructing that child. There
+are no generated start/child/resume poll helpers in executable output. Ordinary
+source function calls and polls of separate child futures remain calls.
+`@async-fn-pinned` emits a stable `Frame`
 struct shell with a separate `Frame-state` field. Pin the returned frame in a
 mutable local, and each Pending result carries the same `#pin-ref-mut Frame`
 into the next poll. Polling moves only the state field through an explicitly
@@ -304,8 +310,13 @@ unsafe transition; it does not move the pinned shell. A Ready result consumes
 that pin reference and leaves the state field Done. Its `poll-cancel` helper
 consumes the pin reference, marks the state Done, and returns the previous
 `Frame-state` so caller-defined cleanup can release captured values. This
-establishes stable storage for future frame fields, but internal self-references
-are not yet supported.
+establishes stable storage for the supported internal-reference forms described
+below. `examples/async_single_poll.lim` constructs a frame, gives it to
+`@pin-scope` for privately owned stationary storage, and repeatedly calls the
+same poll function through an opaque `@pin` handle. The low-level adapter that
+unwraps this handle requires `#unsafe`; the storage remains owned by the scope
+until in-place cleanup completes. A completed or cancelled pinned frame is
+marked Done; polling it again traps instead of restarting the body.
 The emitted Lim is cached in `.lim/cache` and undergoes normal type, borrow,
 linearity, and code generation checks:
 
@@ -313,7 +324,7 @@ linearity, and code generation checks:
 (@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset u64)) u64
     (#let child Step (Waiting 1u64))
     (#let value u64
-      (#await (offset) Step StepPending StepReady step-poll child))
+      (#await Step StepPending StepReady step-poll child))
     (#return (#u64.+.wrap value offset)))))
 ```
 
@@ -334,8 +345,8 @@ immediately after `#await`. Values live after suspension are inferred from the
 continuation; there is no capture list. Unused linear values must be consumed
 before suspension. Sequential stages
 preserve `#mut` parameters and `#let-mut` local state across suspension;
-assignments to captured mutable locals run in the resume helper. Each async
-body still ends with one explicit `#return`; a direct `#await` in that return
+assignments to captured mutable locals run in the corresponding dispatch arm.
+Each async body still ends with one explicit `#return`; a direct `#await` in that return
 is lowered as a final stage.
 `#await` in a binding must still be the entire initializer of a top-level
 binding unless it is nested in a supported value expression such as the right
