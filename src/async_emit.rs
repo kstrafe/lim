@@ -205,7 +205,7 @@ impl<'a> Emitter<'a> {
 
     fn read(&self, slot: usize, transfer: bool) -> String {
         let slot = &self.slots[slot];
-        if slot.copy && !transfer {
+        if slot.copy && (!transfer || self.types.contains_reference(&slot.ty)) {
             format!(
                 "(#call {} (: slot {}))",
                 slot.peek,
@@ -252,6 +252,28 @@ impl<'a> Emitter<'a> {
             let peek = if slot.copy {
                 format!("(#fn {} ((slot (#pin-ref {}))) {ty}\n  (#return (#deref (#pin-get-payload slot {} 0))))", slot.peek, slot.name, slot.full)
             } else { String::new() };
+            if slot.copy && self.types.contains_reference(&slot.ty) {
+                // A shared handle is copied, not extracted through a moving
+                // cell helper. End all old loaded aliases before restoration.
+                // Full source checking and ordinary call contracts still
+                // determine which incoming referents the cell retains.
+                return format!("(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
+                  (#fn {put} ((slot (#pin-ref-mut {name})) (value {ty})) ()\n\
+                    (#let previous {name} (#unsafe (#pin-read slot)))\n\
+                    (#match previous (#case {empty} ()) (#case ({full} occupied) (#forget occupied)))\n\
+                    (#unsafe (#pin-write slot ({full} value)))\n\
+                    (#return ()))\n\
+                  (#fn {finish} ((slot {name})) ()\n\
+                    (#match slot (#case {empty} ()) (#case ({full} occupied) (#forget occupied)))\n\
+                    (#return ()))\n\
+                  (#fn {clear} ((slot (#pin-ref-mut {name}))) ()\n\
+                    (#let previous {name} (#unsafe (#pin-read slot)))\n\
+                    (#call {finish} (: slot previous))\n\
+                    (#unsafe (#pin-write slot ({empty})))\n\
+                    (#return ()))\n{peek}\n",
+                    name=slot.name, empty=slot.empty, full=slot.full,
+                    put=slot.put, finish=slot.finish, clear=slot.clear);
+            }
             format!("(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
               (#unsafe-fn {take} ((slot (#pin-ref-mut {name}))) {ty}\n\
                 (#let previous {name} (#unsafe (#pin-read slot)))\n\
@@ -430,6 +452,121 @@ impl<'a> Emitter<'a> {
         Ok(format!("(#deref (#pin-borrow {place}))"))
     }
 
+    fn shared_handle_read(&mut self, descriptor: &PlaceDescriptor) -> Result<String, Error> {
+        let function = self.function;
+        let reject = |message: &str| fail(function, message);
+        let AddressRoot::Value(value) = descriptor.root else {
+            return Err(reject("shared handle load has no evaluated root"));
+        };
+        let handle_ty = crate::typed_ir::resolve_type(
+            &self.function.graph.values[value.0].ty,
+            &self.planning.declarations.aliases,
+        )
+        .map_err(|message| fail(self.function, message))?;
+        let (mut ty, pinned) = match &handle_ty {
+            Type::Reference {
+                mutable: false,
+                target,
+            } => (target.as_ref().clone(), false),
+            Type::PinnedReference {
+                mutable: false,
+                target,
+            } => (target.as_ref().clone(), true),
+            _ => {
+                return Err(reject(
+                    "address loads require a checked shared reference handle",
+                ))
+            }
+        };
+        let Some((AddressProjection::Dereference, projections)) =
+            descriptor.projections.split_first()
+        else {
+            return Err(reject(
+                "shared handle load has no checked dereference boundary",
+            ));
+        };
+        if !self.types.can_repeat(&descriptor.ty) || self.types.contains_reference(&descriptor.ty) {
+            return Err(reject(
+                "shared handle loads only support reference-free Copy leaves",
+            ));
+        }
+        // Keep the evaluated handle, including its incoming loan provenance.
+        // Only immediate shared reborrows are made while following its path.
+        let name = self.fresh("shared-handle");
+        let mut steps = vec![format!(
+            "(#let {name} {} {})",
+            crate::type_source(&handle_ty),
+            self.value(value, false)
+        )];
+        let mut reference = name.clone();
+        for (index, projection) in projections.iter().enumerate() {
+            let field = match projection {
+                AddressProjection::Field(field) => {
+                    let declaration = self.planning.declarations.field(*field);
+                    if self.planning.declarations.field_id(&ty, &declaration.name) != Some(*field)
+                        || !matches!(ty, Type::Named(_))
+                    {
+                        return Err(reject("shared field lost its checked declaration identity"));
+                    }
+                    ty = declaration.ty.clone();
+                    declaration.name.clone()
+                }
+                AddressProjection::Tuple(index) => {
+                    let Type::Tuple(fields) = ty else {
+                        return Err(reject("shared tuple lost its checked type"));
+                    };
+                    ty = fields
+                        .get(*index)
+                        .cloned()
+                        .ok_or_else(|| reject("shared tuple index is out of bounds"))?;
+                    index.to_string()
+                }
+                _ => return Err(reject(
+                    "shared projections with effectful checks require selected address snapshots",
+                )),
+            };
+            ty = crate::typed_ir::resolve_type(&ty, &self.planning.declarations.aliases)
+                .map_err(|message| fail(self.function, message))?;
+            if ty != Type::Unit {
+                let projected = format!(
+                    "(#{}borrow (#get {reference} {field}))",
+                    if pinned { "pin-" } else { "" }
+                );
+                let next = self.fresh("shared-projection");
+                let next_ty = if pinned {
+                    Type::PinnedReference {
+                        mutable: false,
+                        target: Box::new(ty.clone()),
+                    }
+                } else {
+                    Type::Reference {
+                        mutable: false,
+                        target: Box::new(ty.clone()),
+                    }
+                };
+                steps.push(format!(
+                    "(#let {next} {} {projected})",
+                    crate::type_source(&next_ty)
+                ));
+                reference = next;
+            } else if index + 1 != projections.len() {
+                return Err(reject("cannot project through a unit field"));
+            }
+        }
+        if ty != descriptor.ty {
+            return Err(reject("shared leaf disagrees with its checked type"));
+        }
+        Ok(format!(
+            "(#block {} {})",
+            steps.join("\n"),
+            if ty == Type::Unit {
+                "()".into()
+            } else {
+                format!("(#deref {reference})")
+            },
+        ))
+    }
+
     /// Verify the representation, not source ownership: a partial write can
     /// restore a source leaf, but cannot construct a Full owning cell from
     /// Empty. Source borrowing/linearity must still pass ordinary validation.
@@ -601,15 +738,25 @@ impl<'a> Emitter<'a> {
                 Ok(self.put_value(*dst, &text))
             }
             Action::Place { descriptor, .. } => {
-                if !matches!(descriptor.root, AddressRoot::Local(_))
-                    || !descriptor.projections.iter().all(|projection| {
+                let simple_owned = matches!(descriptor.root, AddressRoot::Local(_))
+                    && descriptor.projections.iter().all(|projection| {
                         matches!(
                             projection,
                             AddressProjection::Field(_) | AddressProjection::Tuple(_)
                         )
-                    })
-                    || !descriptor.checks().is_empty()
-                {
+                    });
+                let simple_handle = matches!(descriptor.root, AddressRoot::Value(_))
+                    && matches!(
+                        descriptor.projections.first(),
+                        Some(AddressProjection::Dereference)
+                    )
+                    && descriptor.projections[1..].iter().all(|projection| {
+                        matches!(
+                            projection,
+                            AddressProjection::Field(_) | AddressProjection::Tuple(_)
+                        )
+                    });
+                if (!simple_owned && !simple_handle) || !descriptor.checks().is_empty() {
                     return Err(error(
                         "projected addresses need checked storage and immediate place checks",
                     ));
@@ -618,6 +765,15 @@ impl<'a> Emitter<'a> {
             }
             Action::Load { dst, place, kind } => {
                 let descriptor = &graph.places[place.0];
+                if matches!(descriptor.root, AddressRoot::Value(_)) {
+                    let read = self.shared_handle_read(descriptor)?;
+                    let read = if *kind == LoadKind::Clone {
+                        self.clone_read(&descriptor.ty, &read)
+                    } else {
+                        read
+                    };
+                    return Ok(self.put_value(*dst, &read));
+                }
                 let AddressRoot::Local(binding) = descriptor.root else {
                     return Err(error(
                         "address-handle and global loads need their checked address representation",
@@ -688,6 +844,13 @@ impl<'a> Emitter<'a> {
                     return Err(error(
                         "partial releases need leaf-aware initialization storage",
                     ));
+                }
+                if self.bindings.get(&binding).is_some_and(|slot| {
+                    self.slots[*slot].copy && self.types.contains_reference(&self.slots[*slot].ty)
+                }) {
+                    // Copying a shared handle is not ending its stored loan.
+                    // Explicit release must actually empty the binding cell.
+                    return Ok(self.clear_binding(binding));
                 }
                 let value = self
                     .bindings
@@ -1443,6 +1606,157 @@ mod tests {
         }
         assert!(heads.iter().any(|head| head == "#array-of"));
         assert!(!heads.iter().any(|head| head == "#array"));
+    }
+
+    #[test]
+    fn incoming_shared_handles_are_read_without_losing_their_loans() {
+        for (ty, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
+            let main = format!(
+                "(#fn main () u64
+                (#let waker u64 0u64) (#let value u64 40u64)
+                (#let view ({ty} u64) ({borrow} value))
+                (#let task Frame (#call work (: value view)))
+                (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+                (#let-else (Pending next) Poll first (#unreachable))
+                (#assert (#u64.== (#deref view) 40u64))
+                (#return (#match (#call poll (: task next : waker (#borrow waker)))
+                  (#case (Ready result) result)
+                  (#case (Pending bad) (#block (#forget bad) (#unreachable))))))"
+            );
+            runtime_planned(
+                prepare_function(
+                    &format!(
+                        "(#fn work ((value ({ty} u64))) u64
+                        (#let loaded u64 (#deref value))
+                        (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                        (#assert (#u64.== loaded (#deref value)))
+                        (#return (#u64.+.wrap loaded child)))"
+                    ),
+                    &main,
+                ),
+                42,
+            );
+        }
+    }
+
+    #[test]
+    fn shared_nested_fields_are_read_without_copying_linear_referents() {
+        for (ty, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
+            let main = format!(
+                "(#type Pair (#tuple u64 u64))
+                (#struct Inner ((padding u64) (pair Pair))) (#linear Inner)
+                (#struct Owner ((padding u64) (inner Inner))) (#linear Owner)
+                (#fn main () u64
+                  (#let waker u64 0u64)
+                  (#let owner Owner (#struct-literal Owner (: padding 77u64
+                    : inner (#struct-literal Inner (: padding 88u64
+                      : pair (#tuple (#tuple u64 u64) 40u64 99u64))))))
+                  (#let view ({ty} Owner) ({borrow} owner))
+                  (#let task Frame (#call work (: view view)))
+                  (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+                  (#let-else (Pending next) Poll first (#unreachable))
+                  (#assert (#u64.== (#get view padding) 77u64))
+                  (#let result u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                    (#case (Ready result) result)
+                    (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                  (#drop view) (#forget owner) (#return result))"
+            );
+            runtime_planned(
+                prepare_function(
+                    &format!(
+                        "(#fn work ((view ({ty} Owner))) u64
+                        (#return (#u64.+.wrap (#get (#get (#get view inner) pair) 0)
+                          (#await Child ChildPending ChildReady child-poll (Start 2u64)))))"
+                    ),
+                    &main,
+                ),
+                42,
+            );
+        }
+    }
+
+    #[test]
+    fn pending_shared_handles_keep_the_original_callers_borrow() {
+        let planning = prepare_function(
+            "(#fn work ((view (#ref u64))) u64
+              (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#return (#u64.+.wrap (#deref view) child)))",
+            "(#fn main () u64
+              (#let waker u64 0u64) (#let-mut value u64 40u64)
+              (#let task Frame (#call work (: view (#borrow value))))
+              (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+              (#let-else (Pending next) Poll first (#unreachable))
+              (#set value 99u64)
+              (#return (#match (#call poll (: task next : waker (#borrow waker)))
+                (#case (Ready result) result)
+                (#case (Pending bad) (#block (#forget bad) (#unreachable))))))",
+        );
+        let generated = generate(&planning).unwrap();
+        let program = program(&planning, &generated).unwrap();
+        let (message, code, span, _) = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .expect("Pending still retains a reference to value");
+        assert_eq!(code, DiagnosticCode::Borrow, "{message}");
+        assert!(
+            message.contains("value") && message.contains("borrow"),
+            "{message}"
+        );
+        let span = span.expect("caller mutation has an exact span");
+        let source = &program.source_files[span.source_id as usize].source;
+        assert_eq!(span.source_id, 0);
+        assert_eq!(&source[span.start..span.end], "#set");
+    }
+
+    #[test]
+    fn shared_handle_frames_cannot_escape_a_callers_local_referent() {
+        let planning = prepare_function(
+            "(#fn work ((view (#ref u64))) u64
+              (#return (#u64.+.wrap (#deref view)
+                (#await Child ChildPending ChildReady child-poll (Start 2u64)))))",
+            "(#fn escape () Frame
+              (#let value u64 40u64)
+              (#return (#call work (: view (#borrow value)))))
+              (#fn main () u64 (#return 42u64))",
+        );
+        let generated = generate(&planning).unwrap();
+        let program = program(&planning, &generated).unwrap();
+        let (message, code, span, _) = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .expect("frame retains a borrow of a caller local");
+        assert_eq!(code, DiagnosticCode::Borrow, "{message}");
+        assert!(message.contains("local 'value'"), "{message}");
+        let span = span.expect("escape is located in caller source");
+        assert_eq!(span.source_id, 0);
+    }
+
+    #[test]
+    fn computed_shared_receivers_are_evaluated_once_before_later_awaits() {
+        let planning = prepare_function(
+            "(#fn work ((view (#ref Owner)) (count (#ptr-mut u64))) u64
+              (#return (#u64.+.wrap
+                (#get (#unsafe (#call select (: view view : count count))) value)
+                (#await Child ChildPending ChildReady child-poll (Start 2u64)))))",
+            "(#struct Owner ((padding u64) (value u64))) (#linear Owner)
+              (#unsafe-fn select ((view (#ref Owner)) (count (#ptr-mut u64))) (#ref Owner)
+                (#unsafe (#ptr-write count (#u64.+.wrap (#ptr-read count) 1u64)))
+                (#return view))
+              (#fn main () u64
+                (#let waker u64 0u64) (#let-mut count u64 0u64)
+                (#let pointer (#ptr-mut u64) (#unsafe (#asm (#ptr-mut u64)
+                  ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
+                (#let owner Owner (#struct-literal Owner (: padding 77u64 : value 40u64)))
+                (#let task Frame (#call work (: view (#borrow owner) : count pointer)))
+                (#assert (#u64.== count 0u64))
+                (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+                (#let-else (Pending next) Poll first (#unreachable))
+                (#assert (#u64.== count 1u64))
+                (#let result u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                  (#case (Ready result) result)
+                  (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                (#assert (#u64.== count 1u64))
+                (#forget owner) (#return result))",
+        );
+        runtime_planned(planning, 42);
     }
 
     #[test]
