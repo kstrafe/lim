@@ -9,12 +9,14 @@ use std::{
 };
 
 mod analysis_error;
+mod async_cells;
 mod async_cfg;
 mod async_contract;
 mod async_emit;
 mod async_exec;
 mod async_fn;
 mod async_interfaces;
+mod async_lend;
 mod async_pattern;
 mod async_prepare;
 mod async_render;

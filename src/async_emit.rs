@@ -6,6 +6,7 @@
 //! The original model and generated ordinary program must both be checked.
 #![allow(dead_code)] // The default frontend switches after all storage modes land.
 
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use crate::async_exec::{
@@ -58,11 +59,13 @@ struct Emitter<'a> {
     slots: Vec<Slot>,
     bindings: HashMap<BindingId, usize>,
     values: HashMap<ValueId, usize>,
-    reserved: HashSet<String>,
-    next: usize,
+    reserved: RefCell<HashSet<String>>,
+    next: Cell<usize>,
     types: crate::linearcheck::LinearTypes,
     render: crate::async_render::RenderContext<'a>,
     retirement: Option<crate::async_retire::Plan>,
+    lending: Option<crate::async_lend::Plan>,
+    reference_cells: Option<crate::async_cells::Plan>,
 }
 
 fn atom(name: &str) -> Expr {
@@ -134,8 +137,8 @@ impl<'a> Emitter<'a> {
             slots: Vec::new(),
             bindings: HashMap::new(),
             values: HashMap::new(),
-            reserved,
-            next: 0,
+            reserved: RefCell::new(reserved),
+            next: Cell::new(0),
             types: crate::linearcheck::LinearTypes::from_program(&planning.program),
             render: crate::async_render::RenderContext::new(
                 body,
@@ -144,6 +147,13 @@ impl<'a> Emitter<'a> {
             )
             .map_err(|error| fail(function, error.message))?,
             retirement: None,
+            lending: crate::async_lend::Plan::new(
+                body,
+                &planning.declarations.flows[&function.model.body_name],
+                &crate::linearcheck::LinearTypes::from_program(&planning.program),
+            )
+            .map_err(|error| fail(function, error.message))?,
+            reference_cells: None,
         };
         emitter.finish = emitter.fresh("frame-finish");
         // Each scope/declaration activates its own cell. The factory installs
@@ -169,14 +179,20 @@ impl<'a> Emitter<'a> {
             plan.validate(&function.graph)
                 .map_err(|error| fail(function, error.message))?;
         }
+        emitter.reference_cells = crate::async_cells::Plan::new(
+            &function.graph,
+            &emitter.types,
+            emitter.retirement.as_ref(),
+            emitter.lending.as_ref(),
+        );
         Ok(emitter)
     }
 
-    fn fresh(&mut self, role: &str) -> String {
+    fn fresh(&self, role: &str) -> String {
         loop {
-            let name = format!("{}.graph.{}.{role}", self.frame, self.next);
-            self.next += 1;
-            if self.reserved.insert(name.clone()) {
+            let name = format!("{}.graph.{}.{role}", self.frame, self.next.get());
+            self.next.set(self.next.get() + 1);
+            if self.reserved.borrow_mut().insert(name.clone()) {
                 return name;
             }
         }
@@ -218,6 +234,27 @@ impl<'a> Emitter<'a> {
                 slot.peek,
                 Self::slot_ref(slot, false)
             )
+        } else if self.types.contains_reference(&slot.ty) {
+            // An owned transfer must make Empty visible before any later
+            // suspension. A returned reference does not itself describe the
+            // input cell's definite tag; retain its pre-move provenance.
+            format!(
+                "(#block
+                  (#let {cell} (#pin-ref-mut {name}) {reference})
+                  (#let {previous} {name} (#unsafe (#pin-read {cell})))
+                  (#unsafe (#pin-write {cell} ({empty})))
+                  (#drop {cell})
+                  (#match {previous}
+                    (#case {empty} (#unreachable))
+                    (#case ({full} {value}) {value})))",
+                cell = self.fresh("taken-cell"),
+                previous = self.fresh("taken-storage"),
+                value = self.fresh("taken-value"),
+                name = slot.name,
+                reference = Self::slot_ref(slot, true),
+                empty = slot.empty,
+                full = slot.full,
+            )
         } else {
             format!(
                 "(#unsafe (#call {} (: slot {})))",
@@ -235,6 +272,39 @@ impl<'a> Emitter<'a> {
 
     fn put(&self, slot: usize, value: &str) -> String {
         let slot = &self.slots[slot];
+        if !slot.copy && self.types.contains_reference(&slot.ty) {
+            let old = self.fresh("stored-occupied");
+            // Stage the input before touching the destination, as a normal
+            // call would. Keep the actual stored enum tags visible: a unit
+            // helper's invalidation summary cannot establish the child's
+            // newly selected payload in the returned Pending frame.
+            let occupied = if slot.linear {
+                format!("(#block (#forget {old}) (#assert false))")
+            } else {
+                format!("(#forget {old})")
+            };
+            return format!(
+                "(#block
+                  (#let {incoming} {ty} {value})
+                  (#let {cell} (#pin-ref-mut {name}) {reference})
+                  (#let {previous} {name} (#unsafe (#pin-read {cell})))
+                  (#match {previous}
+                    (#case {empty} ())
+                    (#case ({full} {old}) {occupied}))
+                  (#unsafe (#pin-write {cell} ({empty})))
+                  (#unsafe (#forget (#pin-read {cell})))
+                  (#unsafe (#pin-write {cell} ({full} {incoming})))
+                  (#drop {cell}) ())",
+                incoming = self.fresh("stored-value"),
+                ty = crate::type_source(&slot.ty),
+                cell = self.fresh("stored-cell"),
+                name = slot.name,
+                reference = Self::slot_ref(slot, true),
+                previous = self.fresh("stored-storage"),
+                empty = slot.empty,
+                full = slot.full,
+            );
+        }
         format!(
             "(#call {} (: slot {} : value {value}))",
             slot.put,
@@ -280,6 +350,22 @@ impl<'a> Emitter<'a> {
                     (#return ()))\n{peek}\n",
                     name=slot.name, empty=slot.empty, full=slot.full,
                     put=slot.put, finish=slot.finish, clear=slot.clear);
+            }
+            if self.types.contains_reference(&slot.ty) {
+                // Owned reference transfers are emitted at the actual local
+                // cell, where input-slot identities and Empty/Full tags stay
+                // visible. Do not emit unused abstract take/put helpers.
+                return format!("(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
+                  (#fn {finish} ((slot {name})) ()\n\
+                    (#match slot (#case {empty} ()) (#case ({full} occupied) {occupied}))\n\
+                    (#return ()))\n\
+                  (#fn {clear} ((slot (#pin-ref-mut {name}))) ()\n\
+                    (#let previous {name} (#unsafe (#pin-read slot)))\n\
+                    (#call {finish} (: slot previous))\n\
+                    (#unsafe (#pin-write slot ({empty})))\n\
+                    (#return ()))\n",
+                    name=slot.name, empty=slot.empty, full=slot.full,
+                    finish=slot.finish, clear=slot.clear);
             }
             format!("(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
               (#unsafe-fn {take} ((slot (#pin-ref-mut {name}))) {ty}\n\
@@ -336,6 +422,11 @@ impl<'a> Emitter<'a> {
             let reference = self.fresh("retired-cell");
             let previous = self.fresh("retired-storage");
             let slot = &self.slots[index];
+            let occupied = if slot.linear {
+                format!("(#block (#forget {handle}) (#assert false))")
+            } else {
+                format!("(#forget {handle})")
+            };
             // Keep Empty visible to ordinary stored-variant facts; a helper's
             // unit return does not describe that definite tag yet. Reference
             // fields retain their checked unsafe-write restoration protocol.
@@ -343,7 +434,7 @@ impl<'a> Emitter<'a> {
                 "(#block\n\
               (#let {reference} (#pin-ref-mut {}) {})\n\
               (#let {previous} {} (#unsafe (#pin-read {reference})))\n\
-              (#match {previous} (#case {} ()) (#case ({} {handle}) (#forget {handle})))\n\
+              (#match {previous} (#case {} ()) (#case ({} {handle}) {occupied}))\n\
               (#unsafe (#pin-write {reference} ({})))\n\
               (#drop {reference}) ())",
                 slot.name,
@@ -363,6 +454,41 @@ impl<'a> Emitter<'a> {
             .as_ref()
             .map_or_else(Vec::new, |plan| plan.edge[block.0][index].clone());
         self.clear_values(&values)
+    }
+
+    fn expose_empty_reference_cells(&mut self, block: BlockId, exit: bool) -> String {
+        let cells = self
+            .reference_cells
+            .as_ref()
+            .and_then(|plan| {
+                if exit {
+                    plan.exit_empty.get(&block).cloned()
+                } else {
+                    plan.pending_empty.get(&block).cloned()
+                }
+            })
+            .unwrap_or_default();
+        let slots = cells
+            .iter()
+            .filter_map(|cell| match cell {
+                crate::async_cells::Cell::Binding(binding) => self.bindings.get(binding).copied(),
+                crate::async_cells::Cell::Value(value) => {
+                    // Copy retirement already makes this particular Empty write
+                    // visible on Pending; do not emit it a second time.
+                    if !exit
+                        && self
+                            .retirement
+                            .as_ref()
+                            .is_some_and(|plan| plan.edge[block.0][1].contains(value))
+                    {
+                        None
+                    } else {
+                        self.values.get(value).copied()
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        self.clear_handle_slots(&slots)
     }
 
     fn pattern_value(&self, pattern: &crate::async_exec::Pattern) -> Result<String, Error> {
@@ -842,6 +968,31 @@ impl<'a> Emitter<'a> {
                 let Some(slot) = self.bindings.get(&binding) else {
                     return Ok(self.put_value(*dst, "()"));
                 };
+                if *kind == LoadKind::Read
+                    && !self.slots[*slot].copy
+                    && self.types.contains_reference(&self.slots[*slot].ty)
+                {
+                    let access = located.source.and_then(|source| {
+                        self.lending.as_ref().and_then(|plan| plan.access(source))
+                    });
+                    match access {
+                        Some(crate::async_lend::Access::Move(place))
+                            if place
+                                == &crate::typed_place::Place::root(
+                                    crate::typed_body::PlaceRoot::Local(binding),
+                                ) => {}
+                        Some(crate::async_lend::Access::Lend(_)) => {
+                            return Err(error(
+                                "nonmoving exclusive handle reads require a checked lending lease",
+                            ));
+                        }
+                        _ => {
+                            return Err(error(
+                                "reference holder move has no matching checked source transfer",
+                            ));
+                        }
+                    }
+                }
                 let read = match kind {
                     LoadKind::Read => self.read(*slot, false),
                     LoadKind::Clone if self.slots[*slot].copy => {
@@ -1019,16 +1170,18 @@ impl<'a> Emitter<'a> {
                 let store = self.put_value(*child, &next);
                 let edge = self.edge(block, 0, ready, Some(&result))?;
                 let retired = self.retire_edge(block, 1);
+                let empty = self.expose_empty_reference_cells(block, false);
                 Ok(format!("(#let {polled} {} {call})\n\
                   (#match {polled}\n\
-                    (#case ({} {next}) (#block {store} {retired} (#set-field task pc {}u32) (#return ({} task)) (#unreachable)))\n\
+                    (#case ({} {next}) (#block {store} {retired} {empty} (#set-field task pc {}u32) (#return ({} task)) (#unreachable)))\n\
                     (#case ({} {result}) (#block {edge} (#unreachable))))", crate::type_source(poll_type), protocol.pending, pending.0, self.pending, protocol.ready))
             }
             Terminator::Return(value) => {
                 let value = value.map_or_else(|| "()".into(), |value| self.value(value, true));
                 let name = self.fresh("result");
+                let empty = self.expose_empty_reference_cells(block, true);
                 let finish = &self.finish;
-                Ok(format!("(#let {name} {} {value})\n(#call {finish} (: task task))\n(#return ({} {name}))", crate::type_source(&self.result), self.ready))
+                Ok(format!("(#let {name} {} {value})\n{empty}\n(#call {finish} (: task task))\n(#return ({} {name}))", crate::type_source(&self.result), self.ready))
             }
             Terminator::Diverge => Ok("(#unreachable)".into()),
             Terminator::PatternTest { pattern, yes, no } => {
@@ -1073,7 +1226,7 @@ impl<'a> Emitter<'a> {
                         &ty,
                         reference,
                         &prefix,
-                        &mut self.reserved,
+                        &mut self.reserved.borrow_mut(),
                     )
                     .map_err(|message| fail(self.function, message))?;
                     crate::expression_source(&test)
@@ -1090,16 +1243,6 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit(mut self) -> Result<Generated, Error> {
-        if self
-            .slots
-            .iter()
-            .any(|slot| !slot.copy && self.types.contains_reference(&slot.ty))
-        {
-            return Err(fail(
-                self.function,
-                "move-only reference holders require checked lending and restoration storage",
-            ));
-        }
         if self.function.source.pinned_frame.is_some() {
             return Err(fail(
                 self.function,
@@ -1379,8 +1522,22 @@ mod tests {
             );
         }
         let program = program(&planning, &generated).unwrap();
-        let checked = crate::CheckedProgram::validate_with_span(&program)
-            .unwrap_or_else(|error| panic!("{error:?}\n{}", generated[0].source));
+        let checked = crate::CheckedProgram::validate_with_span(&program).unwrap_or_else(
+            |(message, code, span, labels)| {
+                let mut error = SourceError::new(message, code);
+                if let Some(span) = span {
+                    error = error.at(span);
+                }
+                for (span, label) in labels {
+                    error = error.with_label(span, label);
+                }
+                panic!(
+                    "{}\n{}",
+                    error.attach(&program.source_files),
+                    generated[0].source
+                );
+            },
+        );
         let assembly = crate::codegen::generate_checked_executable_assembly(
             &checked,
             crate::TargetDescription::X86_64_SYSTEM_V,
@@ -1834,6 +1991,70 @@ mod tests {
     }
 
     #[test]
+    fn owned_exclusive_children_transfer_without_copying_their_handles() {
+        let extra = "(#enum ExclusiveChild ((ExclusiveStart (#ref-mut u64)) (ExclusiveResume (#ref-mut u64))))
+          (#linear ExclusiveChild)
+          (#enum ExclusivePoll ((ExclusivePending ExclusiveChild) (ExclusiveReady u64)))
+          (#fn exclusive-poll (: task ExclusiveChild : waker (#ref u64)) ExclusivePoll
+            (#return (#match task
+              (#case (ExclusiveStart view) (#block
+                (#deref-set view (#u64.+.wrap (#deref view) 1u64))
+                (ExclusivePending (ExclusiveResume view))))
+              (#case (ExclusiveResume view) (#block
+                (#deref-set view (#u64.+.wrap (#deref view) 1u64))
+                (ExclusiveReady (#deref view)))))))";
+        let function = "(#fn work (: view (#ref-mut u64)) u64
+          (#let child ExclusiveChild (ExclusiveStart view))
+          (#return (#await ExclusiveChild ExclusivePending ExclusiveReady exclusive-poll child)))";
+        let main = format!(
+            "{extra}
+              (#fn main () u64
+                (#let waker u64 0u64) (#let-mut value u64 40u64)
+                (#let task Frame (#call work (: view (#borrow-mut value))))
+                (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+                (#let-else (Pending next) Poll first (#unreachable))
+                (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                  (#case (Ready answer) answer)
+                  (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                (#assert (#u64.== value 42u64)) (#return answer))"
+        );
+        runtime_planned(prepare_function(function, &main), 42);
+        let bad_main = main.replace(
+            "(#let-else (Pending next)",
+            "(#set value 0u64) (#let-else (Pending next)",
+        );
+        let planning = prepare_function(function, &bad_main);
+        let generated = generate(&planning).unwrap();
+        let proposed = program(&planning, &generated).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&proposed)
+            .err()
+            .unwrap();
+        assert_eq!(error.1, DiagnosticCode::Borrow);
+        let span = error.2.unwrap();
+        let source = &proposed.source_files[span.source_id as usize].source;
+        assert_eq!(&source[span.start..span.end], "#set");
+    }
+
+    #[test]
+    fn exclusive_handle_reads_fail_closed_until_lending_is_emitted() {
+        let planning = prepare_function(
+            "(#fn work (: view (#ref-mut u64)) u64
+              (#let before u64 (#deref view))
+              (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#return (#u64.+.wrap before (#deref view))))",
+            "(#fn main () u64 (#return 0u64))",
+        );
+        let error = generate(&planning).err().unwrap();
+        assert!(
+            error.message.contains("checked lending lease"),
+            "{}",
+            error.message
+        );
+        let source = &planning.program.source_files[error.span.source_id as usize].source;
+        assert_eq!(&source[error.span.start..error.span.end], "view");
+    }
+
+    #[test]
     fn shared_reference_fields_survive_outer_handle_release() {
         for (ty, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
             let extra = "(#struct Holder (: padding u64 : view (#ref u64)))";
@@ -1868,14 +2089,22 @@ mod tests {
                     (#let-else (Pending next) Poll first (#unreachable))
                     (#set value 99u64) (#forget next) (#return 0u64))"
             );
-            // The ordinary contract still conservatively retains the outer
-            // container too. Accepting the Copy leaf must not exempt either
-            // its pointee or its incoming storage from lifetime checking.
+            // Only the copied leaf remains live after the outer handle was
+            // dropped. Empty-cell witnesses now expose that distinction to
+            // the ordinary checker: releasing the container is valid, but
+            // mutating the copied reference's pointee remains forbidden.
+            let release_main = main
+                .replace(
+                    "(#let-else (Pending next) Poll first (#unreachable))",
+                    "(#let-else (Pending next) Poll first (#unreachable)) (#forget holder)",
+                )
+                .replace("(#forget holder) (#return result)", "(#return result)");
+            runtime_planned(prepare_function(&function, &release_main), 42);
             for (main, keyword) in [
                 (bad_main.clone(), "#set"),
                 (
-                    bad_main.replace("(#set value 99u64)", "(#forget holder)"),
-                    "#forget",
+                    bad_main.replace("(#set value 99u64)", "(#forget holder) (#set value 99u64)"),
+                    "#set",
                 ),
             ] {
                 let planning = prepare_function(&function, &main);
