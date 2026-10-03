@@ -1,0 +1,363 @@
+//! Storage proofs for nonmoving reference reads in the ordinary dispatcher.
+//!
+//! An in-place window keeps the owning handle Full. Its only consumer is a
+//! Copy leaf load after pure address formation in the same executable block.
+//! No handle is copied, captured in another cell, or reevaluated after an
+//! effect or a suspension. This is an emission proof, not borrow permission:
+//! the original source and the generated ordinary program remain mandatory.
+#![allow(dead_code)]
+
+use std::collections::HashMap;
+
+use crate::async_exec::{
+    Action, AddressProjection, AddressRoot, Argument, BlockId, Graph, LoadKind, ValueId,
+};
+use crate::async_lend::{Access, Plan as Accesses};
+use crate::linearcheck::LinearTypes;
+use crate::typed_body::{BindingId, PlaceRoot};
+use crate::typed_place::Place;
+use crate::Type;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct Lease {
+    pub binding: BindingId,
+    pub block: BlockId,
+    pub load: usize,
+    pub read: usize,
+}
+
+pub(crate) struct Plan {
+    leases: HashMap<ValueId, Lease>,
+}
+
+fn pure_path(descriptor: &crate::async_exec::PlaceDescriptor, value: ValueId) -> bool {
+    descriptor.root == AddressRoot::Value(value)
+        && matches!(
+            descriptor.projections.first(),
+            Some(AddressProjection::Dereference)
+        )
+        && descriptor.projections[1..].iter().all(|step| {
+            matches!(
+                step,
+                AddressProjection::Field(_) | AddressProjection::Tuple(_)
+            )
+        })
+        && descriptor.checks().is_empty()
+}
+
+impl Plan {
+    pub(crate) fn new(
+        graph: &Graph,
+        accesses: Option<&Accesses>,
+        types: &LinearTypes,
+        aliases: &HashMap<String, Type>,
+    ) -> Result<Self, crate::async_exec::Error> {
+        graph.validate()?;
+        let mut leases = HashMap::new();
+        let Some(accesses) = accesses else {
+            return Ok(Self { leases });
+        };
+        let reachable = graph.reachable();
+        // Index physical uses once, including recomputed address roots. A
+        // graph with many reads must not rescan every action for each handle.
+        let mut users = vec![Vec::new(); graph.values.len()];
+        let mut escapes = vec![false; graph.values.len()];
+        for &block in &reachable {
+            let body = &graph.blocks[block.0];
+            for (index, located) in body.actions.iter().enumerate() {
+                let mut inputs = crate::async_retire::uses(graph, &located.action);
+                inputs.sort_unstable_by_key(|value| value.0);
+                inputs.dedup();
+                for value in inputs {
+                    users[value.0].push((block, index));
+                }
+            }
+            for value in crate::async_retire::control(&body.terminator) {
+                escapes[value.0] = true;
+            }
+            for edge in crate::async_retire::edges(&body.terminator) {
+                for argument in &edge.arguments {
+                    if let Argument::Value(value) = argument {
+                        escapes[value.0] = true;
+                    }
+                }
+            }
+        }
+        for &block in &reachable {
+            for (load, located) in graph.blocks[block.0].actions.iter().enumerate() {
+                let Action::Load {
+                    dst,
+                    place,
+                    kind: LoadKind::Read,
+                } = located.action
+                else {
+                    continue;
+                };
+                let descriptor = &graph.places[place.0];
+                let AddressRoot::Local(binding) = descriptor.root else {
+                    continue;
+                };
+                if !descriptor.projections.is_empty()
+                    || !located
+                        .source
+                        .and_then(|source| accesses.access(source))
+                        .is_some_and(|access| {
+                            access == &Access::Lend(Place::root(PlaceRoot::Local(binding)))
+                        })
+                {
+                    continue;
+                }
+                let ty = crate::typed_ir::resolve_type(&graph.values[dst.0].ty, aliases).map_err(
+                    |message| crate::async_exec::Error {
+                        source: located.source,
+                        message,
+                    },
+                )?;
+                if !matches!(
+                    ty,
+                    Type::Reference { mutable: true, .. }
+                        | Type::PinnedReference { mutable: true, .. }
+                ) {
+                    continue;
+                }
+                let mut consumer = None;
+                let mut valid = !escapes[dst.0];
+                for &(user_block, index) in &users[dst.0] {
+                    let user = &graph.blocks[user_block.0].actions[index];
+                    if user_block != block || index <= load {
+                        valid = false;
+                        continue;
+                    }
+                    match &user.action {
+                        Action::Place { descriptor, .. } if pure_path(descriptor, dst) => {}
+                        Action::Load { place, .. }
+                            if pure_path(&graph.places[place.0], dst)
+                                && types.can_repeat(&graph.places[place.0].ty)
+                                && !types.contains_reference(&graph.places[place.0].ty) =>
+                        {
+                            if consumer.replace(index).is_some() {
+                                valid = false
+                            }
+                        }
+                        _ => valid = false,
+                    }
+                }
+                let Some(read) = consumer else { continue };
+                // Not merely "no writes to this binding": calls, pointer
+                // writes, checks, and unrelated operations can change the
+                // evaluated pointer or permissions. Nothing effectful may
+                // occur between the original handle read and its leaf load.
+                if !valid || graph.blocks[block.0].actions[load + 1..read].iter().any(|user|
+                    !matches!(&user.action, Action::Place { descriptor, .. } if pure_path(descriptor, dst))) {
+                    continue;
+                }
+                leases.insert(
+                    dst,
+                    Lease {
+                        binding,
+                        block,
+                        load,
+                        read,
+                    },
+                );
+            }
+        }
+        Ok(Self { leases })
+    }
+
+    pub(crate) fn get(&self, value: ValueId) -> Option<&Lease> {
+        self.leases.get(&value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Checked {
+        graph: Graph,
+        types: LinearTypes,
+        accesses: Option<Accesses>,
+        aliases: HashMap<String, Type>,
+    }
+
+    impl Checked {
+        fn new(source: &str) -> Self {
+            let program = crate::parse_program(source).unwrap();
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+            let body = &declarations.bodies["work"];
+            let types = LinearTypes::from_program(&program);
+            let accesses = Accesses::new(body, &declarations.flows["work"], &types).unwrap();
+            let graph = crate::async_exec::build(body, &[]).unwrap();
+            graph.validate().unwrap();
+            Self {
+                graph,
+                types,
+                accesses,
+                aliases: declarations.aliases.clone(),
+            }
+        }
+
+        fn plan(&self) -> Plan {
+            Plan::new(
+                &self.graph,
+                self.accesses.as_ref(),
+                &self.types,
+                &self.aliases,
+            )
+            .unwrap()
+        }
+    }
+
+    #[test]
+    fn immediate_exclusive_reads_have_exact_nonmoving_windows() {
+        for ty in ["#ref-mut", "#pin-ref-mut"] {
+            let checked = Checked::new(&format!(
+                "(#fn work (: view ({ty} u64)) u64
+                  (#let first u64 (#deref view)) (#return (#u64.+.wrap first (#deref view))))"
+            ));
+            let plan = checked.plan();
+            assert_eq!(plan.leases.len(), 2);
+            assert_eq!(plan.leases, checked.plan().leases);
+            for (value, lease) in &plan.leases {
+                assert_eq!(lease.binding, BindingId(0));
+                assert!(lease.load < lease.read);
+                let actions = &checked.graph.blocks[lease.block.0].actions;
+                assert!(
+                    matches!(actions[lease.load].action, Action::Load { dst, .. } if dst == *value)
+                );
+                assert!(matches!(actions[lease.read].action, Action::Load { .. }));
+            }
+        }
+    }
+
+    #[test]
+    fn owned_transfers_and_shared_handles_are_not_read_leases() {
+        for source in [
+            "(#fn work (: view (#ref-mut u64)) (#ref-mut u64) (#return view))",
+            "(#fn work (: view (#ref u64)) u64 (#return (#deref view)))",
+            "(#fn read (: view (#ref-mut u64)) u64 (#return (#deref view)))
+              (#fn work (: view (#ref-mut u64)) u64 (#return (#call read (: view view))))",
+        ] {
+            assert!(Checked::new(source).plan().leases.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn aliases_preserve_the_exclusive_handle_kind() {
+        let checked = Checked::new(
+            "(#type View (#ref-mut u64))
+          (#fn work (: view View) u64 (#return (#deref view)))",
+        );
+        assert_eq!(checked.plan().leases.len(), 1);
+    }
+
+    #[test]
+    fn a_block_boundary_requires_retained_lending_storage() {
+        let mut checked =
+            Checked::new("(#fn work (: view (#ref-mut u64)) u64 (#return (#deref view)))");
+        let plan = checked.plan();
+        let (value, lease) = plan.leases.iter().next().unwrap();
+        let value = *value;
+        let lease = lease.clone();
+        let target = BlockId(checked.graph.blocks.len());
+        let terminal = std::mem::replace(
+            &mut checked.graph.blocks[lease.block.0].terminator,
+            crate::async_exec::Terminator::Goto(crate::async_exec::Edge {
+                target,
+                arguments: vec![],
+            }),
+        );
+        let actions = checked.graph.blocks[lease.block.0]
+            .actions
+            .split_off(lease.load + 1);
+        checked.graph.blocks.push(crate::async_exec::Block {
+            parameters: vec![],
+            actions,
+            terminator: terminal,
+        });
+        checked.graph.validate().unwrap();
+        assert!(checked.plan().get(value).is_none());
+    }
+
+    #[test]
+    fn immediate_field_paths_are_proved_but_checks_and_reference_leaves_are_not() {
+        for (source, expected) in [
+            ("(#struct Value (: amount u64)) (#fn work (: view (#ref-mut Value)) u64 (#return (#get view amount)))", 1),
+            ("(#fn work (: view (#ref-mut (#tuple u64 u64))) u64 (#return (#get view 1)))", 1),
+            ("(#struct Value (: nested (#ref u64))) (#fn work (: view (#ref-mut Value)) (#ref u64) (#return (#get view nested)))", 0),
+            ("(#fn work (: view (#ref-mut (#array u64 1))) u64 (#return (#index (#deref view) 0usize)))", 0),
+        ] {
+            assert_eq!(Checked::new(source).plan().leases.len(), expected, "{source}");
+        }
+    }
+
+    #[test]
+    fn an_intervening_operation_invalidates_pointer_reevaluation() {
+        let mut checked =
+            Checked::new("(#fn work (: view (#ref-mut u64)) u64 (#return (#deref view)))");
+        let plan = checked.plan();
+        let (value, lease) = plan.leases.iter().next().unwrap();
+        let value = *value;
+        let lease = lease.clone();
+        // This operation is deliberately unrelated to the address recipe.
+        // The verifier must not guess its effects or permit reevaluation
+        // merely because it contains no syntactic write to the owner.
+        let unit = ValueId(checked.graph.values.len());
+        checked.graph.values.push(crate::async_exec::Value {
+            source: None,
+            ty: Type::Unit,
+            span: None,
+        });
+        checked.graph.blocks[lease.block.0].actions.insert(
+            lease.load + 1,
+            crate::async_exec::LocatedAction {
+                action: Action::Compute {
+                    dst: unit,
+                    operation: crate::async_exec::Compute::Unit,
+                },
+                source: None,
+                span: None,
+                unsafe_context: false,
+            },
+        );
+        checked.graph.validate().unwrap();
+        assert!(checked.plan().get(value).is_none());
+    }
+
+    #[test]
+    fn another_consumer_or_an_escaping_edge_invalidates_the_lease() {
+        let mut checked =
+            Checked::new("(#fn work (: view (#ref-mut u64)) u64 (#return (#deref view)))");
+        let plan = checked.plan();
+        let (value, lease) = plan.leases.iter().next().unwrap();
+        let value = *value;
+        let lease = lease.clone();
+        let mut duplicate = checked.graph.blocks[lease.block.0].actions[lease.read].clone();
+        let dst = ValueId(checked.graph.values.len());
+        checked.graph.values.push(checked.graph.values[0].clone());
+        checked.graph.values[dst.0].ty = Type::U64;
+        if let Action::Load { dst: output, .. } = &mut duplicate.action {
+            *output = dst
+        }
+        checked.graph.blocks[lease.block.0].actions.push(duplicate);
+        checked.graph.validate().unwrap();
+        assert!(
+            checked.plan().get(value).is_none(),
+            "a handle snapshot cannot acquire multiple deferred readers"
+        );
+
+        let mut checked =
+            Checked::new("(#fn work (: view (#ref-mut u64)) u64 (#return (#deref view)))");
+        let plan = checked.plan();
+        let value = *plan.leases.keys().next().unwrap();
+        checked.graph.blocks[checked.graph.entry.0].terminator =
+            crate::async_exec::Terminator::Return(Some(value));
+        checked.graph.validate().unwrap();
+        assert!(
+            checked.plan().get(value).is_none(),
+            "a nonmoving read is not a returnable owned value"
+        );
+    }
+}

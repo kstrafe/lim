@@ -24,7 +24,7 @@ pub(crate) struct Plan {
     candidates: HashSet<ValueId>,
 }
 
-fn edges(terminal: &Terminator) -> Vec<&Edge> {
+pub(crate) fn edges(terminal: &Terminator) -> Vec<&Edge> {
     match terminal {
         Terminator::Goto(edge) => vec![edge],
         Terminator::Branch { yes, no, .. } | Terminator::PatternTest { yes, no, .. } => {
@@ -49,7 +49,10 @@ fn recipe(place: &crate::async_exec::PlaceDescriptor) -> Vec<ValueId> {
     values
 }
 
-fn uses(graph: &Graph, action: &Action) -> Vec<ValueId> {
+// Physical emitter dependencies, including roots of address recipes. The
+// lending-window verifier must use these too: graph address tokens alone do
+// not describe a root that the current emitter will evaluate at a later load.
+pub(crate) fn uses(graph: &Graph, action: &Action) -> Vec<ValueId> {
     match action {
         Action::Compute {
             operation: Compute::Checked(operation),
@@ -103,7 +106,7 @@ fn definition(action: &Action) -> Option<ValueId> {
     }
 }
 
-fn control(terminal: &Terminator) -> Vec<ValueId> {
+pub(crate) fn control(terminal: &Terminator) -> Vec<ValueId> {
     match terminal {
         Terminator::Branch { condition, .. } => vec![*condition],
         Terminator::PatternTest { pattern, .. } => vec![pattern.scrutinee],

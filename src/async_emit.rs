@@ -65,6 +65,7 @@ struct Emitter<'a> {
     render: crate::async_render::RenderContext<'a>,
     retirement: Option<crate::async_retire::Plan>,
     lending: Option<crate::async_lend::Plan>,
+    leases: crate::async_lease::Plan,
     reference_cells: Option<crate::async_cells::Plan>,
 }
 
@@ -123,6 +124,20 @@ impl<'a> Emitter<'a> {
                 reserved.extend(variants.iter().map(|variant| variant.name.clone()));
             }
         }
+        let types = crate::linearcheck::LinearTypes::from_program(&planning.program);
+        let lending = crate::async_lend::Plan::new(
+            body,
+            &planning.declarations.flows[&function.model.body_name],
+            &types,
+        )
+        .map_err(|error| fail(function, error.message))?;
+        let leases = crate::async_lease::Plan::new(
+            &function.graph,
+            lending.as_ref(),
+            &types,
+            &planning.declarations.aliases,
+        )
+        .map_err(|error| fail(function, error.message))?;
         let mut emitter = Self {
             planning,
             function,
@@ -139,7 +154,7 @@ impl<'a> Emitter<'a> {
             values: HashMap::new(),
             reserved: RefCell::new(reserved),
             next: Cell::new(0),
-            types: crate::linearcheck::LinearTypes::from_program(&planning.program),
+            types,
             render: crate::async_render::RenderContext::new(
                 body,
                 &planning.declarations,
@@ -147,12 +162,8 @@ impl<'a> Emitter<'a> {
             )
             .map_err(|error| fail(function, error.message))?,
             retirement: None,
-            lending: crate::async_lend::Plan::new(
-                body,
-                &planning.declarations.flows[&function.model.body_name],
-                &crate::linearcheck::LinearTypes::from_program(&planning.program),
-            )
-            .map_err(|error| fail(function, error.message))?,
+            lending,
+            leases,
             reference_cells: None,
         };
         emitter.finish = emitter.fresh("frame-finish");
@@ -168,7 +179,9 @@ impl<'a> Emitter<'a> {
             emitter.bindings.insert(BindingId(index), slot);
         }
         for (index, value) in function.graph.values.iter().enumerate() {
-            if matches!(value.ty, Type::Unit | Type::Never) {
+            if matches!(value.ty, Type::Unit | Type::Never)
+                || emitter.leases.get(ValueId(index)).is_some()
+            {
                 continue;
             }
             let slot = emitter.add_slot(format!("value.{index}"), value.ty.clone());
@@ -265,6 +278,20 @@ impl<'a> Emitter<'a> {
     }
 
     fn value(&self, value: ValueId, transfer: bool) -> String {
+        if let Some(lease) = self.leases.get(value) {
+            // The verifier permits only immediate leaf readers to consume
+            // this recipe. It must never become an owned reference value.
+            assert!(
+                !transfer,
+                "an in-place read lease cannot transfer ownership"
+            );
+            let slot = &self.slots[self.bindings[&lease.binding]];
+            return format!(
+                "(#deref (#pin-get-payload-mut {} {} 0))",
+                Self::slot_ref(slot, true),
+                slot.full
+            );
+        }
         self.values
             .get(&value)
             .map_or_else(|| "()".into(), |slot| self.read(*slot, transfer))
@@ -629,11 +656,11 @@ impl<'a> Emitter<'a> {
         Ok(format!("(#deref (#pin-borrow {place}))"))
     }
 
-    fn shared_handle_read(&mut self, descriptor: &PlaceDescriptor) -> Result<String, Error> {
+    fn handle_leaf_read(&mut self, descriptor: &PlaceDescriptor) -> Result<String, Error> {
         let function = self.function;
         let reject = |message: &str| fail(function, message);
         let AddressRoot::Value(value) = descriptor.root else {
-            return Err(reject("shared handle load has no evaluated root"));
+            return Err(reject("handle load has no evaluated root"));
         };
         let handle_ty = crate::typed_ir::resolve_type(
             &self.function.graph.values[value.0].ty,
@@ -641,41 +668,47 @@ impl<'a> Emitter<'a> {
         )
         .map_err(|message| fail(self.function, message))?;
         let (mut ty, pinned) = match &handle_ty {
-            Type::Reference {
-                mutable: false,
-                target,
-            } => (target.as_ref().clone(), false),
-            Type::PinnedReference {
-                mutable: false,
-                target,
-            } => (target.as_ref().clone(), true),
+            Type::Reference { mutable, target } if !mutable || self.leases.get(value).is_some() => {
+                (target.as_ref().clone(), false)
+            }
+            Type::PinnedReference { mutable, target }
+                if !mutable || self.leases.get(value).is_some() =>
+            {
+                (target.as_ref().clone(), true)
+            }
             _ => {
                 return Err(reject(
-                    "address loads require a checked shared reference handle",
+                    "address loads require a shared handle or a certified exclusive read window",
                 ))
             }
         };
         let Some((AddressProjection::Dereference, projections)) =
             descriptor.projections.split_first()
         else {
-            return Err(reject(
-                "shared handle load has no checked dereference boundary",
-            ));
+            return Err(reject("handle load has no checked dereference boundary"));
         };
         if !self.types.can_repeat(&descriptor.ty) {
             return Err(reject(
-                "shared handle loads require Copy leaves; exclusive handles need lending storage",
+                "handle loads require Copy leaves; linear leaves need lending storage",
             ));
         }
-        // Keep the evaluated handle, including its incoming loan provenance.
-        // Only immediate shared reborrows are made while following its path.
-        let name = self.fresh("shared-handle");
-        let mut steps = vec![format!(
-            "(#let {name} {} {})",
-            crate::type_source(&handle_ty),
-            self.value(value, false)
-        )];
-        let mut reference = name.clone();
+        // Preserve incoming loan provenance. Shared handles use immediate
+        // reborrows; exclusive read windows keep the owning cell in place.
+        let (mut steps, mut reference) = if self.leases.get(value).is_some() {
+            // Keep the exclusive handle in its owner. Naming a loaded
+            // #ref-mut would be an owned move, not this nonmoving read.
+            (Vec::new(), self.value(value, false))
+        } else {
+            let name = self.fresh("shared-handle");
+            (
+                vec![format!(
+                    "(#let {name} {} {})",
+                    crate::type_source(&handle_ty),
+                    self.value(value, false)
+                )],
+                name,
+            )
+        };
         for (index, projection) in projections.iter().enumerate() {
             let field = match projection {
                 AddressProjection::Field(field) => {
@@ -704,6 +737,16 @@ impl<'a> Emitter<'a> {
             };
             ty = crate::typed_ir::resolve_type(&ty, &self.planning.declarations.aliases)
                 .map_err(|message| fail(self.function, message))?;
+            if self.leases.get(value).is_some() {
+                // This is still one variable-rooted owning-cell recipe, not
+                // a moved intermediate aggregate or a stored derived ref.
+                // The checked Copy leaf getter reads through the handle.
+                reference = format!("(#get {reference} {field})");
+                if ty == Type::Unit && index + 1 != projections.len() {
+                    return Err(reject("cannot project through a unit field"));
+                }
+                continue;
+            }
             if ty != Type::Unit {
                 let projected = format!(
                     "(#{}borrow (#get {reference} {field}))",
@@ -738,6 +781,8 @@ impl<'a> Emitter<'a> {
             steps.join("\n"),
             if ty == Type::Unit {
                 "()".into()
+            } else if self.leases.get(value).is_some() && !projections.is_empty() {
+                reference
             } else {
                 format!("(#deref {reference})")
             },
@@ -768,44 +813,55 @@ impl<'a> Emitter<'a> {
         let top = vec![true; graph.bindings.len()];
         let mut before = vec![top.clone(); graph.blocks.len()];
         let mut after = before.clone();
-        let transfer = |action: &Action, full: &mut Vec<bool>| match action {
-            Action::Bind { binding, .. } => full[binding.0] = true,
-            Action::Preview(pattern) | Action::Commit(pattern) => {
-                for binding in &pattern.bindings {
-                    full[binding.0] = true;
+        let transfer = |located: &crate::async_exec::LocatedAction, full: &mut Vec<bool>| {
+            match &located.action {
+                Action::Bind { binding, .. } => full[binding.0] = true,
+                Action::Preview(pattern) | Action::Commit(pattern) => {
+                    for binding in &pattern.bindings {
+                        full[binding.0] = true;
+                    }
                 }
-            }
-            Action::ScopeEnter(bindings) | Action::ScopeExit(bindings) => {
-                for binding in bindings {
-                    full[binding.0] = false;
+                Action::ScopeEnter(bindings) | Action::ScopeExit(bindings) => {
+                    for binding in bindings {
+                        full[binding.0] = false;
+                    }
                 }
-            }
-            Action::EndPreview(pattern) => {
-                for binding in &pattern.bindings {
-                    full[binding.0] = false;
+                Action::EndPreview(pattern) => {
+                    for binding in &pattern.bindings {
+                        full[binding.0] = false;
+                    }
                 }
-            }
-            Action::Store { place, .. }
-            | Action::Release { place, .. }
-            | Action::Load { place, .. } => {
-                let descriptor = &graph.places[place.0];
-                if let AddressRoot::Local(binding) = descriptor.root {
-                    if descriptor.projections.is_empty() {
-                        match action {
-                            Action::Store { .. } => full[binding.0] = true,
-                            Action::Release { .. } => full[binding.0] = false,
-                            Action::Load {
-                                kind: LoadKind::Read,
-                                ..
-                            } if !self.types.can_repeat(&graph.bindings[binding.0].ty) => {
-                                full[binding.0] = false;
+                Action::Store { place, .. }
+                | Action::Release { place, .. }
+                | Action::Load { place, .. } => {
+                    let descriptor = &graph.places[place.0];
+                    if let AddressRoot::Local(binding) = descriptor.root {
+                        if descriptor.projections.is_empty() {
+                            match &located.action {
+                                Action::Store { .. } => full[binding.0] = true,
+                                Action::Release { .. } => full[binding.0] = false,
+                                Action::Load {
+                                    kind: LoadKind::Read,
+                                    ..
+                                } if !self.types.can_repeat(&graph.bindings[binding.0].ty) => {
+                                    let lending = located
+                                        .source
+                                        .and_then(|source| self.lending.as_ref()?.access(source));
+                                    // Lending keeps the owner Full. Nonmoving
+                                    // access still requires a certified window
+                                    // when the action is actually emitted.
+                                    if !matches!(lending, Some(crate::async_lend::Access::Lend(_)))
+                                    {
+                                        full[binding.0] = false;
+                                    }
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         };
         loop {
             let mut changed = false;
@@ -822,7 +878,7 @@ impl<'a> Emitter<'a> {
                 }
                 let mut outgoing = incoming.clone();
                 for located in &graph.blocks[block.0].actions {
-                    transfer(&located.action, &mut outgoing);
+                    transfer(located, &mut outgoing);
                 }
                 changed |= before[block.0] != incoming || after[block.0] != outgoing;
                 before[block.0] = incoming;
@@ -856,7 +912,7 @@ impl<'a> Emitter<'a> {
                         });
                     }
                 }
-                transfer(&located.action, &mut full);
+                transfer(located, &mut full);
             }
         }
         Ok(())
@@ -943,7 +999,7 @@ impl<'a> Emitter<'a> {
             Action::Load { dst, place, kind } => {
                 let descriptor = &graph.places[place.0];
                 if matches!(descriptor.root, AddressRoot::Value(_)) {
-                    let read = self.shared_handle_read(descriptor)?;
+                    let read = self.handle_leaf_read(descriptor)?;
                     let read = if *kind == LoadKind::Clone {
                         self.clone_read(&descriptor.ty, &read)
                     } else {
@@ -982,6 +1038,13 @@ impl<'a> Emitter<'a> {
                                     crate::typed_body::PlaceRoot::Local(binding),
                                 ) => {}
                         Some(crate::async_lend::Access::Lend(_)) => {
+                            if self
+                                .leases
+                                .get(*dst)
+                                .is_some_and(|lease| lease.binding == binding)
+                            {
+                                return Ok(String::new());
+                            }
                             return Err(error(
                                 "nonmoving exclusive handle reads require a checked lending lease",
                             ));
@@ -2036,13 +2099,14 @@ mod tests {
     }
 
     #[test]
-    fn exclusive_handle_reads_fail_closed_until_lending_is_emitted() {
+    fn exclusive_handle_calls_fail_closed_until_call_lending_is_emitted() {
         let planning = prepare_function(
             "(#fn work (: view (#ref-mut u64)) u64
               (#let before u64 (#deref view))
               (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
-              (#return (#u64.+.wrap before (#deref view))))",
-            "(#fn main () u64 (#return 0u64))",
+              (#return (#u64.+.wrap before (#call read-view (: view view)))))",
+            "(#fn read-view (: view (#ref-mut u64)) u64 (#return (#deref view)))
+              (#fn main () u64 (#return 0u64))",
         );
         let error = generate(&planning).err().unwrap();
         assert!(
@@ -2052,6 +2116,142 @@ mod tests {
         );
         let source = &planning.program.source_files[error.span.source_id as usize].source;
         assert_eq!(&source[error.span.start..error.span.end], "view");
+    }
+
+    #[test]
+    fn exclusive_in_place_reads_do_not_move_handles_across_pending() {
+        for (ty, borrow) in [
+            ("#ref-mut", "#borrow-mut"),
+            ("#pin-ref-mut", "#pin-borrow-mut"),
+        ] {
+            let function = format!(
+                "(#fn work (: view ({ty} u64)) u64
+                  (#let before u64 (#deref view))
+                  (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                  (#return (#u64.+.wrap (#u64.+.wrap before (#deref view)) child)))"
+            );
+            let main = format!(
+                "(#fn main () u64
+                  (#let waker u64 0u64) (#let-mut value u64 20u64)
+                  (#let task Frame (#call work (: view ({borrow} value))))
+                  (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+                  (#let-else (Pending next) Poll first (#unreachable))
+                  (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                    (#case (Ready answer) answer)
+                    (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                  (#set value 99u64) (#return answer))"
+            );
+            runtime_planned(prepare_function(&function, &main), 42);
+            let bad = main.replace(
+                "(#let-else (Pending next)",
+                "(#set value 99u64) (#let-else (Pending next)",
+            );
+            let planning = prepare_function(&function, &bad);
+            let generated = generate(&planning).unwrap();
+            let proposed = program(&planning, &generated).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&proposed)
+                .err()
+                .unwrap();
+            assert_eq!(error.1, DiagnosticCode::Borrow);
+            let span = error.2.unwrap();
+            let source = &proposed.source_files[span.source_id as usize].source;
+            assert_eq!(&source[span.start..span.end], "#set");
+        }
+    }
+
+    #[test]
+    fn exclusive_field_reads_follow_checked_owners_through_loop_suspension() {
+        for (ty, borrow) in [
+            ("#ref-mut", "#borrow-mut"),
+            ("#pin-ref-mut", "#pin-borrow-mut"),
+        ] {
+            let function = format!(
+                "(#fn work (: view ({ty} Holder)) u64
+                  (#let-mut total u64 0u64)
+                  (#for (#let-mut count u64 0u64) (#u64.< count 2u64) (#set count (#u64.+.wrap count 1u64))
+                    (#set total (#u64.+.wrap total (#get view amount)))
+                    (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 1u64)))
+                    (#set total (#u64.+.wrap total child)))
+                  (#return total))"
+            );
+            let main = format!(
+                "(#struct Holder (: amount u64)) (#linear Holder)
+                  (#fn main () u64
+                    (#let waker u64 0u64)
+                    (#let-mut owner Holder (#struct-literal Holder (: amount 20u64)))
+                    (#let-mut task Frame (#call work (: view ({borrow} owner))))
+                    (#loop
+                      (#match (#call poll (: task task : waker (#borrow waker)))
+                        (#case (Pending next) (#block (#set task next) ()))
+                        (#case (Ready answer) (#block (#forget owner) (#return answer) (#unreachable)))))
+                    (#return (#unreachable)))"
+            );
+            runtime_planned(prepare_function(&function, &main), 42);
+        }
+    }
+
+    #[test]
+    fn exclusive_nested_and_tuple_reads_do_not_move_borrowed_aggregates() {
+        for (ty, borrow) in [
+            ("#ref-mut", "#borrow-mut"),
+            ("#pin-ref-mut", "#pin-borrow-mut"),
+        ] {
+            for (declarations, target, construct, projection) in [
+                (
+                    "(#struct Inner (: amount u64)) (#linear Inner)
+                   (#struct Holder (: inner Inner)) (#linear Holder)",
+                    "Holder",
+                    "(#struct-literal Holder (: inner (#struct-literal Inner (: amount 40u64))))",
+                    "(#get (#get view inner) amount)",
+                ),
+                (
+                    "",
+                    "(#tuple u64 u64)",
+                    "(#tuple (#tuple u64 u64) 100u64 40u64)",
+                    "(#get view 1)",
+                ),
+            ] {
+                let function = format!(
+                    "(#fn work (: view ({ty} {target})) u64
+                      (#let before u64 {projection})
+                      (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                      (#return (#u64.+.wrap before child)))"
+                );
+                let main = format!(
+                    "{declarations}
+                      (#fn main () u64
+                        (#let waker u64 0u64) (#let-mut owner {target} {construct})
+                        (#let first Poll (#call poll (: task (#call work (: view ({borrow} owner))) : waker (#borrow waker))))
+                        (#let-else (Pending next) Poll first (#unreachable))
+                        (#let answer u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                          (#case (Ready answer) answer)
+                          (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                        (#forget owner) (#return answer))"
+                );
+                runtime_planned(prepare_function(&function, &main), 42);
+            }
+        }
+    }
+
+    #[test]
+    fn in_place_lending_keeps_original_consumption_errors_at_the_source_use() {
+        let planning = prepare_function(
+            "(#fn work (: view (#ref-mut u64)) u64
+              (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#drop view) (#return (#deref view)))",
+            "(#fn main () u64 (#return 0u64))",
+        );
+        let generated = generate(&planning).unwrap();
+        let proposed = program(&planning, &generated).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&proposed)
+            .err()
+            .unwrap();
+        let span = error.2.unwrap();
+        let source = &proposed.source_files[span.source_id as usize].source;
+        // The ordinary checker reports the original dereference, not a
+        // generated slot extraction or a whole synthesized poll function.
+        assert_eq!(&source[span.start..span.end], "(#deref view)");
+        assert!((span.source_id as usize) < planning.program.source_files.len());
     }
 
     #[test]
