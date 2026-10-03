@@ -353,7 +353,11 @@ impl<'a> Emitter<'a> {
         ))
     }
 
-    fn owned_projection_read(&self, descriptor: &PlaceDescriptor) -> Result<String, Error> {
+    fn owned_projection_place(
+        &self,
+        descriptor: &PlaceDescriptor,
+        mutable: bool,
+    ) -> Result<(String, Type), Error> {
         let reject = |message: &str| fail(self.function, message);
         let AddressRoot::Local(binding) = descriptor.root else {
             return Err(reject("projected loads need a checked owned local root"));
@@ -367,8 +371,9 @@ impl<'a> Emitter<'a> {
         // This reference exists only during the immediate leaf read. It is
         // neither a captured address nor an independently copied owner.
         let mut place = format!(
-            "(#pin-get-payload {} {} 0)",
-            Self::slot_ref(slot, false),
+            "(#pin-get-payload{} {} {} 0)",
+            if mutable { "-mut" } else { "" },
+            Self::slot_ref(slot, mutable),
             slot.full
         );
         for projection in &descriptor.projections {
@@ -407,17 +412,140 @@ impl<'a> Emitter<'a> {
         if ty != descriptor.ty {
             return Err(reject("projected leaf disagrees with its checked type"));
         }
-        if ty == Type::Unit {
-            // Unit projections have no bytes and cannot be borrowed. The
-            // owned field/tuple path above is still structurally validated.
-            return Ok("()".into());
-        }
         if !self.types.can_repeat(&ty) || self.types.contains_reference(&ty) {
             return Err(reject(
                 "projected moves or reference holders need checked lending and restoration storage",
             ));
         }
+        Ok((place, ty))
+    }
+
+    fn owned_projection_read(&self, descriptor: &PlaceDescriptor) -> Result<String, Error> {
+        let (place, ty) = self.owned_projection_place(descriptor, false)?;
+        if ty == Type::Unit {
+            // Unit projections have no bytes and cannot be borrowed. The
+            // owned field/tuple path above is still structurally validated.
+            return Ok("()".into());
+        }
         Ok(format!("(#deref (#pin-borrow {place}))"))
+    }
+
+    /// Verify the representation, not source ownership: a partial write can
+    /// restore a source leaf, but cannot construct a Full owning cell from
+    /// Empty. Source borrowing/linearity must still pass ordinary validation.
+    fn check_owned_cells(&self) -> Result<(), Error> {
+        let graph = &self.function.graph;
+        if !graph.places.iter().any(|descriptor| {
+            matches!(descriptor.root, AddressRoot::Local(_)) && !descriptor.projections.is_empty()
+        }) {
+            return Ok(());
+        }
+        let mut live = graph.reachable().into_iter().collect::<Vec<_>>();
+        live.sort_by_key(|block| block.0);
+        let mut predecessors = vec![Vec::new(); graph.blocks.len()];
+        for &block in &live {
+            for next in graph.successors(block) {
+                predecessors[next.0].push(block);
+            }
+        }
+        let initial = (0..graph.bindings.len())
+            .map(|index| index < graph.parameter_count)
+            .collect::<Vec<_>>();
+        let top = vec![true; graph.bindings.len()];
+        let mut before = vec![top.clone(); graph.blocks.len()];
+        let mut after = before.clone();
+        let transfer = |action: &Action, full: &mut Vec<bool>| match action {
+            Action::Bind { binding, .. } => full[binding.0] = true,
+            Action::Preview(pattern) | Action::Commit(pattern) => {
+                for binding in &pattern.bindings {
+                    full[binding.0] = true;
+                }
+            }
+            Action::ScopeEnter(bindings) | Action::ScopeExit(bindings) => {
+                for binding in bindings {
+                    full[binding.0] = false;
+                }
+            }
+            Action::EndPreview(pattern) => {
+                for binding in &pattern.bindings {
+                    full[binding.0] = false;
+                }
+            }
+            Action::Store { place, .. }
+            | Action::Release { place, .. }
+            | Action::Load { place, .. } => {
+                let descriptor = &graph.places[place.0];
+                if let AddressRoot::Local(binding) = descriptor.root {
+                    if descriptor.projections.is_empty() {
+                        match action {
+                            Action::Store { .. } => full[binding.0] = true,
+                            Action::Release { .. } => full[binding.0] = false,
+                            Action::Load {
+                                kind: LoadKind::Read,
+                                ..
+                            } if !self.types.can_repeat(&graph.bindings[binding.0].ty) => {
+                                full[binding.0] = false;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            _ => {}
+        };
+        loop {
+            let mut changed = false;
+            for &block in &live {
+                let mut incoming = if block == graph.entry {
+                    initial.clone()
+                } else {
+                    top.clone()
+                };
+                for previous in &predecessors[block.0] {
+                    for (full, available) in incoming.iter_mut().zip(&after[previous.0]) {
+                        *full &= available;
+                    }
+                }
+                let mut outgoing = incoming.clone();
+                for located in &graph.blocks[block.0].actions {
+                    transfer(&located.action, &mut outgoing);
+                }
+                changed |= before[block.0] != incoming || after[block.0] != outgoing;
+                before[block.0] = incoming;
+                after[block.0] = outgoing;
+            }
+            if !changed {
+                break;
+            }
+        }
+        for block in live {
+            let mut full = before[block.0].clone();
+            for located in &graph.blocks[block.0].actions {
+                let descriptor = match &located.action {
+                    Action::Place { descriptor, .. } => Some(descriptor),
+                    Action::Load { place, .. }
+                    | Action::Store { place, .. }
+                    | Action::Release { place, .. }
+                    | Action::Borrow { place, .. } => Some(&graph.places[place.0]),
+                    _ => None,
+                };
+                if let Some(PlaceDescriptor {
+                    root: AddressRoot::Local(binding),
+                    projections,
+                    ..
+                }) = descriptor
+                {
+                    if !projections.is_empty() && !full[binding.0] {
+                        return Err(Error {
+                            message: "projected access requires a definitely Full owning cell; partial reconstruction needs leaf-aware storage".into(),
+                            span: located.span.unwrap_or(self.function.source.function.span),
+                        });
+                    }
+                }
+                transfer(&located.action, &mut full);
+            }
+        }
+        Ok(())
     }
 
     fn clone_read(&mut self, ty: &Type, read: &str) -> String {
@@ -534,9 +662,15 @@ impl<'a> Emitter<'a> {
                     ));
                 };
                 if !descriptor.projections.is_empty() {
-                    return Err(error(
-                        "projected stores need their checked address representation",
-                    ));
+                    let (target, ty) = self.owned_projection_place(descriptor, true)?;
+                    let value = self.value(*value, true);
+                    return Ok(if ty == Type::Unit {
+                        value
+                    } else {
+                        // Only Copy, reference-free leaves reach this point.
+                        // No owner or borrowed handle is moved or captured.
+                        format!("(#unsafe (#pin-write (#pin-borrow-mut {target}) {value}))")
+                    });
                 }
                 Ok(self.bindings.get(&binding).map_or_else(
                     || self.value(*value, true),
@@ -769,6 +903,7 @@ impl<'a> Emitter<'a> {
                 "graph cancellation requires state-specific checked cleanup contracts",
             ));
         }
+        self.check_owned_cells()?;
         let graph: &Graph = &self.function.graph;
         let mut cases = Vec::new();
         let mut live = graph.reachable().into_iter().collect::<Vec<_>>();
@@ -1285,6 +1420,111 @@ mod tests {
           (#assert (#u64.== (#get owner value) seed))
           (#forget owner) (#return result)",
             &main,
+            42,
+        );
+    }
+
+    #[test]
+    fn copy_fields_are_updated_after_rhs_awaits_without_moving_the_owner() {
+        let main =
+            format!("(#struct Owner ((padding u64) (empty ()) (value u64))) (#linear Owner) {RUN}");
+        let generated = runtime(
+            "(#let-mut owner Owner (#struct-literal Owner (: padding 77u64 : empty () : value 0u64)))
+          (#set-field owner value (#await Child ChildPending ChildReady child-poll (Start seed)))
+          (#assert (#u64.== (#get owner padding) 77u64))
+          (#let-mut pair (#tuple u64 u64) (#tuple (#tuple u64 u64) (#get owner value) 0u64))
+          (#set-field pair 1 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#set-field owner empty (#block (#assert true) ()))
+          (#let result u64 (#u64.+.wrap (#get pair 0) (#get pair 1)))
+          (#forget owner) (#return result)",
+            &main,
+            42,
+        );
+        assert!(generated[0].source.contains("#pin-borrow-mut"));
+    }
+
+    #[test]
+    fn projected_write_rhs_is_evaluated_once_before_pending_retries() {
+        let main = "(#struct Owner ((padding u64) (value u64))) (#linear Owner)
+          (#fn counted ((count (#ptr-mut u64))) Child
+            (#unsafe (#ptr-write count (#u64.+.wrap (#ptr-read count) 1u64)))
+            (#return (Start 2u64)))
+          (#fn main () u64
+            (#let waker u64 0u64) (#let-mut count u64 0u64)
+            (#let pointer (#ptr-mut u64) (#unsafe (#asm (#ptr-mut u64)
+              ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
+            (#let task Frame (#call work (: seed 40u64 : count pointer)))
+            (#assert (#u64.== count 0u64))
+            (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+            (#let-else (Pending next) Poll first (#unreachable))
+            (#assert (#u64.== count 1u64))
+            (#return (#match (#call poll (: task next : waker (#borrow waker)))
+              (#case (Ready value) (#block (#assert (#u64.== count 1u64)) value))
+              (#case (Pending bad) (#block (#forget bad) (#unreachable))))))";
+        let planning = prepare_function(
+            "(#fn work ((seed u64) (count (#ptr-mut u64))) u64
+            (#let-mut owner Owner (#struct-literal Owner (: padding 77u64 : value seed)))
+            (#set-field owner value (#u64.+.wrap (#get owner value)
+              (#await Child ChildPending ChildReady child-poll (#call counted (: count count)))))
+            (#assert (#u64.== (#get owner padding) 77u64))
+            (#let result u64 (#get owner value)) (#forget owner) (#return result))",
+            main,
+        );
+        runtime_planned(planning, 42);
+    }
+
+    #[test]
+    fn projected_access_does_not_reconstruct_an_empty_owner_cell() {
+        // Representation verification must fail even before the proposed
+        // ordinary program is checked. It is not a source ownership exemption.
+        for body in [
+            "(#forget owner) (#set-field owner value 42u64)",
+            "(#if (#u64.== seed 0u64) (#forget owner) ())
+              (#set-field owner value 42u64)",
+            "(#while (#u64.== seed 0u64) (#forget owner))
+              (#set-field owner value 42u64)",
+            "(#set-field owner value (#block (#forget owner)
+              (#await Child ChildPending ChildReady child-poll (Start 42u64))))",
+        ] {
+            let planning = prepare(
+                &format!(
+                    "(#let-mut owner Owner (#struct-literal Owner (: value seed)))
+                    {body} (#forget owner) (#return 42u64)"
+                ),
+                &format!("(#struct Owner ((value u64))) (#linear Owner) {RUN}"),
+            );
+            let error = generate(&planning).err().expect("owner cell may be Empty");
+            assert!(
+                error.message.contains("definitely Full"),
+                "{}",
+                error.message
+            );
+        }
+
+        // A genuine whole-cell reconstruction remains supported.
+        runtime(
+            "(#let-mut owner Owner (#struct-literal Owner (: value 0u64)))
+          (#forget owner)
+          (#set owner (#struct-literal Owner (: value seed)))
+          (#set-field owner value (#u64.+.wrap (#get owner value)
+            (#await Child ChildPending ChildReady child-poll (Start 2u64))))
+          (#let result u64 (#get owner value)) (#forget owner) (#return result)",
+            &format!("(#struct Owner ((value u64))) (#linear Owner) {RUN}"),
+            42,
+        );
+    }
+
+    #[test]
+    fn projected_copy_writes_preserve_full_cells_around_loop_backedges() {
+        runtime(
+            "(#let-mut owner Owner (#struct-literal Owner (: padding 77u64 : value seed)))
+          (#for (#let-mut index u64 0u64) (#u64.< index 2u64)
+            (#set index (#u64.+.wrap index 1u64))
+            (#set-field owner value (#u64.+.wrap (#get owner value)
+              (#await Child ChildPending ChildReady child-poll (Start 1u64)))))
+          (#assert (#u64.== (#get owner padding) 77u64))
+          (#let result u64 (#get owner value)) (#forget owner) (#return result)",
+            &format!("(#struct Owner ((padding u64) (value u64))) (#linear Owner) {RUN}"),
             42,
         );
     }
