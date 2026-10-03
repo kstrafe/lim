@@ -9,8 +9,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::async_exec::{
-    Action, AddressRoot, Argument, BlockId, Compute, Edge, Graph, LoadKind, ReleaseKind,
-    Terminator, ValueId,
+    Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Edge, Graph, LoadKind,
+    PlaceDescriptor, ReleaseKind, Terminator, ValueId,
 };
 use crate::async_prepare::{Function, Planning};
 use crate::source_error::SourceError;
@@ -353,6 +353,84 @@ impl<'a> Emitter<'a> {
         ))
     }
 
+    fn owned_projection_read(&self, descriptor: &PlaceDescriptor) -> Result<String, Error> {
+        let reject = |message: &str| fail(self.function, message);
+        let AddressRoot::Local(binding) = descriptor.root else {
+            return Err(reject("projected loads need a checked owned local root"));
+        };
+        let slot = &self.slots[*self
+            .bindings
+            .get(&binding)
+            .ok_or_else(|| reject("projected owner has no owning cell"))?];
+        let mut ty = crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases)
+            .map_err(|message| fail(self.function, message))?;
+        // This reference exists only during the immediate leaf read. It is
+        // neither a captured address nor an independently copied owner.
+        let mut place = format!(
+            "(#pin-get-payload {} {} 0)",
+            Self::slot_ref(slot, false),
+            slot.full
+        );
+        for projection in &descriptor.projections {
+            match projection {
+                AddressProjection::Field(field) => {
+                    let declaration = self.planning.declarations.field(*field);
+                    if self.planning.declarations.field_id(&ty, &declaration.name) != Some(*field)
+                        || !matches!(ty, Type::Named(_))
+                    {
+                        return Err(reject("projected field lost its checked owned identity"));
+                    }
+                    place = format!("(#get {place} {})", declaration.name);
+                    ty = crate::typed_ir::resolve_type(
+                        &declaration.ty,
+                        &self.planning.declarations.aliases,
+                    )
+                    .map_err(|message| fail(self.function, message))?;
+                }
+                AddressProjection::Tuple(index) => {
+                    let Type::Tuple(fields) = ty else {
+                        return Err(reject("projected tuple lost its checked owned type"));
+                    };
+                    ty = fields
+                        .get(*index)
+                        .cloned()
+                        .ok_or_else(|| reject("projected tuple index is out of bounds"))?;
+                    place = format!("(#get {place} {index})");
+                }
+                _ => {
+                    return Err(reject(
+                        "projected loads with handles or effectful checks need address snapshots",
+                    ))
+                }
+            }
+        }
+        if ty != descriptor.ty {
+            return Err(reject("projected leaf disagrees with its checked type"));
+        }
+        if ty == Type::Unit {
+            // Unit projections have no bytes and cannot be borrowed. The
+            // owned field/tuple path above is still structurally validated.
+            return Ok("()".into());
+        }
+        if !self.types.can_repeat(&ty) || self.types.contains_reference(&ty) {
+            return Err(reject(
+                "projected moves or reference holders need checked lending and restoration storage",
+            ));
+        }
+        Ok(format!("(#deref (#pin-borrow {place}))"))
+    }
+
+    fn clone_read(&mut self, ty: &Type, read: &str) -> String {
+        // Stage the value once before ordinary clone dispatch. This also
+        // gives aggregate hooks a real checked argument binding, rather than
+        // requiring native staging to reconstruct nested borrowed projections.
+        let temporary = self.fresh("clone-source");
+        format!(
+            "(#block (#let {temporary} {} {read}) (#clone {temporary}))",
+            crate::type_source(ty)
+        )
+    }
+
     fn action(&mut self, located: &crate::async_exec::LocatedAction) -> Result<String, Error> {
         let graph = &self.function.graph;
         let error = |message: &str| Error {
@@ -396,7 +474,12 @@ impl<'a> Emitter<'a> {
             }
             Action::Place { descriptor, .. } => {
                 if !matches!(descriptor.root, AddressRoot::Local(_))
-                    || !descriptor.projections.is_empty()
+                    || !descriptor.projections.iter().all(|projection| {
+                        matches!(
+                            projection,
+                            AddressProjection::Field(_) | AddressProjection::Tuple(_)
+                        )
+                    })
                     || !descriptor.checks().is_empty()
                 {
                     return Err(error(
@@ -413,16 +496,26 @@ impl<'a> Emitter<'a> {
                     ));
                 };
                 if !descriptor.projections.is_empty() {
-                    return Err(error(
-                        "projected loads need their checked address representation",
-                    ));
+                    let read = self.owned_projection_read(descriptor)?;
+                    let read = if *kind == LoadKind::Clone {
+                        self.clone_read(&descriptor.ty, &read)
+                    } else {
+                        read
+                    };
+                    return Ok(self.put_value(*dst, &read));
                 }
                 let Some(slot) = self.bindings.get(&binding) else {
                     return Ok(self.put_value(*dst, "()"));
                 };
                 let read = match kind {
                     LoadKind::Read => self.read(*slot, false),
-                    LoadKind::Clone if self.slots[*slot].copy => self.read(*slot, false),
+                    LoadKind::Clone if self.slots[*slot].copy => {
+                        // Copy types may still supply an observable clone
+                        // hook. Preserve the ordinary #clone dispatch.
+                        let read = self.read(*slot, false);
+                        let ty = self.slots[*slot].ty.clone();
+                        self.clone_read(&ty, &read)
+                    }
                     LoadKind::Clone => return Err(error(
                         "linear clone must call its checked clone hook through a borrowed place",
                     )),
@@ -1160,7 +1253,86 @@ mod tests {
     }
 
     #[test]
+    fn copy_fields_are_read_in_place_and_staged_before_later_awaits() {
+        let main = format!(
+            "(#type Pair (#tuple u64 u64))
+          (#struct Inner ((padding u64) (empty ()) (pair Pair))) (#linear Inner)
+          (#struct Owner ((padding u64) (inner Inner))) (#linear Owner)
+          {RUN}"
+        );
+        runtime(
+            "(#let owner Owner (#struct-literal Owner
+              (: padding 99u64 : inner (#struct-literal Inner
+                (: padding 88u64 : empty () : pair (#tuple Pair seed 1u64))))))
+          (#let empty () (#get (#get owner inner) empty))
+          (#let first u64 (#get (#get (#get owner inner) pair) 0))
+          (#let second u64 (#get (#get (#get owner inner) pair) 1))
+          (#forget owner)
+          (#return (#u64.+.wrap first
+            (#await Child ChildPending ChildReady child-poll (Start (#u64.+.wrap second 1u64)))))",
+            &main,
+            42,
+        );
+    }
+
+    #[test]
+    fn copy_projected_operands_survive_pending_without_moving_the_owner() {
+        let main = format!("(#struct Owner ((value u64))) (#linear Owner) {RUN}");
+        runtime(
+            "(#let owner Owner (#struct-literal Owner (: value seed)))
+          (#let result u64 (#u64.+.wrap (#get owner value)
+            (#await Child ChildPending ChildReady child-poll (Start 2u64))))
+          (#assert (#u64.== (#get owner value) seed))
+          (#forget owner) (#return result)",
+            &main,
+            42,
+        );
+    }
+
+    #[test]
+    fn copy_clone_hooks_run_once_for_projected_and_plain_loads() {
+        let main = "(#struct Value ((number u64) (count (#ptr-mut u64))))
+          (#fn Value-clone ((value Value)) Value
+            (#unsafe (#ptr-write (#get value count)
+              (#u64.+.wrap (#ptr-read (#get value count)) 1u64)))
+            (#return value))
+          (#fn main () u64
+            (#let waker u64 0u64)
+            (#let-mut count u64 0u64)
+            (#let pointer (#ptr-mut u64) (#unsafe (#asm (#ptr-mut u64)
+              ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
+            (#let task Frame (#call work (: seed 40u64 : count pointer)))
+            (#assert (#u64.== count 0u64))
+            (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+            (#let-else (Pending next) Poll first (#unreachable))
+            (#assert (#u64.== count 2u64))
+            (#return (#match (#call poll (: task next : waker (#borrow waker)))
+              (#case (Ready value) (#block
+                (#assert (#u64.== count 2u64)) value))
+              (#case (Pending bad) (#block (#forget bad) (#unreachable))))))";
+        let planning = prepare_function(
+            "(#fn work ((seed u64) (count (#ptr-mut u64))) u64
+            (#let owner (#tuple Value u64) (#tuple (#tuple Value u64)
+              (#struct-literal Value (: number seed : count count)) 0u64))
+            (#let projected Value (#clone (#get owner 0)))
+            (#let plain Value (#clone projected))
+            (#return (#u64.+.wrap (#get plain number)
+              (#await Child ChildPending ChildReady child-poll (Start 2u64)))))",
+            main,
+        );
+        runtime_planned(planning, 42);
+    }
+
+    #[test]
     fn unsupported_storage_modes_fail_before_proposing_unsafe_code() {
+        let planning = prepare(
+            "(#let items (#array u64 1) (#array-of (#array u64 1) seed))
+          (#return (#index items (#as
+            (#await Child ChildPending ChildReady child-poll (Start 0u64)) usize)))",
+            RUN,
+        );
+        let error = generate(&planning).err().unwrap();
+        assert!(error.message.contains("immediate place checks"));
         let planning = prepare(
             "
           (#let owner (#tuple u64 u64) (#tuple (#tuple u64 u64) seed 2u64))
