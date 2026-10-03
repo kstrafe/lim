@@ -1411,6 +1411,41 @@ mod tests {
     }
 
     #[test]
+    fn suspended_array_constructors_use_array_of_not_array_type_syntax() {
+        let main = format!(
+            "(#type Pair (#array u64 2))
+          (#fn sum ((items Pair)) u64
+            (#return (#u64.+.wrap (#index items 0usize) (#index items 1usize))))
+          {RUN}"
+        );
+        let generated = runtime(
+            "(#let items Pair (#array-of Pair seed
+              (#await Child ChildPending ChildReady child-poll (Start 2u64))))
+          (#return (#call sum (: items items)))",
+            &main,
+            42,
+        );
+        fn constructor_heads(expression: &Expr, heads: &mut Vec<String>) {
+            if let Expr::List(items) = expression {
+                if let [Expr::Symbol(head), Expr::List(ty), ..] = items.as_slice() {
+                    if matches!(ty.first(), Some(Expr::Symbol(name)) if name == "#array") {
+                        heads.push(head.clone());
+                    }
+                }
+                for child in items {
+                    constructor_heads(child, heads);
+                }
+            }
+        }
+        let mut heads = Vec::new();
+        for expression in crate::parse(&generated[0].source).unwrap() {
+            constructor_heads(&expression.expr, &mut heads);
+        }
+        assert!(heads.iter().any(|head| head == "#array-of"));
+        assert!(!heads.iter().any(|head| head == "#array"));
+    }
+
+    #[test]
     fn copy_projected_operands_survive_pending_without_moving_the_owner() {
         let main = format!("(#struct Owner ((value u64))) (#linear Owner) {RUN}");
         runtime(

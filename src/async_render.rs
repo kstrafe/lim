@@ -398,6 +398,10 @@ impl<'a> RenderContext<'a> {
                     ))
                 } else if operation.head.starts_with('#') {
                     symbol(&operation.head)
+                } else if operation.head == "array" {
+                    // Runtime creation and type/pattern metadata have distinct
+                    // canonical spellings even though lowering shares a stem.
+                    symbol("#array-of")
                 } else {
                     symbol(format!("#{}", operation.head))
                 }
@@ -925,7 +929,7 @@ mod tests {
     fn aggregate_constructor_aliases_render_the_checked_concrete_type() {
         for (ty, constructor, head, canonical) in [
             ("(#tuple u64 u64)", "#tuple", "tuple", "#tuple"),
-            ("(#array u64 2)", "#array-of", "array", "#array"),
+            ("(#array u64 2)", "#array-of", "array", "#array-of"),
         ] {
             let source = format!(
                 "(#type Pair {ty})
