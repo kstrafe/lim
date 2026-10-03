@@ -1,11 +1,13 @@
 (#import "../library/linux_x86_64.lim")
 (#import "../library/pin_box.lim")
+(#import "../library/pin.lim")
 
 (#struct Arena ((identity u64) (fail bool)))
 (#enum ArenaError (OutOfMemory))
 (@result (: ok (#ptr-mut u64) : error ArenaError : name ArenaAllocResult))
+(@pin (: type u64 : name PinnedU64 : copy true))
 (@pin-box
-  (u64 Arena PinU64Box PinU64CreateResult ArenaError ArenaAllocResult)
+  (u64 Arena PinU64Box PinU64CreateResult ArenaError ArenaAllocResult PinnedU64)
   (PinU64Created PinU64AllocationFailed pin-u64-create pin-u64-borrow
     pin-u64-borrow-mut pin-u64-destroy ArenaAllocResult-ok-value
     ArenaAllocResult-err-value arena-allocate arena-deallocate destroy-u64))
@@ -31,7 +33,8 @@
   (#assert (#i64.== status 0i64))
   (#return ()))
 
-(#fn destroy-u64 ((allocator (#ref Arena)) (value (#pin-ref-mut u64))) ()
+(#fn destroy-u64 (: allocator (#ref Arena) : pin PinnedU64) ()
+  (#forget pin)
   (#return ()))
 
 (#fn forward-owner (: owner PinU64Box) PinU64Box
@@ -59,10 +62,10 @@
     (#match created
       (#case (PinU64Created owner)
         (#block
-          (#let value-reference (#pin-ref u64)
+          (#let value-reference PinnedU64-shared
             (#call pin-u64-borrow (: owner (#borrow owner))))
           (#let moved-owner PinU64Box (#call forward-owner (: owner owner)))
-          (#let value u64 (#deref value-reference))
+          (#let value u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))
           (#drop value-reference)
           (#call pin-u64-destroy (: owner moved-owner))
           (#if failure-was-preserved

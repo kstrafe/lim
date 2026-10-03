@@ -967,8 +967,7 @@ pub(crate) fn source_value_expression(expression: &SpannedExpr) -> &SpannedExpr 
         return expression;
     };
     let value_index = match head.as_str() {
-        "#let" | "#let-mut" | "#let-pin" | "let" | "let-mut" | "let-pin" | "#let-else"
-        | "let-else" => Some(3),
+        "#let" | "#let-mut" | "let" | "let-mut" | "#let-else" | "let-else" => Some(3),
         "#return" | "return" | "#break" | "break" | "#break-to" => Some(1),
         "#set" | "set" => Some(2),
         "#set-field" | "set-field" | "#set-index" | "set-index" => Some(3),
@@ -3660,7 +3659,7 @@ fn source_value_symbol_span(expression: &SpannedExpr, name: &str) -> Option<Span
     };
     match head {
         Some("#quote" | "#quasiquote" | "#literal") => None,
-        Some("#let" | "#let-mut" | "#let-pin") => visit(3),
+        Some("#let" | "#let-mut") => visit(3),
         Some("#let-else") => visit(4).or_else(|| visit(3)),
         Some("#fn" | "#unsafe-fn") => children
             .iter()
@@ -5026,8 +5025,6 @@ fn is_builtin_form(name: &str) -> bool {
             | "borrow-mut"
             | "pin-borrow"
             | "pin-borrow-mut"
-            | "let-pin"
-            | "pin-end"
             | "pin-own"
             | "pin-own-of"
             | "pin-own-borrow"
@@ -5080,6 +5077,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "gn-list?"
             | "gn-list"
             | "gn-symbol"
+            | "gn-symbol-append"
+            | "gn-get"
             | "gn-first"
             | "gn-rest"
             | "gn-for-each"
@@ -8479,21 +8478,6 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
     }
     let lowered = lower_expr(expression)?;
     let expression = &lowered;
-    if is_form(expression, "let-pin") {
-        let items = expect_list(expression, "stationary binding")?;
-        if items.len() != 4 {
-            return Err("let-pin requires (#let-pin name Type value)".into());
-        }
-        return Ok(Statement::Let {
-            name: expect_symbol(items.get(1), "stationary binding name")?.to_owned(),
-            ty: parse_type(items.get(2))?,
-            value: Expr::List(vec![
-                Expr::Symbol("@pin-init".into()),
-                lower_expr(&items[3])?,
-            ]),
-            mutable: true,
-        });
-    }
     if is_form(expression, "let") || is_form(expression, "let-mut") {
         let items = expect_list(expression, "let statement")?;
         let mutable = is_form(expression, "let-mut");

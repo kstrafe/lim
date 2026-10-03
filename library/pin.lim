@@ -1,0 +1,127 @@
+;; Opaque, concrete pin handles. Only the trusted generated implementation
+;; sees the underlying pinned references. Unsafe constructors require storage
+;; that remains valid and stationary until its in-place cleanup completes.
+;;
+;; (@pin (: type Frame : name PinnedFrame : fields (: value u64)))
+;; creates PinnedFrame and PinnedFrame-shared. Optional `copy true` also emits
+;; whole-value read/write functions, with a compiler-checked Copy proof.
+;; `projections (: child PinnedChild)` exposes a nonmoving field through
+;; another already-generated opaque pin API, including linear fields.
+;;
+;; (@pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
+;;   : run drive-frame : destroy destroy-frame : result u64))
+;; generates a normal function taking `value Frame`. Its private stack storage
+;; is never exposed directly. run consumes `pin PinnedFrame` and returns the
+;; chosen result; destroy consumes another pin handle and returns unit.
+
+(#gn-fn pin-name (name suffix) (#gn-symbol-append name suffix))
+(#gn-fn pin-second (values) (#gn-first (#gn-rest values)))
+(#gn-fn pin-option-check (option keys)
+  (#gn-if (#gn-equal (#gn-length option) 2)
+    (#gn-if (#gn-equal
+      (#gn-for-each key keys (#gn-if (#gn-equal (#gn-first option) key) true false))
+      (#gn-for-each key keys false))
+      (#gn-error "pin API has an unknown named argument") ())
+    (#gn-error "pin API arguments must be (key value) pairs")))
+
+;; Field names and their concrete types are literal syntax; ordinary checking
+;; proves reads are nonmoving and writes obey the pinned-field restrictions.
+(#gn-fn pin-field-read (name field function)
+  `(#fn ,function (: pin (#ref ,name)) ,(#gn-call pin-second field)
+    (#return (#get (#get pin view) ,(#gn-first field)))))
+(#gn-fn pin-field-write (name field function)
+  `(#fn ,function (: pin (#ref-mut ,name) : value ,(#gn-call pin-second field)) ()
+    (#pin-set-field (#get pin view) ,(#gn-first field) value)
+    (#return ())))
+
+(#gn-fn pin-project (element name field function mutable shared)
+  (#gn-if (#gn-equal mutable true)
+    `(#fn ,function (: pin ,name) ,(#gn-call pin-second field)
+      (#let view (#pin-ref-mut ,element)
+        (#unsafe (#call ,(#gn-call pin-name name "-into-view") (: pin pin))))
+      (#let projected ,(#gn-call pin-second field)
+        (#unsafe (#call ,(#gn-call pin-name (#gn-call pin-second field) "-from-mut")
+          (: view (#pin-borrow-mut (#get view ,(#gn-first field)))))))
+      (#return projected))
+    `(#fn ,function (: pin ,name) ,(#gn-call pin-name (#gn-call pin-second field) "-shared")
+      (#let view ,(#gn-if (#gn-equal shared true) `(#pin-ref ,element) `(#pin-ref-mut ,element))
+        (#unsafe (#call ,(#gn-call pin-name name "-into-view") (: pin pin))))
+      (#let projected ,(#gn-call pin-name (#gn-call pin-second field) "-shared")
+        (#unsafe (#call ,(#gn-call pin-name (#gn-call pin-second field) "-shared-from-ref")
+          (: view (#pin-borrow (#get view ,(#gn-first field)))))))
+      (#return projected))))
+
+(#gn-fn pin-copy-functions (element name shared)
+  `((#fn ,(#gn-call pin-name name "-copy-proof") (: value (#ref ,element)) ,element
+      (#return (#clone (#deref value))))
+    (#fn ,(#gn-call pin-name name "-read") (: pin (#ref ,name)) ,element
+      (#return (#deref (#get pin view))))
+    (#fn ,(#gn-call pin-name shared "-read") (: pin (#ref ,shared)) ,element
+      (#return (#deref (#get pin view))))
+    (#fn ,(#gn-call pin-name name "-write") (: pin (#ref-mut ,name) : value ,element) ()
+      (#unsafe (#pin-write (#get pin view) value)) (#return ()))))
+
+(#gn-fn pin-build (element name shared fields projections copy checked)
+  `((#struct ,name (: view (#pin-ref-mut ,element)))
+    (#opaque ,name) (#linear ,name)
+    (#struct ,shared (: view (#pin-ref ,element)))
+    (#opaque ,shared) (#linear ,shared)
+    (#unsafe-fn ,(#gn-call pin-name name "-from-mut")
+      (: view (#pin-ref-mut ,element)) ,name
+      (#return (#struct-literal ,name (: view view))))
+    (#unsafe-fn ,(#gn-call pin-name shared "-from-ref")
+      (: view (#pin-ref ,element)) ,shared
+      (#return (#struct-literal ,shared (: view view))))
+    (#unsafe-fn ,(#gn-call pin-name name "-into-view") (: pin ,name) (#pin-ref-mut ,element)
+      (#let view (#pin-ref-mut ,element) (#get pin view)) (#forget pin) (#return view))
+    (#unsafe-fn ,(#gn-call pin-name shared "-into-view") (: pin ,shared) (#pin-ref ,element)
+      (#let view (#pin-ref ,element) (#get pin view)) (#forget pin) (#return view))
+    ,@(#gn-for-each field fields
+      (#gn-call pin-field-read name field
+        (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name name "-") (#gn-first field)) "-read")))
+    ,@(#gn-for-each field fields
+      (#gn-call pin-field-read shared field
+        (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name shared "-") (#gn-first field)) "-read")))
+    ,@(#gn-for-each field fields
+      (#gn-call pin-field-write name field
+        (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name name "-") (#gn-first field)) "-write")))
+    ,@(#gn-for-each field projections
+      (#gn-call pin-project element name field
+        (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name name "-") (#gn-first field)) "-project-mut") true false))
+    ,@(#gn-for-each field projections
+      (#gn-call pin-project element name field
+        (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name name "-") (#gn-first field)) "-project") false false))
+    ,@(#gn-for-each field projections
+      (#gn-call pin-project element shared field
+        (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name shared "-") (#gn-first field)) "-project") false true))
+    ,@(#gn-if (#gn-equal copy true)
+      (#gn-call pin-copy-functions element name shared)
+      (#gn-if (#gn-equal copy false) () (#gn-error "@pin copy must be true or false")))))
+
+(#gn pin (options)
+  (#gn-call pin-build
+    (#gn-get options type) (#gn-get options name)
+    (#gn-call pin-name (#gn-get options name) "-shared")
+    (#gn-get options fields ()) (#gn-get options projections ()) (#gn-get options copy false)
+    (#gn-for-each option options (#gn-call pin-option-check option (type name fields projections copy)))))
+
+(#gn-fn pin-scope-build (element pin name run destroy result checked)
+  `((#fn ,name (: value ,element) ,result
+    (#let-mut storage ,element value)
+    (#let handle ,pin
+      (#unsafe (#call ,(#gn-call pin-name pin "-from-mut")
+        (: view (#pin-borrow-mut storage)))))
+    (#let output ,result (#call ,run (: pin handle)))
+    (#let cleanup ,pin
+      (#unsafe (#call ,(#gn-call pin-name pin "-from-mut")
+        (: view (#pin-borrow-mut storage)))))
+    (#call ,destroy (: pin cleanup))
+    (#forget storage)
+    (#return output))))
+
+(#gn pin-scope (options)
+  (#gn-call pin-scope-build (#gn-get options type) (#gn-get options pin)
+    (#gn-get options name) (#gn-get options run) (#gn-get options destroy)
+    (#gn-get options result)
+    (#gn-for-each option options
+      (#gn-call pin-option-check option (type pin name run destroy result)))))

@@ -8117,7 +8117,7 @@ impl FunctionContext<'_> {
         }
         if let Expr::List(items) = value {
             if items.len() == 2
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "unsafe" | "@pin-init"))
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "unsafe"))
             {
                 return self.store_indirect_value_words(&items[1], ty, offset);
             }
@@ -10270,7 +10270,7 @@ impl FunctionContext<'_> {
             return Ok(());
         }
         match operator {
-            "@pin-init" | "pin-release" => self.expression(&items[1]),
+            "pin-release" => self.expression(&items[1]),
             "pin-own-of" => {
                 let Some(Type::RawPointer { target, .. }) = self.expression_type(&items[1]) else {
                     return Err("checked owning-pin allocation lost its pointer type".into());
@@ -10290,11 +10290,6 @@ impl FunctionContext<'_> {
                 }
                 self.output.push_str("    pop rax\n");
                 self.stack_depth -= 1;
-                Ok(())
-            }
-            "pin-end" => {
-                // End the stationary lifetime without copying its contents.
-                self.output.push_str("    xor eax, eax\n");
                 Ok(())
             }
             "pin-own-borrow" | "pin-own-borrow-mut" => {
@@ -16092,7 +16087,7 @@ impl FunctionContext<'_> {
     fn push_value_words(&mut self, value: &Expr, ty: &Type, reverse: bool) -> Result<(), String> {
         if let Expr::List(items) = value {
             if items.len() == 2
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "unsafe" | "@pin-init"))
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "unsafe"))
             {
                 return self.push_value_words(&items[1], ty, reverse);
             }

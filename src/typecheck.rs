@@ -1324,14 +1324,10 @@ fn check_types_inner(
                 "#opaque requires a concrete struct type, got '{type_name}'"
             ));
         }
-        if program
-            .declaration_spans
+        if !program
+            .declaration_expressions
             .get(&key)
-            .map(|span| span.source_id)
-            != program
-                .declaration_spans
-                .get(type_name)
-                .map(|span| span.source_id)
+            .is_some_and(|source| same_definition_module(program, source.span.source_id, type_name))
         {
             return Err(format!(
                 "#opaque for '{type_name}' must be declared in the type's source module"
@@ -2327,6 +2323,35 @@ fn typed_borrow_origin_span(program: &Program, span: crate::Span) -> Option<crat
         .find_map(|expression| find(expression, span))
 }
 
+/// Generated forms have separate diagnostic files, but all forms from one
+/// invocation belong to one private implementation module. The invocation's
+/// caller is not that module: source locations must not grant it field access.
+fn same_definition_module(program: &Program, source_id: u32, owner: &str) -> bool {
+    let defining = program
+        .declaration_expressions
+        .get(owner)
+        .map(|source| source.span.source_id)
+        .or_else(|| {
+            program
+                .declaration_spans
+                .get(owner)
+                .map(|span| span.source_id)
+        });
+    let Some(defining) = defining else {
+        return false;
+    };
+    if source_id == defining {
+        return true;
+    }
+    match (
+        program.generated_source_invocations.get(&source_id),
+        program.generated_source_invocations.get(&defining),
+    ) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
+}
+
 fn check_opaque_access(
     program: &Program,
     declarations: &Declarations,
@@ -2443,7 +2468,7 @@ fn check_opaque_access(
             continue;
         };
         let defining = program.declaration_spans.get(&owner).copied();
-        if Some(span.source_id) == defining.map(|span| span.source_id) {
+        if same_definition_module(program, span.source_id, &owner) {
             continue;
         }
         *diagnostic_span = Some(span);
@@ -2506,7 +2531,7 @@ fn check_opaque_access(
             }
             let use_span = precise.or(node.span).or(fallback);
             let defining = program.declaration_spans.get(&name).copied();
-            if use_span.map(|span| span.source_id) == defining.map(|span| span.source_id) {
+            if use_span.is_some_and(|span| same_definition_module(program, span.source_id, &name)) {
                 continue;
             }
             *diagnostic_span = use_span;
@@ -2532,7 +2557,9 @@ fn check_opaque_access(
                 }
                 let use_span = node.span.or(fallback);
                 let defining = program.declaration_spans.get(name).copied();
-                if use_span.map(|span| span.source_id) == defining.map(|span| span.source_id) {
+                if use_span
+                    .is_some_and(|span| same_definition_module(program, span.source_id, name))
+                {
                     continue;
                 }
                 *diagnostic_span = use_span;
@@ -7634,22 +7661,6 @@ fn list_expression(
                 }
                 _ => Err("deref requires a reference".into()),
             }
-        }
-        "@pin-init" => {
-            require_arity(operator, items, 2)?;
-            expression(
-                &items[1], variables, functions, structs, enums, mutable, aliases, expected,
-            )
-        }
-        "pin-end" => {
-            require_arity(operator, items, 2)?;
-            expression(
-                &items[1], variables, functions, structs, enums, mutable, aliases, None,
-            )?;
-            if !matches!(items[1], Expr::Symbol(_)) {
-                return Err("pin-end requires a stationary local binding".into());
-            }
-            Ok(Type::Unit)
         }
         "pin-own-of" => {
             require_arity(operator, items, 3)?;

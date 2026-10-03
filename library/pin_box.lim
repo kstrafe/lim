@@ -1,6 +1,7 @@
 ;; A concrete, allocator-owned stable allocation for one pinned value.
 ;;
-;; Types: (Element Allocator Box CreateResult AllocError AllocResult).
+;; Types: (Element Allocator Box CreateResult AllocError AllocResult Pin).
+;; Pin is the concrete opaque handle from @pin; its shared handle is Pin-shared.
 ;; Names: (Created AllocationFailed create borrow borrow-mut destroy
 ;;         AllocOk AllocError allocate deallocate destroy-element).
 ;;
@@ -9,7 +10,7 @@
 ;;           error AllocError : name AllocResult))` supplies the variants.
 ;; deallocate: ((allocator (#ref Allocator)) (pointer (#ptr-mut Element))
 ;;              (layout usize) (alignment usize)) -> ()
-;; destroy-element: ((allocator (#ref Allocator)) (value (#pin-ref-mut Element))) -> ()
+;; destroy-element: ((allocator (#ref Allocator)) (pin Pin)) -> ()
 ;;
 ;; The owner is movable; the allocation is stationary. Views retain the
 ;; allocation identity and allocator borrow, not the address of this handle.
@@ -32,6 +33,7 @@
         (#struct ,(#gn-call pin-box-third types)
           ((allocator (#ref ,(#gn-call pin-box-second types)))
            (pointer (#pin-own ,(#gn-first types)))))
+        (#opaque ,(#gn-call pin-box-third types))
         (#linear ,(#gn-call pin-box-third types))
         (#fn ,(#gn-call pin-box-third names)
           ((allocator (#ref ,(#gn-call pin-box-second types)))
@@ -54,20 +56,23 @@
                 (,(#gn-call pin-box-second names) (#tuple error value))))))
         (#fn ,(#gn-call pin-box-fourth names)
           ((owner (#ref ,(#gn-call pin-box-third types))))
-          (#pin-ref ,(#gn-first types))
+          ,(#gn-symbol-append (#gn-call pin-box-seventh types) "-shared")
           (#return
-            (#pin-own-borrow (#borrow (#get owner pointer)) (#get owner allocator))))
+            (#unsafe (#call ,(#gn-symbol-append (#gn-call pin-box-seventh types) "-shared-from-ref")
+              (: view (#pin-own-borrow (#borrow (#get owner pointer)) (#get owner allocator)))))))
         (#fn ,(#gn-call pin-box-fifth names)
           ((owner (#ref-mut ,(#gn-call pin-box-third types))))
-          (#pin-ref-mut ,(#gn-first types))
+          ,(#gn-call pin-box-seventh types)
           (#return
-            (#pin-own-borrow-mut (#borrow-mut (#get owner pointer)) (#get owner allocator))))
+            (#unsafe (#call ,(#gn-symbol-append (#gn-call pin-box-seventh types) "-from-mut")
+              (: view (#pin-own-borrow-mut (#borrow-mut (#get owner pointer)) (#get owner allocator)))))))
         (#fn ,(#gn-call pin-box-sixth names) ((owner ,(#gn-call pin-box-third types))) ()
           (#let-mut (,(#gn-call pin-box-third types) allocator pointer) ,(#gn-call pin-box-third types) owner)
-          (#let value (#pin-ref-mut ,(#gn-first types)) (#pin-own-borrow-mut pointer allocator))
+          (#let value ,(#gn-call pin-box-seventh types)
+            (#unsafe (#call ,(#gn-symbol-append (#gn-call pin-box-seventh types) "-from-mut")
+              (: view (#pin-own-borrow-mut pointer allocator)))))
           (#call ,(#gn-call pin-box-eleventh names)
-            (: allocator (#clone allocator) : value value))
-          (#forget value)
+            (: allocator (#clone allocator) : pin value))
           (#let raw (#ptr-mut ,(#gn-first types)) (#unsafe (#pin-release pointer)))
           (#call ,(#gn-call pin-box-tenth names)
             (: allocator (#clone allocator)

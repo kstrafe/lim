@@ -28,8 +28,14 @@ fn run(source: &str, expected: i32) {
 }
 
 #[test]
-fn stationary_stack_storage_runs_with_explicit_in_place_end() {
-    run(include_str!("../examples/stationary_pin.lim"), 42);
+fn generated_stack_scope_runs_with_in_place_cleanup() {
+    run(
+        &include_str!("../examples/stationary_pin.lim").replace(
+            "../library/pin.lim",
+            &format!("{}/library/pin.lim", env!("CARGO_MANIFEST_DIR")),
+        ),
+        42,
+    );
 }
 
 #[test]

@@ -206,7 +206,6 @@ fn check_expression(
                         | "pin-write"
                         | "pin-own-of"
                         | "pin-release"
-                        | "pin-end"
                         | "asm"
                         | "linux-syscall",
                 )

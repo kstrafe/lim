@@ -937,9 +937,7 @@ fn check_expr(
                     return Err("clone requires exactly one value".into());
                 }
                 check_clone(&items[1], bindings, moved, types)?;
-            } else if matches!(head, "forget" | "drop" | "pin-end" | "pin-release")
-                && items.len() == 2
-            {
+            } else if matches!(head, "forget" | "drop" | "pin-release") && items.len() == 2 {
                 if let Some(key) = place_key(&items[1]) {
                     let root = place_root(&key);
                     if types.binding_types.borrow().contains_key(root) {

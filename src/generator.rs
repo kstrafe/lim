@@ -985,8 +985,8 @@ fn collect_generator_function_calls(expression: &Expr, calls: &mut Vec<String>) 
                     }
                 }
                 "#gn-if" | "#gn-equal" | "#gn-symbol?" | "#gn-list?" | "#gn-symbol"
-                | "#gn-length" | "#gn-list" | "#gn-first" | "#gn-rest" | "#gn-for-each"
-                | "#gn-error" => {
+                | "#gn-symbol-append" | "#gn-get" | "#gn-length" | "#gn-list" | "#gn-first"
+                | "#gn-rest" | "#gn-for-each" | "#gn-error" => {
                     for argument in items.iter().skip(1) {
                         collect_generator_function_calls(argument, calls);
                     }
@@ -1422,12 +1422,64 @@ fn evaluate(
             };
             Ok(Value::Syntax(Expr::Symbol(value)))
         }
+        "#gn-symbol-append" => {
+            arity(operator, items, 3)?;
+            let base = syntax(evaluate(&items[1], environment, context)?, operator)?;
+            let suffix = syntax(evaluate(&items[2], environment, context)?, operator)?;
+            let Expr::Symbol(mut base) = base else {
+                return Err("#gn-symbol-append requires a symbol base".into());
+            };
+            let suffix = match suffix {
+                Expr::String(suffix) | Expr::Symbol(suffix) => suffix,
+                _ => return Err("#gn-symbol-append requires a string or symbol suffix".into()),
+            };
+            base.push_str(&suffix);
+            let parsed = crate::parse(&base)
+                .map_err(|_| "#gn-symbol-append must produce one ordinary identifier")?;
+            if parsed.len() != 1 || parsed[0].expr != Expr::Symbol(base.clone()) {
+                return Err("#gn-symbol-append must produce one ordinary identifier".into());
+            }
+            Ok(Value::Syntax(Expr::Symbol(base)))
+        }
         "#gn-list" => {
             let mut values = Vec::with_capacity(items.len().saturating_sub(1));
             for item in &items[1..] {
                 values.push(syntax(evaluate(item, environment, context)?, operator)?);
             }
             Ok(Value::Syntax(Expr::List(values)))
+        }
+        "#gn-get" => {
+            if !matches!(items.len(), 3 | 4) {
+                return Err(
+                    "#gn-get requires a named syntax list, a key, and an optional fallback".into(),
+                );
+            }
+            let options = syntax(evaluate(&items[1], environment, context)?, operator)?;
+            let key = syntax(evaluate(&items[2], environment, context)?, operator)?;
+            let (Expr::List(options), Expr::Symbol(key)) = (options, key) else {
+                return Err("#gn-get requires a named syntax list and a symbol key".into());
+            };
+            let mut seen = HashSet::new();
+            let mut found = None;
+            for option in options {
+                let Expr::List(pair) = option else {
+                    return Err("#gn-get entries must be (key value) pairs".into());
+                };
+                let [Expr::Symbol(name), value] = pair.as_slice() else {
+                    return Err("#gn-get entries must be (key value) pairs".into());
+                };
+                if !seen.insert(name.clone()) {
+                    return Err(format!("#gn-get repeats key '{name}'"));
+                }
+                if name == &key {
+                    found = Some(value.clone());
+                }
+            }
+            match found {
+                Some(value) => Ok(Value::Syntax(value)),
+                None if items.len() == 4 => evaluate(&items[3], environment, context),
+                None => Err(format!("#gn-get is missing key '{key}'")),
+            }
         }
         "#gn-length" => {
             arity(operator, items, 2)?;

@@ -35,7 +35,7 @@ pub(crate) fn check(
     let mut relevant = declarations.bodies.iter().filter_map(|(name, body)| {
         let needed = body.parameter_loan_slots.iter().chain(&body.parameter_referent_loan_slots).flatten().any(|slot| slot.owned_allocation)
             || body.nodes.iter().any(|node| matches!(&node.kind, NodeKind::Form { head, callee: None, .. }
-                if matches!(head.as_str(), "@pin-init" | "pin-end" | "pin-borrow" | "pin-borrow-mut" | "pin-own-of" | "pin-own-borrow" | "pin-own-borrow-mut" | "pin-release")))
+                if matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut" | "pin-own-of" | "pin-own-borrow" | "pin-own-borrow-mut" | "pin-release")))
             || body.nodes.iter().any(|node| matches!(node.ty, Some(crate::Type::PinOwned(_))));
         needed.then_some(name)
     }).collect::<HashSet<_>>();
@@ -263,12 +263,7 @@ fn check_stack(
     types: &LinearTypes,
     origins: &FlowLoanOrigins,
 ) -> Result<(), BorrowConflict> {
-    let pinned = flow.nodes.iter().filter_map(|node| {
-        let FlowAction::Bind { binding, value } = node.action else { return None; };
-        matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "@pin-init").then_some(binding)
-    }).collect::<HashSet<BindingId>>();
     let active = flow.active_bindings_before(body);
-    let consumed = flow.releases(body);
     let transfers = flow.consumptions(body, types);
     // Pinning is a property of storage, not a live handle. Union facts at
     // branches: a place pinned on either path cannot be moved on the join.
@@ -286,9 +281,6 @@ fn check_stack(
                 // A loop iteration introduces new storage for this binding.
                 next.remove(&binding);
                 retired.remove(&binding);
-                if pinned.contains(&binding) {
-                    next.insert(binding);
-                }
             }
             FlowAction::Borrow { value, .. }
                 if matches!(&body.nodes[value.0].kind,
@@ -332,24 +324,12 @@ fn check_stack(
                 && matches!(&body.nodes[value.0].ty, Some(crate::Type::PinnedReference { target, .. }) if types.is_linear(target))
                 && matches!(place.root, PlaceRoot::Local(binding) if origins.projected_origins(event, binding, &place.segments).iter().any(|origin| !origin.pinned && !origin.owned_allocation)) => Some((place.clone(), "cannot create a permanent pin through an ordinary reference; pass a pinned reference instead")),
             FlowAction::Read { place, place_base: false, .. }
-                if matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding) && (pinned.contains(&binding) || transfers.consumes_at(event, place))) => Some((place.clone(), "cannot move or copy stationary storage; access it through a pinned reference")),
+                if matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding) && transfers.consumes_at(event, place)) => Some((place.clone(), "cannot move or copy stationary storage; access it through a pinned reference")),
             FlowAction::Clone { place, value }
-                if matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding) && (pinned.contains(&binding) || body.nodes[value.0].ty.as_ref().is_some_and(|ty| types.is_linear(ty)))) => Some((place.clone(), "cannot move or copy stationary storage; access it through a pinned reference")),
-            FlowAction::Assign { place, value } if matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding) && (pinned.contains(&binding) || place.segments.is_empty() || body.nodes[value.0].ty.as_ref().is_some_and(|ty| types.is_linear(ty)))) => Some((place.clone(), "cannot replace stationary storage; use checked pinned field access")),
+                if matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding) && body.nodes[value.0].ty.as_ref().is_some_and(|ty| types.is_linear(ty))) => Some((place.clone(), "cannot move or copy stationary storage; access it through a pinned reference")),
+            FlowAction::Assign { place, value } if matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding) && (place.segments.is_empty() || body.nodes[value.0].ty.as_ref().is_some_and(|ty| types.is_linear(ty)))) => Some((place.clone(), "cannot replace stationary storage; use checked pinned field access")),
             FlowAction::Borrow { value, place, mutable: true } if matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding))
                 && matches!(body.nodes[value.0].ty, Some(crate::Type::Reference { .. })) => Some((place.clone(), "cannot obtain an ordinary mutable reference to stationary storage")),
-            FlowAction::Release { place, value } if matches!(place.root, PlaceRoot::Local(binding) if pinned.contains(&binding)) => {
-                if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "pin-end") { None }
-                else { Some((place.clone(), "cannot forget or drop stationary storage; finish its in-place cleanup with #pin-end")) }
-            }
-            FlowAction::ScopeExit(exiting) => exiting.iter().find_map(|binding| {
-                let place = Place::root(PlaceRoot::Local(*binding));
-                (pinned.contains(binding) && !consumed.definitely_before(event, &place)).then_some((place, "stationary storage requires explicit in-place cleanup before leaving its scope"))
-            }),
-            FlowAction::Return(_) | FlowAction::Exit => active[index].iter().flatten().find_map(|binding| {
-                let place = Place::root(PlaceRoot::Local(*binding));
-                (pinned.contains(binding) && !consumed.definitely_before(event, &place)).then_some((place, "stationary storage requires explicit in-place cleanup before returning"))
-            }),
             _ => None,
         };
         if let Some((place, message)) = violation {
@@ -398,13 +378,6 @@ fn check_stack(
                 }
             }
         }
-        if let FlowAction::Release { value, place } = &node.action {
-            if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "pin-end")
-                && !matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding))
-            {
-                return Err(BorrowConflict { message: "#pin-end requires stationary storage declared with #let-pin or pinned in place".into(), span: node.span, labels: Vec::new() });
-            }
-        }
     }
     Ok(())
 }
@@ -416,46 +389,10 @@ mod tests {
     }
 
     #[test]
-    fn stationary_storage_survives_forgetting_the_handle() {
-        let source = "(#fn main () u64
-          (#let-pin value u64 42u64)
-          (#let view (#pin-ref u64) (#pin-borrow value))
-          (#let result u64 (#deref view)) (#forget view)
-          (#unsafe (#pin-end value)) (#return result))";
-        check(source).unwrap();
-        for operation in [
-            "(#let moved u64 value)",
-            "(#set value 7u64)",
-            "(#forget value)",
-            "(#drop value)",
-        ] {
-            let bad = source.replace("(#unsafe (#pin-end value))", operation);
-            assert!(
-                check(&bad).unwrap_err().contains("stationary"),
-                "{operation}"
-            );
+    fn stationary_storage_syntax_is_replaced_by_the_generated_api() {
+        for body in ["(#let-pin value u64 42u64)", "(#pin-end value)"] {
+            assert!(check(&format!("(#fn main () () {body} (#return ()))")).is_err());
         }
-    }
-
-    #[test]
-    fn stationary_cleanup_requires_every_path_and_unsafe() {
-        let source =
-            "(#fn main () () (#let-pin value u64 42u64) (#unsafe (#pin-end value)) (#return ()))";
-        check(source).unwrap();
-        for bad in [
-            source.replace("(#unsafe (#pin-end value))", "()"),
-            source.replace(
-                "(#unsafe (#pin-end value))",
-                "(#if true (#unsafe (#pin-end value)) ())",
-            ),
-        ] {
-            assert!(check(&bad).unwrap_err().contains("cleanup"));
-        }
-        assert!(
-            check(&source.replace("(#unsafe (#pin-end value))", "(#pin-end value)"))
-                .unwrap_err()
-                .contains("unsafe")
-        );
     }
 
     const HEAP: &str = "(#fn create () (#pin-own u64)
@@ -487,14 +424,6 @@ mod tests {
     #[test]
     fn heap_owner_cannot_be_duplicated() {
         assert!(check(&HEAP.replace("(: owner owner)))", "(: owner (#clone owner))))")).is_err());
-    }
-
-    #[test]
-    fn ending_stationary_copy_storage_does_not_allow_repinning() {
-        let source = "(#fn main () () (#let-pin value u64 42u64)
-          (#unsafe (#pin-end value))
-          (#let view (#pin-ref u64) (#pin-borrow value)) (#return ()))";
-        assert!(check(source).unwrap_err().contains("already ended"));
     }
 
     #[test]

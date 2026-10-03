@@ -11,24 +11,6 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
-            name: "stationary-pin-initializer",
-            diagnostic_code: "E4000",
-            offending_line: "  (#let-pin value u64 false)",
-            line_number: 2,
-        },
-        Case {
-            name: "stationary-pin-move",
-            diagnostic_code: "E4100",
-            offending_line: "  (#let moved u64 value)",
-            line_number: 5,
-        },
-        Case {
-            name: "stationary-pin-cleanup",
-            diagnostic_code: "E4100",
-            offending_line: "  (#let-pin value u64 42u64)",
-            line_number: 2,
-        },
-        Case {
             name: "heap-pin-release",
             diagnostic_code: "E4100",
             offending_line: "  (#let pointer (#ptr-mut u64) (#unsafe (#pin-release owner)))",
@@ -1081,8 +1063,6 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
-            "stationary-pin-initializer" => Some("false"),
-            "stationary-pin-move" | "stationary-pin-cleanup" => Some("value"),
             "heap-pin-release" => Some("(#pin-release owner)"),
             "async-source-type-mismatch" => Some("false"),
             "async-unknown-loop-label" => Some("missing"),

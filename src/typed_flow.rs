@@ -1938,7 +1938,7 @@ impl FlowGraph {
                             record(origins.call_tag_mutations(body, self, event, *value)?)?;
                             continue;
                         }
-                        if matches!(head.as_str(), "drop" | "forget" | "pin-end" | "pin-release")
+                        if matches!(head.as_str(), "drop" | "forget" | "pin-release")
                             && children.len() == 2
                         {
                             if !releases_reference_handle(body, *value) {
@@ -2676,7 +2676,6 @@ impl FlowGraph {
                     | "pin-borrow-mut"
                     | "pin-own-borrow"
                     | "pin-own-borrow-mut"
-                    | "pin-end"
                     | "pin-release"
                     | "clone"
                     | "drop"
@@ -5407,6 +5406,13 @@ impl FlowGraph {
                                     selected_alternative = true;
                                     continue;
                                 }
+                                // Extra lifetime anchors accompany a real
+                                // pointee origin; they are not missing access
+                                // alternatives. With only anchors, the final
+                                // selected_alternative check still fails closed.
+                                if source.lifetime_only {
+                                    continue;
+                                }
                                 if selected_slot.first() == Some(&Segment::Dereference)
                                     && selected_slot[1..]
                                         .iter()
@@ -5462,7 +5468,6 @@ impl FlowGraph {
                                         continue;
                                     }
                                     if origin.lifetime_only {
-                                        incomplete = true;
                                         continue;
                                     }
                                     let mut place = origin.referent_place();
@@ -5941,7 +5946,7 @@ impl FlowGraph {
         let resolve = |id: FlowNodeId, place: &Place, value: NodeId| {
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
-                    if matches!(head.as_str(), "drop" | "forget" | "pin-end" | "pin-release")
+                    if matches!(head.as_str(), "drop" | "forget" | "pin-release")
                         && children.len() == 2 =>
                 {
                     children[1]
@@ -6160,9 +6165,7 @@ impl FlowGraph {
                     }
                 }
                 NodeKind::Labeled(_, result) => pending_values.push((*result, affine)),
-                NodeKind::Form { head, children, .. }
-                    if matches!(head.as_str(), "unsafe" | "@pin-init") =>
-                {
+                NodeKind::Form { head, children, .. } if matches!(head.as_str(), "unsafe") => {
                     if let Some(result) = children.get(1) {
                         pending_values.push((*result, affine));
                     }
@@ -6948,7 +6951,7 @@ impl FlowGraph {
             };
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
-                    if matches!(head.as_str(), "forget" | "drop" | "pin-end" | "pin-release")
+                    if matches!(head.as_str(), "forget" | "drop" | "pin-release")
                         && children.len() == 2 =>
                 {
                     children[1]
@@ -7146,7 +7149,7 @@ impl FlowGraph {
             };
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
-                    if matches!(head.as_str(), "forget" | "drop" | "pin-end" | "pin-release")
+                    if matches!(head.as_str(), "forget" | "drop" | "pin-release")
                         && children.len() == 2 =>
                 {
                     children[1]
@@ -8951,7 +8954,7 @@ impl FlowGraph {
                     else {
                         return Err(format!("typed flow releases invalid node {value:?}"));
                     };
-                    if !matches!(head.as_str(), "drop" | "forget" | "pin-end" | "pin-release")
+                    if !matches!(head.as_str(), "drop" | "forget" | "pin-release")
                         || children.len() != 2
                         || Place::from_expression(body, children[1]).as_ref() != Some(place)
                         || !matches!(place.root, PlaceRoot::Local(binding) if binding.0 < body.bindings.len())
@@ -10052,9 +10055,14 @@ fn apply_parameter_loan_summary(
             if origin.storage_inputs.iter().all(Option::is_none) {
                 origin.storage_inputs.clear();
             }
-            origin.mutable = summary.mutable;
-            origin.owned_allocation = summary.owned_allocation;
-            origin.pinned = summary.pinned;
+            // A lifetime anchor is not the pointee capability being returned.
+            // Wrapping a mutable pin must not upgrade its shared allocator
+            // anchor into an exclusive allocator borrow or an owning pointer.
+            if !origin.lifetime_only && !summary.lifetime_only {
+                origin.mutable = summary.mutable;
+                origin.owned_allocation = summary.owned_allocation;
+                origin.pinned = summary.pinned;
+            }
             origin.lifetime_only |= summary.lifetime_only;
             origin
                 .place
@@ -11131,7 +11139,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             dereference_value_origins(body, incoming, state)
         }
         NodeKind::Form { head, children, .. }
-            if matches!(head.as_str(), "unsafe" | "clone" | "@pin-init") && children.len() == 2 =>
+            if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 =>
         {
             value_loan_origins(body, children[1], state)
         }
@@ -11453,7 +11461,7 @@ fn value_loan_origins_at_events(
         ..
     } = &body.nodes[value.0].kind
     {
-        if matches!(head.as_str(), "unsafe" | "clone" | "@pin-init") && children.len() == 2 {
+        if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
             return value_loan_origins_at_events(body, flow, before, children[1], state);
         }
         if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut")
@@ -11932,9 +11940,7 @@ fn releases_reference_handle(body: &Body, value: NodeId) -> bool {
             children,
             callee: None,
             ..
-        } if matches!(head.as_str(), "drop" | "forget" | "pin-end" | "pin-release")
-            && children.len() == 2 =>
-        {
+        } if matches!(head.as_str(), "drop" | "forget" | "pin-release") && children.len() == 2 => {
             children[1]
         }
         _ => value,
@@ -13380,7 +13386,7 @@ impl Builder<'_> {
                 children,
                 callee: None,
                 ..
-            } if matches!(head.as_str(), "drop" | "forget" | "pin-end" | "pin-release")
+            } if matches!(head.as_str(), "drop" | "forget" | "pin-release")
                 && children.len() == 2 =>
             {
                 let action = Place::from_expression(self.body, children[1])
