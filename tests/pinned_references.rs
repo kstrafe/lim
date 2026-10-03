@@ -677,6 +677,44 @@ fn a_pinned_reference_runs_through_the_native_backend() {
 }
 
 #[test]
+fn a_callee_can_update_disjoint_storage_with_an_internal_owner_reference() {
+    let source = "(#struct Link (: value u64 : state u32 : view (#pin-ref u64)))
+      (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+        (#let view (#pin-ref u64) (#pin-borrow (#get target value)))
+        (#pin-set-field target view view) (#return target))
+      (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+        (#pin-set-field target state 2u32) (#return target))
+      (#fn main () u64
+        (#let outside u64 0u64)
+        (#let external (#pin-ref u64) (#pin-borrow outside))
+        (#let-mut link Link (#struct-literal Link (: value 42u64 : state 0u32 : view external)))
+        (#let running (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
+        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))
+        (#let answer u64 (#deref (#get updated view)))
+        (#assert (#u32.== (#get updated state) 2u32))
+        (#pin-set-field updated view external) (#drop updated) (#forget link)
+        (#drop external) (#forget outside) (#return answer))";
+    check(source).unwrap();
+    let scratch = support::Scratch::new("pinned-internal-owner-call");
+    let input = scratch.path().join("main.lim");
+    let binary = scratch.path().join("program");
+    fs::write(&input, source).unwrap();
+    let (status, _, stderr) = support::run(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg(&input)
+            .arg("-o")
+            .arg(&binary),
+        Duration::from_secs(20),
+        64 * 1024,
+    )
+    .unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+    let (status, _, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
+    assert_eq!(status.code(), Some(42), "{status:?} {stderr:?}");
+}
+
+#[test]
 fn a_pinned_field_reborrow_runs_through_the_native_backend() {
     let source = "(#struct Pair ((left u64) (right u64)))
       (#fn main () u64

@@ -32,6 +32,7 @@ mod async_values;
 #[cfg(test)]
 mod borrowcheck;
 mod cache_report;
+mod call_self_loans;
 mod codegen;
 mod diagnostic_json;
 mod elf_object;

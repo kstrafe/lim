@@ -1282,6 +1282,48 @@ impl FlowLoanOrigins {
             .map_or(&[], |state| state[binding.0].as_slice())
     }
 
+    /// Actual contents behind an evaluated pointer, rebased to its pointee.
+    /// Keep the pointer's symbolic input identity; its value-storage path is
+    /// not part of the physical pointee address. This grants no access.
+    pub(crate) fn pointee_before(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        pointer: &LoanOrigin,
+    ) -> Vec<LoanOrigin> {
+        self.before[event.0]
+            .as_ref()
+            .map_or_else(Vec::new, |state| {
+                let mut pointer = pointer.clone();
+                pointer.storage.clear();
+                pointer.storage_inputs.clear();
+                dereference_value_origins(body, vec![pointer], state)
+            })
+    }
+
+    pub(crate) fn entry_alias_retained_before(
+        &self,
+        event: FlowNodeId,
+        alias: &crate::call_self_loans::Alias,
+        live_bindings: &[BindingId],
+    ) -> bool {
+        let Some(state) = self.before[event.0].as_ref() else {
+            return false;
+        };
+        let retained = |origin: &LoanOrigin| {
+            origin.place.root == PlaceRoot::Parameter(alias.parameter)
+                && origin.parameter_storage.as_deref() == Some(alias.owner_input.as_slice())
+                && origin.place.segments == alias.projection
+        };
+        state
+            .parameter_contents
+            .as_ref()
+            .is_some_and(|contents| contents.values().any(|held| held.iter().any(retained)))
+            || live_bindings
+                .iter()
+                .any(|binding| state[binding.0].iter().any(retained))
+    }
+
     pub fn after(&self, node: FlowNodeId, binding: BindingId) -> &[LoanOrigin] {
         self.after[node.0]
             .as_ref()
@@ -2659,6 +2701,17 @@ impl FlowGraph {
         self.solve_loan_origins(body, true, true, true)
     }
 
+    /// Additional may-aliases established by actual caller storage. Keep the
+    /// symbolic seeds too: an observed alias is not a definite initialization
+    /// fact and cannot justify removing other incoming possibilities.
+    pub(crate) fn loan_origins_with_entry_aliases(
+        &self,
+        body: &Body,
+        aliases: &[crate::call_self_loans::Alias],
+    ) -> FlowLoanOrigins {
+        self.solve_loan_origins_with_aliases(body, true, true, true, aliases)
+    }
+
     /// Task captures remain borrowed until their linear handle is consumed,
     /// even when the handle has no future reads. Ordinary reference NLL is not
     /// sufficient for an independently running worker.
@@ -3759,6 +3812,23 @@ impl FlowGraph {
         include_variant_stores: bool,
         include_parameter_contents: bool,
     ) -> FlowLoanOrigins {
+        self.solve_loan_origins_with_aliases(
+            body,
+            include_call_stores,
+            include_variant_stores,
+            include_parameter_contents,
+            &[],
+        )
+    }
+
+    fn solve_loan_origins_with_aliases(
+        &self,
+        body: &Body,
+        include_call_stores: bool,
+        include_variant_stores: bool,
+        include_parameter_contents: bool,
+        aliases: &[crate::call_self_loans::Alias],
+    ) -> FlowLoanOrigins {
         // Branch results are read at their evaluation events, before lexical
         // cleanup kills their local bindings. Those snapshots are additional
         // dataflow dependencies: a changed snapshot must wake its consumers
@@ -3894,7 +3964,42 @@ impl FlowGraph {
             }
         }
         if include_parameter_contents {
-            empty.parameter_contents = Some(seed_parameter_contents(body));
+            let mut contents = seed_parameter_contents(body);
+            for alias in aliases {
+                let boundary = alias
+                    .storage
+                    .iter()
+                    .rposition(|segment| *segment == Segment::Dereference)
+                    .expect("validated reference storage");
+                let storage = alias.storage[boundary + 1..].to_vec();
+                let origin = LoanOrigin {
+                    place: Place {
+                        root: PlaceRoot::Parameter(alias.parameter),
+                        segments: alias.projection.clone(),
+                    },
+                    mutable: alias.mutable,
+                    pinned: alias.pinned,
+                    lifetime_only: false,
+                    span: None,
+                    borrowed_from: None,
+                    call_reborrow: false,
+                    parameter_storage: Some(alias.owner_input.clone()),
+                    // These positions locate the pointer, not input positions
+                    // selecting the owner's physical address.
+                    storage_inputs: vec![None; storage.len()],
+                    storage,
+                };
+                merge_loan_origins(
+                    contents
+                        .entry((
+                            PlaceRoot::Parameter(alias.parameter),
+                            alias.storage[..boundary].to_vec(),
+                        ))
+                        .or_default(),
+                    &[origin],
+                );
+            }
+            empty.parameter_contents = Some(contents);
         }
         let mut before: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
         let mut after: Vec<Option<LoanState>> = vec![None; self.nodes.len()];

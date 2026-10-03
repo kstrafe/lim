@@ -295,6 +295,7 @@ pub(crate) fn statement_ids_selected(
 }
 
 pub(crate) struct FunctionDeclaration {
+    pub name: String,
     pub signature: Signature,
     pub span: Option<Span>,
 }
@@ -637,6 +638,7 @@ impl Declarations {
             .map(|(name, signature)| FunctionDeclaration {
                 signature,
                 span: spans.get(&name).copied(),
+                name,
             })
             .collect();
         Self {
@@ -742,6 +744,12 @@ impl Declarations {
 
     pub fn function(&self, id: FunctionId) -> &FunctionDeclaration {
         &self.functions[id.0]
+    }
+
+    pub fn function_name(&self, id: FunctionId) -> Option<&str> {
+        self.functions
+            .get(id.0)
+            .map(|function| function.name.as_str())
     }
 
     pub(crate) fn clone_hook_name(
