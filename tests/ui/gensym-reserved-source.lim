@@ -1,0 +1,3 @@
+(#fn main () u64
+  (#let lim.gensym.fake u64 42u64)
+  (#return lim.gensym.fake))

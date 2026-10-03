@@ -987,7 +987,25 @@ non-list is an error. Nested templates preserve nested unquotes. These reader
 forms are generator-only; they do not evaluate Lim code or add runtime values.
 The lower-level `#gn-list` and `#gn-symbol` operations remain available.
 
-The initial generator builtins are `#gn-if`, `#gn-equal`, `#gn-symbol?`,
+`#gn-gensym` evaluates its string hint and returns a fresh syntax symbol. The
+hint must parse as exactly one non-keyword ordinary identifier. Generated
+symbols remain ordinary syntax-symbol values, so they can be reused in the
+generated declaration and its references; they do not introduce a new syntax
+datatype. Each evaluation is fresh within its deterministic invocation scope.
+Use a `#gn-fn` helper to pass one generated symbol through all places that need
+to refer to the same binding. Identical generator invocations still deduplicate,
+and cold or warm cache runs produce the same output.
+
+Names beginning with the compiler-owned `lim.gensym.` prefix are reserved.
+Source code cannot name them, and `#gn-symbol` and `#gn-symbol-append` cannot
+forge or alter them. This facility does not automatically make ordinary
+generated symbols hygienic: public API names passed to a generator remain
+literal names, and ordinary generated identifiers still undergo the usual
+duplicate-name, parsing, type, and borrow checks. Source no-shadowing rules are
+unchanged, and generated output is validated as well. See `examples/gensym.lim`
+for a helper that reuses one fresh local name in a generated function.
+
+The generator builtins are `#gn-gensym`, `#gn-if`, `#gn-equal`, `#gn-symbol?`,
 `#gn-list?`, `#gn-symbol`, `#gn-list`, `#gn-length`, `#gn-first`, `#gn-rest`,
 `#gn-get`, `#gn-symbol-append`, `#gn-for-each`, `#gn-call`, and `#gn-error`.
 `#gn-get` looks up a literal key in a named syntax list without introducing a
@@ -1005,11 +1023,11 @@ iteration binding; sibling iteration forms have independent scopes. Unknown
 `#gn-*` operations are reported as generator errors with invocation and
 definition locations.
 
-Generated identifiers are ordinary identifiers, not hygienic or gensym'd
-names. Pass intended declaration names as literal arguments; generated output
-then goes through the usual duplicate-name, parsing, type, and borrow checks.
-Generators should use distinct explicit names when different invocations are
-intended to declare distinct items.
+Ordinary generated identifiers are not hygienic. Pass intended public
+declaration names as literal arguments; use `#gn-gensym` only for fresh
+compiler-reserved local names, and explicitly pass each generated symbol to
+every generated reference that must resolve to it. Different invocations can
+use distinct public names while their internal generated locals remain fresh.
 
 ## Imports
 
@@ -1751,13 +1769,14 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#gn-first` | `(#gn-first list)` | `(#gn-first members)` (generator expression) | Returns the first element of a non-empty syntax list. |
 | `#gn-fn` | `(#gn-fn name (parameter...) body)` | `(#gn-fn identity (value) value)` (top level) | Declares a reusable generator-time function with one syntax-producing body. |
 | `#gn-for-each` | `(#gn-for-each name syntax-list body)` | `(#gn-for-each field fields (#gn-list (#gn-symbol "#type") field u64))` (generator body) | Maps one syntax-producing body over a syntax list; returns a list of results and is the bounded iteration primitive. |
+| `#gn-gensym` | `(#gn-gensym string-hint)` | `(#gn-gensym "task")` (generator expression) | Evaluates a string hint and returns a fresh syntax symbol. The hint must be one non-keyword ordinary identifier; generated names use the reserved `lim.gensym.` prefix and cannot be forged or changed by source, `#gn-symbol`, or `#gn-symbol-append`. |
 | `#gn-get` | `(#gn-get named-syntax key [fallback])` | `(#gn-get (: type u64 : name PinnedU64) type)` (generator expression) | Returns a literal value from a list of key/value syntax pairs. Rejects malformed pairs and duplicate keys; a missing key errors unless a lazily evaluated fallback is supplied. |
 | `#gn-if` | `(#gn-if condition then-value else-value)` | `(#gn-if (#gn-equal kind sortable) yes no)` (generator expression) | Selects a syntax value based on a generator boolean. |
 | `#gn-length` | `(#gn-length syntax-list)` | `(#gn-length fields)` (generator expression) | Returns the number of elements in a syntax list. |
 | `#gn-list` | `(#gn-list syntax...)` | `(#gn-list a b)` (generator expression) | Constructs an immutable syntax list. |
 | `#gn-list?` | `(#gn-list? syntax)` | `(#gn-list? value)` (generator expression) | Tests whether a syntax value is a list. |
 | `#gn-rest` | `(#gn-rest list)` | `(#gn-rest fields)` (generator expression) | Returns a list containing all but the first element. |
-| `#gn-symbol` | `(#gn-symbol string-literal)` | `(#gn-symbol "#type")` (generator expression) | Constructs a symbol syntax value from a string literal. |
+| `#gn-symbol` | `(#gn-symbol string-literal)` | `(#gn-symbol "#type")` (generator expression) | Constructs one symbol syntax value from a string literal, including builtin names; rejects malformed text and compiler-reserved gensym names. |
 | `#gn-symbol-append` | `(#gn-symbol-append symbol string-or-symbol)` | `(#gn-symbol-append PinnedFrame "-read")` (generator expression) | Appends literal text to an identifier and checks that the result parses as exactly one symbol. Used for concrete generated type and function names. |
 | `#gn-symbol?` | `(#gn-symbol? syntax)` | `(#gn-symbol? value)` (generator expression) | Tests whether a syntax value is a symbol. |
 | `#if` | `(#if condition then [else])` | `(#return (#if ready 1u64 0u64))` (expression) | Selects an expression by a boolean; without `else`, the then branch must be unit. |

@@ -189,6 +189,7 @@ fn replace_values(expression: &mut Expr, names: &HashMap<String, String>) {
 struct Hygiene<'a> {
     used: &'a mut HashSet<String>,
     variants: &'a HashSet<String>,
+    scope: &'a mut crate::gensym::Scope,
 }
 
 impl Hygiene<'_> {
@@ -202,7 +203,16 @@ impl Hygiene<'_> {
             {
                 let original = name.clone();
                 if names.contains_key(&original) {
-                    *name = fresh(self.used, format!("lim.async.dispatch.binding.{original}"));
+                    loop {
+                        let candidate = self
+                            .scope
+                            .fresh("binding")
+                            .expect("fixed valid gensym hint");
+                        if self.used.insert(candidate.clone()) {
+                            *name = candidate;
+                            break;
+                        }
+                    }
                 }
                 names.insert(original, name.clone());
             }
@@ -363,12 +373,14 @@ impl Hygiene<'_> {
 }
 
 // Source functions have already passed the no-shadowing gate. Only collisions
-// introduced by merging previously separate generated scopes are renamed.
+// introduced by generated capture patterns or merging separate scopes are renamed.
 fn hygienize(
     forms: &mut [Expr],
     used: &mut HashSet<String>,
     variants: &HashSet<String>,
+    identity: &str,
 ) -> Result<(), String> {
+    let mut scope = crate::gensym::Scope::new('a', identity);
     for expression in forms {
         if let Expr::List(items) = expression {
             if items.first().and_then(symbol) == Some("#fn") {
@@ -376,11 +388,57 @@ fn hygienize(
                     .into_iter()
                     .map(|(name, _, _)| (name.clone(), name))
                     .collect();
-                Hygiene { used, variants }.statements(&mut items[4..], &mut names);
+                Hygiene {
+                    used,
+                    variants,
+                    scope: &mut scope,
+                }
+                .statements(&mut items[4..], &mut names);
             }
         }
     }
     Ok(())
+}
+
+/// Capture-analysis witnesses must obey the same no-shadowing rule as final
+/// output. Only generated bindings are freshened; callable parameter names,
+/// fields, constructors and types retain their explicit public spelling.
+pub(crate) fn hygienize_source(
+    source: &str,
+    environment: &crate::async_fn::AsyncTypeEnvironment,
+) -> Result<String, String> {
+    let mut forms = crate::parse(source)?
+        .into_iter()
+        .map(|node| node.expr)
+        .collect::<Vec<_>>();
+    let mut used = HashSet::new();
+    let mut variants = environment
+        .enums
+        .values()
+        .flat_map(|variants| variants.keys().cloned())
+        .collect::<HashSet<_>>();
+    for expression in &forms {
+        symbols(expression, &mut used);
+        if let Some(declaration) = form(expression, "#enum") {
+            if let Some(Expr::List(cases)) = declaration.get(2) {
+                for case in cases {
+                    let name = symbol(case).or_else(|| match case {
+                        Expr::List(items) => items.first().and_then(symbol),
+                        _ => None,
+                    });
+                    if let Some(name) = name {
+                        variants.insert(name.into());
+                    }
+                }
+            }
+        }
+    }
+    hygienize(&mut forms, &mut used, &variants, source)?;
+    forms
+        .iter()
+        .map(crate::expression_source)
+        .collect::<Result<Vec<_>, _>>()
+        .map(|forms| forms.join("\n"))
 }
 
 struct Dispatcher<'a> {
@@ -858,7 +916,7 @@ pub(crate) fn collapse(
     }
     // Pinned polling used to wrap a second by-value poll. Embed its dispatcher
     // in the public in-place poll, while leaving the pin/cleanup boundary intact.
-    hygienize(&mut forms, &mut used, &variants)?;
+    hygienize(&mut forms, &mut used, &variants, source)?;
     let dispatched = forms
         .iter()
         .filter_map(|expression| {
@@ -886,7 +944,7 @@ pub(crate) fn collapse(
             .and_then(|function| symbol(&function[1]))
             .is_some_and(|name| removed.contains(name))
     });
-    hygienize(&mut forms, &mut used, &variants)?;
+    hygienize(&mut forms, &mut used, &variants, source)?;
     forms
         .iter()
         .map(crate::expression_source)
@@ -913,14 +971,24 @@ mod tests {
         for expression in &forms {
             symbols(expression, &mut used);
         }
-        hygienize(&mut forms, &mut used, &HashSet::new()).unwrap();
+        hygienize(&mut forms, &mut used, &HashSet::new(), input).unwrap();
+        let rendered = crate::expression_source(&forms[0]).unwrap();
+        let token = crate::lex(&rendered)
+            .unwrap()
+            .into_iter()
+            .find_map(|token| match token.kind {
+                crate::TokenKind::Symbol(name) if crate::gensym::reserved(&name) => Some(name),
+                _ => None,
+            })
+            .unwrap();
         let expected = "(#fn poll ((task Frame)) u64
           (#return (#block
             (#let result u64 (#block
               (#let lim.async.dispatch.binding.task u64 42u64)
               lim.async.dispatch.binding.task))
             (#match task (#case (Frame-start value) result)))))";
-        assert_eq!(forms[0], crate::parse(expected).unwrap().remove(0).expr);
+        let expected = expected.replace("lim.async.dispatch.binding.task", &token);
+        assert_eq!(forms[0], crate::parse(&expected).unwrap().remove(0).expr);
     }
 
     #[test]

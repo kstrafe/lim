@@ -182,6 +182,15 @@ fn expand_with_generated_cached_and_hits(
     cache_dir: Option<&Path>,
     dependency_context: &str,
 ) -> Result<ExpandedFormsWithHits, crate::source_error::SourceError> {
+    for expression in &expressions {
+        if crate::gensym::contains_reserved(&expression.expr) {
+            return Err(at_span(
+                "identifiers beginning with 'lim.gensym.' are reserved for compiler-generated symbols",
+                expression.span,
+                "generator input",
+            ));
+        }
+    }
     let (expressions, collections) = crate::syntax_collection::freeze(expressions)?;
     let mut generators = HashMap::new();
     let mut functions = HashMap::new();
@@ -379,6 +388,8 @@ fn expand_with_generated_cached_and_hits(
         generator_fingerprints: generator_hashes,
         active_functions: Vec::new(),
         active: Vec::new(),
+        gensym_scopes: Vec::new(),
+        gensyms: crate::gensym::Registry::default(),
         seen_invocations: HashSet::new(),
         budget: Budget {
             evaluation_steps: MAX_EVALUATION_STEPS,
@@ -593,6 +604,8 @@ struct ExpansionContext<'a> {
     generator_fingerprints: HashMap<String, GeneratorFingerprint>,
     active_functions: Vec<String>,
     active: Vec<String>,
+    gensym_scopes: Vec<crate::gensym::Scope>,
+    gensyms: crate::gensym::Registry,
     seen_invocations: HashSet<String>,
     budget: Budget,
     cache_hits: usize,
@@ -707,7 +720,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v9\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
+        "lim-generator-cache-v10\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,
@@ -716,9 +729,11 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         context.generator_fingerprints[name].material,
         &arguments,
     );
+    let scope = context.gensyms.open(&cache_key)?;
     let cached = context
         .cache_dir
-        .and_then(|directory| read_cached_expansion(directory, &cache_key));
+        .and_then(|directory| read_cached_expansion(directory, &cache_key))
+        .filter(|forms| context.gensyms.restore(forms, &scope));
     if let Some(directory) = context.cache_dir {
         let path = cache_path(directory, &cache_key);
         crate::cache_report::record(
@@ -738,6 +753,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         context.cache_hits = context.cache_hits.saturating_add(1);
     }
     context.active.push(name.clone());
+    context.gensym_scopes.push(scope);
     let forms = match cached {
         Some(forms) => forms,
         None => {
@@ -751,6 +767,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
                 Ok(result) => result,
                 Err(error) => {
                     context.active.pop();
+                    context.gensym_scopes.pop();
                     return Err(format!(
                         "{}: {error}",
                         invocation_description(
@@ -764,6 +781,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             };
             let Value::Syntax(Expr::List(forms)) = result else {
                 context.active.pop();
+                context.gensym_scopes.pop();
                 return Err(format!("@{name} must return a list of generated forms"));
             };
             if let Some(directory) = context.cache_dir {
@@ -778,6 +796,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             Ok(forms) => expanded.extend(forms),
             Err(error) => {
                 context.active.pop();
+                context.gensym_scopes.pop();
                 return Err(format!(
                     "while expanding generated output from {}: {error}",
                     invocation_description(
@@ -791,6 +810,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         }
     }
     context.active.pop();
+    context.gensym_scopes.pop();
     Ok(expanded)
 }
 
@@ -985,8 +1005,8 @@ fn collect_generator_function_calls(expression: &Expr, calls: &mut Vec<String>) 
                     }
                 }
                 "#gn-if" | "#gn-equal" | "#gn-symbol?" | "#gn-list?" | "#gn-symbol"
-                | "#gn-symbol-append" | "#gn-get" | "#gn-length" | "#gn-list" | "#gn-first"
-                | "#gn-rest" | "#gn-for-each" | "#gn-error" => {
+                | "#gn-gensym" | "#gn-symbol-append" | "#gn-get" | "#gn-length" | "#gn-list"
+                | "#gn-first" | "#gn-rest" | "#gn-for-each" | "#gn-error" => {
                     for argument in items.iter().skip(1) {
                         collect_generator_function_calls(argument, calls);
                     }
@@ -1235,7 +1255,9 @@ fn cleanup_abandoned_staging(directory: &Path) {
 }
 
 fn interpreter_hash() -> u128 {
-    *INTERPRETER_HASH.get_or_init(|| stable_hash(include_bytes!("generator.rs")))
+    *INTERPRETER_HASH.get_or_init(|| {
+        stable_hash_parts(&[include_bytes!("generator.rs"), include_bytes!("gensym.rs")])
+    })
 }
 
 pub(crate) fn stable_hash(bytes: &[u8]) -> u128 {
@@ -1414,12 +1436,34 @@ fn evaluate(
                 matches!(value, Expr::List(_))
             }))
         }
+        "#gn-gensym" => {
+            arity(operator, items, 2)?;
+            let hint = syntax(evaluate(&items[1], environment, context)?, operator)?;
+            let Expr::String(hint) = hint else {
+                return Err("#gn-gensym requires a string hint".into());
+            };
+            let name = context
+                .gensym_scopes
+                .last_mut()
+                .ok_or("#gn-gensym requires an active generator invocation")?
+                .fresh(&hint)?;
+            context.gensyms.issue(&name);
+            Ok(Value::Syntax(Expr::Symbol(name)))
+        }
         "#gn-symbol" => {
             arity(operator, items, 2)?;
             let value = syntax(evaluate(&items[1], environment, context)?, operator)?;
             let Expr::String(value) = value else {
                 return Err("#gn-symbol requires a string literal".into());
             };
+            if crate::gensym::reserved(&value) {
+                return Err("#gn-symbol cannot forge compiler-reserved gensym identifiers".into());
+            }
+            let parsed =
+                crate::parse(&value).map_err(|_| "#gn-symbol must produce one identifier")?;
+            if parsed.len() != 1 || parsed[0].expr != Expr::Symbol(value.clone()) {
+                return Err("#gn-symbol must produce one identifier".into());
+            }
             Ok(Value::Syntax(Expr::Symbol(value)))
         }
         "#gn-symbol-append" => {
@@ -1429,11 +1473,21 @@ fn evaluate(
             let Expr::Symbol(mut base) = base else {
                 return Err("#gn-symbol-append requires a symbol base".into());
             };
+            if crate::gensym::reserved(&base) {
+                return Err(
+                    "#gn-symbol-append cannot alter compiler-reserved gensym identifiers".into(),
+                );
+            }
             let suffix = match suffix {
                 Expr::String(suffix) | Expr::Symbol(suffix) => suffix,
                 _ => return Err("#gn-symbol-append requires a string or symbol suffix".into()),
             };
             base.push_str(&suffix);
+            if crate::gensym::reserved(&base) {
+                return Err(
+                    "#gn-symbol-append cannot forge compiler-reserved gensym identifiers".into(),
+                );
+            }
             let parsed = crate::parse(&base)
                 .map_err(|_| "#gn-symbol-append must produce one ordinary identifier")?;
             if parsed.len() != 1 || parsed[0].expr != Expr::Symbol(base.clone()) {
@@ -1837,7 +1891,8 @@ mod tests {
 
     #[test]
     fn interpreter_fingerprint_matches_embedded_source() {
-        let expected = stable_hash(include_bytes!("generator.rs"));
+        let expected =
+            stable_hash_parts(&[include_bytes!("generator.rs"), include_bytes!("gensym.rs")]);
         assert_eq!(interpreter_hash(), expected);
         assert_eq!(interpreter_hash(), expected);
     }
@@ -2148,6 +2203,154 @@ mod tests {
     }
 
     #[test]
+    fn gensym_cache_preserves_identity_and_nested_inherited_symbols() {
+        let directory = std::env::temp_dir().join(format!(
+            "lim-gensym-cache-{}-{}",
+            std::process::id(),
+            CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let source = "(#gn-fn emit (name temporary) `((#fn ,name (: task u64) u64
+              (#let ,temporary u64 task) (#return ,temporary))))
+          (#gn child (name temporary) (#gn-call emit name temporary))
+          (#gn-fn forward (name temporary) `((@child ,name ,temporary)))
+          (#gn parent (name) (#gn-call forward name (#gn-gensym \"task\")))
+          (@parent first) (@parent second) (@parent first)";
+        let expand = |source: &str| {
+            expand_with_generated_cached_and_hits(
+                crate::parse(source).unwrap(),
+                Some(&directory),
+                "test-context",
+            )
+            .unwrap()
+        };
+        let ((cold, _), hits) = expand(source);
+        assert_eq!(hits, 0);
+        assert_eq!(cold.len(), 2);
+        let ((warm, _), hits) = expand(source);
+        assert_eq!(
+            hits, 4,
+            "both parent and child invocations restore without interpretation"
+        );
+        assert_eq!(cold, warm);
+        let output = cold
+            .iter()
+            .map(|node| crate::expression_source(&node.expr).unwrap())
+            .collect::<Vec<_>>();
+        let locals = output
+            .iter()
+            .map(|source| {
+                crate::lex(source)
+                    .unwrap()
+                    .into_iter()
+                    .filter_map(|token| match token.kind {
+                        crate::TokenKind::Symbol(name) if crate::gensym::reserved(&name) => {
+                            Some(name)
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(locals[0].len(), 2);
+        assert_eq!(
+            locals[0][0], locals[0][1],
+            "reuse the same identity in declaration and reference"
+        );
+        assert_ne!(locals[0][0], locals[1][0]);
+        let reordered = source.replace(
+            "(@parent first) (@parent second)",
+            "(@parent second) (@parent first)",
+        );
+        let ((reordered, _), hits) = expand(&reordered);
+        assert_eq!(hits, 4);
+        assert_eq!(
+            reordered[0].expr, cold[1].expr,
+            "identity is independent of expansion order"
+        );
+        let changed = source.replace("(#return ,temporary)", "(#return task)");
+        let ((changed, _), hits) = expand(&changed);
+        assert_eq!(
+            hits, 2,
+            "child helper changes invalidate the child, not the forwarding parent"
+        );
+        assert_ne!(changed[0].expr, cold[0].expr);
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn gensym_cache_rejects_a_foreign_namespace_even_with_a_valid_checksum() {
+        let directory = std::env::temp_dir().join(format!(
+            "lim-gensym-foreign-cache-{}-{}",
+            std::process::id(),
+            CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir(&directory).unwrap();
+        let source = "(#gn emit () `((#type ,(#gn-gensym \"task\") u64))) (@emit)";
+        let expand = || {
+            expand_with_generated_cached_and_hits(
+                crate::parse(source).unwrap(),
+                Some(&directory),
+                "",
+            )
+            .unwrap()
+        };
+        let ((cold, _), hits) = expand();
+        assert_eq!(hits, 0);
+        let path = fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.extension()
+                    .is_some_and(|extension| extension == "cache")
+            })
+            .unwrap();
+        let bytes = fs::read(&path).unwrap();
+        let key = std::str::from_utf8(cached_expansion_key(&bytes).unwrap()).unwrap();
+        let mut forms = read_cached_expansion(&directory, key).unwrap();
+        let Expr::List(items) = &mut forms[0] else {
+            panic!()
+        };
+        let Expr::Symbol(name) = &mut items[1] else {
+            panic!()
+        };
+        // Keep valid syntax and checksum, but make ownership structurally wrong.
+        let digit = crate::gensym::PREFIX.len() + 1;
+        let replacement = if name.as_bytes()[digit] == b'0' {
+            "1"
+        } else {
+            "0"
+        };
+        name.replace_range(digit..digit + 1, replacement);
+        write_cached_expansion(&directory, key, &forms);
+        assert!(read_cached_expansion(&directory, key).is_some());
+        let ((repaired, _), hits) = expand();
+        assert_eq!(hits, 0);
+        assert_eq!(repaired, cold);
+        let (_, hits) = expand();
+        assert_eq!(hits, 1);
+        fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn gensym_evaluations_and_helper_calls_share_one_invocation_counter() {
+        let source = "(#gn-fn fresh () (#gn-gensym \"task\"))
+          (#gn emit () `((#type ,(#gn-call fresh) u64) (#type ,(#gn-call fresh) u64)))
+          (@emit)";
+        let ((forms, _), _) =
+            expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
+        assert_eq!(forms.len(), 2);
+        let Expr::List(first) = &forms[0].expr else {
+            panic!()
+        };
+        let Expr::List(second) = &forms[1].expr else {
+            panic!()
+        };
+        assert_ne!(first[1], second[1]);
+    }
+
+    #[test]
     fn generator_evaluation_has_a_finite_step_budget() {
         let expression = Expr::List(
             std::iter::once(Expr::Symbol("#gn-list".into()))
@@ -2166,6 +2369,8 @@ mod tests {
                 generator_fingerprints: HashMap::new(),
                 active_functions: Vec::new(),
                 active: Vec::new(),
+                gensym_scopes: Vec::new(),
+                gensyms: crate::gensym::Registry::default(),
                 seen_invocations: HashSet::new(),
                 budget: Budget {
                     evaluation_steps: MAX_EVALUATION_STEPS,

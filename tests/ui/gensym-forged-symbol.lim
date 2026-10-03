@@ -1,0 +1,2 @@
+(#gn emit () `((#type ,(#gn-symbol "lim.gensym.fake") u64)))
+(@emit)

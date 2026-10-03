@@ -11,6 +11,24 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "gensym-reserved-source",
+            diagnostic_code: "E2000",
+            offending_line: "  (#let lim.gensym.fake u64 42u64)",
+            line_number: 2,
+        },
+        Case {
+            name: "gensym-invalid-hint",
+            diagnostic_code: "E3000",
+            offending_line: "(@emit)",
+            line_number: 2,
+        },
+        Case {
+            name: "gensym-forged-symbol",
+            diagnostic_code: "E3000",
+            offending_line: "(@emit)",
+            line_number: 2,
+        },
+        Case {
             name: "heap-pin-release",
             diagnostic_code: "E4100",
             offending_line: "  (#let pointer (#ptr-mut u64) (#unsafe (#pin-release owner)))",
@@ -1181,6 +1199,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "linear-copy-after-owner" => Some("(#get pair other)"),
             "opaque-token-constructor" => Some("WakeToken4"),
             "generator" | "generator-imported" => Some("(@fail)"),
+            "gensym-reserved-source" => Some("lim.gensym.fake"),
+            "gensym-invalid-hint" | "gensym-forged-symbol" => Some("(@emit)"),
             "nonconstant-static" => Some("(#call get-value (:))"),
             "call-arguments" => Some("other"),
             "call-argument-type-mismatch" => Some("false"),

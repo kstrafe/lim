@@ -39,6 +39,7 @@ mod diagnostic_json;
 mod elf_object;
 mod elf_writer;
 mod generator;
+mod gensym;
 mod instruction_encoder;
 mod linearcheck;
 mod native_assembly;
@@ -2318,12 +2319,14 @@ fn async_generated_source(
         copy_types,
         type_environment,
     )?;
+    // Private capture witnesses are checked too: freshen introduced match
+    // bindings before analysis, without changing public parameter keys.
     // The uncollapsed helpers are private capture-analysis witnesses only.
     // Executable/inspectable output uses one dispatcher per concrete future.
     if capture_plans.is_some() {
         async_dispatch::collapse(&source, type_environment)
     } else {
-        Ok(source)
+        async_dispatch::hygienize_source(&source, type_environment)
     }
 }
 
@@ -5090,6 +5093,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "gn-list?"
             | "gn-list"
             | "gn-symbol"
+            | "gn-gensym"
             | "gn-symbol-append"
             | "gn-get"
             | "gn-first"
@@ -5374,6 +5378,18 @@ fn load_imports_inner(
             attach_span_to_source_error_kind(error.message, span, source_files, "lex error: ");
         attach_generator_source(error, source_files)
     })?;
+    for token in &tokens {
+        if matches!(&token.kind, TokenKind::Symbol(name) if gensym::reserved(name)) {
+            let mut span = token.span;
+            span.source_id = source_id;
+            return Err(attach_span_to_source_error_kind(
+                "identifiers beginning with 'lim.gensym.' are reserved for compiler-generated symbols".into(),
+                span,
+                source_files,
+                "parse error: ",
+            ));
+        }
+    }
     let mut expressions = Parser::new(&tokens).run().map_err(|error| {
         let mut span = error.span;
         span.source_id = source_id;
@@ -5539,6 +5555,18 @@ fn load_imports_inner(
                 .collect::<HashSet<_>>();
             for form in &mut imported {
                 prefix_expression(&mut form.expr, prefix, &generator_names);
+                if gensym::contains_reserved(&form.expr) {
+                    let prefix_span = expression
+                        .children
+                        .get(2)
+                        .map_or(expression.span, |node| node.span);
+                    return Err(attach_span_to_source_error_kind(
+                        "external import prefix cannot create compiler-reserved 'lim.gensym.' identifiers".into(),
+                        prefix_span,
+                        source_files,
+                        "parse error: ",
+                    ));
+                }
             }
         }
         result.extend(imported);

@@ -1,0 +1,15 @@
+(#gn-fn emit-function (name temporary)
+  `((#fn ,name (: task u64) u64
+     (#let ,temporary u64 task)
+     (#return (#u64.+.wrap task ,temporary)))))
+
+(#gn make-function (name)
+  (#gn-call emit-function name (#gn-gensym "task")))
+
+(@make-function first)
+(@make-function second)
+(@make-function first)
+
+(#fn main () u64
+  (#assert (#u64.== (#call second (: task 21u64)) 42u64))
+  (#return (#call first (: task 21u64))))

@@ -35,6 +35,80 @@ fn assert_single_poll(generated: &str, poll: &str) {
 }
 
 #[test]
+fn async_task_named_capture_survives_pending_without_shadowing_the_poll_parameter() {
+    let source = example_without_cancel_work().replace("offset", "task");
+    let generated = build_and_run(&source, 42);
+    assert_single_poll(&generated, "work-poll");
+    assert!(generated.contains("(#fn work ((task u64))"), "{generated}");
+    assert!(
+        generated.contains("(: task ") || generated.contains("((task "),
+        "{generated}"
+    );
+}
+
+#[test]
+fn async_task_named_capture_without_await_keeps_explicit_public_argument_key() {
+    let source = "(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+        (#fn work (: task u64) u64 (#return task))))
+      (#fn main () u64
+        (#let waker u64 0u64)
+        (#let result Poll (#call poll (: task (#call work (: task 42u64)) : waker (#borrow waker))))
+        (#return (#match result
+          (#case (Ready value) value)
+          (#case (Pending waiting) (#block (#forget waiting) (#unreachable))))))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("lim.gensym."), "{generated}");
+}
+
+#[test]
+fn async_task_named_reference_capture_retains_its_referent_across_pending() {
+    for ty in ["#ref", "#ref-mut"] {
+        let borrow = if ty == "#ref" {
+            "#borrow"
+        } else {
+            "#borrow-mut"
+        };
+        let source = format!("(#enum Step (: Waiting u64)) (#linear Step)
+          (#enum StepPoll (: StepPending Step : StepReady u64))
+          (#fn step-poll (: task Step : waker (#ref u64)) StepPoll
+            (#return (#match task (#case (Waiting remaining)
+              (#if (#u64.== remaining 0u64) (StepReady 0u64)
+                (StepPending (Waiting 0u64)))))))
+          (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+            (#fn work (: task ({ty} u64)) u64
+              (#let step-result u64 (#await Step StepPending StepReady step-poll (Waiting 1u64)))
+              (#return (#u64.+.wrap (#deref task) step-result)))))
+          (#fn main () u64
+            (#let-mut value u64 42u64) (#let waker u64 0u64)
+            (#let result Poll (#call poll (: task (#call work (: task ({borrow} value))) : waker (#borrow waker))))
+            (#let-else (Pending waiting) Poll result (#unreachable))
+            (#let completed Poll (#call poll (: task waiting : waker (#borrow waker))))
+            (#return (#match completed (#case (Ready answer) answer)
+              (#case (Pending unfinished) (#block (#forget unfinished) (#unreachable))))))");
+        build_and_run(&source, 42);
+        let forbidden = source.replace(
+            "(#let completed Poll",
+            "(#set value 99u64)\n (#let completed Poll",
+        );
+        let scratch = support::Scratch::new("async-task-reference");
+        let error = lim::compile_source_to_assembly(
+            &forbidden,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        let span = error.span.unwrap();
+        assert!(
+            forbidden[span.start..span.end].contains("#set"),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
 fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
     let source = include_str!("../examples/async_single_poll.lim").replace(
         "../library/pin.lim",

@@ -194,6 +194,7 @@ exit 42 float.lim - -
 exit 42 float32.lim - -
 exit 45 for_range.lim - -
 exit 45 for.lim - -
+exit 42 gensym.lim - -
 exit 42 generator_functions.lim - -
 exit 42 generic_enum.lim - -
 exit 42 generic_identity.lim - -
