@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 struct Function {
@@ -34,6 +34,7 @@ struct StackState {
 
 enum Terminator {
     Jump(String),
+    JumpTable(Vec<String>),
     Branch(String),
     Stop,
     Return,
@@ -151,10 +152,68 @@ pub fn stack_usage_report(assembly: &str) -> Result<String, String> {
 }
 
 fn parse_functions(assembly: &str) -> Result<HashMap<String, Function>, String> {
+    let lines = assembly
+        .lines()
+        .map(|line| line.split('#').next().unwrap_or("").trim())
+        .collect::<Vec<_>>();
+    // Tables contain only defined, table-relative code labels. Do not treat
+    // rodata labels as executable blocks or assume an arbitrary indirect jump
+    // has no successors.
+    let mut tables = HashMap::<String, Vec<String>>::new();
+    let mut invalid_tables = HashSet::new();
+    let mut in_rodata = false;
+    let mut table_label = None;
+    for line in &lines {
+        if *line == ".section .rodata" {
+            in_rodata = true;
+            table_label = None;
+        } else if matches!(*line, ".text" | ".section .text") {
+            in_rodata = false;
+            table_label = None;
+        } else if in_rodata {
+            if let Some(label) = line.strip_suffix(':') {
+                table_label = Some(label);
+            } else if let Some(label) = table_label.filter(|_| !line.is_empty()) {
+                let difference = line
+                    .strip_prefix(".long ")
+                    .and_then(|value| value.split_once('-'));
+                match difference {
+                    Some((target, base))
+                        if base.trim() == label
+                            && !target.trim().is_empty()
+                            && !invalid_tables.contains(label) =>
+                    {
+                        tables
+                            .entry(base.trim().to_owned())
+                            .or_default()
+                            .push(target.trim().to_owned());
+                    }
+                    _ => {
+                        // Mixed data or padding cannot be mistaken for a table
+                        // with fewer edges than the actual indirect dispatch.
+                        invalid_tables.insert(label.to_owned());
+                        tables.remove(label);
+                    }
+                }
+            }
+        }
+    }
     let mut functions = HashMap::new();
     let mut current: Option<String> = None;
-    for line in assembly.lines() {
+    in_rodata = false;
+    for (line_index, line) in lines.iter().enumerate() {
         let line = line.trim();
+        if line == ".section .rodata" {
+            in_rodata = true;
+            continue;
+        }
+        if matches!(line, ".text" | ".section .text") {
+            in_rodata = false;
+            continue;
+        }
+        if in_rodata {
+            continue;
+        }
         if let Some(rest) = line.strip_prefix(".type ") {
             if let Some((name, _)) = rest.split_once(", @function") {
                 let name = name.trim().to_owned();
@@ -203,7 +262,22 @@ fn parse_functions(assembly: &str) -> Result<HashMap<String, Function>, String> 
         if line.starts_with('.') {
             continue;
         }
-        let instruction = parse_instruction(line)?;
+        let mut instruction = parse_instruction(line)?;
+        if line == "jmp r11"
+            && line_index >= 3
+            && lines[line_index - 1] == "add r11, rax"
+            && lines[line_index - 2] == "movsxd rax, DWORD PTR [r11+rax*4]"
+        {
+            if let Some(table) = lines[line_index - 3]
+                .strip_prefix("lea r11, [rip+")
+                .and_then(|line| line.strip_suffix(']'))
+            {
+                let targets = tables
+                    .get(table)
+                    .ok_or_else(|| format!("unknown assembly jump table '{table}'"))?;
+                instruction.terminator = Some(Terminator::JumpTable(targets.clone()));
+            }
+        }
         let function = functions
             .get_mut(function_name)
             .expect("current function exists");
@@ -396,6 +470,13 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
                     }
                 }
                 Some(Terminator::Jump(target)) => successors.push(resolve(target)?),
+                Some(Terminator::JumpTable(targets)) => {
+                    for target in targets {
+                        successors.push(resolve(target)?);
+                    }
+                    successors.sort_unstable();
+                    successors.dedup();
+                }
                 Some(Terminator::Branch(target)) => {
                     successors.push(resolve(target)?);
                     if index + 1 < count {
@@ -499,6 +580,43 @@ fn call_path_usage(
 #[cfg(test)]
 mod tests {
     use super::stack_usage_report;
+
+    fn table_assembly() -> &'static str {
+        ".type main, @function\nmain:\n push rbp\n mov rbp, rsp\n push rax\n.Ldispatch:\n lea r11, [rip+.Ltable]\n movsxd rax, DWORD PTR [r11+rax*4]\n add r11, rax\n jmp r11\n.Lsmall:\n add rsp, 8\n leave\n ret\n.Llarge:\n sub rsp, 128\n call heavy\n add rsp, 128\n add rsp, 8\n leave\n ret\n.section .rodata\n.align 4\n.Ltable:\n .long .Lsmall-.Ltable\n .long .Llarge-.Ltable\n .long .Llarge-.Ltable\n.text\n.size main, .-main\n.type heavy, @function\nheavy:\n push rbp\n mov rbp, rsp\n sub rsp, 256\n leave\n ret\n.size heavy, .-heavy\n"
+    }
+
+    #[test]
+    fn jump_table_bounds_include_every_arm_and_its_callees() {
+        let assembly = table_assembly();
+        let report = stack_usage_report(assembly).unwrap();
+        assert!(report.contains("main: at most 416 bytes"), "{report}");
+        assert!(report.contains("main -> heavy"), "{report}");
+        assert!(!report.contains("unknown"));
+        assert_eq!(super::bounded_entry_stack(assembly, "main").unwrap(), 416);
+    }
+
+    #[test]
+    fn jump_table_unknown_targets_and_unbounded_backedges_are_rejected() {
+        let unknown = table_assembly().replace(".long .Llarge-.Ltable", ".long .Lmissing-.Ltable");
+        assert!(stack_usage_report(&unknown)
+            .unwrap_err()
+            .contains(".Lmissing"));
+        let growing = table_assembly().replace(
+            "sub rsp, 128\n call heavy",
+            "push rax\n jmp .Ldispatch\n call heavy",
+        );
+        assert!(stack_usage_report(&growing)
+            .unwrap_err()
+            .contains("unbounded stack growth"));
+        let arbitrary = table_assembly().replace("add r11, rax", "add r11, rcx");
+        assert!(stack_usage_report(&arbitrary)
+            .unwrap_err()
+            .contains("branch target 'r11'"));
+        let mixed = table_assembly().replace(".long .Llarge-.Ltable", ".long 0");
+        assert!(stack_usage_report(&mixed)
+            .unwrap_err()
+            .contains("unknown assembly jump table"));
+    }
 
     #[test]
     fn strict_worker_bounds_ignore_unrelated_assembly_but_reject_unknown_calls() {

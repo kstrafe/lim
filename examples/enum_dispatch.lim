@@ -1,0 +1,21 @@
+;; Contiguous explicit tags use a bounds-checked native jump table. Source
+;; declaration and case order need not match the discriminant order.
+(#enum Work
+  ((Read 11 u64)
+   (Idle 10)
+   (Finished 13 u64)
+   (Write 12 u64)))
+
+(#fn dispatch (: task Work) u64
+  (#return
+    (#match task
+      (#case (Finished result) result)
+      (#case (Write written) written)
+      (#case Idle 0u64)
+      (#case (Read received) received))))
+
+(#fn main () u64
+  (#assert (#u64.== (#call dispatch (: task Idle)) 0u64))
+  (#assert (#u64.== (#call dispatch (: task (Read 10u64))) 10u64))
+  (#assert (#u64.== (#call dispatch (: task (Write 20u64))) 20u64))
+  (#return (#call dispatch (: task (Finished 42u64)))))

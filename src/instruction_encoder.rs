@@ -366,6 +366,7 @@ pub(crate) enum Instruction {
     PopMemory(Memory),
     Call(String),
     Jump(String),
+    JumpRegister(Register),
     Syscall,
     Return,
     Leave,
@@ -989,6 +990,13 @@ impl EncodedInstructions {
             I::PopMemory(memory) => self.memory_operand(Width::Dword, 0x8f, 0x8f, 0, *memory)?,
             I::Call(symbol) => self.branch(0xe8, symbol),
             I::Jump(symbol) => self.branch(0xe9, symbol),
+            I::JumpRegister(register) => {
+                if register.number() >= 8 {
+                    self.bytes.push(0x41);
+                }
+                self.bytes
+                    .extend_from_slice(&[0xff, 0xe0 | register.number() % 8]);
+            }
             I::Syscall => self.bytes.extend_from_slice(&[0x0f, 0x05]),
             I::Return => self.bytes.push(0xc3),
             I::Leave => self.bytes.push(0xc9),
@@ -1539,6 +1547,25 @@ impl EncodedInstructions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn register_jumps_encode_without_relocations() {
+        let mut code = EncodedInstructions::default();
+        for register in [
+            Register::Rax,
+            Register::Rsp,
+            Register::R8,
+            Register::R11,
+            Register::R15,
+        ] {
+            code.append(&Instruction::JumpRegister(register)).unwrap();
+        }
+        assert_eq!(
+            code.bytes,
+            [0xff, 0xe0, 0xff, 0xe4, 0x41, 0xff, 0xe0, 0x41, 0xff, 0xe3, 0x41, 0xff, 0xe7]
+        );
+        assert!(code.relocations.is_empty());
+    }
 
     #[test]
     fn registers_immediates_and_rex_prefixes() {

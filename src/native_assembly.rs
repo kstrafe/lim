@@ -18,6 +18,15 @@ pub(crate) struct Assembled {
     pub symbols: BTreeMap<String, SectionOffset>,
     pub unresolved: Vec<Relocation>,
     pub relocation_lines: BTreeMap<usize, usize>,
+    pub data_differences: Vec<DataDifference32>,
+}
+
+/// A signed table entry resolved once final code/rodata addresses are known.
+pub(crate) struct DataDifference32 {
+    pub offset: usize,
+    pub target: String,
+    pub base: String,
+    pub line: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -64,6 +73,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
     }
     let mut in_rodata = false;
     let mut rodata = Vec::new();
+    let mut data_differences = Vec::new();
     let mut relocation_lines = BTreeMap::new();
     for (index, raw) in source.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -141,9 +151,33 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
                         index + 1
                     ));
                 }
-                let value = parse_u64(value)?;
-                let value = u32::try_from(value).map_err(|_| "32-bit datum exceeds width")?;
-                rodata.extend_from_slice(&value.to_le_bytes());
+                if let Ok(value) = parse_u64(value) {
+                    let value = u32::try_from(value).map_err(|_| "32-bit datum exceeds width")?;
+                    rodata.extend_from_slice(&value.to_le_bytes());
+                } else if let Some((target, base)) = value.split_once('-') {
+                    let symbol = |name: &str| {
+                        !name.is_empty()
+                            && name.bytes().all(|byte| {
+                                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'$')
+                            })
+                    };
+                    let (target, base) = (target.trim(), base.trim());
+                    if !symbol(target) || !symbol(base) {
+                        return Err(format!(
+                            "assembly line {}: invalid table symbol difference",
+                            index + 1
+                        ));
+                    }
+                    data_differences.push(DataDifference32 {
+                        offset: rodata.len(),
+                        target: target.to_owned(),
+                        base: base.to_owned(),
+                        line: index + 1,
+                    });
+                    rodata.extend_from_slice(&[0; 4]);
+                } else {
+                    return Err(format!("assembly line {}: invalid 32-bit datum", index + 1));
+                }
                 continue;
             }
             if line == ".intel_syntax noprefix"
@@ -192,6 +226,20 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
         }
     }
     let mut unresolved = Vec::new();
+    for difference in &data_differences {
+        if !matches!(
+            symbols.get(&difference.target),
+            Some(SectionOffset::Code(_))
+        ) || !matches!(
+            symbols.get(&difference.base),
+            Some(SectionOffset::Rodata(_))
+        ) {
+            return Err(format!(
+                "assembly line {}: table difference requires a defined code target and rodata base",
+                difference.line
+            ));
+        }
+    }
     for (index, relocation) in code.relocations.clone().iter().enumerate() {
         if let Some(&SectionOffset::Code(target)) = symbols.get(&relocation.symbol) {
             code.resolve_local(index, target)?;
@@ -205,6 +253,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
         symbols,
         unresolved,
         relocation_lines,
+        data_differences,
     })
 }
 
@@ -784,7 +833,16 @@ fn parse_instruction(line: &str) -> Result<Instruction, String> {
             }
         }
         "call" => Ok(Instruction::Call(left.to_owned())),
-        "jmp" => Ok(Instruction::Jump(left.to_owned())),
+        "jmp" => {
+            if let Some((register, width)) = parse_register(left) {
+                if width != Width::Qword {
+                    return Err("indirect jump register must be 64-bit".into());
+                }
+                Ok(Instruction::JumpRegister(register))
+            } else {
+                Ok(Instruction::Jump(left.to_owned()))
+            }
+        }
         "jz" | "je" => Ok(branch(Condition::Equal)),
         "jnz" | "jne" => Ok(branch(Condition::NotEqual)),
         "jb" => Ok(branch(Condition::Below)),
@@ -1011,6 +1069,39 @@ fn parse_i32(text: &str) -> Result<i32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn table_differences_link_to_signed_code_offsets() {
+        let source = ".text\n.globl _start\n_start:\nmain:\n jmp r11\n.Larm:\n ret\n.section .rodata\n.align 4\n.Ltable:\n .long .Larm-.Ltable\n .long main-.Ltable\n";
+        let assembled = assemble(source).unwrap();
+        assert_eq!(&assembled.code.bytes[..3], &[0x41, 0xff, 0xe3]);
+        assert_eq!(assembled.data_differences.len(), 2);
+        let linked = crate::native_linker::link(&assembled, &[], false).unwrap();
+        let base = crate::elf_writer::rodata_address(0).unwrap();
+        for (index, offset) in [3, 0].into_iter().enumerate() {
+            let expected = crate::elf_writer::code_address(offset).unwrap() as i128 - base as i128;
+            let actual =
+                i32::from_le_bytes(linked.rodata[index * 4..index * 4 + 4].try_into().unwrap());
+            assert_eq!(actual as i128, expected);
+            assert!(actual < 0);
+        }
+    }
+
+    #[test]
+    fn malformed_table_entries_and_non_64_bit_jumps_are_rejected() {
+        for datum in [
+            "missing-.Ltable",
+            "main-missing",
+            ".Ltable-main",
+            "main-.Ltable+4",
+        ] {
+            let source =
+                format!(".text\nmain:\n ret\n.section .rodata\n.Ltable:\n .long {datum}\n");
+            assert!(assemble(&source).err().unwrap().contains("assembly line 6"));
+        }
+        assert!(assemble("jmp eax\n").err().unwrap().contains("64-bit"));
+        assert!(assemble(".section .rodata\n.long -0\n").is_ok());
+    }
 
     #[test]
     fn assembles_a_checked_lim_function_and_keeps_symbol_identity() {

@@ -12,6 +12,7 @@ exit 42 aggregate_or_pattern.lim - -
 exit 42 alias.lim - -
 exit 42 distributed_errors.lim - -
 exit 42 distributed_slice.lim - -
+exit 42 enum_dispatch.lim - -
 exit 42 cooperative_tasks.lim - -
 exit 99 ready_queue.lim - -
 exit 42 wake_tokens.lim - -

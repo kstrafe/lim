@@ -207,6 +207,24 @@ pub(crate) fn link(
     for (name, offset) in weak {
         globals.entry(name).or_insert(offset);
     }
+    for difference in &assembled.data_differences {
+        let target = globals
+            .get(&difference.target)
+            .ok_or("missing table target")?;
+        let base = globals.get(&difference.base).ok_or("missing table base")?;
+        let displacement =
+            i32::try_from(target.virtual_address()? as i128 - base.virtual_address()? as i128)
+                .map_err(|_| {
+                    format!(
+                        "assembly line {}: table displacement exceeds signed 32-bit range",
+                        difference.line
+                    )
+                })?;
+        rodata
+            .get_mut(difference.offset..difference.offset + 4)
+            .ok_or("table relocation extends beyond rodata")?
+            .copy_from_slice(&displacement.to_le_bytes());
+    }
     for relocation in &assembled.unresolved {
         let Some(target) = globals.get(&relocation.symbol) else {
             if allow_foreign {

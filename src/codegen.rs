@@ -5335,6 +5335,13 @@ enum LoopDestination {
     Slots(Vec<usize>),
 }
 
+struct EnumJumpTable {
+    minimum: u64,
+    targets: Vec<usize>,
+    arm_labels: Vec<String>,
+    skip_tag_tests: bool,
+}
+
 struct FunctionContext<'a> {
     statement_target: Option<crate::typed_body::BindingId>,
     expression_types: crate::typed_body::EmissionTypes,
@@ -11240,6 +11247,88 @@ impl FunctionContext<'_> {
         }
     }
 
+    /// Jump to the first possible arm for each tag. Refutable payloads and
+    /// guards still fall through the original ordered arm checks on failure.
+    fn enum_jump_table(
+        &mut self,
+        scrutinee: &Expr,
+        arms: &[Expr],
+    ) -> Result<Option<EnumJumpTable>, String> {
+        let Some(Type::Named(enum_name)) = self.expression_type(scrutinee) else {
+            return Ok(None);
+        };
+        let Some(variants) = self.enums.get(&enum_name) else {
+            return Ok(None);
+        };
+        // Small switches are cheaper as direct branches. Bound table growth
+        // even for unusually large generated declarations.
+        if !(4..=4096).contains(&variants.len()) {
+            return Ok(None);
+        }
+        let minimum = variants
+            .iter()
+            .map(|variant| variant.discriminant)
+            .min()
+            .unwrap();
+        let maximum = variants
+            .iter()
+            .map(|variant| variant.discriminant)
+            .max()
+            .unwrap();
+        if maximum - minimum != (variants.len() - 1) as u64 {
+            return Ok(None);
+        }
+        let mut targets = vec![None; variants.len()];
+        let mut seen_tags = HashSet::new();
+        let mut skip_tag_tests = true;
+        for (index, arm) in arms.iter().enumerate() {
+            let (pattern, guard, _) = match_arm_parts(arm)?;
+            skip_tag_tests &= guard.is_none();
+            if matches!(pattern, Expr::Symbol(name) if name == "_") {
+                for target in &mut targets {
+                    target.get_or_insert(index);
+                }
+                // A wildcard before later arms needs their normal checks if
+                // its guard fails (already covered by guard.is_none above).
+                continue;
+            }
+            let (head, name, payload): (&Expr, &str, &[Expr]) = match pattern {
+                Expr::Symbol(name) => (pattern, name, &[]),
+                Expr::List(parts) => match parts.first() {
+                    Some(Expr::Symbol(name)) => (&parts[0], name, &parts[1..]),
+                    _ => return Ok(None),
+                },
+                _ => return Ok(None),
+            };
+            let Some((owner, tag, _)) = self.enum_variant_info(head, name)? else {
+                // Or-patterns and non-variant patterns keep the branch chain.
+                return Ok(None);
+            };
+            if owner != enum_name {
+                return Ok(None);
+            }
+            targets[(tag - minimum) as usize].get_or_insert(index);
+            skip_tag_tests &= seen_tags.insert(tag);
+            skip_tag_tests &= payload.iter().all(|pattern| {
+                matches!(pattern, Expr::Symbol(name) if name == "_"
+                    || self.expression_types.get(pattern).is_some_and(|node| node.binding.is_some()))
+            });
+        }
+        let Some(targets) = targets.into_iter().collect::<Option<Vec<_>>>() else {
+            return Ok(None);
+        };
+        if targets.iter().copied().collect::<HashSet<_>>().len() < 4 {
+            return Ok(None);
+        }
+        let arm_labels = arms.iter().map(|_| self.label("enum_table_arm")).collect();
+        Ok(Some(EnumJumpTable {
+            minimum,
+            targets,
+            arm_labels,
+            skip_tag_tests,
+        }))
+    }
+
     fn match_expression_with_destination(
         &mut self,
         items: &[Expr],
@@ -11432,7 +11521,35 @@ impl FunctionContext<'_> {
         if payload_slots.is_some() {
             self.push_rax();
         }
-        for arm in &items[2..] {
+        let jump_table = self.enum_jump_table(scrutinee, &items[2..])?;
+        if let Some(plan) = &jump_table {
+            let table = self.label("enum_jump_table");
+            let invalid = self.label("enum_invalid_tag");
+            self.output
+                .push_str(&format!(".section .rodata\n.align 4\n{table}:\n"));
+            for &arm in &plan.targets {
+                self.output
+                    .push_str(&format!("    .long {}-{table}\n", plan.arm_labels[arm]));
+            }
+            self.output
+                .push_str(".text\n    mov rax, QWORD PTR [rsp]\n");
+            if plan.minimum != 0 {
+                // Full-width subtraction also handles ranges near u64::MAX.
+                self.output.push_str(&format!(
+                    "    mov r11, {}\n    sub rax, r11\n",
+                    asm_u64_immediate(plan.minimum)
+                ));
+            }
+            self.output.push_str(&format!(
+                "    cmp rax, {}\n    ja {invalid}\n    lea r11, [rip+{table}]\n    movsxd rax, DWORD PTR [r11+rax*4]\n    add r11, rax\n    jmp r11\n{invalid}:\n    ud2\n",
+                plan.targets.len() - 1
+            ));
+        }
+        for (arm_index, arm) in items[2..].iter().enumerate() {
+            if let Some(plan) = &jump_table {
+                self.output
+                    .push_str(&format!("{}:\n", plan.arm_labels[arm_index]));
+            }
             let (pattern, guard, body) = match_arm_parts(arm)?;
             let next = self.label("match_next");
             let variant_info = match pattern {
@@ -11630,7 +11747,10 @@ impl FunctionContext<'_> {
                 }
                 _ => return Err("invalid scalar match pattern".into()),
             };
-            if let Expr::Symbol(pattern) = pattern {
+            if jump_table.as_ref().is_some_and(|plan| plan.skip_tag_tests) {
+                // The table already selected an unconditional, irrefutable
+                // arm. Do not repeat its discriminant comparison.
+            } else if let Expr::Symbol(pattern) = pattern {
                 if pattern != "_" {
                     if let Some((_, value, _)) = &variant_info {
                         self.output.push_str(&format!(

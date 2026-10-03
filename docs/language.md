@@ -1332,6 +1332,17 @@ Discriminants are assigned from zero, or can be explicitly supplied using a
 numeric value after the variant name.  Variant names are global within a
 program and must be unique.
 
+Native `#match` dispatch uses a bounds-checked jump table for enums with
+4–4096 contiguous discriminants when at least four distinct arms are initial
+targets. Explicit nonzero and full-width tags are supported; declaration and
+arm order need not follow tag order. Entries are signed 32-bit offsets in
+read-only storage, resolved by Lim's own linker. Invalid tags trap before
+indexing the table. Guards and refutable payload patterns retain their ordered
+fallback checks. Small or sparse enums, matches with few destinations, and
+or-patterns keep direct comparison chains. This changes no language semantics,
+and whole-program stack analysis follows every table target.
+See `examples/enum_dispatch.lim` for a runnable payload-dispatch example.
+
 To inspect an enum without extracting its owner or payload, use
 `(#variant-is reference Variant)`. It works through ordinary and pinned,
 shared and exclusive references. The reference is evaluated once; only the
