@@ -401,6 +401,29 @@ impl<'a> RenderContext<'a> {
                 } else {
                     symbol(format!("#{}", operation.head))
                 }
+            } else if index == 1
+                && matches!(operation.head.as_str(), "tuple" | "array" | "array-repeat")
+                && operation.metadata.contains(child)
+            {
+                // Constructors spell their fully resolved checked type. In
+                // particular an alias is not a runtime first argument, and
+                // native aggregate staging must see the concrete shape.
+                let ty = self.node(operation.source)?.ty.as_ref().ok_or_else(|| {
+                    error(
+                        Some(operation.source),
+                        "constructor has no checked result type",
+                    )
+                })?;
+                if !matches!(
+                    (operation.head.as_str(), ty),
+                    ("tuple", Type::Tuple(_)) | ("array" | "array-repeat", Type::Array(..))
+                ) {
+                    return Err(error(
+                        Some(operation.source),
+                        "constructor result shape changed",
+                    ));
+                }
+                type_expr(ty)?
             } else {
                 self.metadata(
                     *child,
@@ -896,6 +919,33 @@ mod tests {
             text(&context.render_pattern(pattern.source, &names).unwrap()),
             "(Some _)"
         );
+    }
+
+    #[test]
+    fn aggregate_constructor_aliases_render_the_checked_concrete_type() {
+        for (ty, constructor, head, canonical) in [
+            ("(#tuple u64 u64)", "#tuple", "tuple", "#tuple"),
+            ("(#array u64 2)", "#array-of", "array", "#array"),
+        ] {
+            let source = format!(
+                "(#type Pair {ty})
+              (#fn make ((a u64) (b u64)) Pair
+                (#return ({constructor} Pair a b)))"
+            );
+            let (declarations, graph) = prepare(&source, "make");
+            let compute = operation(&graph, head);
+            let context =
+                RenderContext::new(&declarations.bodies["make"], &declarations, &graph).unwrap();
+            let rendered = context
+                .render_compute(compute, &stored(compute, "stored"))
+                .unwrap();
+            let rendered = text(&rendered);
+            assert_eq!(rendered, format!("({canonical} {ty} stored0 stored1)"));
+            check(&format!(
+                "{source}
+              (#fn again ((stored0 u64) (stored1 u64)) Pair (#return {rendered}))"
+            ));
+        }
     }
 
     #[test]

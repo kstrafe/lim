@@ -326,7 +326,9 @@ impl<'a> Emitter<'a> {
         // Repetition is allowed only by the ordinary checked type. This is
         // deliberately not an alias representation for exclusive handles or
         // linear payloads. Those must remain stationary until Commit.
-        self.pattern_value(pattern)?;
+        if !commit {
+            self.pattern_value(pattern)?;
+        }
         let value = self.value(pattern.scrutinee, commit);
         let mut names = HashMap::new();
         let mut stores = Vec::new();
@@ -581,7 +583,6 @@ impl<'a> Emitter<'a> {
             }
             Terminator::Diverge => Ok("(#unreachable)".into()),
             Terminator::PatternTest { pattern, yes, no } => {
-                let value = self.pattern_value(pattern)?;
                 // Wildcards test structure/literals without activating an
                 // arm's lexical bindings. Preview or Commit does that later.
                 let names = pattern
@@ -590,13 +591,47 @@ impl<'a> Emitter<'a> {
                     .map(|&binding| (binding, "_".into()))
                     .collect();
                 let source = self.pattern_source(pattern, &names)?;
+                let ty = self.function.graph.values[pattern.scrutinee.0].ty.clone();
+                let test = if self.types.can_repeat(&ty) {
+                    let value = self.pattern_value(pattern)?;
+                    if source == "_" {
+                        "true".into()
+                    } else {
+                        format!("(#match {value} (#case {source} true) (#case _ false))")
+                    }
+                } else {
+                    let slot =
+                        &self.slots[*self.values.get(&pattern.scrutinee).ok_or_else(|| {
+                            fail(self.function, "stationary scrutinee has no owning cell")
+                        })?];
+                    let reference = format!(
+                        "(#pin-get-payload {} {} 0)",
+                        Self::slot_ref(slot, false),
+                        slot.full
+                    );
+                    let reference = crate::parse(&reference)
+                        .map_err(|error| fail(self.function, error.to_string()))?
+                        .remove(0)
+                        .expr;
+                    let source = crate::parse(&source)
+                        .map_err(|error| fail(self.function, error.to_string()))?
+                        .remove(0)
+                        .expr;
+                    let prefix = self.fresh("pattern-inspect");
+                    let test = crate::async_pattern::test(
+                        &self.planning.declarations,
+                        &source,
+                        &ty,
+                        reference,
+                        &prefix,
+                        &mut self.reserved,
+                    )
+                    .map_err(|message| fail(self.function, message))?;
+                    crate::expression_source(&test)
+                        .map_err(|message| fail(self.function, message))?
+                };
                 let yes = self.edge(yes, None)?;
                 let no = self.edge(no, None)?;
-                let test = if source == "_" {
-                    "true".into()
-                } else {
-                    format!("(#match {value} (#case {source} true) (#case _ false))")
-                };
                 Ok(format!(
                     "(#if {test}\n\
                   (#block {yes} (#unreachable)) (#block {no} (#unreachable)))"
@@ -1046,6 +1081,85 @@ mod tests {
     }
 
     #[test]
+    fn linear_enum_patterns_inspect_in_place_then_commit_once() {
+        let generated = runtime(
+            "(#let task Child (Start seed))
+          (#return (#match task
+            (#case (Resume _) 0u64)
+            (#case (Start value) (#u64.+.wrap value
+              (#await Child ChildPending ChildReady child-poll (Start 2u64))))))",
+            RUN,
+            42,
+        );
+        assert!(generated[0].source.contains("#variant-is"));
+        assert!(generated[0].source.contains("pattern-inspect"));
+    }
+
+    #[test]
+    fn linear_nested_aggregate_patterns_only_load_copy_leaves() {
+        let main = format!(
+            "(#struct Leaf ((number u64) (enabled bool))) (#linear Leaf)
+          (#struct Container ((leaf Leaf) (items (#array u64 2)))) (#linear Container)
+          (#enum Owned ((Packed Container) Absent)) (#linear Owned)
+          {RUN}"
+        );
+        runtime(
+            "(#let owned Owned (Packed (#struct-literal Container
+              (: leaf (#struct-literal Leaf (: number seed : enabled true))
+               : items (#array-of (#array u64 2) 1u64 2u64)))))
+          (#return (#match owned
+            (#case Absent 0u64)
+            (#case (Packed (Container (Leaf value true) (#array 1u64 2u64)))
+              (#u64.+.wrap value (#await Child ChildPending ChildReady child-poll (Start 2u64))))
+            (#case _ 3u64)))",
+            &main,
+            42,
+        );
+    }
+
+    #[test]
+    fn linear_tuple_destructuring_and_if_let_commit_after_inspection() {
+        runtime(
+            "(#let tuple (#tuple Child u64)
+              (#tuple (#tuple Child u64) (Start seed) 2u64))
+          (#let (#tuple child bias) (#tuple Child u64) tuple)
+          (#return (#if-let (Start value) child
+            (#u64.+.wrap bias (#await Child ChildPending ChildReady child-poll (Start value)))
+            0u64))",
+            RUN,
+            42,
+        );
+    }
+
+    #[test]
+    fn rejected_linear_tests_retain_owners_and_short_circuit_payload_access() {
+        let main = format!("(#type OwnedTuple (#tuple Child u64)) {RUN}");
+        for (number, expected) in [(3u64, 42), (8, 42), (9, 41)] {
+            runtime(
+                &format!(
+                    "(#let owner OwnedTuple
+                  (#tuple OwnedTuple (Start seed) {number}u64))
+                (#return (#match owner
+                  (#case (#tuple _ (#or (#range 2u64 4u64) 8u64))
+                    (#await Child ChildPending ChildReady child-poll (Start 42u64)))
+                  (#case _ (#await Child ChildPending ChildReady child-poll (Start 41u64)))))"
+                ),
+                &main,
+                expected,
+            );
+        }
+        runtime(
+            "(#let owner Child (Start seed))
+          (#return (#match owner
+            (#case (Resume 9u64) 0u64)
+            (#case (Start 39u64) 1u64)
+            (#case _ (#await Child ChildPending ChildReady child-poll (Start 42u64)))))",
+            RUN,
+            42,
+        );
+    }
+
+    #[test]
     fn unsupported_storage_modes_fail_before_proposing_unsafe_code() {
         let planning = prepare(
             "
@@ -1064,8 +1178,10 @@ mod tests {
             "
           (#let task Child (Start seed))
           (#return (#match task (#case (Start value)
+            (#when (#bool.! (#u64.==
+              (#await Child ChildPending ChildReady child-poll (Start 0u64)) 1u64)))
             (#await Child ChildPending ChildReady child-poll (Start value)))
-            (#case (Resume value) value)))",
+            (#case (Resume value) value) (#case _ 0u64)))",
             RUN,
         );
         let error = generate(&planning).err().unwrap();

@@ -15,6 +15,7 @@ mod async_emit;
 mod async_exec;
 mod async_fn;
 mod async_interfaces;
+mod async_pattern;
 mod async_prepare;
 mod async_render;
 mod async_source;
