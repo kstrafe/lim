@@ -343,10 +343,20 @@ impl<'a> Emitter<'a> {
             } else {
                 format!("(#forget {old})")
             };
+            // Check the tag before extracting a pinned owner. Even an invalid
+            // dispatcher state must not move an occupied, potentially borrowed
+            // payload and only then discover that initialization was illegal.
+            let cell = self.fresh("stored-cell");
+            let empty_guard = if slot.linear {
+                format!("(#assert (#variant-is {cell} {}))", slot.empty)
+            } else {
+                String::new()
+            };
             return format!(
                 "(#block
                   (#let {incoming} {ty} {value})
                   (#let {cell} (#pin-ref-mut {name}) {reference})
+                  {empty_guard}
                   (#let {previous} {name} (#unsafe (#pin-read {cell})))
                   (#match {previous}
                     (#case {empty} ())
@@ -357,7 +367,7 @@ impl<'a> Emitter<'a> {
                   (#drop {cell}) ())",
                 incoming = self.fresh("stored-value"),
                 ty = crate::type_source(&slot.ty),
-                cell = self.fresh("stored-cell"),
+                cell = cell,
                 name = slot.name,
                 reference = Self::slot_ref(slot, true),
                 previous = self.fresh("stored-storage"),
@@ -397,6 +407,9 @@ impl<'a> Emitter<'a> {
                 // invented destructor for a live owner. It traps explicitly.
                 "(#block (#forget occupied) (#assert false))"
             } else { "(#forget occupied)" };
+            let empty_guard = if slot.linear {
+                format!("(#assert (#variant-is slot {}))", slot.empty)
+            } else { String::new() };
             let peek = if slot.copy {
                 format!("(#fn {} ((slot (#pin-ref {}))) {ty}\n  (#return (#deref (#pin-get-payload slot {} 0))))", slot.peek, slot.name, slot.full)
             } else { String::new() };
@@ -446,6 +459,7 @@ impl<'a> Emitter<'a> {
                   (#case {empty} (#unreachable))\n\
                   (#case ({full} value) value))))\n\
               (#fn {put} ((slot (#pin-ref-mut {name})) (value {ty})) ()\n\
+                {empty_guard}\n\
                 (#let previous {name} (#unsafe (#pin-read slot)))\n\
                 (#unsafe (#pin-write slot ({empty})))\n\
                 (#match previous (#case {empty} ()) (#case ({full} occupied) {occupied}))\n\
@@ -1910,6 +1924,19 @@ mod tests {
         generated: Vec<Generated>,
         expected: i32,
     ) -> Vec<Generated> {
+        runtime_generated_outcome(planning, generated, NativeOutcome::Exit(expected))
+    }
+
+    enum NativeOutcome {
+        Exit(i32),
+        Signal(i32),
+    }
+
+    fn runtime_generated_outcome(
+        planning: Planning,
+        generated: Vec<Generated>,
+        expected: NativeOutcome,
+    ) -> Vec<Generated> {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         for output in &generated {
             assert_eq!(
@@ -1971,12 +1998,18 @@ mod tests {
             std::thread::sleep(Duration::from_millis(5));
         };
         fs::remove_file(&binary).unwrap();
-        assert_eq!(
-            status.code(),
-            Some(expected),
-            "{status:?}\n{}",
-            generated[0].source
-        );
+        match expected {
+            NativeOutcome::Exit(expected) => assert_eq!(
+                status.code(),
+                Some(expected),
+                "{status:?}\n{}",
+                generated[0].source
+            ),
+            NativeOutcome::Signal(expected) => {
+                use std::os::unix::process::ExitStatusExt;
+                assert_eq!(status.signal(), Some(expected), "{status:?}");
+            }
+        }
         generated
     }
 
@@ -1989,6 +2022,86 @@ mod tests {
             (#case (Pending next) (#block (#set task next) ()))
             (#case (Ready value) (#block (#return value) (#unreachable)))))
         (#return (#unreachable)))";
+
+    #[test]
+    fn owning_cell_initializers_check_empty_before_extracting_pinned_storage() {
+        let planning = prepare(
+            "(#let child Child (Start seed)) (#forget child) (#return seed)",
+            "(#struct RefOwner (: view (#ref-mut u64))) (#linear RefOwner)
+             (#fn main () u64 (#return 0u64))",
+        );
+        let mut emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let owner = emitter
+            .slots
+            .iter()
+            .find(|slot| slot.ty == Type::Named("Child".into()))
+            .unwrap();
+        let put_name = owner.put.clone();
+        let empty = owner.empty.clone();
+        let source = emitter.slot_definitions();
+        let function = source.split(&format!("(#fn {put_name} ")).nth(1).unwrap();
+        let guard = function
+            .find(&format!("(#assert (#variant-is slot {empty}))"))
+            .unwrap();
+        assert!(guard < function.find("(#pin-read slot)").unwrap());
+
+        // The inline path stages an owned reference-containing value first,
+        // but must guard its destination before the destructive read as well.
+        let slot = emitter.add_slot("test-owner".into(), Type::Named("RefOwner".into()));
+        let inline = emitter.put(slot, "incoming-reference");
+        let guard = inline.find("(#assert (#variant-is ").unwrap();
+        assert!(inline.find("incoming-reference").unwrap() < guard);
+        assert!(guard < inline.find("(#pin-read ").unwrap());
+
+        let copy = emitter
+            .slots
+            .iter()
+            .find(|slot| slot.ty == Type::U64)
+            .unwrap();
+        let function = source.split(&format!("(#fn {} ", copy.put)).nth(1).unwrap();
+        let function = function.split("(#fn ").next().unwrap();
+        assert!(
+            !function.contains("(#assert (#variant-is"),
+            "Copy assignments remain overwritable"
+        );
+    }
+
+    #[test]
+    fn owning_cell_initializers_trap_on_full_and_accept_empty() {
+        for occupied in [false, true] {
+            let body = "(#let child Child (Start seed)) (#forget child) (#return seed)";
+            let initial = prepare(body, "(#fn main () u64 (#return 0u64))");
+            let emitter = Emitter::new(&initial, &initial.functions[0]).unwrap();
+            let slot = emitter
+                .slots
+                .iter()
+                .find(|slot| slot.ty == Type::Named("Child".into()))
+                .unwrap();
+            let constructor = if occupied {
+                format!("({} (Start 1u64))", slot.full)
+            } else {
+                format!("({})", slot.empty)
+            };
+            let main = format!("(#fn main () u64
+              (#let-mut cell {name} {constructor})
+              (#call {put} (: slot (#pin-borrow-mut cell) : value (Start 42u64)))
+              (#let value Child (#unsafe (#call {take} (: slot (#pin-borrow-mut cell)))))
+              (#forget cell)
+              (#return (#match value (#case (Start answer) answer) (#case (Resume answer) answer))))",
+              name=slot.name, put=slot.put, take=slot.take);
+            let planning = prepare(body, &main);
+            let generated = generate(&planning).unwrap();
+            runtime_generated_outcome(
+                planning,
+                generated,
+                if occupied {
+                    NativeOutcome::Signal(4)
+                } else {
+                    NativeOutcome::Exit(42)
+                },
+            );
+        }
+    }
 
     #[test]
     fn dispatcher_executes_nested_branches_and_loops_across_pending() {
