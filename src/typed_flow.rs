@@ -1064,6 +1064,54 @@ impl FlowLoanOrigins {
         }
     }
 
+    /// Resolve the entire callee may-mutate footprint. An unresolved input
+    /// (including a load through borrowed reference-bearing storage) is not
+    /// evidence that nothing changes: it invalidates the whole tag table.
+    fn call_tag_mutations(
+        &self,
+        body: &Body,
+        flow: &FlowGraph,
+        event: FlowNodeId,
+        value: NodeId,
+    ) -> Option<Vec<LoanOrigin>> {
+        let NodeKind::Form {
+            callee: Some(callee),
+            children,
+            ..
+        } = &body.nodes[value.0].kind
+        else {
+            return None;
+        };
+        if body.call_preserves_variant_tags.contains(callee) {
+            return Some(Vec::new());
+        }
+        let summaries = body.call_tag_mutations.get(callee)?;
+        let state = self.before[event.0].as_ref()?;
+        let mut targets = Vec::new();
+        for summary in summaries {
+            // Global effects stay opaque even when their symbol is known.
+            if summary.global.is_some() {
+                return None;
+            }
+            let argument = *children.get(summary.parameter + 1)?;
+            let selected = value_loan_origins_at_events(
+                body,
+                flow,
+                LoanSnapshots::new(&self.before, &self.events_by_value),
+                argument,
+                state,
+            )
+            .into_iter()
+            .flat_map(|origin| apply_parameter_loan_summary(origin, summary, state))
+            .collect::<Vec<_>>();
+            if !one_concrete_store_destination(&selected) {
+                return None;
+            }
+            merge_loan_origins(&mut targets, &selected);
+        }
+        Some(targets)
+    }
+
     /// Actual direct or substituted callee stores at this reachable event.
     pub fn stores_before(
         &self,
@@ -1702,61 +1750,145 @@ impl FlowGraph {
                 FlowAction::Assign { .. }
                 | FlowAction::Release { .. }
                 | FlowAction::Clone { .. } => false,
-                FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
-                    NodeKind::Form {
-                        head,
-                        children,
-                        numeric,
-                        callee,
-                        ..
-                    } => {
-                        if let Some(callee) = callee {
-                            return callees.contains(callee);
-                        }
-                        numeric.is_some()
-                            || writes_only_scalar_storage(body, value)
-                            || children.first().is_some_and(|head| {
-                                matches!(
-                                    body.nodes[head.0].kind,
-                                    NodeKind::Declaration(
-                                        DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
-                                    )
-                                )
-                            })
-                            || matches!(
-                                head.as_str(),
-                                "" | "tuple"
-                                    | "array"
-                                    | "array-of"
-                                    | "array-repeat"
-                                    | "slice-of"
-                                    | "slice-len"
-                                    | "#variant-is"
-                                    | "slice-idx"
-                                    | "deref"
-                                    | "get"
-                                    | "get-payload"
-                                    | "index"
-                                    | "assert"
-                                    | "borrow"
-                                    | "borrow-mut"
-                                    | "pin-borrow"
-                                    | "pin-borrow-mut"
-                                    | "unsafe"
-                                    | "atomic-load"
-                                    | "atomic-fence"
-                            )
-                    }
-                    NodeKind::Literal(_)
-                    | NodeKind::Symbol { .. }
-                    | NodeKind::If { .. }
-                    | NodeKind::Match { .. }
-                    | NodeKind::Block(_)
-                    | NodeKind::Labeled(_, _) => true,
-                    _ => false,
-                },
+                FlowAction::Evaluate(value) => tag_preserving_evaluation(body, value, callees),
                 _ => true,
             })
+    }
+
+    /// Complete possible tag effects on caller-owned storage. Unlike final
+    /// store summaries, this includes destructive reads and writes on paths
+    /// that do not produce a known final value. Unknown effects fail closed.
+    pub fn parameter_tag_mutations(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> Option<Vec<crate::typed_body::ParameterLoanSummary>> {
+        let mut result = Vec::new();
+        let mut record = |targets: Vec<LoanOrigin>| -> Option<()> {
+            for target in targets {
+                if target.lifetime_only || !target.storage.is_empty() {
+                    return None;
+                }
+                match target.place.root {
+                    PlaceRoot::Global(_) => return None,
+                    PlaceRoot::Local(_) => {}
+                    PlaceRoot::Parameter(_) => {
+                        let summary = target.parameter_summary()?;
+                        if !result.contains(&summary) {
+                            result.push(summary);
+                        }
+                    }
+                }
+            }
+            Some(())
+        };
+        for event in self.reachable() {
+            match &self.nodes[event.0].action {
+                FlowAction::Assign { place, .. } => {
+                    let PlaceRoot::Local(binding) = place.root else {
+                        return None;
+                    };
+                    // Whole local handle replacement does not mutate its
+                    // pointee. Indirect assignment must use a checked write.
+                    if !place.segments.is_empty()
+                        && matches!(
+                            body.bindings[binding.0].ty,
+                            Type::Reference { .. } | Type::PinnedReference { .. }
+                        )
+                    {
+                        return None;
+                    }
+                }
+                FlowAction::Release { place, value } => {
+                    if !matches!(place.root, PlaceRoot::Local(_)) {
+                        return None;
+                    }
+                    if !releases_reference_handle(body, *value) {
+                        let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                            return None;
+                        };
+                        let state = origins.before[event.0].as_ref()?;
+                        let targets = released_reference_destinations(
+                            body,
+                            self,
+                            LoanSnapshots::new(&origins.before, &origins.events_by_value),
+                            children[1],
+                            state,
+                        );
+                        // Local destruction is confined to the local owner.
+                        // A borrowed projection must have a resolved address.
+                        if reads_through_reference(body, children[1])
+                            && !one_concrete_store_destination(&targets)
+                        {
+                            return None;
+                        }
+                        record(targets)?;
+                    }
+                }
+                FlowAction::Clone { .. } => return None,
+                FlowAction::Write { value, .. } | FlowAction::Evaluate(value) => {
+                    let node = &body.nodes[value.0];
+                    if let NodeKind::Form {
+                        head,
+                        children,
+                        callee,
+                        ..
+                    } = &node.kind
+                    {
+                        if callee.is_some() {
+                            record(origins.call_tag_mutations(body, self, event, *value)?)?;
+                            continue;
+                        }
+                        if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 {
+                            if !releases_reference_handle(body, *value) {
+                                let state = origins.before[event.0].as_ref()?;
+                                let targets = released_reference_destinations(
+                                    body,
+                                    self,
+                                    LoanSnapshots::new(&origins.before, &origins.events_by_value),
+                                    children[1],
+                                    state,
+                                );
+                                if reads_through_reference(body, children[1])
+                                    && !one_concrete_store_destination(&targets)
+                                {
+                                    return None;
+                                }
+                                record(targets)?;
+                            }
+                            continue;
+                        }
+                        if (matches!(head.as_str(), "deref-set" | "pin-write")
+                            && children.len() == 3)
+                            || (head == "pin-set-field" && children.len() == 4)
+                            || (head == "pin-read" && children.len() == 2)
+                        {
+                            let mut targets = origins.value_before(body, self, event, children[1]);
+                            if head == "pin-set-field" {
+                                let NodeKind::Declaration(DeclarationId::Field(field)) =
+                                    body.nodes[children[2].0].kind
+                                else {
+                                    return None;
+                                };
+                                for target in &mut targets {
+                                    target.place.segments.push(Segment::Field(field));
+                                }
+                            }
+                            if !one_concrete_store_destination(&targets) {
+                                return None;
+                            }
+                            record(targets)?;
+                            continue;
+                        }
+                    }
+                    if !tag_preserving_evaluation(body, *value, &body.call_preserves_variant_tags) {
+                        return None;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Some(result)
     }
 
     fn variant_facts_with_origins(
@@ -1890,13 +2022,18 @@ impl FlowGraph {
                         }
                     }
                 }
-                FlowAction::Release { place: target, .. } => {
+                FlowAction::Release {
+                    place: target,
+                    value,
+                } => {
                     state.retain(|place, _| !target.overlaps(place));
-                    if let PlaceRoot::Local(binding) = target.root {
-                        for referent in
-                            origins.projected_referents(event, binding, &target.segments)
-                        {
-                            state.retain(|place, _| !referent.overlaps(place));
+                    if !releases_reference_handle(body, *value) {
+                        if let PlaceRoot::Local(binding) = target.root {
+                            for referent in
+                                origins.projected_referents(event, binding, &target.segments)
+                            {
+                                state.retain(|place, _| !referent.overlaps(place));
+                            }
                         }
                     }
                 }
@@ -1907,7 +2044,7 @@ impl FlowGraph {
                     });
                 }
                 FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
-                    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, children, .. }
+                    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, children, callee: None, .. }
                         if (matches!(head.as_str(), "deref-set" | "pin-write") && children.len() == 3)
                             || (head == "pin-set-field" && children.len() == 4)) =>
                 {
@@ -1949,9 +2086,18 @@ impl FlowGraph {
                 FlowAction::Write { .. } => state.clear(),
                 FlowAction::Evaluate(value)
                     if matches!(&body.nodes[value.0].kind,
-                    NodeKind::Form { head, .. } if head == "pin-read") =>
+                    NodeKind::Form { head, children, callee: None, .. } if head == "pin-read" && children.len() == 2) =>
                 {
-                    state.clear()
+                    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                        unreachable!()
+                    };
+                    let targets = origins.value_before(body, self, event, children[1]);
+                    if one_concrete_store_destination(&targets) {
+                        let target = targets[0].referent_place();
+                        state.retain(|known, _| !target.overlaps(known));
+                    } else {
+                        state.clear();
+                    }
                 }
                 FlowAction::Evaluate(value)
                     if matches!(
@@ -1962,11 +2108,14 @@ impl FlowGraph {
                         }
                     ) =>
                 {
-                    let preserves = matches!(&body.nodes[value.0].kind,
-                        NodeKind::Form { callee: Some(callee), .. }
-                            if body.call_preserves_variant_tags.contains(callee));
-                    if !preserves {
-                        state.clear();
+                    match origins.call_tag_mutations(body, self, event, *value) {
+                        Some(targets) => {
+                            for target in targets {
+                                let target = target.referent_place();
+                                state.retain(|known, _| !target.overlaps(known));
+                            }
+                        }
+                        None => state.clear(),
                     }
                     for store in origins.stores_before(body, self, event) {
                         apply_store_variant_facts(&mut state, &store);
@@ -2165,22 +2314,77 @@ impl FlowGraph {
                             .booleans
                             .retain(|binding, _| !bindings.contains(binding));
                     }
-                    FlowAction::Release { place, .. } => {
+                    FlowAction::Release { place, value } => {
                         state.retain(|known, _| !place.overlaps(known));
-                        if let PlaceRoot::Local(binding) = place.root {
-                            for referent in
-                                origins.projected_referents(event, binding, &place.segments)
-                            {
-                                state.retain(|known, _| !referent.overlaps(known));
+                        if !releases_reference_handle(body, *value) {
+                            if let PlaceRoot::Local(binding) = place.root {
+                                for referent in
+                                    origins.projected_referents(event, binding, &place.segments)
+                                {
+                                    state.retain(|known, _| !referent.overlaps(known));
+                                }
                             }
                         }
                     }
+                    FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
+                        if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, children, callee: None, .. }
+                        if (matches!(head.as_str(), "deref-set" | "pin-write") && children.len() == 3)
+                            || (head == "pin-set-field" && children.len() == 4)) =>
+                    {
+                        let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind
+                        else {
+                            unreachable!()
+                        };
+                        let mut targets = origins.value_before(body, self, event, children[1]);
+                        let source = if head == "pin-set-field" {
+                            let NodeKind::Declaration(DeclarationId::Field(field)) =
+                                body.nodes[children[2].0].kind
+                            else {
+                                unreachable!()
+                            };
+                            for target in &mut targets {
+                                target.place.segments.push(Segment::Field(field));
+                            }
+                            children[3]
+                        } else {
+                            children[2]
+                        };
+                        if one_concrete_store_destination(&targets) {
+                            let target = targets[0].referent_place();
+                            let incoming =
+                                value_storage_variant_bounds(body, source, &state, context);
+                            replace_storage_variant_bounds(&mut state, &target, incoming);
+                        } else {
+                            state.clear();
+                        }
+                    }
                     FlowAction::Write { .. } => state.clear(),
+                    FlowAction::Evaluate(value) if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, children, callee: None, .. } if head == "pin-read" && children.len() == 2) =>
+                    {
+                        let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                            unreachable!()
+                        };
+                        let targets = origins.value_before(body, self, event, children[1]);
+                        if one_concrete_store_destination(&targets) {
+                            let target = targets[0].referent_place();
+                            state.retain(|known, _| !target.overlaps(known));
+                        } else {
+                            state.clear();
+                        }
+                    }
                     FlowAction::Evaluate(value) => {
                         if let NodeKind::Form { head, callee, .. } = &body.nodes[value.0].kind {
-                            if callee.is_some_and(|callee| {
-                                !body.call_preserves_variant_tags.contains(&callee)
-                            }) || matches!(
+                            if callee.is_some() {
+                                match origins.call_tag_mutations(body, self, event, *value) {
+                                    Some(targets) => {
+                                        for target in targets {
+                                            let target = target.referent_place();
+                                            state.retain(|known, _| !target.overlaps(known));
+                                        }
+                                    }
+                                    None => state.clear(),
+                                }
+                            } else if matches!(
                                 head.as_str(),
                                 "pin-read"
                                     | "pin-write"
@@ -9552,7 +9756,13 @@ fn dereferenced_value_places(
     value: NodeId,
     origins: &FlowLoanOrigins,
 ) -> Option<Vec<Place>> {
-    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+    let NodeKind::Form {
+        head,
+        children,
+        callee: None,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
         return None;
     };
     if !((matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2)
@@ -9575,6 +9785,38 @@ fn dereferenced_value_places(
         }
     }
     Some(places)
+}
+
+/// Physical owned storage supplying a checked read. Pin reads are values,
+/// not syntactic places; resolve their evaluated receiver's provenance.
+fn variant_value_sources(
+    body: &Body,
+    value: NodeId,
+    context: Option<(&FlowGraph, &FlowLoanOrigins, FlowNodeId)>,
+) -> Option<Vec<Place>> {
+    if matches!(&body.nodes[value.0].kind,
+        NodeKind::Form { head, children, callee: None, .. }
+            if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2)
+    {
+        if let Some((flow, origins, event)) = context {
+            if let Some(places) = dereferenced_value_places(body, flow, event, value, origins) {
+                return Some(places);
+            }
+        }
+    }
+    let source = Place::from_expression(body, value)?;
+    Some(
+        if source.segments.contains(&Segment::Dereference) || reads_through_reference(body, value) {
+            match (context, source.root) {
+                (Some((_, origins, event)), PlaceRoot::Local(binding)) => {
+                    origins.projected_referents(event, binding, &source.segments)
+                }
+                _ => Vec::new(),
+            }
+        } else {
+            vec![source]
+        },
+    )
 }
 
 fn apply_parameter_loan_summary(
@@ -11247,8 +11489,93 @@ fn inactive_variant_slot(
     false
 }
 
+fn releases_reference_handle(body: &Body, value: NodeId) -> bool {
+    let target = match &body.nodes[value.0].kind {
+        NodeKind::Form {
+            head,
+            children,
+            callee: None,
+            ..
+        } if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 => children[1],
+        _ => value,
+    };
+    matches!(
+        body.nodes[target.0].ty,
+        Some(Type::Reference { .. } | Type::PinnedReference { .. })
+    )
+}
+
+fn tag_preserving_evaluation(
+    body: &Body,
+    value: NodeId,
+    callees: &HashSet<crate::typed_ir::FunctionId>,
+) -> bool {
+    match &body.nodes[value.0].kind {
+        NodeKind::Form {
+            head,
+            children,
+            numeric,
+            callee,
+            ..
+        } => {
+            if let Some(callee) = callee {
+                return callees.contains(callee);
+            }
+            numeric.is_some()
+                || writes_only_scalar_storage(body, value)
+                || children.first().is_some_and(|head| {
+                    matches!(
+                        body.nodes[head.0].kind,
+                        NodeKind::Declaration(
+                            DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
+                        )
+                    )
+                })
+                || matches!(
+                    head.as_str(),
+                    "" | "tuple"
+                        | "literal"
+                        | "array"
+                        | "array-of"
+                        | "array-repeat"
+                        | "slice-of"
+                        | "slice-len"
+                        | "#variant-is"
+                        | "slice-idx"
+                        | "deref"
+                        | "get"
+                        | "get-payload"
+                        | "pin-get-payload"
+                        | "pin-get-payload-mut"
+                        | "index"
+                        | "assert"
+                        | "borrow"
+                        | "borrow-mut"
+                        | "pin-borrow"
+                        | "pin-borrow-mut"
+                        | "unsafe"
+                        | "atomic-load"
+                        | "atomic-fence"
+                )
+        }
+        NodeKind::Literal(_)
+        | NodeKind::Symbol { .. }
+        | NodeKind::If { .. }
+        | NodeKind::Match { .. }
+        | NodeKind::Block(_)
+        | NodeKind::Labeled(_, _) => true,
+        _ => false,
+    }
+}
+
 fn writes_only_scalar_storage(body: &Body, value: NodeId) -> bool {
-    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+    let NodeKind::Form {
+        head,
+        children,
+        callee: None,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
         return false;
     };
     let source = match head.as_str() {
@@ -11401,19 +11728,7 @@ fn value_storage_variant_bounds(
         }
         return common.unwrap_or_default();
     }
-    if let Some(source) = Place::from_expression(body, value) {
-        let sources = if source.segments.contains(&Segment::Dereference)
-            || reads_through_reference(body, value)
-        {
-            match source.root {
-                PlaceRoot::Local(binding) => {
-                    origins.projected_referents(event, binding, &source.segments)
-                }
-                _ => Vec::new(),
-            }
-        } else {
-            vec![source]
-        };
+    if let Some(sources) = variant_value_sources(body, value, Some((flow, origins, event))) {
         let mut common = None;
         for source in sources {
             let incoming = state
@@ -11703,17 +12018,11 @@ fn value_variant_facts(
     ) {
         return HashMap::new();
     }
-    if let Some(source) = Place::from_expression(body, value) {
-        let sources = if reads_through_reference(body, value) {
-            match (context, source.root) {
-                (Some((_, origins, event, _)), PlaceRoot::Local(binding)) => {
-                    origins.projected_referents(event, binding, &source.segments)
-                }
-                _ => Vec::new(),
-            }
-        } else {
-            vec![source]
-        };
+    if let Some(sources) = variant_value_sources(
+        body,
+        value,
+        context.map(|(flow, origins, event, _)| (flow, origins, event)),
+    ) {
         let mut common: Option<HashMap<Place, VariantId>> = None;
         for source in sources {
             let selected = state
@@ -12555,9 +12864,12 @@ impl Builder<'_> {
                 );
                 self.expression(children[1], start, targets, None)
             }
-            NodeKind::Form { head, children, .. }
-                if matches!(head.as_str(), "deref-set" | "pin-write") && children.len() == 3 =>
-            {
+            NodeKind::Form {
+                head,
+                children,
+                callee: None,
+                ..
+            } if matches!(head.as_str(), "deref-set" | "pin-write") && children.len() == 3 => {
                 let action = Place::from_dereference_write(self.body, children[1]).map_or(
                     FlowAction::Evaluate(id),
                     |place| FlowAction::Write { place, value: id },
@@ -12566,9 +12878,12 @@ impl Builder<'_> {
                 let value = self.expression(children[2], done, targets, None)?;
                 self.expression(children[1], value, targets, None)
             }
-            NodeKind::Form { head, children, .. }
-                if head == "pin-set-field" && children.len() == 4 =>
-            {
+            NodeKind::Form {
+                head,
+                children,
+                callee: None,
+                ..
+            } if head == "pin-set-field" && children.len() == 4 => {
                 let action = Place::from_pin_field_write(self.body, children[1], children[2])
                     .map_or(FlowAction::Evaluate(id), |place| FlowAction::Write {
                         place,
@@ -12578,7 +12893,12 @@ impl Builder<'_> {
                 let value = self.expression(children[3], done, targets, None)?;
                 self.expression(children[1], value, targets, None)
             }
-            NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
+            NodeKind::Form {
+                head,
+                children,
+                callee: None,
+                ..
+            } if head == "clone" && children.len() == 2 => {
                 let action = Place::from_expression(self.body, children[1]).map_or(
                     FlowAction::Evaluate(id),
                     |place| FlowAction::Clone { value: id, place },
@@ -12586,9 +12906,12 @@ impl Builder<'_> {
                 let done = self.push(action, span, vec![next]);
                 self.expression(children[1], done, targets, None)
             }
-            NodeKind::Form { head, children, .. }
-                if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 =>
-            {
+            NodeKind::Form {
+                head,
+                children,
+                callee: None,
+                ..
+            } if matches!(head.as_str(), "drop" | "forget") && children.len() == 2 => {
                 let action = Place::from_expression(self.body, children[1])
                     .filter(|place| matches!(place.root, PlaceRoot::Local(_)))
                     .map_or(FlowAction::Evaluate(id), |place| FlowAction::Release {
@@ -15211,6 +15534,311 @@ mod tests {
             assert_eq!(held.len(), 1, "{name}");
             let span = held[0].span.unwrap();
             assert_eq!(&source[span.start..span.end], expected);
+        }
+    }
+
+    #[test]
+    fn confined_tag_mutations_preserve_disjoint_storage_and_read_snapshots() {
+        let source = "(#enum Cell ((Empty) (Full (#ref u64)))) (#linear Cell)
+          (#enum Number ((Vacant) (Occupied u64))) (#linear Number)
+          (#fn clear (: slot (#pin-ref-mut Number)) ()
+            (#let previous Number (#unsafe (#pin-read slot)))
+            (#match previous (#case Vacant ())
+              (#case (Occupied value) (#forget value)))
+            (#unsafe (#pin-write slot (Vacant))) (#return ()))
+          (#fn forward (: slot (#pin-ref-mut Number)) ()
+            (#call clear (: slot slot)) (#return ()))
+          (#fn main () ()
+            (#let-mut cell Cell (Empty))
+            (#let-mut number Number (Occupied 42u64))
+            (#call forward (: slot (#pin-borrow-mut number)))
+            (#let cell-slot (#pin-ref-mut Cell) (#pin-borrow-mut cell))
+            (#let previous Cell (#unsafe (#pin-read cell-slot)))
+            (#forget previous)
+            (#unsafe (#pin-write cell-slot (Empty)))
+            (#drop cell-slot)
+            (#forget cell) (#forget number) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap();
+        let mut declarations =
+            crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        for staged in [false, true] {
+            if staged {
+                declarations.staged_parameter_contents_summaries();
+            }
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let origins = flow.loan_origins(body);
+            let forward = declarations.function_id("forward").unwrap();
+            assert_eq!(body.call_tag_mutations[&forward].len(), 1);
+            assert!(!body.call_preserves_variant_tags.contains(&forward));
+            let previous = BindingId(
+                body.bindings
+                    .iter()
+                    .position(|b| b.name == "previous")
+                    .unwrap(),
+            );
+            let cell = BindingId(body.bindings.iter().position(|b| b.name == "cell").unwrap());
+            let bind = flow.nodes.iter().position(|node|
+                matches!(node.action, FlowAction::Bind { binding, .. } if binding == previous)).unwrap();
+            let facts = flow.variant_facts_with_origins(body, &origins);
+            let empty = declarations
+                .variant_id(&Type::Named("Cell".into()), "Empty")
+                .unwrap();
+            assert_eq!(
+                facts[bind]
+                    .as_ref()
+                    .unwrap()
+                    .get(&Place::root(PlaceRoot::Local(cell))),
+                None,
+                "pin-read must invalidate its source, not keep a stale tag"
+            );
+            let FlowAction::Bind { value, .. } = flow.nodes[bind].action else {
+                unreachable!()
+            };
+            let captured = value_variant_facts(
+                body,
+                value,
+                facts[bind].as_ref().unwrap(),
+                Some((flow, &origins, FlowNodeId(bind), &facts)),
+            );
+            assert_eq!(
+                captured.get(&Place::root(PlaceRoot::Local(BindingId(0)))),
+                Some(&empty),
+                "the moved value retains the pre-read Empty tag"
+            );
+            flow.prepare_storage_variant_bounds(body, &origins);
+            let bounds = value_variant_bounds(
+                body,
+                value,
+                facts[bind].as_ref().unwrap(),
+                Some((flow, &origins, FlowNodeId(bind), &facts)),
+            );
+            assert_eq!(bounds.get(&vec![]), Some(&HashSet::from([empty])));
+        }
+    }
+
+    #[test]
+    fn dropping_a_reference_handle_preserves_its_pointee_tag() {
+        for (reference, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
+            let source = format!(
+                "(#enum Choice ((Empty) (Full u64)))
+              (#fn main () ()
+                (#let cell Choice (Empty))
+                (#let view ({reference} Choice) ({borrow} cell))
+                (#drop view) (#forget cell) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let declarations = checked.declarations();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let facts = flow.variant_facts(body);
+            let release = flow
+                .nodes
+                .iter()
+                .position(|node| {
+                    matches!(node.action, FlowAction::Release { value, .. }
+                    if releases_reference_handle(body, value))
+                })
+                .unwrap();
+            let next = flow.nodes[release].successors[0];
+            let cell = BindingId(body.bindings.iter().position(|b| b.name == "cell").unwrap());
+            let empty = declarations
+                .variant_id(&Type::Named("Choice".into()), "Empty")
+                .unwrap();
+            assert_eq!(
+                facts[next.0]
+                    .as_ref()
+                    .unwrap()
+                    .get(&Place::root(PlaceRoot::Local(cell))),
+                Some(&empty)
+            );
+        }
+    }
+
+    #[test]
+    fn opaque_and_ambiguous_tag_effects_still_invalidate_everything() {
+        for effect in [
+            "(#extern-fn #abi-c mutate (: slot (#pin-ref-mut Choice)) ())",
+            "(#fn mutate (: slot (#pin-ref-mut Choice)) ()
+                (#let ignored i64 (#unsafe (#linux-syscall i64 39usize ()))) (#return ()))",
+            "(#static global Choice (Empty))
+              (#fn mutate (: slot (#pin-ref-mut Choice)) ()
+                (#unsafe (#forget global)) (#return ()))",
+        ] {
+            let source = format!(
+                "(#enum Choice ((Empty) (Full u64))) {effect}
+              (#fn main () ()
+                (#let-mut cell Choice (Empty)) (#let-mut target Choice (Empty))
+                (#unsafe (#call mutate (: slot (#pin-borrow-mut target))))
+                (#forget cell) (#forget target) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let callee = declarations.function_id("mutate").unwrap();
+            assert!(!body.call_tag_mutations.contains_key(&callee));
+            let call = flow.nodes.iter().position(|node|
+                matches!(node.action, FlowAction::Evaluate(value)
+                    if matches!(body.nodes[value.0].kind, NodeKind::Form { callee: Some(found), .. } if found == callee))).unwrap();
+            let facts = flow.variant_facts(body);
+            let cell = BindingId(body.bindings.iter().position(|b| b.name == "cell").unwrap());
+            assert!(!facts[flow.nodes[call].successors[0].0]
+                .as_ref()
+                .unwrap()
+                .contains_key(&Place::root(PlaceRoot::Local(cell))));
+        }
+    }
+
+    #[test]
+    fn tag_mutations_follow_references_loaded_from_borrowed_contents() {
+        let source = "(#enum Choice ((Empty) (Full u64)))
+          (#struct Holder (: slot (#pin-ref-mut Choice)))
+          (#fn mutate (: holder (#pin-ref-mut Holder)) ()
+            (#unsafe (#pin-write (#get holder slot) (Full 7u64))) (#return ()))
+          (#fn forward (: holder (#pin-ref-mut Holder)) ()
+            (#call mutate (: holder holder)) (#return ()))
+          (#fn main () ()
+            (#let-mut cell Choice (Empty)) (#let-mut target Choice (Empty))
+            (#let-mut holder Holder (#struct-literal Holder (: slot (#pin-borrow-mut target))))
+            (#call forward (: holder (#pin-borrow-mut holder)))
+            (#forget holder) (#forget cell) (#forget target) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations =
+            crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        for staged in [false, true] {
+            if staged {
+                declarations.staged_parameter_contents_summaries();
+            }
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let forward = declarations.function_id("forward").unwrap();
+            let footprint = &body.call_tag_mutations[&forward];
+            assert_eq!(footprint.len(), 1);
+            let slot = declarations
+                .field_id(&Type::Named("Holder".into()), "slot")
+                .unwrap();
+            assert_eq!(
+                footprint[0].input_storage,
+                vec![Segment::Dereference, Segment::Field(slot)]
+            );
+            let (event, value) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+                let FlowAction::Evaluate(value) = node.action else { return None; };
+                matches!(body.nodes[value.0].kind, NodeKind::Form { callee: Some(found), .. } if found == forward)
+                    .then_some((FlowNodeId(index), value))
+            }).unwrap();
+            let origins = flow.loan_origins(body);
+            let mapped = origins
+                .call_tag_mutations(body, flow, event, value)
+                .unwrap();
+            let binding =
+                |name| BindingId(body.bindings.iter().position(|b| b.name == name).unwrap());
+            assert_eq!(mapped.len(), 1);
+            assert_eq!(
+                mapped[0].referent_place(),
+                Place::root(PlaceRoot::Local(binding("target"))),
+                "the loaded pointer targets the external enum, not the Holder slot"
+            );
+            let facts = flow.variant_facts_with_origins(body, &origins);
+            let after = facts[flow.nodes[event.0].successors[0].0].as_ref().unwrap();
+            let ty = Type::Named("Choice".into());
+            assert_eq!(
+                after.get(&Place::root(PlaceRoot::Local(binding("cell")))),
+                Some(&declarations.variant_id(&ty, "Empty").unwrap())
+            );
+            assert_eq!(
+                after.get(&Place::root(PlaceRoot::Local(binding("target")))),
+                Some(&declarations.variant_id(&ty, "Full").unwrap())
+            );
+        }
+    }
+
+    #[test]
+    fn ambiguous_call_tag_mutations_do_not_assume_one_destination() {
+        let source = "(#enum Choice ((Empty) (Full u64)))
+          (#fn mutate (: slot (#pin-ref-mut Choice)) ()
+            (#unsafe (#pin-write slot (Full 7u64))) (#return ()))
+          (#fn main (: condition bool) ()
+            (#let-mut cell Choice (Empty)) (#let-mut left Choice (Empty)) (#let-mut right Choice (Empty))
+            (#let selected (#pin-ref-mut Choice)
+              (#if condition (#pin-borrow-mut left) (#pin-borrow-mut right)))
+            (#call mutate (: slot selected))
+            (#drop selected) (#forget cell) (#forget left) (#forget right) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations =
+            crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let callee = declarations.function_id("mutate").unwrap();
+        assert!(body.call_tag_mutations.contains_key(&callee));
+        let (event, value) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+            let FlowAction::Evaluate(value) = node.action else { return None; };
+            matches!(body.nodes[value.0].kind, NodeKind::Form { callee: Some(found), .. } if found == callee)
+                .then_some((FlowNodeId(index), value))
+        }).unwrap();
+        let origins = flow.loan_origins(body);
+        assert!(origins
+            .call_tag_mutations(body, flow, event, value)
+            .is_none());
+        let facts = flow.variant_facts_with_origins(body, &origins);
+        assert!(facts[flow.nodes[event.0].successors[0].0]
+            .as_ref()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn user_calls_named_like_tag_builtins_keep_their_real_effects() {
+        for (name, parameters, arguments) in [
+            (
+                "pin-read",
+                "(: slot (#pin-ref-mut Choice))",
+                "(: slot (#pin-borrow-mut cell))",
+            ),
+            (
+                "deref-set",
+                "(: slot (#ref-mut Choice) : value Choice)",
+                "(: slot (#borrow-mut cell) : value (Empty))",
+            ),
+            (
+                "forget",
+                "(: slot (#ref-mut Choice))",
+                "(: slot (#borrow-mut cell))",
+            ),
+        ] {
+            let source = format!(
+                "(#enum Choice ((Empty) (Full u64)))
+              (#fn {name} {parameters} ()
+                (#let ignored i64 (#unsafe (#linux-syscall i64 39usize ()))) (#return ()))
+              (#fn main () ()
+                (#let-mut cell Choice (Empty)) (#call {name} {arguments})
+                (#drop cell) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+            declarations.staged_parameter_contents_summaries();
+            let body = &declarations.bodies["main"];
+            let flow = &declarations.flows["main"];
+            let callee = declarations.function_id(name).unwrap();
+            assert!(!body.call_preserves_variant_tags.contains(&callee));
+            assert!(!body.call_tag_mutations.contains_key(&callee));
+            let call = flow.nodes.iter().position(|node|
+                matches!(node.action, FlowAction::Evaluate(value)
+                    if matches!(body.nodes[value.0].kind, NodeKind::Form { callee: Some(found), .. } if found == callee))).unwrap();
+            let facts = flow.variant_facts(body);
+            assert!(
+                facts[flow.nodes[call].successors[0].0]
+                    .as_ref()
+                    .unwrap()
+                    .is_empty(),
+                "{name}"
+            );
         }
     }
 

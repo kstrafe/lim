@@ -1112,6 +1112,10 @@ pub(crate) struct Body {
     /// Verified direct callees with no physical discriminant writes. Unknown
     /// operations and unchecked callees never appear in this prepared table.
     pub call_preserves_variant_tags: Arc<std::collections::HashSet<crate::typed_ir::FunctionId>>,
+    /// Complete may-mutate footprints of checked callees. Absence means an
+    /// unknown/global effect. These invalidate tags; they never establish
+    /// ownership, initialization, consumption, or a new constructor.
+    pub call_tag_mutations: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     /// Destruction facts conditioned on an explicitly matched return variant.
     pub call_clear_variants:
         Arc<HashMap<crate::typed_ir::FunctionId, HashMap<VariantId, Vec<ParameterLoanSummary>>>>,

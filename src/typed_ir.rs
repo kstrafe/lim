@@ -1627,6 +1627,8 @@ impl Declarations {
             FunctionId,
             HashMap<VariantId, Vec<crate::typed_body::ParameterLoanSummary>>,
         >::new();
+        let mut tag_mutations =
+            HashMap::<FunctionId, Vec<crate::typed_body::ParameterLoanSummary>>::new();
         let mut return_variants =
             HashMap::<FunctionId, HashMap<Vec<crate::typed_place::Segment>, VariantId>>::new();
         let mut return_bounds = HashMap::<FunctionId, crate::typed_flow::VariantBounds>::new();
@@ -1712,6 +1714,20 @@ impl Declarations {
                 .collect();
             {
                 self.bodies.get_mut(&name).unwrap().call_store_origins = Arc::new(needed_stores);
+                let needed_tags = self.bodies[&name]
+                    .nodes
+                    .iter()
+                    .filter_map(|node| match &node.kind {
+                        crate::typed_body::NodeKind::Form {
+                            callee: Some(callee),
+                            ..
+                        } => tag_mutations
+                            .get(callee)
+                            .map(|summary| (*callee, summary.clone())),
+                        _ => None,
+                    })
+                    .collect();
+                self.bodies.get_mut(&name).unwrap().call_tag_mutations = Arc::new(needed_tags);
                 let needed_variants = self.bodies[&name]
                     .nodes
                     .iter()
@@ -1843,6 +1859,7 @@ impl Declarations {
                 flow.staged_store_loan_origins(body)
             };
             let stores = flow.parameter_store_summaries(body, &store_origins);
+            let mutations = flow.parameter_tag_mutations(body, &store_origins);
             let output_stores = flow.parameter_output_store_variant_summaries(body, &store_origins);
             let variants = output_stores
                 .iter()
@@ -1905,6 +1922,9 @@ impl Declarations {
                 // An empty summary distinguishes a known body with no
                 // parameter-derived loans from an unavailable external body.
                 summaries.insert(id, returned);
+                if let Some(mutations) = mutations {
+                    tag_mutations.insert(id, mutations);
+                }
                 store_summaries.insert(id, stores);
                 store_variants.insert(id, variants);
                 clear_summaries.insert(id, clears);

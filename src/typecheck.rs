@@ -14056,7 +14056,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn owned_variant_facts_follow_nested_enum_payload_bindings() {
-        let source = "(#fn touch () () (#return ()))
+        let source = "(#fn touch () ()
+          (#let ignored i64 (#unsafe (#linux-syscall i64 39usize ()))) (#return ()))
           (#enum Choice (Empty (Full u64)))
           (#enum Wrapper (Absent (Wrapped Choice)))
           (#fn inspect () ()
@@ -14126,7 +14127,8 @@ mod typed_ownership_tests {
     fn owned_variant_facts_intersect_branches_and_invalidate_unknown_calls() {
         let source = "(#enum Choice ((Empty) (Full u64)))
             (#struct Holder (: choice Choice))
-            (#fn touch () () (#return ()))
+            (#fn touch () ()
+              (#let ignored i64 (#unsafe (#linux-syscall i64 39usize ()))) (#return ()))
             (#fn inspect (: selected bool) ()
               (#let-mut choice Choice (Empty))
               (#let initial Choice choice)
@@ -14227,7 +14229,8 @@ mod typed_ownership_tests {
                   (#return (#match (#deref source)
                     (#case (Empty) 0u64)
                     (#case (Full value) (#deref value)))))
-                (#fn touch (: target (#ref-mut Choice)) () (#return ()))
+                (#fn touch (: target (#ref-mut Choice)) ()
+                  (#let ignored i64 (#unsafe (#linux-syscall i64 39usize ()))) (#return ()))
                 (#fn caller () u64
                   (#let-mut choice Choice (Empty)) {mutation}
                   (#let borrowed (#ref Choice) (#borrow choice))
@@ -14235,7 +14238,15 @@ mod typed_ownership_tests {
                   (#drop borrowed) (#forget choice) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
-            crate::check_types(&program).unwrap();
+            let production = crate::check_types(&program);
+            if opaque {
+                assert!(
+                    production.unwrap_err().contains("unresolved call inputs"),
+                    "an opaque effect cannot establish initialization of a possible payload"
+                );
+            } else {
+                production.unwrap();
+            }
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
             let (reads, unresolved) =
                 declarations.flows["read"].referent_reads(&declarations.bodies["read"]);
@@ -20438,6 +20449,9 @@ mod typed_ownership_tests {
         assert!(!declarations.bodies["caller"]
             .call_preserves_variant_tags
             .contains(&forward));
+        assert!(!declarations.bodies["caller"]
+            .call_tag_mutations
+            .contains_key(&forward));
     }
 
     #[test]
