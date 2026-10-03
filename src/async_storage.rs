@@ -411,15 +411,15 @@ mod tests {
                     return None;
                 };
                 let NodeKind::Form {
-                    callee: Some(_),
+                    callee: Some(callee),
                     ..
                 } = body.nodes[value.0].kind
                 else {
                     return None;
                 };
-                matches!(body.syntax(value, false), crate::Expr::List(items)
-                    if matches!(items.first(), Some(crate::Expr::Symbol(name)) if name == "checkpoint"))
-                    .then_some((node.span.unwrap().start, FlowNodeId(index)))
+                (body.declaration_name(crate::typed_ir::DeclarationId::Function(callee))
+                    == Some("checkpoint"))
+                .then_some((node.span.unwrap().start, FlowNodeId(index)))
             })
             .collect::<Vec<_>>();
         calls.sort_by_key(|(start, _)| *start);

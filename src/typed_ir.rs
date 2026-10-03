@@ -15,7 +15,7 @@ pub(crate) struct Signature {
 
 /// Dense identities are deterministic within a checked program. They are not
 /// persistent cache keys and do not encode addresses of AST allocations.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub(crate) struct FunctionId(usize);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -38,6 +38,7 @@ pub(crate) struct VariantId {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub(crate) enum DeclarationId {
+    Function(FunctionId),
     Global(GlobalId),
     Aggregate(AggregateId),
     Field(FieldId),
@@ -82,7 +83,8 @@ pub(crate) fn expression_ids_selected(
             | crate::Expr::QuasiQuote(inner)
             | crate::Expr::Unquote(inner)
             | crate::Expr::UnquoteSplicing(inner) => expression(inner, ids, next),
-            crate::Expr::Symbol(_)
+            crate::Expr::Function(_)
+            | crate::Expr::Symbol(_)
             | crate::Expr::Integer(_)
             | crate::Expr::UnsignedInteger(_)
             | crate::Expr::Float(_)
@@ -593,7 +595,8 @@ fn collect_expression_binding_spans(
             expression_spans,
             output,
         ),
-        E::Symbol(_)
+        E::Function(_)
+        | E::Symbol(_)
         | E::Integer(_)
         | E::UnsignedInteger(_)
         | E::Float(_)
@@ -719,6 +722,7 @@ impl Declarations {
 
     pub fn declaration_name(&self, id: DeclarationId) -> &str {
         match id {
+            DeclarationId::Function(id) => &self.functions[id.0].name,
             DeclarationId::Global(id) => &self.global_names[id.0],
             DeclarationId::Aggregate(id) => &self.aggregate_names[id.0],
             DeclarationId::Field(id) => &self.field(id).name,

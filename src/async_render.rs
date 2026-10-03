@@ -104,7 +104,12 @@ impl<'a> RenderContext<'a> {
                 } = &action.action
                 {
                     if let Some(callee) = operation.callee {
-                        if self.declarations.function_id(&operation.head) != Some(callee) {
+                        if self
+                            .body
+                            .declaration_name(DeclarationId::Function(callee))
+                            .and_then(|name| self.declarations.function_id(name))
+                            != Some(callee)
+                        {
                             return Err(error(
                                 Some(operation.source),
                                 "callee belongs to a different declaration context",
@@ -326,7 +331,7 @@ impl<'a> RenderContext<'a> {
             }
             return Ok(Expr::List(vec![
                 symbol("#call"),
-                symbol(&operation.head),
+                symbol(&self.declarations.function(callee).name),
                 Expr::List(arguments),
             ]));
         }
@@ -711,7 +716,18 @@ mod tests {
         let (declarations, graph) = prepare(&source, "main");
         let context =
             RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
-        let compute = operation(&graph, "combine");
+        let compute = graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .find_map(|action| match &action.action {
+                Action::Compute {
+                    operation: compute @ Compute::Checked(operation),
+                    ..
+                } if operation.callee == declarations.function_id("combine") => Some(compute),
+                _ => None,
+            })
+            .unwrap();
         let mut values = stored(compute, "stored");
         let rendered = context.render_compute(compute, &values).unwrap();
         assert_eq!(

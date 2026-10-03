@@ -1019,7 +1019,8 @@ fn collect_generator_function_calls(expression: &Expr, calls: &mut Vec<String>) 
             collect_generator_function_calls(inner, calls)
         }
         Expr::Quote(_) | Expr::Labeled { .. } | Expr::Block(_) | Expr::Loop(_) => {}
-        Expr::Symbol(_)
+        Expr::Function(_)
+        | Expr::Symbol(_)
         | Expr::Integer(_)
         | Expr::UnsignedInteger(_)
         | Expr::Float(_)
@@ -1044,7 +1045,8 @@ fn collect_template_function_calls(expression: &Expr, depth: usize, calls: &mut 
             }
         }
         Expr::Block(_) | Expr::Loop(_) | Expr::Quote(_) | Expr::Labeled { .. } => {}
-        Expr::Symbol(_)
+        Expr::Function(_)
+        | Expr::Symbol(_)
         | Expr::Integer(_)
         | Expr::UnsignedInteger(_)
         | Expr::Float(_)

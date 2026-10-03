@@ -799,14 +799,16 @@ fn check_call_reborrow_parents(
             continue;
         };
         let NodeKind::Form {
-            head,
             children,
-            callee: Some(_),
+            callee: Some(callee),
             ..
         } = &body.nodes[value.0].kind
         else {
             continue;
         };
+        let head = body
+            .declaration_name(crate::typed_ir::DeclarationId::Function(*callee))
+            .expect("checked call declaration");
         let event = FlowNodeId(index);
         for argument in children.iter().skip(1) {
             // References stored inside a borrowed pointee describe its
@@ -1154,6 +1156,9 @@ pub(crate) fn check_call_arguments_cached(
             returned_borrows_with_bindings(body, NodeId(index), &format!("#{head}"), &bindings)?;
             continue;
         }
+        let head = body
+            .declaration_name(crate::typed_ir::DeclarationId::Function(callee.unwrap()))
+            .expect("checked call declaration");
         let mut prior = vec![Vec::<DirectBorrow>::new()];
         for argument in children.iter().skip(1) {
             let alternatives = returned_borrows_with_bindings(body, *argument, head, &bindings)?;
@@ -4251,7 +4256,8 @@ mod tests {
             .nodes
             .iter()
             .position(|node| {
-                matches!(&node.kind, NodeKind::Form { head, callee: Some(_), .. } if head == "inspect")
+                matches!(&node.kind, NodeKind::Form { callee: Some(id), .. }
+                    if Some(*id) == checked.declarations().function_id("inspect"))
             })
             .map(NodeId)
             .unwrap();

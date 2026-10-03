@@ -173,7 +173,11 @@ fn check_expression(
                 _ => None,
             });
             let nested_unsafe = operator == Some("unsafe");
-            if let Some(operator) = operator {
+            let call = match items.first() {
+                Some(Expr::Function(name)) => Some(name.as_str()),
+                _ => None,
+            };
+            if let Some(operator) = call {
                 if !unsafe_context && !nested_unsafe {
                     if let Some(kind) = external_functions.get(operator) {
                         return Err(failure!(
@@ -241,7 +245,8 @@ fn check_expression(
         Expr::QuasiQuote(value) | Expr::Unquote(value) | Expr::UnquoteSplicing(value) => {
             check_expression(value, unsafe_context, statics, external_functions)?
         }
-        Expr::Symbol(_)
+        Expr::Function(_)
+        | Expr::Symbol(_)
         | Expr::Integer(_)
         | Expr::UnsignedInteger(_)
         | Expr::Float(_)

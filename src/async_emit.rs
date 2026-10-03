@@ -4070,6 +4070,24 @@ mod tests {
     }
 
     #[test]
+    fn user_panic_call_survives_await_and_ordinary_code_generation() {
+        runtime(
+            "(#return (#call panic (: value
+              (#await Child ChildPending ChildReady child-poll (Start seed)))))",
+            "(#fn panic ((value u64)) u64 (#return value))
+             (#fn main () u64
+               (#let waker u64 0u64)
+               (#let task Frame (#call work (: seed 42u64)))
+               (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+               (#let-else (Pending next) Poll first (#unreachable))
+               (#return (#match (#call poll (: task next : waker (#borrow waker)))
+                 (#case (Ready answer) answer)
+                 (#case (Pending bad) (#block (#forget bad) (#unreachable))))))",
+            42,
+        );
+    }
+
+    #[test]
     fn constructors_run_on_execution_not_creation_or_pending_retry() {
         let main = "
           (#unsafe-fn make-child ((seed u64) (count (#ptr-mut u64))) Child

@@ -2914,7 +2914,7 @@ mod tests {
                     Action::Compute {
                         operation: Compute::Checked(operation),
                         ..
-                    } if operation.head == "combine" => Some(operation),
+                    } if operation.callee == declarations.function_id("combine") => Some(operation),
                     _ => None,
                 })
                 .unwrap();
@@ -3011,7 +3011,7 @@ mod tests {
                 Action::Compute {
                     operation: Compute::Checked(operation),
                     ..
-                } if operation.head == "combine" => Some(operation),
+                } if operation.callee == declarations.function_id("combine") => Some(operation),
                 _ => None,
             })
             .unwrap();

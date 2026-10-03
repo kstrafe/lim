@@ -3047,7 +3047,7 @@ fn thread_result_type(
     let Expr::List(items) = expression else {
         return None;
     };
-    let Expr::Symbol(function) = items.first()? else {
+    let (Expr::Function(function) | Expr::Symbol(function)) = items.first()? else {
         return None;
     };
     tasks.keys().find_map(|task| {
@@ -3305,7 +3305,7 @@ fn direct_task_join(
     let Expr::List(items) = expression else {
         return None;
     };
-    let Expr::Symbol(operator) = items.first()? else {
+    let (Expr::Function(operator) | Expr::Symbol(operator)) = items.first()? else {
         return None;
     };
     for task_type in tasks.keys() {
@@ -3321,7 +3321,7 @@ fn direct_task_join(
 
 fn is_direct_thread_call(expression: &Expr, expected: &str) -> bool {
     matches!(expression, Expr::List(items)
-        if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == expected))
+        if matches!(items.first(), Some(Expr::Function(operator) | Expr::Symbol(operator)) if operator == expected))
 }
 
 fn consume_thread_handle(
@@ -3350,7 +3350,7 @@ fn contains_thread_operation(expression: &Expr, tasks: &HashMap<String, String>)
     match expression {
         Expr::List(items) => {
             let head = items.first().and_then(|item| match item {
-                Expr::Symbol(name) => Some(name),
+                Expr::Function(name) | Expr::Symbol(name) => Some(name),
                 _ => None,
             });
             head.is_some_and(|head| {
@@ -3829,16 +3829,13 @@ fn checked_call_edges(
         let calls = edges.entry(name.clone()).or_default();
         for (index, node) in body.nodes.iter().enumerate() {
             let crate::typed_body::NodeKind::Form {
-                head,
-                children,
-                callee,
-                ..
+                children, callee, ..
             } = &node.kind
             else {
                 continue;
             };
-            let called = if callee.is_some() {
-                Some(head.clone())
+            let called = if let Some(callee) = callee {
+                Some(declarations.function(*callee).name.clone())
             } else {
                 let called = declarations.clone_hook_name(body, crate::typed_body::NodeId(index));
                 implicit |= called.is_some();
@@ -4046,7 +4043,12 @@ fn collect_expression_calls(
 ) {
     match expression {
         Expr::List(items) => {
-            if let Some(Expr::Symbol(operator)) = items.first() {
+            if let Some(Expr::Function(operator) | Expr::Symbol(operator)) =
+                items.first().filter(|head| {
+                    matches!(head, Expr::Function(_))
+                        || matches!(head, Expr::Symbol(name) if !crate::is_builtin_head(name))
+                })
+            {
                 let candidate = operator.split('<').next().unwrap_or(operator);
                 if functions.contains(operator) {
                     calls.insert(operator.clone());
@@ -4075,7 +4077,8 @@ fn collect_expression_calls(
         | Expr::QuasiQuote(value)
         | Expr::Unquote(value)
         | Expr::UnquoteSplicing(value) => collect_expression_calls(value, functions, calls),
-        Expr::Symbol(_)
+        Expr::Function(_)
+        | Expr::Symbol(_)
         | Expr::Integer(_)
         | Expr::UnsignedInteger(_)
         | Expr::Float(_)
@@ -4613,7 +4616,7 @@ fn semantic_expression_source<'a>(
                 _ => None,
             });
             let target_head = items.first().and_then(|head| match head {
-                Expr::Symbol(head) => Some(head),
+                Expr::Function(head) | Expr::Symbol(head) => Some(head),
                 _ => None,
             });
             // External imports prefix semantic identifiers but preserve the
@@ -6460,6 +6463,7 @@ fn expression_inner(
     expected: Option<&Type>,
 ) -> Result<Type, SemanticError> {
     match value {
+        Expr::Function(_) => Err("function targets are not first-class values".into()),
         Expr::Integer(value) => {
             let ty = expected
                 .filter(|ty| is_integer(ty))
@@ -6744,6 +6748,11 @@ fn list_expression(
 ) -> Result<Type, SemanticError> {
     if items.is_empty() {
         return Ok(Type::Unit);
+    }
+    if let Some(Expr::Function(name)) = items.first() {
+        return user_call_expression(
+            name, items, variables, functions, structs, enums, mutable, aliases,
+        );
     }
     let Some(Expr::Symbol(operator)) = items.first() else {
         return Err("expression list must start with a symbol".into());
@@ -8756,54 +8765,73 @@ fn list_expression(
                 }
                 return Ok(Type::Named(enum_name.clone()));
             }
-            let (function_name, type_arguments) = split_generic_call(operator)?;
-            let signature = functions.get(&function_name).ok_or_else(|| {
-                semantic_at!(
-                    ErrorSite::Operator(operator.into()),
-                    "unknown function '{operator}'"
-                )
-            })?;
-            let substitutions = generic_substitutions(signature, &type_arguments, aliases)?;
-            let parameter_types = signature
-                .parameters
-                .iter()
-                .map(|parameter| substitute_type(parameter, &substitutions))
-                .collect::<Vec<_>>();
-            let return_type = substitute_type(&signature.return_type, &substitutions);
-            if items.len() - 1 != signature.parameters.len() {
-                return Err(semantic_at!(
-                    ErrorSite::Operator(operator.into()),
-                    "function '{operator}' expects {} arguments",
-                    parameter_types.len()
-                ));
-            }
-            for ((argument, parameter_type), parameter) in items[1..]
-                .iter()
-                .zip(&parameter_types)
-                .zip(&signature.parameter_names)
-            {
-                let actual = expression(
-                    argument,
-                    variables,
-                    functions,
-                    structs,
-                    enums,
-                    mutable,
-                    aliases,
-                    Some(parameter_type),
-                )?;
-                require_type(
-                    &actual,
-                    parameter_type,
-                    &format!("argument '{parameter}' to '{operator}'"),
-                )
-                .map_err(|error| {
-                    error.at(ErrorSite::NamedArgument(operator.into(), parameter.clone()))
-                })?;
-            }
-            Ok(return_type)
+            user_call_expression(
+                operator, items, variables, functions, structs, enums, mutable, aliases,
+            )
         }
     }
+}
+
+fn user_call_expression(
+    operator: &str,
+    items: &[Expr],
+    variables: &VariableTypes<'_>,
+    functions: &FunctionTable,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    mutable: &HashSet<String>,
+    aliases: &HashMap<String, Type>,
+) -> Result<Type, SemanticError> {
+    // Explicit declarations win over legacy generic-call decomposition.
+    // In particular, `<` in a numeric-looking user identifier is not syntax.
+    let (function_name, type_arguments) = if functions.contains_key(operator) {
+        (operator.to_owned(), Vec::new())
+    } else {
+        split_generic_call(operator)?
+    };
+    let signature = functions.get(&function_name).ok_or_else(|| {
+        semantic_at!(
+            ErrorSite::Operator(operator.into()),
+            "unknown function '{operator}'"
+        )
+    })?;
+    let substitutions = generic_substitutions(signature, &type_arguments, aliases)?;
+    let parameter_types = signature
+        .parameters
+        .iter()
+        .map(|parameter| substitute_type(parameter, &substitutions))
+        .collect::<Vec<_>>();
+    let return_type = substitute_type(&signature.return_type, &substitutions);
+    if items.len() - 1 != signature.parameters.len() {
+        return Err(semantic_at!(
+            ErrorSite::Operator(operator.into()),
+            "function '{operator}' expects {} arguments",
+            parameter_types.len()
+        ));
+    }
+    for ((argument, parameter_type), parameter) in items[1..]
+        .iter()
+        .zip(&parameter_types)
+        .zip(&signature.parameter_names)
+    {
+        let actual = expression(
+            argument,
+            variables,
+            functions,
+            structs,
+            enums,
+            mutable,
+            aliases,
+            Some(parameter_type),
+        )?;
+        require_type(
+            &actual,
+            parameter_type,
+            &format!("argument '{parameter}' to '{operator}'"),
+        )
+        .map_err(|error| error.at(ErrorSite::NamedArgument(operator.into(), parameter.clone())))?;
+    }
+    Ok(return_type)
 }
 
 /// Borrowing an owned projection addresses its original binding; it does not

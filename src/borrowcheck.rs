@@ -1592,7 +1592,7 @@ fn existing_reference_value_loans(expression: &Expr, context: &Context) -> Vec<(
         | Expr::Unquote(expression)
         | Expr::UnquoteSplicing(expression) => existing_reference_value_loans(expression, context),
         Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::At => Vec::new(),
-        Expr::Symbol(_) => Vec::new(),
+        Expr::Function(_) | Expr::Symbol(_) => Vec::new(),
         Expr::Integer(_)
         | Expr::UnsignedInteger(_)
         | Expr::Float(_)
@@ -1997,10 +1997,62 @@ fn ensure_loop_thread_state(before: &Context, after: &Context) -> Result<(), Err
     Ok(())
 }
 
+fn check_call_arguments(
+    function: &str,
+    arguments: &[Expr],
+    context: &mut Context,
+) -> Result<(), Error> {
+    let previous = context.allow_local_reference;
+    context.allow_local_reference = true;
+    let reference_parameters = context.reference_parameters.get(function).cloned();
+    let checked = arguments.iter().enumerate().try_for_each(|(index, item)| {
+        let _argument_site = Site::expression(item).enter();
+        check_expression(item, context)?;
+        if !context.typed_scope_escapes
+            && reference_parameters
+                .as_ref()
+                .and_then(|parameters| parameters.get(index))
+                .copied()
+                .unwrap_or_else(|| context.thread_join_functions.contains(function))
+        {
+            ensure_origins_in_scope(&reference_origins(item, context, true), context)?;
+        }
+        let transfers_reference_ownership = context
+            .program_items
+            .iter()
+            .find_map(|declaration| match declaration {
+                Item::Function(declaration) if declaration.name == function => {
+                    declaration.parameters.get(index).map(|parameter| {
+                        contains_mutable_reference(
+                            &parameter.ty,
+                            &context.reference_types,
+                            &context.mutable_reference_types,
+                        ) || (contains_reference_type(&parameter.ty, &context.reference_types)
+                            && type_is_explicitly_linear(&parameter.ty, &context.program_items))
+                    })
+                }
+                _ => None,
+            })
+            .unwrap_or(false);
+        // Moved exclusive/reference-bearing aggregates transfer their loans
+        // to the callee; the result binding reconstructs retained provenance.
+        if transfers_reference_ownership {
+            release_dropped_value(item, context);
+        }
+        Ok::<(), Error>(())
+    });
+    context.allow_local_reference = previous;
+    checked
+}
+
 fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Error> {
     let _site = Site::expression(expression).enter();
     match expression {
+        Expr::Function(_) => {}
         Expr::List(items) => {
+            if let Some(Expr::Function(function)) = items.first() {
+                return check_call_arguments(function, &items[1..], context);
+            }
             if let Some(Expr::Symbol(operator)) = items.first() {
                 if matches!(operator.as_str(), "drop" | "forget") && items.len() == 2 {
                     check_expression(&items[1], context)?;
@@ -2255,60 +2307,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     }
                     result?
                 } else if context.function_names.contains(operator) {
-                    let previous = context.allow_local_reference;
-                    context.allow_local_reference = true;
-                    let reference_parameters = context.reference_parameters.get(operator).cloned();
-                    let checked = items[1..].iter().enumerate().try_for_each(|(index, item)| {
-                        let _argument_site = Site::expression(item).enter();
-                        check_expression(item, context)?;
-                        if !context.typed_scope_escapes
-                            && reference_parameters
-                                .as_ref()
-                                .and_then(|parameters| parameters.get(index))
-                                .copied()
-                                .unwrap_or_else(|| context.thread_join_functions.contains(operator))
-                        {
-                            ensure_origins_in_scope(
-                                &reference_origins(item, context, true),
-                                context,
-                            )?;
-                        }
-                        let transfers_reference_ownership = context
-                            .program_items
-                            .iter()
-                            .find_map(|declaration| match declaration {
-                                Item::Function(function) if function.name == *operator => {
-                                    function.parameters.get(index).map(|parameter| {
-                                        contains_mutable_reference(
-                                            &parameter.ty,
-                                            &context.reference_types,
-                                            &context.mutable_reference_types,
-                                        ) || (contains_reference_type(
-                                            &parameter.ty,
-                                            &context.reference_types,
-                                        ) && type_is_explicitly_linear(
-                                            &parameter.ty,
-                                            &context.program_items,
-                                        ))
-                                    })
-                                }
-                                _ => None,
-                            })
-                            .unwrap_or(false);
-                        // A by-value mutable-reference aggregate, or any
-                        // explicitly linear aggregate containing references,
-                        // is moved into the callee. Retire its caller-side
-                        // loan at the call; if the result carries it onward,
-                        // the enclosing let reconstructs it from provenance.
-                        // Typed borrow checking independently validates this
-                        // transfer and the returned lifetime.
-                        if transfers_reference_ownership {
-                            release_dropped_value(item, context);
-                        }
-                        Ok::<(), Error>(())
-                    });
-                    context.allow_local_reference = previous;
-                    checked?;
+                    check_call_arguments(operator, &items[1..], context)?;
                 } else if matches!(operator.as_str(), "pin-read" | "deref")
                     && items.len() == 2
                     && typed_local_load(expression, context).is_some()
@@ -2776,7 +2775,7 @@ fn thread_match_operation(expression: &Expr, context: &Context) -> Option<Thread
     let Expr::List(items) = expression else {
         return None;
     };
-    let Expr::Symbol(function) = items.first()? else {
+    let (Expr::Function(function) | Expr::Symbol(function)) = items.first()? else {
         return None;
     };
     if context.thread_join_functions.contains(function) {
@@ -2912,7 +2911,7 @@ fn thread_spawn_origins(expression: &Expr, context: &Context) -> Option<Vec<(Str
     let Expr::List(items) = expression else {
         return None;
     };
-    let Expr::Symbol(function) = items.first()? else {
+    let (Expr::Function(function) | Expr::Symbol(function)) = items.first()? else {
         return None;
     };
     let parameters = context.thread_spawn_functions.get(function)?;
@@ -3658,6 +3657,26 @@ fn reference_origins(
             origins
         }
         Expr::List(items) => {
+            if let Some(Expr::Function(function)) = items.first() {
+                if !context.reference_functions.contains(function) {
+                    return HashSet::new();
+                }
+                if let Some(parameters) = context.typed_reference_return_parameters.get(function) {
+                    if parameters.iter().any(|summary| summary.mutable) {
+                        return parameters
+                            .iter()
+                            .filter(|summary| summary.mutable && summary.global.is_none())
+                            .filter_map(|summary| items.get(summary.parameter + 1))
+                            .flat_map(|argument| reference_origins(argument, context, true))
+                            .collect();
+                    }
+                }
+                return items
+                    .iter()
+                    .skip(1)
+                    .flat_map(|argument| reference_origins(argument, context, true))
+                    .collect();
+            }
             let Some(Expr::Symbol(operator)) = items.first() else {
                 return HashSet::new();
             };

@@ -930,6 +930,9 @@ pub enum Expr {
     List(Vec<Expr>),
     Block(Vec<Statement>),
     Symbol(String),
+    /// An explicit, normalized user-call target, never reader syntax or a value.
+    /// Kept distinct from builtin heads even when their spellings coincide.
+    Function(String),
     Integer(i128),
     UnsignedInteger(u128),
     Float(String),
@@ -3978,7 +3981,7 @@ fn normalize_call_expr(
                     }
                 }
                 let mut lowered = Vec::with_capacity(parameters.len() + 1);
-                lowered.push(Expr::Symbol(function.clone()));
+                lowered.push(Expr::Function(function.clone()));
                 for parameter in parameters {
                     lowered.push(arguments.remove(parameter).ok_or_else(|| {
                         format!("#call to '{function}' is missing parameter '{parameter}'")
@@ -3988,7 +3991,7 @@ fn normalize_call_expr(
                 return Ok(());
             }
             if let Some(Expr::Symbol(name)) = items.first() {
-                if signatures.contains_key(name) {
+                if signatures.contains_key(name) && !is_builtin_head(name) {
                     return Err(format!(
                         "function '{name}' must be called with (#call {name} (: parameter value ...))"
                     ));
@@ -4653,6 +4656,7 @@ fn rename_expression(
     variants: &HashSet<String>,
 ) {
     match expression {
+        Expr::Function(_) => {}
         Expr::Symbol(name) => rename_symbol(name, bindings),
         Expr::List(items) => {
             let Some(Expr::Symbol(operator)) = items.first() else {
@@ -5046,6 +5050,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "pin-own-borrow"
             | "pin-own-borrow-mut"
             | "pin-release"
+            | "pin-read"
+            | "pin-write"
             | "pin-set-field"
             | "ref"
             | "ref-mut"
@@ -5125,6 +5131,35 @@ fn is_operator_symbol(name: &str) -> bool {
             | "&&"
             | "||"
     )
+}
+
+/// Classify builtin heads, never user-call targets. Qualified numeric spelling
+/// stays builtin even when its overflow suffix is invalid (for diagnostics).
+fn is_builtin_head(name: &str) -> bool {
+    let name = name.strip_prefix('#').unwrap_or(name);
+    is_builtin_form(name)
+        || is_operator_symbol(name)
+        || name.split_once('.').is_some_and(|(ty, rest)| {
+            matches!(
+                ty,
+                "bool"
+                    | "char"
+                    | "i8"
+                    | "i16"
+                    | "i32"
+                    | "i64"
+                    | "i128"
+                    | "isize"
+                    | "u8"
+                    | "u16"
+                    | "u32"
+                    | "u64"
+                    | "u128"
+                    | "usize"
+                    | "f32"
+                    | "f64"
+            ) && is_operator_symbol(rest.split('.').next().unwrap_or(rest))
+        })
 }
 
 fn requires_explicit_operator_type(name: &str) -> bool {
@@ -5772,6 +5807,7 @@ fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
 
 fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &HashSet<String>) {
     match expression {
+        Expr::Function(_) => unreachable!("imports are prefixed before call normalization"),
         Expr::Symbol(name) => {
             if !name.starts_with('#') && !is_unprefixed_builtin_name(name) {
                 *name = format!("{prefix}{name}");
@@ -5821,32 +5857,32 @@ fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &Hash
 }
 
 fn is_unprefixed_builtin_name(name: &str) -> bool {
-    is_builtin_form(name)
-        || is_operator_symbol(name)
-        || matches!(
-            name,
-            "true"
-                | "false"
-                | "_"
-                | "()"
-                | "!"
-                | "bool"
-                | "char"
-                | "i8"
-                | "i16"
-                | "i32"
-                | "i64"
-                | "i128"
-                | "isize"
-                | "u8"
-                | "u16"
-                | "u32"
-                | "u64"
-                | "u128"
-                | "usize"
-                | "f32"
-                | "f64"
-        )
+    // Keywords are always #-prefixed. An unprefixed spelling such as
+    // `panic` is an ordinary identifier and must follow external imports.
+    matches!(
+        name,
+        "true"
+            | "false"
+            | "_"
+            | "()"
+            | "!"
+            | "bool"
+            | "char"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+    )
 }
 
 /// Materialize built-in generated declarations as source files.
@@ -6235,7 +6271,7 @@ pub(crate) fn expression_source(expression: &Expr) -> Result<String, String> {
                 .collect::<Result<Vec<_>, _>>()?
                 .join(" ")
         )),
-        Expr::Symbol(name) => Ok(name.clone()),
+        Expr::Symbol(name) | Expr::Function(name) => Ok(name.clone()),
         Expr::Integer(value) => Ok(value.to_string()),
         Expr::UnsignedInteger(value) => Ok(value.to_string()),
         Expr::Float(value) => Ok(value.clone()),

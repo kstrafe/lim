@@ -135,7 +135,8 @@ fn immediate_await(
 fn async_argument_is_trivial(expression: &Expr) -> bool {
     matches!(
         expression,
-        Expr::Symbol(_)
+        Expr::Function(_)
+            | Expr::Symbol(_)
             | Expr::Integer(_)
             | Expr::UnsignedInteger(_)
             | Expr::Float(_)
@@ -597,6 +598,7 @@ fn rewrite_async_non_loop_returns(expression: &mut Expr, ready: &str) -> Result<
         | Expr::Float(_)
         | Expr::Char(_)
         | Expr::String(_)
+        | Expr::Function(_)
         | Expr::Symbol(_)
         | Expr::At => {}
     }
@@ -3404,6 +3406,7 @@ fn extract_nested_awaits(
         | Expr::Float(_)
         | Expr::Char(_)
         | Expr::String(_)
+        | Expr::Function(_)
         | Expr::Symbol(_)
         | Expr::At => {}
     }
@@ -12909,6 +12912,7 @@ fn generated_source_with_capture_selection(
 
 fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
     match expr {
+        Expr::Function(_) => {}
         Expr::Symbol(symbol) => {
             names.insert(symbol.clone());
         }
@@ -13230,7 +13234,8 @@ fn rename_async_value(expr: &mut Expr, from: &str, to: &str) {
         | Expr::Unquote(expression)
         | Expr::UnquoteSplicing(expression) => rename_async_value(expression, from, to),
         Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::At => {}
-        Expr::Symbol(_)
+        Expr::Function(_)
+        | Expr::Symbol(_)
         | Expr::Integer(_)
         | Expr::UnsignedInteger(_)
         | Expr::Float(_)

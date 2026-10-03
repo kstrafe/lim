@@ -773,14 +773,15 @@ mod tests {
             .enumerate()
             .filter_map(|(index, node)| {
                 let NodeKind::Form {
-                    head,
-                    callee: Some(_),
+                    callee: Some(callee),
                     ..
                 } = &node.kind
                 else {
                     return None;
                 };
-                (head == name).then_some(NodeId(index))
+                (body.declaration_name(crate::typed_ir::DeclarationId::Function(*callee))
+                    == Some(name))
+                .then_some(NodeId(index))
             })
             .collect()
     }

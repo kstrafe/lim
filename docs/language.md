@@ -19,6 +19,13 @@ This document describes the language implemented by this crate.  The
 canonical spelling uses `#` before every builtin form. Unprefixed builtin
 forms are rejected.
 
+User function names retain their identity when called with `#call`, even
+when a name also spells a builtin. For example, `(#call panic (: value
+reference))` calls the declared user function named `panic`; `(#panic)` remains
+the builtin trap. `#call` requires named arguments, evaluates their expressions
+in parameter declaration order, and applies the declared function signature
+and ordinary eager-call ownership rules. The public syntax is unchanged.
+
 For syntax, contextual examples, and semantics of every builtin, see the
 [alphabetical builtin reference](#complete--builtin-reference-alphabetical)
 and its [typed operator families](#typed-operator-families-alphabetical).

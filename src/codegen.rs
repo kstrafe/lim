@@ -190,7 +190,7 @@ fn checked_callee(
     emission: &crate::typed_body::EmissionTypes,
     functions: &HashMap<String, FunctionAbi>,
 ) -> Result<Option<crate::typed_ir::FunctionId>, String> {
-    let declared_function = matches!(expression, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(name)) if functions.contains_key(name)));
+    let declared_function = matches!(expression, Expr::List(items) if matches!(items.first(), Some(Expr::Function(_))) || matches!(items.first(), Some(Expr::Symbol(name)) if !crate::is_builtin_head(name) && functions.contains_key(name)));
     let metadata = emission.get(expression);
     checked_call_identity(metadata, declared_function)
 }
@@ -204,9 +204,12 @@ fn aggregate_call_abi<'a>(
     let Expr::List(items) = expression else {
         return Ok(None);
     };
-    let Some(Expr::Symbol(name)) = items.first() else {
+    let Some(Expr::Symbol(name) | Expr::Function(name)) = items.first() else {
         return Ok(None);
     };
+    if matches!(items.first(), Some(Expr::Symbol(name)) if crate::is_builtin_head(name)) {
+        return Ok(None);
+    }
     match checked_callee(expression, emission, functions)? {
         Some(id) => by_id
             .get(&id)
@@ -2225,11 +2228,14 @@ fn generate_function(
     }
     let mut locals_by_binding = HashMap::new();
     for (index, name) in expression_types.binding_names.iter().enumerate() {
-        let storage = if binding_counts[name.as_str()] > 1 {
+        let storage = if binding_counts[name.as_str()] > 1 || !locals.contains_key(name) {
             // Sibling pattern scopes may reuse a spelling, even with different
             // types. Each checked identity needs its own physical storage;
             // cloning the legacy name entry aliases unrelated bindings and
             // may give an enum payload the wrong number of stack words.
+            // Computed match scrutinees need no syntax-based type recovery:
+            // the checked binding type is also authoritative for storage
+            // which the legacy collector could not discover.
             let ty = expression_types
                 .binding_types
                 .get(index)
@@ -6823,7 +6829,9 @@ impl FunctionContext<'_> {
                 Some(self.local_slots_for_symbol(value, name)?)
             } else if let Expr::List(items) = value {
                 match items.first() {
-                    Some(Expr::Symbol(_)) if self.is_indirect_return_call(value)? => {
+                    Some(Expr::Function(_) | Expr::Symbol(_))
+                        if self.is_indirect_return_call(value)? =>
+                    {
                         let base = self.call_to_aggregate_temp(value)?;
                         Some(flat_slots(base, storage_words))
                     }
@@ -7153,6 +7161,9 @@ impl FunctionContext<'_> {
                 _ => Some(Type::Unit),
             }),
             Expr::List(items) => match items.first() {
+                Some(Expr::Function(name)) => {
+                    self.functions.get(name).map(|abi| abi.return_type.clone())
+                }
                 Some(Expr::Symbol(operator)) if operator == "atomic-init" && items.len() == 3 => {
                     let declared = parse_type(items.get(1)).ok()?;
                     let scalar = resolve_type(&declared, &self.aliases).ok()?;
@@ -8634,7 +8645,7 @@ impl FunctionContext<'_> {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(_)) = items.first() {
+            if let Some(Expr::Function(_) | Expr::Symbol(_)) = items.first() {
                 if self.is_indirect_return_call(value)? {
                     let base = slots
                         .iter()
@@ -8648,17 +8659,17 @@ impl FunctionContext<'_> {
             }
         }
         if let Expr::List(items) = value {
-            let Some(Expr::Symbol(constructor)) = items.first() else {
-                return Err("struct constructor must start with a symbol".into());
-            };
-            if constructor == struct_name {
-                if items.len() - 1 != fields.len() {
-                    return Err(format!("constructor '{struct_name}' has wrong field count"));
+            if let Some(Expr::Symbol(constructor)) = items.first() {
+                if constructor == struct_name {
+                    if items.len() - 1 != fields.len() {
+                        return Err(format!("constructor '{struct_name}' has wrong field count"));
+                    }
+                    for (index, (field, field_value)) in fields.iter().zip(&items[1..]).enumerate()
+                    {
+                        self.store_value_to_slots(field_value, &field.ty, &slots[index].1)?;
+                    }
+                    return Ok(());
                 }
-                for (index, (field, field_value)) in fields.iter().zip(&items[1..]).enumerate() {
-                    self.store_value_to_slots(field_value, &field.ty, &slots[index].1)?;
-                }
-                return Ok(());
             }
         }
         if let Expr::Symbol(source) = value {
@@ -8753,7 +8764,7 @@ impl FunctionContext<'_> {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(_)) = items.first() {
+            if let Some(Expr::Function(_) | Expr::Symbol(_)) = items.first() {
                 if self.is_indirect_return_call(value)? {
                     self.call_into_aggregate(value, discriminant)?;
                     return Ok(());
@@ -8819,7 +8830,9 @@ impl FunctionContext<'_> {
                 return Ok(());
             }
         }
-        if !matches!(value, Expr::List(_)) {
+        if !matches!(value, Expr::List(_))
+            || matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Function(_))))
+        {
             self.expression_as_expected(value, &Type::Named(enum_name.to_owned()))?;
             self.output.push_str(&format!(
                 "    mov QWORD PTR [rbp-{}], rax\n",
@@ -8916,7 +8929,7 @@ impl FunctionContext<'_> {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(_)) = items.first() {
+            if let Some(Expr::Function(_) | Expr::Symbol(_)) = items.first() {
                 if self.is_indirect_return_call(value)? {
                     let base = *slots
                         .first()
@@ -9037,7 +9050,7 @@ impl FunctionContext<'_> {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(_)) = items.first() {
+            if let Some(Expr::Function(_) | Expr::Symbol(_)) = items.first() {
                 if self.is_indirect_return_call(value)? {
                     self.call_into_aggregate(value, base)?;
                     return Ok(());
@@ -9283,6 +9296,7 @@ impl FunctionContext<'_> {
             _ => None,
         };
         match expression {
+            Expr::Function(_) => return Err("function targets are not first-class values".into()),
             Expr::Integer(value) => {
                 if *value < i64::MIN as i128 || *value > i64::MAX as i128 {
                     self.output.push_str(&format!(
@@ -9501,7 +9515,8 @@ impl FunctionContext<'_> {
                     &self.expression_types,
                     &self.aliases,
                 )?;
-                let declared_function = matches!(items.first(), Some(Expr::Symbol(name)) if self.functions.contains_key(name));
+                let declared_function = matches!(items.first(), Some(Expr::Function(_)))
+                    || matches!(items.first(), Some(Expr::Symbol(name)) if !crate::is_builtin_head(name) && self.functions.contains_key(name));
                 let callee = checked_call_identity(metadata, declared_function)?;
                 if let Some(id) = callee {
                     let abi = self.function_abis_by_id.get(&id).ok_or_else(|| {
@@ -9902,6 +9917,9 @@ impl FunctionContext<'_> {
     ) -> Result<(), String> {
         if items.is_empty() {
             return Ok(());
+        }
+        if let Some(Expr::Function(name)) = items.first() {
+            return self.call(name, &items[1..], None, callee);
         }
         let operator = match items.first() {
             Some(Expr::Symbol(name)) => name.as_str(),
@@ -10868,7 +10886,7 @@ impl FunctionContext<'_> {
             return Ok(());
         }
         if let Expr::List(call_items) = &items[1] {
-            if let Some(Expr::Symbol(_)) = call_items.first() {
+            if let Some(Expr::Function(_) | Expr::Symbol(_)) = call_items.first() {
                 if self.is_indirect_return_call(&items[1])? {
                     let Type::Array(element, length) = self
                         .expression_type(&items[1])
@@ -11393,7 +11411,7 @@ impl FunctionContext<'_> {
         }
         let direct_enum_call = match scrutinee {
             Expr::List(call_items) => match call_items.first() {
-                Some(Expr::Symbol(_))
+                Some(Expr::Function(_) | Expr::Symbol(_))
                     if self.is_indirect_return_call(scrutinee)?
                         && self
                             .expression_type(scrutinee)
@@ -12189,7 +12207,7 @@ impl FunctionContext<'_> {
                     }
                 }
                 if let Expr::List(call_items) = scrutinee {
-                    if let Some(Expr::Symbol(_)) = call_items.first() {
+                    if let Some(Expr::Function(_) | Expr::Symbol(_)) = call_items.first() {
                         if self.is_indirect_return_call(scrutinee)? {
                             let base = self.call_to_aggregate_temp(scrutinee)?;
                             let storage_words =
@@ -12214,7 +12232,9 @@ impl FunctionContext<'_> {
                     .transpose()?
             } else if let Expr::List(call_items) = scrutinee {
                 match call_items.first() {
-                    Some(Expr::Symbol(_)) if self.is_indirect_return_call(scrutinee)? => {
+                    Some(Expr::Function(_) | Expr::Symbol(_))
+                        if self.is_indirect_return_call(scrutinee)? =>
+                    {
                         let base = self.call_to_aggregate_temp(scrutinee)?;
                         Some(flat_slots(base, storage_words))
                     }
@@ -13340,7 +13360,7 @@ impl FunctionContext<'_> {
                 return Ok(());
             }
             if let Expr::List(call_items) = &items[1] {
-                if let Some(Expr::Symbol(_)) = call_items.first() {
+                if let Some(Expr::Function(_) | Expr::Symbol(_)) = call_items.first() {
                     if self.is_indirect_return_call(&items[1])? {
                         let field_words =
                             value_word_count(&field_type, &self.structs, &self.enums)?;
@@ -13704,7 +13724,7 @@ impl FunctionContext<'_> {
                     .clone();
                 let index = self.checked_field_index(&items[2], &struct_name, &fields)?;
                 if let Expr::List(call_items) = &items[1] {
-                    if let Some(Expr::Symbol(_)) = call_items.first() {
+                    if let Some(Expr::Function(_) | Expr::Symbol(_)) = call_items.first() {
                         if self.is_indirect_return_call(&items[1])? {
                             let field_type = fields[index].ty.clone();
                             let field_words =
@@ -15262,7 +15282,7 @@ impl FunctionContext<'_> {
             }
         }
         if let Expr::List(items) = value {
-            if let Some(Expr::Symbol(_)) = items.first() {
+            if let Some(Expr::Function(_) | Expr::Symbol(_)) = items.first() {
                 if self.is_indirect_return_call(value)? {
                     let base = *slots
                         .first()
@@ -15475,7 +15495,9 @@ impl FunctionContext<'_> {
                     self.aggregate_projection_depth -= 1;
                     Some(Source::Local(temp_base))
                 }
-                Some(Expr::Symbol(_)) if self.is_indirect_return_call(&items[1])? => {
+                Some(Expr::Function(_) | Expr::Symbol(_))
+                    if self.is_indirect_return_call(&items[1])? =>
+                {
                     Some(Source::Local(self.call_to_aggregate_temp(&items[1])?))
                 }
                 _ => {
@@ -15607,7 +15629,9 @@ impl FunctionContext<'_> {
                 }
             }
             Expr::List(call_items) => match call_items.first() {
-                Some(Expr::Symbol(_)) if self.is_indirect_return_call(&items[1])? => {
+                Some(Expr::Function(_) | Expr::Symbol(_))
+                    if self.is_indirect_return_call(&items[1])? =>
+                {
                     let base = self.call_to_aggregate_temp(&items[1])?;
                     let source_words =
                         storage_word_count(&source_type, &self.structs, &self.enums)?;
@@ -15896,7 +15920,7 @@ impl FunctionContext<'_> {
         let Expr::List(items) = expression else {
             return Err("aggregate call must be a list".into());
         };
-        let Some(Expr::Symbol(name)) = items.first() else {
+        let Some(Expr::Symbol(name) | Expr::Function(name)) = items.first() else {
             return Err("aggregate call must start with a symbol".into());
         };
         let callee = checked_callee(expression, &self.expression_types, &self.functions)?;

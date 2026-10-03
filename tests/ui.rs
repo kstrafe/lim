@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "call-builtin-name-type",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#call panic (: value false))))",
+            line_number: 3,
+        },
+        Case {
             name: "gensym-reserved-source",
             diagnostic_code: "E2000",
             offending_line: "  (#let lim.gensym.fake u64 42u64)",
@@ -1204,6 +1210,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "nonconstant-static" => Some("(#call get-value (:))"),
             "call-arguments" => Some("other"),
             "call-argument-type-mismatch" => Some("false"),
+            "call-builtin-name-type" => Some("false"),
             "call-missing-argument" => Some("#call"),
             "type-as-constructor" => Some("Point"),
             "aggregate-layout-overflow" => Some("(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))"),

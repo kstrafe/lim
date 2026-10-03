@@ -301,6 +301,71 @@ mod tests {
     }
 
     #[test]
+    fn colliding_calls_keep_declaration_identity_and_reject_builtin_head_drift() {
+        let source = "(#fn u64.+.wrap ((left u64) (right u64)) u64 (#return left))
+          (#fn main () u64 (#return (#u64.+.wrap
+            (#call u64.+.wrap (: right 99u64 : left 42u64)) 0u64)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let body = &declarations.bodies["main"];
+        let target = declarations.function_id("u64.+.wrap").unwrap();
+        let call = body
+            .nodes
+            .iter()
+            .find_map(|node| match &node.kind {
+                NodeKind::Form {
+                    head,
+                    children,
+                    callee: Some(id),
+                    numeric,
+                    ..
+                } => {
+                    assert_eq!(*id, target);
+                    assert_eq!(head, "call");
+                    assert!(numeric.is_none());
+                    assert!(matches!(body.nodes[children[0].0].kind,
+                    NodeKind::Declaration(DeclarationId::Function(id)) if id == target));
+                    Some(children)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(call.len(), 3);
+        assert!(body.nodes.iter().any(|node| matches!(
+            &node.kind,
+            NodeKind::Form {
+                callee: None,
+                numeric: Some(_),
+                ..
+            }
+        )));
+        let mut function = program
+            .items
+            .iter()
+            .find_map(|item| match item {
+                crate::Item::Function(function) if function.name == "main" => {
+                    Some(function.clone())
+                }
+                _ => None,
+            })
+            .unwrap();
+        body.emission_types(&function).unwrap();
+        let Statement::Return(Some(Expr::List(outer))) = &mut function.body[0] else {
+            panic!()
+        };
+        let Expr::List(inner) = &mut outer[1] else {
+            panic!()
+        };
+        inner[0] = Expr::Symbol("u64.+.wrap".into());
+        assert!(body
+            .emission_types(&function)
+            .err()
+            .unwrap()
+            .contains("shape"));
+    }
+
+    #[test]
     fn nodes_keep_contextual_types_numeric_modes_and_reordered_call_spans() {
         let source = "(#fn add ((left u32) (right u32)) u32 (#return (#u32.+.saturate left right)))
           (#fn main () u32 (#let x u32 40) (#return (#call add (: right 2 : left x))))";
@@ -1014,6 +1079,8 @@ pub(crate) enum NodeKind {
     },
     Literal(Expr),
     Form {
+        /// Builtin spelling, or the neutral `call` marker for a resolved
+        /// function. User names come only from the callee declaration ID.
         head: String,
         children: Vec<NodeId>,
         numeric: Option<NumericOperation>,
@@ -1475,7 +1542,12 @@ impl Body {
                         .unwrap_or(name)
                         == actual
                 }
-                (NodeKind::Declaration(id), Expr::Symbol(actual)) => {
+                (NodeKind::Declaration(DeclarationId::Function(id)), Expr::Function(actual)) => {
+                    &self.declaration_names[&DeclarationId::Function(*id)] == actual
+                }
+                (NodeKind::Declaration(id), Expr::Symbol(actual))
+                    if !matches!(id, DeclarationId::Function(_)) =>
+                {
                     &self.declaration_names[id] == actual
                 }
                 (
@@ -1492,7 +1564,11 @@ impl Body {
                         .map(NumericOperation::spelling)
                         .or_else(|| callee.map(|id| self.callees[&id].clone()))
                         .unwrap_or_else(|| head.clone());
-                    matches!(items.first(), Some(Expr::Symbol(actual)) if actual == &expected)
+                    match items.first() {
+                        Some(Expr::Function(actual)) => callee.is_some() && actual == &expected,
+                        Some(Expr::Symbol(actual)) => callee.is_none() && actual == &expected,
+                        _ => false,
+                    }
                 }
                 (
                     NodeKind::If { .. }
@@ -1577,7 +1653,10 @@ impl Body {
     }
     pub fn syntax(&self, id: NodeId, erase_unsafe: bool) -> Expr {
         match &self.nodes[id.0].kind {
-            NodeKind::Declaration(id) => Expr::Symbol(self.declaration_names[id].clone()),
+            NodeKind::Declaration(id) => match id {
+                DeclarationId::Function(_) => Expr::Function(self.declaration_names[id].clone()),
+                _ => Expr::Symbol(self.declaration_names[id].clone()),
+            },
             NodeKind::Symbol { name, binding } => Expr::Symbol(
                 binding
                     .map(|id| self.bindings[id.0].name.clone())
@@ -1602,7 +1681,7 @@ impl Body {
                     items[0] = Expr::Symbol(operation.spelling());
                 }
                 if let Some(callee) = callee {
-                    items[0] = Expr::Symbol(self.callees[callee].clone());
+                    items[0] = Expr::Function(self.callees[callee].clone());
                 }
                 Expr::List(items)
             }
@@ -2065,7 +2144,9 @@ impl Builder<'_> {
         let owner = match id {
             DeclarationId::Field(field) => Some(field.owner),
             DeclarationId::Variant(variant) => Some(variant.owner),
-            DeclarationId::Global(_) | DeclarationId::Aggregate(_) => None,
+            DeclarationId::Function(_) | DeclarationId::Global(_) | DeclarationId::Aggregate(_) => {
+                None
+            }
         };
         self.body
             .declaration_names
@@ -2294,6 +2375,13 @@ impl Builder<'_> {
             .expect("checked expression has a stable expression ID");
         let expression_type = self.types.get(&expression_id).cloned();
         let kind = match expression {
+            Expr::Function(name) => {
+                let id = self
+                    .declarations
+                    .function_id(name)
+                    .expect("checked explicit call target");
+                self.declaration(DeclarationId::Function(id))
+            }
             Expr::Symbol(name) => {
                 let binding = expression_type
                     .is_some()
@@ -2350,11 +2438,13 @@ impl Builder<'_> {
                         .iter()
                         .map(|child| self.expression(child))
                         .collect::<Vec<_>>();
-                    if let Some(Expr::Symbol(head)) = items.first() {
-                        if matches!(
-                            head.as_str(),
-                            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
-                        ) {
+                    if let Some(Expr::Symbol(head) | Expr::Function(head)) = items.first() {
+                        if matches!(items.first(), Some(Expr::Symbol(_)))
+                            && matches!(
+                                head.as_str(),
+                                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                            )
+                        {
                             if let Some(Expr::Symbol(name)) = items.get(1) {
                                 if let Some(binding) = self.names.get(name).copied() {
                                     self.body.nodes[children[1].0].kind = NodeKind::Symbol {
@@ -2372,7 +2462,12 @@ impl Builder<'_> {
                         }
                         let ty = expression_type.clone();
                         self.resolve_form(items, &children, ty.as_ref());
-                        let callee = self.declarations.function_id(head);
+                        let explicit = matches!(items.first(), Some(Expr::Function(_)));
+                        let callee = if explicit || !crate::is_builtin_head(head) {
+                            self.declarations.function_id(head)
+                        } else {
+                            None
+                        };
                         if let Some(callee) = callee {
                             self.body.callees.insert(callee, head.clone());
                         }
@@ -2393,9 +2488,17 @@ impl Builder<'_> {
                             Some(order)
                         });
                         NodeKind::Form {
-                            head: head.clone(),
+                            head: if callee.is_some() {
+                                "call".into()
+                            } else {
+                                head.clone()
+                            },
                             children,
-                            numeric: NumericOperation::parse(head),
+                            numeric: if callee.is_none() {
+                                NumericOperation::parse(head)
+                            } else {
+                                None
+                            },
                             callee,
                             argument_source_order,
                         }
