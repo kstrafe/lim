@@ -1307,13 +1307,30 @@ impl FlowLoanOrigins {
         segments: &[Segment],
         parameter_slots: bool,
     ) -> Vec<Place> {
-        let origin_place = |origin: &LoanOrigin| {
-            if parameter_slots {
+        let mut places = Vec::new();
+        for origin in self.projected_origins(node, binding, segments) {
+            let place = if parameter_slots {
                 origin.referent_place()
             } else {
-                origin.place.clone()
+                origin.place
+            };
+            if !places.contains(&place) {
+                places.push(place);
             }
-        };
+        }
+        places
+    }
+
+    /// Keep symbolic input slots separate from physical referent projections.
+    /// A reference loaded from an aggregate points beyond its storage boundary;
+    /// flattening both identities into a Place makes it spuriously overlap the
+    /// aggregate's own incoming mutable reference.
+    pub fn projected_origins(
+        &self,
+        node: FlowNodeId,
+        binding: BindingId,
+        segments: &[Segment],
+    ) -> Vec<LoanOrigin> {
         let through_deref = segments
             .iter()
             .any(|segment| matches!(segment, Segment::Dereference));
@@ -1330,7 +1347,7 @@ impl FlowLoanOrigins {
                     segment => segment.clone(),
                 })
                 .collect::<Vec<_>>();
-            let mut places = Vec::new();
+            let mut projected = Vec::new();
             for origin in self.before(node, binding) {
                 if prefix.len() > origin.storage.len()
                     || !prefix
@@ -1340,25 +1357,27 @@ impl FlowLoanOrigins {
                 {
                     continue;
                 }
-                let mut place = origin_place(origin);
+                let mut selected = origin.clone();
                 for segment in &origin.storage[prefix.len()..] {
                     if matches!(segment, Segment::SliceHalf(_)) {
-                        place.segments.push(segment.clone());
+                        selected.place.segments.push(segment.clone());
                     }
                 }
-                place.segments.extend(suffix.iter().cloned());
-                if !places.contains(&place) {
-                    places.push(place);
+                selected.place.segments.extend(suffix.iter().cloned());
+                selected.storage.clear();
+                selected.storage_inputs.clear();
+                if !projected.contains(&selected) {
+                    projected.push(selected);
                 }
             }
-            return places;
+            return projected;
         }
         let segments = segments
             .iter()
             .filter(|segment| !matches!(segment, Segment::Dereference))
             .cloned()
             .collect::<Vec<_>>();
-        let mut places = Vec::new();
+        let mut projected = Vec::new();
         for origin in self.before(node, binding) {
             if segments.len() < origin.storage.len()
                 || (!through_deref && segments.len() == origin.storage.len())
@@ -1373,15 +1392,15 @@ impl FlowLoanOrigins {
             for segment in &segments[..origin.storage.len()] {
                 selected.project_storage(segment);
             }
-            let mut place = origin_place(&selected);
-            place
+            selected
+                .place
                 .segments
                 .extend_from_slice(&segments[origin.storage.len()..]);
-            if !places.contains(&place) {
-                places.push(place);
+            if !projected.contains(&selected) {
+                projected.push(selected);
             }
         }
-        places
+        projected
     }
 
     pub fn dump(&self) -> String {

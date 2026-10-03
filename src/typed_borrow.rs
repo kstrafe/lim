@@ -209,9 +209,14 @@ pub(crate) fn check_live_direct_loans_cached(
         let mut reborrow_parent = computed_targets
             .first()
             .and_then(|origin| origin.borrowed_from);
+        let mut access_origins = computed_targets.clone();
         if computed_targets.is_empty() && !matches!(access, AccessKind::Move) {
             if let PlaceRoot::Local(binding) = &place.root {
-                projected = origins.projected_referents(event, *binding, &place.segments);
+                access_origins = origins.projected_origins(event, *binding, &place.segments);
+                projected = access_origins
+                    .iter()
+                    .map(LoanOrigin::referent_place)
+                    .collect();
                 if !projected.is_empty() {
                     reborrow_parent = Some(*binding);
                 } else if matches!(access, AccessKind::Borrow { .. })
@@ -282,6 +287,13 @@ pub(crate) fn check_live_direct_loans_cached(
                     continue;
                 }
                 let held_place = held.referent_place();
+                let overlaps_access = if access_origins.is_empty() {
+                    access_places.iter().any(|place| held_place.overlaps(place))
+                } else {
+                    access_origins
+                        .iter()
+                        .any(|origin| call_referents_overlap(held, origin))
+                };
                 if matches!(access, AccessKind::Read) && place.segments.is_empty() {
                     if let PlaceRoot::Local(parent) = place.root {
                         if held.borrowed_from == Some(parent)
@@ -326,6 +338,7 @@ pub(crate) fn check_live_direct_loans_cached(
                 }
                 let forbidden_pinned_access = held.pinned
                     && !reference_value_access
+                    && overlaps_access
                     && access_places.iter().any(|place| {
                         held_place.overlaps(place)
                             && match access {
@@ -359,7 +372,7 @@ pub(crate) fn check_live_direct_loans_cached(
                     AccessKind::Borrow { mutable } => held.mutable || mutable,
                     AccessKind::Move | AccessKind::Write | AccessKind::Release => true,
                 };
-                if conflicts && access_places.iter().any(|place| held_place.overlaps(place)) {
+                if conflicts && overlaps_access {
                     let owner = if matches!(access, AccessKind::Read) {
                         diagnostic_place_name(
                             body,
@@ -2179,6 +2192,130 @@ mod tests {
         super::check_return_escapes(body, flow).unwrap();
         check_live_direct_loans(body, flow).unwrap();
         check_call_arguments(body, flow).unwrap();
+    }
+
+    #[test]
+    fn symbolic_pointer_boundaries_preserve_aliasing_within_the_same_input_slot() {
+        use crate::typed_place::Segment;
+        let origin = |root, slot, projection| LoanOrigin {
+            place: Place {
+                root,
+                segments: projection,
+            },
+            mutable: true,
+            pinned: false,
+            lifetime_only: false,
+            span: None,
+            borrowed_from: None,
+            call_reborrow: false,
+            storage: Vec::new(),
+            parameter_storage: Some(slot),
+            storage_inputs: Vec::new(),
+        };
+        let parameter = PlaceRoot::Parameter(BindingId(0));
+        let outer = origin(parameter.clone(), vec![], vec![]);
+        let first = origin(
+            parameter.clone(),
+            vec![Segment::Index(0)],
+            vec![Segment::Tuple(0)],
+        );
+        assert!(!super::call_referents_overlap(&outer, &first));
+        assert!(super::call_referents_overlap(&first, &first));
+        let disjoint_leaf = origin(
+            parameter.clone(),
+            vec![Segment::Index(0)],
+            vec![Segment::Tuple(1)],
+        );
+        assert!(!super::call_referents_overlap(&first, &disjoint_leaf));
+        let distinct_input = origin(
+            parameter.clone(),
+            vec![Segment::Index(1)],
+            vec![Segment::Tuple(0)],
+        );
+        assert!(!super::call_referents_overlap(&first, &distinct_input));
+        let selected_input = origin(
+            parameter,
+            vec![Segment::DynamicIndex],
+            vec![Segment::Tuple(0)],
+        );
+        assert!(super::call_referents_overlap(&first, &selected_input));
+        // At the caller, slot identities are substituted with real places.
+        // Different symbolic slots never excuse aliasing of actual storage.
+        let actual = PlaceRoot::Local(BindingId(0));
+        let left = origin(
+            actual.clone(),
+            vec![Segment::Index(0)],
+            vec![Segment::Tuple(0)],
+        );
+        let right = origin(actual, vec![Segment::Index(1)], vec![Segment::Tuple(0)]);
+        assert!(super::call_referents_overlap(&left, &right));
+    }
+
+    #[test]
+    fn stored_input_reference_is_not_storage_inside_its_container() {
+        for (handle, borrow) in [
+            ("#ref-mut", "#borrow-mut"),
+            ("#pin-ref-mut", "#pin-borrow-mut"),
+        ] {
+            let source = format!(
+                "(#struct Source (: amount u64))
+              (#struct Holder (: view (#ref Source)))
+              (#fn project (: input (#ref Source)) (#ref u64)
+                (#return (#borrow (#get input amount))))
+              (#fn read (: holder ({handle} Holder)) u64
+                (#let selected (#ref u64) (#call project (: input (#get holder view))))
+                (#return (#deref selected)))
+              (#fn main () u64
+                (#let-mut owner Source (#struct-literal Source (: amount 42u64)))
+                (#let-mut holder Holder (#struct-literal Holder (: view (#borrow owner))))
+                (#let answer u64 (#call read (: holder ({borrow} holder))))
+                (#forget holder) (#forget owner) (#return answer))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            crate::CheckedProgram::validate(&program)
+                .unwrap_or_else(|error| panic!("{error}\n{source}"));
+
+            let bad = source
+                .replace("(#let answer", "(#forget owner) (#let answer")
+                .replace("(#forget holder) (#forget owner)", "(#forget holder)");
+            let program = crate::parse_program(&bad).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&program)
+                .err()
+                .unwrap();
+            assert_eq!(error.1, crate::DiagnosticCode::Borrow, "{}", error.0);
+            let span = error.2.unwrap();
+            assert_eq!(&bad[span.start..span.end], "#forget");
+        }
+    }
+
+    #[test]
+    fn input_slot_identity_does_not_hide_physical_reborrow_conflicts() {
+        for (handle, shared, exclusive) in [
+            ("#ref-mut", "#ref", "#ref-mut"),
+            ("#pin-ref-mut", "#pin-ref", "#pin-ref-mut"),
+        ] {
+            let source = format!(
+                "(#struct Source (: amount u64 : other u64))
+              (#fn read (: input ({handle} Source)) u64
+                (#let selected ({shared} u64) (#borrow (#get input amount)))
+                (#let conflicting ({exclusive} u64) (#borrow-mut (#get input amount)))
+                (#return (#deref selected)))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&program)
+                .err()
+                .unwrap();
+            assert_eq!(error.1, crate::DiagnosticCode::Borrow, "{}", error.0);
+            let span = error.2.unwrap();
+            assert_eq!(&source[span.start..span.end], "#borrow-mut");
+            let disjoint = source.replace(
+                "(#borrow-mut (#get input amount))",
+                "(#borrow-mut (#get input other))",
+            );
+            let program = crate::parse_program(&disjoint).unwrap();
+            crate::CheckedProgram::validate(&program)
+                .unwrap_or_else(|error| panic!("{error}\n{disjoint}"));
+        }
     }
 
     #[test]
