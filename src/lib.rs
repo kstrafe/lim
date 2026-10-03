@@ -18,6 +18,7 @@ mod async_interfaces;
 mod async_pattern;
 mod async_prepare;
 mod async_render;
+mod async_retire;
 mod async_source;
 mod async_storage;
 mod async_values;

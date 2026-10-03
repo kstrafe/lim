@@ -62,6 +62,7 @@ struct Emitter<'a> {
     next: usize,
     types: crate::linearcheck::LinearTypes,
     render: crate::async_render::RenderContext<'a>,
+    retirement: Option<crate::async_retire::Plan>,
 }
 
 fn atom(name: &str) -> Expr {
@@ -142,6 +143,7 @@ impl<'a> Emitter<'a> {
                 &function.graph,
             )
             .map_err(|error| fail(function, error.message))?,
+            retirement: None,
         };
         emitter.finish = emitter.fresh("frame-finish");
         // Each scope/declaration activates its own cell. The factory installs
@@ -161,6 +163,11 @@ impl<'a> Emitter<'a> {
             }
             let slot = emitter.add_slot(format!("value.{index}"), value.ty.clone());
             emitter.values.insert(ValueId(index), slot);
+        }
+        emitter.retirement = crate::async_retire::Plan::new(&function.graph, &emitter.types);
+        if let Some(plan) = &emitter.retirement {
+            plan.validate(&function.graph)
+                .map_err(|error| fail(function, error.message))?;
         }
         Ok(emitter)
     }
@@ -312,6 +319,50 @@ impl<'a> Emitter<'a> {
                     Self::slot_ref(slot, true)
                 )
             })
+    }
+
+    fn clear_values(&mut self, values: &[ValueId]) -> String {
+        let slots = values
+            .iter()
+            .map(|value| self.values[value])
+            .collect::<Vec<_>>();
+        self.clear_handle_slots(&slots)
+    }
+
+    fn clear_handle_slots(&mut self, slots: &[usize]) -> String {
+        let mut clears = Vec::new();
+        for &index in slots {
+            let handle = self.fresh("retired-handle");
+            let reference = self.fresh("retired-cell");
+            let previous = self.fresh("retired-storage");
+            let slot = &self.slots[index];
+            // Keep Empty visible to ordinary stored-variant facts; a helper's
+            // unit return does not describe that definite tag yet. Reference
+            // fields retain their checked unsafe-write restoration protocol.
+            clears.push(format!(
+                "(#block\n\
+              (#let {reference} (#pin-ref-mut {}) {})\n\
+              (#let {previous} {} (#unsafe (#pin-read {reference})))\n\
+              (#match {previous} (#case {} ()) (#case ({} {handle}) (#forget {handle})))\n\
+              (#unsafe (#pin-write {reference} ({})))\n\
+              (#drop {reference}) ())",
+                slot.name,
+                Self::slot_ref(slot, true),
+                slot.name,
+                slot.empty,
+                slot.full,
+                slot.empty
+            ));
+        }
+        clears.join("\n")
+    }
+
+    fn retire_edge(&mut self, block: BlockId, index: usize) -> String {
+        let values = self
+            .retirement
+            .as_ref()
+            .map_or_else(Vec::new, |plan| plan.edge[block.0][index].clone());
+        self.clear_values(&values)
     }
 
     fn pattern_value(&self, pattern: &crate::async_exec::Pattern) -> Result<String, Error> {
@@ -887,7 +938,13 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    fn edge(&mut self, edge: &Edge, ready: Option<&str>) -> Result<String, Error> {
+    fn edge(
+        &mut self,
+        block: BlockId,
+        index: usize,
+        edge: &Edge,
+        ready: Option<&str>,
+    ) -> Result<String, Error> {
         let parameters = &self.function.graph.blocks[edge.target.0].parameters;
         // Parallel edge transfer: read every source before overwriting a
         // destination. A backedge must not clobber another selected input.
@@ -906,20 +963,21 @@ impl<'a> Emitter<'a> {
             stores.push(self.put_value(*parameter, &name));
         }
         Ok(format!(
-            "{}\n{}\n(#set-field task pc {}u32)\n(#continue)",
+            "{}\n{}\n{}\n(#set-field task pc {}u32)\n(#continue)",
             stages.join("\n"),
+            self.retire_edge(block, index),
             stores.join("\n"),
             edge.target.0
         ))
     }
 
-    fn terminal(&mut self, terminal: &Terminator) -> Result<String, Error> {
+    fn terminal(&mut self, block: BlockId, terminal: &Terminator) -> Result<String, Error> {
         match terminal {
-            Terminator::Goto(edge) => self.edge(edge, None),
+            Terminator::Goto(edge) => self.edge(block, 0, edge, None),
             Terminator::Branch { condition, yes, no } => {
                 let condition = self.value(*condition, true);
-                let yes = self.edge(yes, None)?;
-                let no = self.edge(no, None)?;
+                let yes = self.edge(block, 0, yes, None)?;
+                let no = self.edge(block, 1, no, None)?;
                 Ok(format!(
                     "(#if {condition} (#block {yes} (#unreachable)) (#block {no} (#unreachable)))"
                 ))
@@ -959,10 +1017,11 @@ impl<'a> Emitter<'a> {
                     call = format!("(#unsafe {call})");
                 }
                 let store = self.put_value(*child, &next);
-                let edge = self.edge(ready, Some(&result))?;
+                let edge = self.edge(block, 0, ready, Some(&result))?;
+                let retired = self.retire_edge(block, 1);
                 Ok(format!("(#let {polled} {} {call})\n\
                   (#match {polled}\n\
-                    (#case ({} {next}) (#block {store} (#set-field task pc {}u32) (#return ({} task)) (#unreachable)))\n\
+                    (#case ({} {next}) (#block {store} {retired} (#set-field task pc {}u32) (#return ({} task)) (#unreachable)))\n\
                     (#case ({} {result}) (#block {edge} (#unreachable))))", crate::type_source(poll_type), protocol.pending, pending.0, self.pending, protocol.ready))
             }
             Terminator::Return(value) => {
@@ -1020,8 +1079,8 @@ impl<'a> Emitter<'a> {
                     crate::expression_source(&test)
                         .map_err(|message| fail(self.function, message))?
                 };
-                let yes = self.edge(yes, None)?;
-                let no = self.edge(no, None)?;
+                let yes = self.edge(block, 0, yes, None)?;
+                let no = self.edge(block, 1, no, None)?;
                 Ok(format!(
                     "(#if {test}\n\
                   (#block {yes} (#unreachable)) (#block {no} (#unreachable)))"
@@ -1074,10 +1133,19 @@ impl<'a> Emitter<'a> {
         for BlockId(index) in live {
             let block = &graph.blocks[index];
             let mut actions = Vec::new();
-            for action in &block.actions {
+            let retired = self
+                .retirement
+                .as_ref()
+                .map_or_else(Vec::new, |plan| plan.entry[index].clone());
+            actions.push(self.clear_values(&retired));
+            for (action_index, action) in block.actions.iter().enumerate() {
                 actions.push(self.action(action)?);
+                let retired = self.retirement.as_ref().map_or_else(Vec::new, |plan| {
+                    plan.after_action[index][action_index].clone()
+                });
+                actions.push(self.clear_values(&retired));
             }
-            let terminal = self.terminal(&block.terminator)?;
+            let terminal = self.terminal(BlockId(index), &block.terminator)?;
             cases.push(format!(
                 "(#case {index}u32 (#block {} {terminal} (#unreachable)))",
                 actions.join("\n")
@@ -1637,6 +1705,132 @@ mod tests {
                 42,
             );
         }
+    }
+
+    #[test]
+    fn releasing_one_incoming_handle_does_not_retire_its_live_alias() {
+        let main = "(#fn main () u64
+          (#let waker u64 0u64) (#let value u64 20u64)
+          (#let task Frame (#call work (: value (#borrow value))))
+          (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+          (#let-else (Pending next) Poll first (#unreachable))
+          (#return (#match (#call poll (: task next : waker (#borrow waker)))
+            (#case (Ready result) result)
+            (#case (Pending bad) (#block (#forget bad) (#unreachable))))))";
+        let generated = runtime_planned(
+            prepare_function(
+                "(#fn work (: value (#ref u64)) u64
+              (#let alias (#ref u64) value)
+              (#let first u64 (#deref value)) (#drop value)
+              (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#return (#u64.+.wrap (#u64.+.wrap first (#deref alias)) child)))",
+                main,
+            ),
+            42,
+        );
+        assert!(generated[0].source.contains("retired-storage"));
+    }
+
+    #[test]
+    fn selected_shared_handles_survive_branch_transfers_and_loop_retries() {
+        let main = "(#fn main () u64
+          (#let waker u64 0u64) (#let left u64 20u64) (#let right u64 99u64)
+          (#let-mut task Frame (#call work (: choose true : left (#borrow left) : right (#borrow right))))
+          (#loop
+            (#let result Poll (#call poll (: task task : waker (#borrow waker))))
+            (#match result
+              (#case (Pending next) (#block (#set task next) ()))
+              (#case (Ready answer) (#block (#return answer) ()))))
+          (#return (#unreachable)))";
+        runtime_planned(
+            prepare_function(
+                "(#fn work (: choose bool : left (#ref u64) : right (#ref u64)) u64
+              (#let selected (#ref u64) (#if choose left right))
+              (#drop left) (#drop right)
+              (#let-mut count u64 0u64) (#let-mut sum u64 0u64)
+              (#while (#u64.< count 2u64)
+                (#let before u64 (#deref selected))
+                (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 1u64)))
+                (#assert (#u64.== before (#deref selected)))
+                (#set sum (#u64.+.wrap sum (#u64.+.wrap before child)))
+                (#set count (#u64.+.wrap count 1u64)))
+              (#return sum))",
+                main,
+            ),
+            42,
+        );
+    }
+
+    #[test]
+    fn copy_children_keep_shared_loans_and_transfer_ready_references() {
+        let extra =
+            "(#enum ReferenceStep ((ReferenceStart (#ref u64)) (ReferenceResume (#ref u64))))
+          (#enum ReferencePoll ((ReferencePending ReferenceStep) (ReferenceReady (#ref u64))))
+          (#fn reference-poll (: task ReferenceStep : waker (#ref u64)) ReferencePoll
+            (#return (#match task
+              (#case (ReferenceStart value) (ReferencePending (ReferenceResume value)))
+              (#case (ReferenceResume value) (ReferenceReady value)))))";
+        let function = "(#fn work (: value (#ref u64)) u64
+          (#let before u64 (#deref value))
+          (#let step ReferenceStep (ReferenceStart value)) (#drop value)
+          (#let after (#ref u64)
+            (#await ReferenceStep ReferencePending ReferenceReady reference-poll
+              (#block (#let sending ReferenceStep step) (#drop step) sending)))
+          (#return (#u64.+.wrap (#u64.+.wrap before (#deref after)) 2u64)))";
+        let main = format!(
+            "{extra}
+          (#fn main () u64
+            (#let waker u64 0u64) (#let value u64 20u64)
+            (#let task Frame (#call work (: value (#borrow value))))
+            (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+            (#let-else (Pending next) Poll first (#unreachable))
+            (#return (#match (#call poll (: task next : waker (#borrow waker)))
+              (#case (Ready result) result)
+              (#case (Pending bad) (#block (#forget bad) (#unreachable))))))"
+        );
+        let planning = prepare_function(function, &main);
+        for checked in &planning.functions {
+            let plan = crate::async_retire::Plan::new(
+                &checked.graph,
+                &crate::linearcheck::LinearTypes::from_program(&planning.program),
+            )
+            .unwrap();
+            for (index, block) in checked.graph.blocks.iter().enumerate() {
+                if let Terminator::Await { child, .. } = block.terminator {
+                    assert!(
+                        crate::linearcheck::LinearTypes::from_program(&planning.program)
+                            .can_repeat(&checked.graph.values[child.0].ty)
+                    );
+                    assert!(
+                        !plan.edge[index][1].contains(&child),
+                        "the restored Copy child is not retired before Pending"
+                    );
+                }
+            }
+        }
+        runtime_planned(planning, 42);
+
+        // The source handle and its named child copy have both been released.
+        // Only the actual suspended child keeps the referent borrowed now.
+        let bad_main = format!(
+            "{extra}
+          (#fn main () u64
+            (#let waker u64 0u64) (#let-mut value u64 20u64)
+            (#let task Frame (#call work (: value (#borrow value))))
+            (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+            (#let-else (Pending next) Poll first (#unreachable))
+            (#set value 21u64) (#forget next) (#return 0u64))"
+        );
+        let planning = prepare_function(function, &bad_main);
+        let generated = generate(&planning).unwrap();
+        let proposed = program(&planning, &generated).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&proposed)
+            .err()
+            .unwrap();
+        assert_eq!(error.1, DiagnosticCode::Borrow);
+        let span = error.2.unwrap();
+        let source = &proposed.source_files[span.source_id as usize].source;
+        assert_eq!(&source[span.start..span.end], "#set");
     }
 
     #[test]
