@@ -51,6 +51,76 @@ fn executable_keeps_transitive_callees_but_library_keeps_exports() {
 }
 
 #[test]
+fn implicit_copy_clone_hooks_and_their_callees_are_retained() {
+    let scratch = support::Scratch::new("reachable-clone-hooks");
+    let source = "(#struct Value ((number u64)))
+      (#type Alias Value)
+      (#fn increment ((value Value)) Value
+        (#return (#struct-literal Value
+          (: number (#u64.+.wrap (#get value number) 1u64)))))
+      (#fn Value-clone ((value Value)) Value
+        (#return (#call increment (: value value))))
+      (#fn unused () u64 (#return 99u64))
+      (#fn main () u64
+        (#let original Alias (#struct-literal Value (: number 41u64)))
+        (#let copied Alias (#clone original))
+        (#return (#get copied number)))";
+    let pruned = assembly(source, &scratch.path().join("main.lim"), true).unwrap();
+    assert!(pruned.contains(".globl Value_x2d_clone\n"), "{pruned}");
+    assert!(pruned.contains(".globl increment\n"), "{pruned}");
+    assert!(!pruned.contains(".globl unused\n"), "{pruned}");
+    let binary = scratch.path().join("program");
+    lim::link_native_binary(
+        &pruned,
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    let (status, _, stderr) = support::run(
+        &mut Command::new(binary),
+        std::time::Duration::from_secs(5),
+        1024,
+    )
+    .unwrap();
+    assert_eq!(status.code(), Some(42), "{status:?} {stderr:?}");
+}
+
+#[test]
+fn implicit_clone_hooks_cannot_form_direct_or_mutual_recursion() {
+    let sources = [
+        "(#struct Value ((number u64)))
+         (#fn Value-clone ((value Value)) Value (#return (#clone value)))",
+        "(#struct Value ((number u64)))
+         (#fn Value-clone ((value Value)) Value (#return (#call helper (: value value))))
+         (#fn helper ((value Value)) Value (#return (#clone value)))",
+        "(#struct Left ((number u64))) (#struct Right ((number u64)))
+         (#fn Left-clone ((value Left)) Left
+           (#let right Right (#clone (#struct-literal Right (: number 0u64))))
+           (#return value))
+         (#fn Right-clone ((value Right)) Right
+           (#let left Left (#clone (#struct-literal Left (: number 0u64))))
+           (#return value))",
+    ];
+    let scratch = support::Scratch::new("recursive-clone-hooks");
+    for source in sources {
+        let source = format!("{source} (#fn main () u64 (#return 42u64))");
+        for pruned in [false, true] {
+            let error = assembly(&source, &scratch.path().join("main.lim"), pruned).unwrap_err();
+            assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
+            assert!(
+                error.message.contains("recursive calls are not allowed"),
+                "{error:?}"
+            );
+            let span = error.span.expect("recursion error has a source span");
+            assert!(span.end > span.start, "{error:?}");
+            assert_eq!(span.source_id, 0, "{error:?}");
+        }
+    }
+}
+
+#[test]
 fn unused_imported_functions_are_still_checked() {
     let scratch = support::Scratch::new("reachable-validation");
     fs::write(

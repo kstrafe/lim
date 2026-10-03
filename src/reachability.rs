@@ -61,7 +61,7 @@ pub(crate) fn executable_symbols(checked: &CheckedProgram<'_>) -> HashSet<String
         let Some(body) = declarations.bodies.get(&name) else {
             continue;
         };
-        for node in &body.nodes {
+        for (index, node) in body.nodes.iter().enumerate() {
             match &node.kind {
                 NodeKind::Form {
                     callee: Some(callee),
@@ -69,6 +69,16 @@ pub(crate) fn executable_symbols(checked: &CheckedProgram<'_>) -> HashSet<String
                 } => {
                     if let Some(name) = names_by_id.get(callee) {
                         pending.push((*name).to_owned());
+                    }
+                }
+                NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
+                    // #clone dispatches a concrete hook even for Copy types.
+                    // It is not an ordinary source call, but its body (and
+                    // transitive calls) must survive executable pruning.
+                    if let Some(hook) =
+                        declarations.clone_hook_name(body, crate::typed_body::NodeId(index))
+                    {
+                        pending.push(hook);
                     }
                 }
                 // Unsafe inline assembly can name functions outside ordinary

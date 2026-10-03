@@ -621,6 +621,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 2,
         },
         Case {
+            name: "recursive-clone-hook",
+            diagnostic_code: "E4000",
+            offending_line: "  (#return (#clone value)))",
+            line_number: 3,
+        },
+        Case {
             name: "duplicate-type",
             diagnostic_code: "E4000",
             offending_line: "(#struct Token ())",
@@ -1086,6 +1092,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "repr-c-discriminant" => Some("2147483648"),
             "codegen" => Some("Second"),
             "recursive-call" => Some("worker"),
+            "recursive-clone-hook" => Some("#clone"),
             "duplicate-type" => Some("Token"),
             "duplicate-field" => Some("x"),
             "duplicate-variant" | "duplicate-variant-global" => Some("Open"),

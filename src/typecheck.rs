@@ -309,6 +309,25 @@ mod checked_program_tests {
     use super::*;
 
     #[test]
+    fn implicit_clone_hooks_contribute_to_native_call_depths() {
+        let program = crate::parse_program(
+            "(#struct Value ((number u64)))
+          (#fn helper ((value Value)) Value (#return value))
+          (#fn Value-clone ((value Value)) Value
+            (#return (#call helper (: value value))))
+          (#fn main () u64
+            (#let value Value (#struct-literal Value (: number 42u64)))
+            (#let copied Value (#clone value)) (#return (#get copied number)))",
+        )
+        .unwrap();
+        let checked = CheckedProgram::validate(&program).unwrap();
+        let depths = function_call_depths(&program, checked.declarations());
+        assert_eq!(depths["helper"], 1);
+        assert_eq!(depths["Value-clone"], 2);
+        assert_eq!(depths["main"], 3);
+    }
+
+    #[test]
     fn owned_nested_projection_borrows_retain_the_original_binding_and_loan_path() {
         let source = "(#struct Inner ((value u64)))
           (#struct Owner ((inner Inner))) (#linear Owner)
@@ -1974,6 +1993,11 @@ fn check_types_inner(
         &statement_ids,
         selected,
     )?;
+    reject_implicit_clone_recursion(program, &declarations).map_err(|error| {
+        *diagnostic_code = error.code;
+        *diagnostic_span = error.span;
+        error.message
+    })?;
     if let Some(planning) = planning {
         *diagnostic_code = crate::DiagnosticCode::Unsafe;
         crate::async_interfaces::check_selected_unsafe(
@@ -3708,7 +3732,7 @@ fn reject_recursive_calls(
     let mut ordered_names = names.into_iter().collect::<Vec<_>>();
     ordered_names.sort();
     for name in ordered_names {
-        visit_call_graph(program, &name, &edges, &mut state, &mut path)?;
+        visit_call_graph(program, &name, &edges, &mut state, &mut path, None)?;
     }
     Ok(())
 }
@@ -3750,7 +3774,92 @@ fn recursive_call_span(program: &Program, caller: &str, callee: &str) -> Option<
         .find_map(|(_, expression)| find_call(expression, callee))
 }
 
-pub(crate) fn function_call_depths(program: &Program) -> HashMap<String, usize> {
+type CallEdges = HashMap<String, HashSet<String>>;
+type CallSpans = HashMap<(String, String), crate::Span>;
+
+fn checked_call_edges(
+    declarations: &Declarations,
+    names: &HashSet<String>,
+    capture_spans: bool,
+) -> (CallEdges, CallSpans, bool) {
+    let mut edges = HashMap::<String, HashSet<String>>::new();
+    let mut spans = HashMap::new();
+    let mut implicit = false;
+    for name in names {
+        let Some(body) = declarations.bodies.get(name) else {
+            continue;
+        };
+        let calls = edges.entry(name.clone()).or_default();
+        for (index, node) in body.nodes.iter().enumerate() {
+            let crate::typed_body::NodeKind::Form {
+                head,
+                children,
+                callee,
+                ..
+            } = &node.kind
+            else {
+                continue;
+            };
+            let called = if callee.is_some() {
+                Some(head.clone())
+            } else {
+                let called = declarations.clone_hook_name(body, crate::typed_body::NodeId(index));
+                implicit |= called.is_some();
+                called
+            };
+            if let Some(called) = called {
+                if let Some(span) = capture_spans
+                    .then(|| {
+                        children
+                            .first()
+                            .and_then(|child| body.nodes[child.0].span)
+                            .or(node.span)
+                    })
+                    .flatten()
+                {
+                    spans.entry((name.clone(), called.clone())).or_insert(span);
+                }
+                calls.insert(called);
+            }
+        }
+    }
+    (edges, spans, implicit)
+}
+
+fn reject_implicit_clone_recursion(
+    program: &Program,
+    declarations: &Declarations,
+) -> Result<(), FunctionTypeError> {
+    // Ordinary source calls were checked before body lowering. Avoid building
+    // a second graph when there are no implicit hook edges to add.
+    if !declarations.bodies.values().any(|body| {
+        body.nodes.iter().enumerate().any(|(index, _)| {
+            declarations
+                .clone_hook_name(body, crate::typed_body::NodeId(index))
+                .is_some()
+        })
+    }) {
+        return Ok(());
+    }
+    let names = declarations.bodies.keys().cloned().collect::<HashSet<_>>();
+    let (edges, spans, implicit) = checked_call_edges(declarations, &names, true);
+    if !implicit {
+        return Ok(());
+    }
+    let mut ordered = names.into_iter().collect::<Vec<_>>();
+    ordered.sort();
+    let mut state = HashMap::new();
+    let mut path = Vec::new();
+    for name in ordered {
+        visit_call_graph(program, &name, &edges, &mut state, &mut path, Some(&spans))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn function_call_depths(
+    program: &Program,
+    declarations: &Declarations,
+) -> HashMap<String, usize> {
     let names = program
         .items
         .iter()
@@ -3759,16 +3868,7 @@ pub(crate) fn function_call_depths(program: &Program) -> HashMap<String, usize> 
             _ => None,
         })
         .collect::<HashSet<_>>();
-    let mut edges = HashMap::<String, HashSet<String>>::new();
-    for item in &program.items {
-        let Item::Function(function) = item else {
-            continue;
-        };
-        let calls = edges.entry(function.name.clone()).or_default();
-        for statement in &function.body {
-            collect_statement_calls(statement, &names, calls);
-        }
-    }
+    let (edges, _, _) = checked_call_edges(declarations, &names, false);
     let mut depths = HashMap::new();
     for name in &names {
         let depth = call_depth(name, &edges, &mut depths);
@@ -3803,6 +3903,7 @@ fn visit_call_graph(
     edges: &HashMap<String, HashSet<String>>,
     state: &mut HashMap<String, bool>,
     path: &mut Vec<String>,
+    typed_spans: Option<&CallSpans>,
 ) -> Result<(), FunctionTypeError> {
     if state.get(name) == Some(&true) {
         let start = path.iter().position(|item| item == name).unwrap_or(0);
@@ -3810,9 +3911,11 @@ fn visit_call_graph(
         cycle.push(name.to_owned());
         let caller = cycle.first().map(String::as_str);
         let callee = cycle.get(1).map(String::as_str);
-        let span = caller
-            .zip(callee)
-            .and_then(|(caller, callee)| recursive_call_span(program, caller, callee));
+        let span = caller.zip(callee).and_then(|(caller, callee)| {
+            typed_spans
+                .and_then(|spans| spans.get(&(caller.to_owned(), callee.to_owned())).copied())
+                .or_else(|| recursive_call_span(program, caller, callee))
+        });
         return Err(FunctionTypeError {
             message: format!("recursive calls are not allowed: {}", cycle.join(" -> ")),
             span,
@@ -3828,7 +3931,7 @@ fn visit_call_graph(
         let mut ordered_calls = calls.iter().collect::<Vec<_>>();
         ordered_calls.sort();
         for called in ordered_calls {
-            visit_call_graph(program, called, edges, state, path)?;
+            visit_call_graph(program, called, edges, state, path, typed_spans)?;
         }
     }
     path.pop();

@@ -1275,7 +1275,7 @@ fn generate_checked_assembly_with_roots(
         })
         .collect();
     let mut functions = HashMap::new();
-    let call_depths = function_call_depths(&program);
+    let call_depths = function_call_depths(&program, declarations);
     for item in &program.items {
         let Item::Function(function) = item else {
             continue;

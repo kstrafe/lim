@@ -744,6 +744,29 @@ impl Declarations {
         &self.functions[id.0]
     }
 
+    pub(crate) fn clone_hook_name(
+        &self,
+        body: &crate::typed_body::Body,
+        node: crate::typed_body::NodeId,
+    ) -> Option<String> {
+        let crate::typed_body::NodeKind::Form {
+            head,
+            children,
+            callee: None,
+            ..
+        } = &body.nodes.get(node.0)?.kind
+        else {
+            return None;
+        };
+        if head != "clone" || children.len() != 2 {
+            return None;
+        }
+        let ty = resolve_type(body.nodes[children[1].0].ty.as_ref()?, &self.aliases).ok()?;
+        let Type::Named(owner) = ty else { return None };
+        let name = format!("{owner}-clone");
+        self.function_id(&name).map(|_| name)
+    }
+
     /// Selection borrows the same immutable AST used for expression identities;
     /// it does not clone functions or replace nonselected bodies with stubs.
     pub fn lower_bodies_selected(
