@@ -536,9 +536,9 @@ impl<'a> Emitter<'a> {
                 "shared handle load has no checked dereference boundary",
             ));
         };
-        if !self.types.can_repeat(&descriptor.ty) || self.types.contains_reference(&descriptor.ty) {
+        if !self.types.can_repeat(&descriptor.ty) {
             return Err(reject(
-                "shared handle loads only support reference-free Copy leaves",
+                "shared handle loads require Copy leaves; exclusive handles need lending storage",
             ));
         }
         // Keep the evaluated handle, including its incoming loan provenance.
@@ -1831,6 +1831,93 @@ mod tests {
         let span = error.2.unwrap();
         let source = &proposed.source_files[span.source_id as usize].source;
         assert_eq!(&source[span.start..span.end], "#set");
+    }
+
+    #[test]
+    fn shared_reference_fields_survive_outer_handle_release() {
+        for (ty, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
+            let extra = "(#struct Holder (: padding u64 : view (#ref u64)))";
+            let function = format!(
+                "(#fn work (: holder ({ty} Holder)) u64
+                  (#let loaded (#ref u64) (#get holder view)) (#drop holder)
+                  (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                  (#return (#u64.+.wrap (#deref loaded) child)))"
+            );
+            let main = format!(
+                "{extra}
+                  (#fn main () u64
+                    (#let waker u64 0u64) (#let value u64 40u64)
+                    (#let holder Holder (#struct-literal Holder (: padding 99u64 : view (#borrow value))))
+                    (#let task Frame (#call work (: holder ({borrow} holder))))
+                    (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+                    (#let-else (Pending next) Poll first (#unreachable))
+                    (#let result u64 (#match (#call poll (: task next : waker (#borrow waker)))
+                      (#case (Ready result) result)
+                      (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+                    (#forget holder) (#return result))"
+            );
+            runtime_planned(prepare_function(&function, &main), 42);
+
+            let bad_main = format!(
+                "{extra}
+                  (#fn main () u64
+                    (#let waker u64 0u64) (#let-mut value u64 40u64)
+                    (#let holder Holder (#struct-literal Holder (: padding 99u64 : view (#borrow value))))
+                    (#let task Frame (#call work (: holder ({borrow} holder))))
+                    (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+                    (#let-else (Pending next) Poll first (#unreachable))
+                    (#set value 99u64) (#forget next) (#return 0u64))"
+            );
+            // The ordinary contract still conservatively retains the outer
+            // container too. Accepting the Copy leaf must not exempt either
+            // its pointee or its incoming storage from lifetime checking.
+            for (main, keyword) in [
+                (bad_main.clone(), "#set"),
+                (
+                    bad_main.replace("(#set value 99u64)", "(#forget holder)"),
+                    "#forget",
+                ),
+            ] {
+                let planning = prepare_function(&function, &main);
+                let generated = generate(&planning).unwrap();
+                let proposed = program(&planning, &generated).unwrap();
+                let error = crate::CheckedProgram::validate_with_span(&proposed)
+                    .err()
+                    .unwrap();
+                assert_eq!(error.1, DiagnosticCode::Borrow, "{}", error.0);
+                let span = error.2.unwrap();
+                let source = &proposed.source_files[span.source_id as usize].source;
+                assert_eq!(&source[span.start..span.end], keyword);
+            }
+        }
+    }
+
+    #[test]
+    fn shared_copy_aggregate_fields_keep_nested_references_across_pending() {
+        let main = "(#struct Stored (: view (#ref u64)))
+          (#struct Holder (: padding u64 : stored Stored)) (#linear Holder)
+          (#fn read-stored (: value Stored) u64 (#return (#deref (#get value view))))
+          (#fn main () u64
+            (#let waker u64 0u64) (#let value u64 40u64)
+            (#let holder Holder (#struct-literal Holder (: padding 99u64
+              : stored (#struct-literal Stored (: view (#borrow value))))))
+            (#let task Frame (#call work (: holder (#borrow holder))))
+            (#let first Poll (#call poll (: task task : waker (#borrow waker))))
+            (#let-else (Pending next) Poll first (#unreachable))
+            (#let result u64 (#match (#call poll (: task next : waker (#borrow waker)))
+              (#case (Ready result) result)
+              (#case (Pending bad) (#block (#forget bad) (#unreachable)))))
+            (#forget holder) (#return result))";
+        runtime_planned(
+            prepare_function(
+                "(#fn work (: holder (#ref Holder)) u64
+                  (#let loaded Stored (#get holder stored)) (#drop holder)
+                  (#let child u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                  (#return (#u64.+.wrap (#call read-stored (: value loaded)) child)))",
+                main,
+            ),
+            42,
+        );
     }
 
     #[test]
