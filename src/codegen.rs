@@ -13031,6 +13031,26 @@ impl FunctionContext<'_> {
             let tuple_type = self
                 .expression_type(&items[1])
                 .ok_or_else(|| "get requires a tuple value".to_owned())?;
+            if let Type::Reference { target, .. } | Type::PinnedReference { target, .. } =
+                &tuple_type
+            {
+                let Type::Tuple(fields) = target.as_ref() else {
+                    return Err("integer tuple fields require a tuple reference target".into());
+                };
+                let field_type = fields
+                    .get(index)
+                    .ok_or_else(|| format!("tuple field index {index} is out of bounds"))?
+                    .clone();
+                // Evaluate even a Unit receiver exactly once. Addressing only
+                // the selected field avoids copying/moving the entire tuple.
+                let offset_words = fields[..index].iter().try_fold(0usize, |offset, field| {
+                    offset
+                        .checked_add(storage_word_count(field, &self.structs, &self.enums)?)
+                        .ok_or_else(|| "tuple reference field offset is too large".to_owned())
+                })?;
+                self.emit_reference_field_address(&items[1], offset_words, true)?;
+                return self.load_reference_value(&field_type);
+            }
             let Type::Tuple(fields) = tuple_type else {
                 return Err("integer tuple fields require a tuple value".into());
             };

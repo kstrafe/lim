@@ -49,6 +49,42 @@ fn compile(source: &str, directory: &Path, libraries: &[String]) -> std::path::P
 }
 
 #[test]
+fn referenced_tuple_fields_keep_layout_direction_and_evaluate_receivers_once() {
+    let scratch = support::Scratch::new("reference-tuple-getters");
+    for (ty, borrow) in [
+        ("#ref", "#borrow"),
+        ("#ref-mut", "#borrow-mut"),
+        ("#pin-ref", "#pin-borrow"),
+        ("#pin-ref-mut", "#pin-borrow-mut"),
+    ] {
+        let tuple = "(#tuple () u128 f64 u64)";
+        let source = format!(
+            "(#fn receiver (: view ({ty} {tuple}) : count (#ref-mut u64)) ({ty} {tuple})
+              (#deref-set count (#u64.+.wrap (#deref count) 1u64)) (#return view))
+              (#fn main () u64
+                (#let-mut values {tuple} (#tuple {tuple} () 18446744073709551617u128 3.5f64 42u64))
+                (#let view ({ty} {tuple}) ({borrow} values)) (#let-mut count u64 0u64)
+                (#let unit () (#get (#call receiver (: view view : count (#borrow-mut count))) 0))
+                (#assert (#u64.== count 1u64))
+                (#assert (#u128.== (#get view 1) 18446744073709551617u128))
+                (#assert (#f64.== (#get view 2) 3.5f64))
+                (#return (#get view 3)))"
+        );
+        assert_runs(&compile(&source, scratch.path(), &[]), b"");
+    }
+    for (ty, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
+        let tuple = "(#tuple u128 f64 u64)";
+        let source = format!(
+            "(#let Values {tuple} (#tuple {tuple} 18446744073709551617u128 3.5f64 42u64))
+              (#fn main () u64 (#let view ({ty} {tuple}) ({borrow} Values))
+                (#assert (#u128.== (#get view 0) 18446744073709551617u128))
+                (#assert (#f64.== (#get view 1) 3.5f64)) (#return (#get view 2)))"
+        );
+        assert_runs(&compile(&source, scratch.path(), &[]), b"");
+    }
+}
+
+#[test]
 fn simple_lim_program_builds_with_no_external_tools_on_path() {
     let scratch = support::Scratch::new("internal-fibonacci-link");
     let source = scratch.path().join("fibonacci.lim");
