@@ -24,15 +24,15 @@
   (#fn linux-read-byte ((destination (#ref-mut u8))) i64
     (#return (#unsafe (#asm i64
       ((rax LINUX-SYS-READ) (rdi 0usize) (rsi destination) (rdx 1usize))
-      "and rsi, -2\nmov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
+      "mov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
   (#fn linux-read-byte-from ((fd i64) (destination (#ref-mut u8))) i64
     (#return (#unsafe (#asm i64
       ((rax LINUX-SYS-READ) (rdi fd) (rsi destination) (rdx 1usize))
-      "and rsi, -2\nmov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
+      "mov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
   (#fn linux-write-byte ((source (#ref u8))) i64
     (#return (#unsafe (#asm i64
       ((rax LINUX-SYS-WRITE) (rdi 1usize) (rsi source) (rdx 1usize))
-      "and rsi, -2\nmov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
+      "mov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
   (#fn linux-getpid () i64
     (#return (#unsafe (#asm i64 ((rax LINUX-SYS-GETPID)) "syscall"))))
   (#fn linux-getuid () i64
@@ -906,9 +906,20 @@
     (#return (#unsafe (#asm i64
       ((rax LINUX-SYS-FTRUNCATE) (rdi fd) (rsi length)) "syscall"))))
   (#fn linux-clock-gettime ((clock-id i64) (time (#ref-mut LinuxTimespec))) i64
-    (#return (#unsafe (#asm i64
-      ((rax LINUX-SYS-CLOCK-GETTIME) (rdi clock-id) (rsi time))
-      "test rsi, 1\njz 1f\nand rsi, -2\nsub rsi, 8\n1:\nsyscall"))))
+    ; Marshal through explicit native ABI storage, not reference tag bits.
+    ; Stack arrays descend: index 1 holds seconds, followed by index 0's ns.
+    (#let-mut native (#array i64 2) (#array-of (#array i64 2) 0i64 0i64))
+    (#let pointer (#ptr-mut i64) (#unsafe (#asm (#ptr-mut i64)
+      ((rdi (#borrow-mut native))) "lea rax, [rdi-8]")))
+    (#let status i64 (#unsafe (#linux-syscall i64 LINUX-SYS-CLOCK-GETTIME
+      (clock-id pointer))))
+    (#if (#i64.== status 0i64)
+      (#block
+        (#deref-set (#borrow-mut (#get time seconds)) (#index native 1usize))
+        (#deref-set (#borrow-mut (#get time nanoseconds)) (#index native 0usize))
+        ())
+      ())
+    (#return status))
   (#unsafe-fn linux-clock-getres ((clock-id i64) (time (#ptr-mut i64))) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-CLOCK-GETRES
       (clock-id time)))))
@@ -993,13 +1004,26 @@
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-FUTEX
       (address 4i32 wake-count requeue-count second-address expected)))))
   (#fn linux-nanosleep ((request (#ref LinuxTimespec)) (remaining (#ref-mut LinuxTimespec))) i64
-    (#return (#unsafe (#asm i64
-      ((rax LINUX-SYS-NANOSLEEP) (rdi request) (rsi remaining))
-      "test rdi, 1\njz 1f\nand rdi, -2\nsub rdi, 8\n1:\ntest rsi, 1\njz 2f\nand rsi, -2\nsub rsi, 8\n2:\nsyscall"))))
+    (#let native-request (#array i64 2) (#array-of (#array i64 2)
+      (#get request nanoseconds) (#get request seconds)))
+    (#let-mut native-remaining (#array i64 2) (#array-of (#array i64 2) 0i64 0i64))
+    (#let request-pointer (#ptr i64) (#unsafe (#asm (#ptr i64)
+      ((rdi (#borrow native-request))) "lea rax, [rdi-8]")))
+    (#let remaining-pointer (#ptr-mut i64) (#unsafe (#asm (#ptr-mut i64)
+      ((rdi (#borrow-mut native-remaining))) "lea rax, [rdi-8]")))
+    (#let status i64 (#unsafe (#linux-syscall i64 LINUX-SYS-NANOSLEEP
+      (request-pointer remaining-pointer))))
+    (#if (#i64.== status -4i64)
+      (#block
+        (#deref-set (#borrow-mut (#get remaining seconds)) (#index native-remaining 1usize))
+        (#deref-set (#borrow-mut (#get remaining nanoseconds)) (#index native-remaining 0usize))
+        ())
+      ())
+    (#return status))
   (#fn linux-getrandom-byte ((destination (#ref-mut u8))) i64
     (#return (#unsafe (#asm i64
       ((rax LINUX-SYS-GETRANDOM) (rdi destination) (rsi 1usize) (rdx 0usize))
-      "and rdi, -2\nsyscall"))))
+      "syscall"))))
   (#unsafe-fn linux-getrandom ((destination (#ptr-mut u8)) (size usize) (flags u32)) i64
     (#return (#unsafe (#linux-syscall i64 LINUX-SYS-GETRANDOM
       (destination size flags)))))
