@@ -1,0 +1,1583 @@
+; Opaque, linear UTF-8 text backed by the process's standard system allocator.
+; Length/capacity are bytes, not characters. Strings are not NUL-terminated;
+; embedded NUL is valid text. No mutable byte access or shallow clone is public.
+; Allocation is fallible, moves do not allocate, and String-free is explicit.
+(#import "system_allocator.lim")
+(
+  #struct
+  String
+  (: pointer (#ptr-mut u8) : length usize : capacity usize))
+(#opaque String)
+(#linear String)
+(
+  #struct
+  StringBytes
+  (: owner (#ref String)))
+(#opaque StringBytes)
+(
+  #enum
+  StringError
+  (StringOutOfMemory StringCapacityOverflow StringInvalidUtf8 StringInvalidChar)
+)
+(
+  #enum
+  StringStatus
+  (
+    StringOk
+    (StringErr StringError)
+  )
+)
+(
+  #enum
+  StringCreateResult
+  (
+    (StringCreated String)
+    (StringCreateFailed StringError)
+  )
+)
+(
+  #enum
+  StringByteResult
+  (
+    (StringByte u8)
+    StringByteOutOfBounds
+  )
+)
+(
+  #enum
+  StringPopResult
+  (
+    (StringPopped char)
+    StringEmpty
+  )
+)
+(
+  #fn
+  String-new
+  ()
+  String
+  (
+    #return
+    (
+      #struct-literal
+      String
+      (: pointer (#ptr-null (#ptr-mut u8)) : length 0usize : capacity 0usize)    )  ))
+(
+  #fn
+  String-len
+  (: string (#ref String))
+  usize
+  (
+    #return
+    (#get string length)
+  ))
+(
+  #fn
+  String-capacity
+  (: string (#ref String))
+  usize
+  (
+    #return
+    (#get string capacity)
+  ))
+(
+  #fn
+  String-is-empty
+  (: string (#ref String))
+  bool
+  (
+    #return
+    (
+      #usize.==
+      (#get string length)
+      (#literal usize 0)
+    )
+  ))
+; Reserve once before a bulk append. Failure changes neither allocation nor text.
+(
+  #fn
+  String-reserve
+  (: string (#ref-mut String) : additional usize)
+  StringStatus
+  (
+    #let
+    length
+    usize
+    (#get string length)
+  )
+  (
+    #let
+    capacity
+    usize
+    (#get string capacity)
+  )
+  (
+    #return
+    (
+      #if
+      (
+        #usize.>
+        additional
+        (#usize.-.wrap SYSTEM-ALLOCATION-MAX length)
+      )
+      (StringErr StringCapacityOverflow)
+      (
+        #block
+        (
+          #let
+          requested
+          usize
+          (#usize.+.wrap length additional)
+        )
+        (
+          #if
+          (#usize.<= requested capacity)
+          StringOk
+          (
+            #block
+            (
+              #let
+              doubled
+              usize
+              (
+                #usize.*.saturate
+                capacity
+                (#literal usize 2)
+              )
+            )
+            (
+              #let
+              geometric
+              usize
+              (
+                #if
+                (
+                  #usize.<
+                  doubled
+                  (#literal usize 8)
+                )
+                (#literal usize 8)
+                doubled
+              )
+            )
+            (
+              #let
+              bounded
+              usize
+              (
+                #if
+                (#usize.> geometric SYSTEM-ALLOCATION-MAX)
+                SYSTEM-ALLOCATION-MAX
+                geometric
+              )
+            )
+            (
+              #let
+              chosen
+              usize
+              (
+                #if
+                (#usize.> requested bounded)
+                requested
+                bounded
+              )
+            )
+            (
+              #let
+              allocation
+              SystemAllocationResult
+              (
+                #if
+                (
+                  #usize.==
+                  capacity
+                  (#literal usize 0)
+                )
+                (
+                  #call
+                  system-allocate
+                  (: size chosen)                )
+                (
+                  #unsafe
+                  (
+                    #call
+                    system-reallocate
+                    (: pointer (#get string pointer) : size chosen)                  )                )              )            )
+            (
+              #match
+              allocation
+              (
+                #case
+                (SystemAllocated pointer)
+                (
+                  #block
+                  (
+                    #deref-set
+                    (
+                      #borrow-mut
+                      (#get string pointer)
+                    )
+                    pointer
+                  )
+                  (
+                    #deref-set
+                    (
+                      #borrow-mut
+                      (#get string capacity)
+                    )
+                    chosen
+                  )
+                  StringOk
+                )
+              )
+              (
+                #case
+                (SystemAllocationFailed error)
+                (
+                  #match
+                  error
+                  (
+                    #case
+                    SystemAllocationOutOfMemory
+                    (StringErr StringOutOfMemory)
+                  )
+                  (
+                    #case
+                    SystemAllocationInvalidSize
+                    (StringErr StringCapacityOverflow)
+                  )
+                )
+              )
+            )          )        )      )    )  ))
+(
+  #fn
+  String-with-capacity
+  (: capacity usize)
+  StringCreateResult
+  (
+    #let-mut
+    string
+    String
+    (
+      #call
+      String-new
+      ()
+    )
+  )
+  (
+    #return
+    (
+      #match
+      (
+        #call
+        String-reserve
+        (: string (#borrow-mut string) : additional capacity)      )
+      (
+        #case
+        StringOk
+        (StringCreated string)
+      )
+      (
+        #case
+        (StringErr error)
+        (
+          #block
+          (
+            #call
+            String-free
+            (: string string)          )
+          (StringCreateFailed error)        )      )    )  ))
+; Zero is not a scalar width: reject surrogates and out-of-range char casts.
+(
+  #fn
+  String-scalar-width
+  (: value char)
+  usize
+  (
+    #let
+    code
+    u32
+    (#as value u32)
+  )
+  (
+    #return
+    (
+      #if
+      (
+        #bool.||
+        (
+          #u32.>
+          code
+          (#literal u32 1114111)
+        )
+        (
+          #bool.&&
+          (
+            #u32.>=
+            code
+            (#literal u32 55296)
+          )
+          (
+            #u32.<=
+            code
+            (#literal u32 57343)
+          )
+        )
+      )
+      (#literal usize 0)
+      (
+        #if
+        (
+          #u32.<
+          code
+          (#literal u32 128)
+        )
+        (#literal usize 1)
+        (
+          #if
+          (
+            #u32.<
+            code
+            (#literal u32 2048)
+          )
+          (#literal usize 2)
+          (
+            #if
+            (
+              #u32.<
+              code
+              (#literal u32 65536)
+            )
+            (#literal usize 3)
+            (#literal usize 4)
+          )
+        )
+      )
+    )
+  ))
+; Caller proves room for a complete validated scalar at offset. This raw helper
+; is unsafe so outside callers cannot write through arbitrary pointers safely.
+(
+  #unsafe-fn
+  String-write-scalar
+  (: pointer (#ptr-mut u8) : offset usize : value char : width usize)
+  ()
+  (
+    #let
+    code
+    u32
+    (#as value u32)
+  )
+  (
+    #let
+    lead
+    u8
+    (
+      #if
+      (
+        #usize.==
+        width
+        (#literal usize 1)
+      )
+      (#as code u8)
+      (
+        #if
+        (
+          #usize.==
+          width
+          (#literal usize 2)
+        )
+        (
+          #as
+          (
+            #u32.|
+            (#literal u32 192)
+            (
+              #u32.>>
+              code
+              (#literal u32 6)
+            )
+          )
+          u8
+        )
+        (
+          #if
+          (
+            #usize.==
+            width
+            (#literal usize 3)
+          )
+          (
+            #as
+            (
+              #u32.|
+              (#literal u32 224)
+              (
+                #u32.>>
+                code
+                (#literal u32 12)
+              )
+            )
+            u8
+          )
+          (
+            #as
+            (
+              #u32.|
+              (#literal u32 240)
+              (
+                #u32.>>
+                code
+                (#literal u32 18)
+              )
+            )
+            u8
+          )
+        )
+      )
+    )
+  )
+  (
+    #unsafe
+    (
+      #ptr-write
+      (#ptr-offset pointer offset)
+      lead
+    )
+  )
+  (
+    #let-mut
+    index
+    usize
+    (#literal usize 1)
+  )
+  (
+    #while
+    (#usize.< index width)
+    (
+      #let
+      shift
+      u32
+      (
+        #as
+        (
+          #usize.*.wrap
+          (
+            #usize.-.wrap
+            width
+            (
+              #usize.+.wrap
+              index
+              (#literal usize 1)
+            )
+          )
+          (#literal usize 6)
+        )
+        u32
+      )
+    )
+    (
+      #let
+      byte
+      u8
+      (
+        #as
+        (
+          #u32.|
+          (#literal u32 128)
+          (
+            #u32.&
+            (#u32.>> code shift)
+            (#literal u32 63)
+          )
+        )
+        u8
+      )
+    )
+    (
+      #unsafe
+      (
+        #ptr-write
+        (
+          #ptr-offset
+          pointer
+          (#usize.+.wrap offset index)
+        )
+        byte
+      )
+    )
+    (
+      #set
+      index
+      (
+        #usize.+.wrap
+        index
+        (#literal usize 1)
+      )
+    )
+  )
+  (
+    #return
+    ()
+  ))
+(
+  #fn
+  String-push-char
+  (: string (#ref-mut String) : value char)
+  StringStatus
+  (
+    #let
+    width
+    usize
+    (
+      #call
+      String-scalar-width
+      (: value value)    )  )
+  (
+    #return
+    (
+      #if
+      (
+        #usize.==
+        width
+        (#literal usize 0)
+      )
+      (StringErr StringInvalidChar)
+      (
+        #match
+        (
+          #call
+          String-reserve
+          (: string string : additional width)        )
+        (
+          #case
+          (StringErr error)
+          (StringErr error)
+        )
+        (
+          #case
+          StringOk
+          (
+            #block
+            (
+              #let
+              length
+              usize
+              (#get string length)
+            )
+            (
+              #unsafe
+              (
+                #call
+                String-write-scalar
+                (: pointer (#get string pointer) : offset length : value value : width width)              )            )
+            (
+              #deref-set
+              (
+                #borrow-mut
+                (#get string length)
+              )
+              (#usize.+.wrap length width)
+            )
+            StringOk          )        )      )    )  ))
+(
+  #fn
+  String-push-chars
+  (: string (#ref-mut String) : text (#slice char))
+  StringStatus
+  (
+    #let
+    count
+    usize
+    (#slice-len text)
+  )
+  (
+    #let-mut
+    additional
+    usize
+    (#literal usize 0)
+  )
+  (
+    #let-mut
+    index
+    usize
+    (#literal usize 0)
+  )
+  (
+    #while
+    (#usize.< index count)
+    (
+      #let
+      width
+      usize
+      (
+        #call
+        String-scalar-width
+        (: value (#deref (#slice-idx text index)))      )    )
+    (
+      #if
+      (
+        #usize.==
+        width
+        (#literal usize 0)
+      )
+      (
+        #block
+        (
+          #return
+          (StringErr StringInvalidChar)
+        )
+      )
+      ()
+    )
+    (
+      #if
+      (
+        #usize.>
+        width
+        (#usize.-.wrap SYSTEM-ALLOCATION-MAX additional)
+      )
+      (
+        #block
+        (
+          #return
+          (StringErr StringCapacityOverflow)
+        )
+      )
+      ()
+    )
+    (
+      #set
+      additional
+      (#usize.+.wrap additional width)
+    )
+    (
+      #set
+      index
+      (
+        #usize.+.wrap
+        index
+        (#literal usize 1)
+      )
+    )  )
+  (
+    #return
+    (
+      #match
+      (
+        #call
+        String-reserve
+        (: string string : additional additional)      )
+      (
+        #case
+        (StringErr error)
+        (StringErr error)
+      )
+      (
+        #case
+        StringOk
+        (
+          #block
+          (
+            #let-mut
+            offset
+            usize
+            (#get string length)
+          )
+          (
+            #let-mut
+            cursor
+            usize
+            (#literal usize 0)
+          )
+          (
+            #while
+            (#usize.< cursor count)
+            (
+              #let
+              value
+              char
+              (
+                #deref
+                (#slice-idx text cursor)
+              )
+            )
+            (
+              #let
+              scalar-width
+              usize
+              (
+                #call
+                String-scalar-width
+                (: value value)              )            )
+            (
+              #unsafe
+              (
+                #call
+                String-write-scalar
+                (: pointer (#get string pointer) : offset offset : value value : width scalar-width)              )            )
+            (
+              #set
+              offset
+              (#usize.+.wrap offset scalar-width)
+            )
+            (
+              #set
+              cursor
+              (
+                #usize.+.wrap
+                cursor
+                (#literal usize 1)
+              )
+            )          )
+          (
+            #deref-set
+            (
+              #borrow-mut
+              (#get string length)
+            )
+            offset
+          )
+          StringOk        )      )    )  ))
+; Strict UTF-8: reject lone continuations, overlong encodings, surrogate code
+; points, scalars above U+10FFFF, and incomplete sequences, before allocating.
+(
+  #fn
+  String-utf8-valid
+  (: bytes (#slice u8))
+  bool
+  (
+    #let
+    count
+    usize
+    (#slice-len bytes)
+  )
+  (
+    #let-mut
+    index
+    usize
+    (#literal usize 0)
+  )
+  (
+    #while
+    (#usize.< index count)
+    (
+      #let
+      first
+      u8
+      (
+        #deref
+        (#slice-idx bytes index)
+      )
+    )
+    (
+      #let
+      width
+      usize
+      (
+        #if
+        (
+          #u8.<
+          first
+          (#literal u8 128)
+        )
+        (#literal usize 1)
+        (
+          #if
+          (
+            #bool.&&
+            (
+              #u8.>=
+              first
+              (#literal u8 194)
+            )
+            (
+              #u8.<=
+              first
+              (#literal u8 223)
+            )
+          )
+          (#literal usize 2)
+          (
+            #if
+            (
+              #bool.&&
+              (
+                #u8.>=
+                first
+                (#literal u8 224)
+              )
+              (
+                #u8.<=
+                first
+                (#literal u8 239)
+              )
+            )
+            (#literal usize 3)
+            (
+              #if
+              (
+                #bool.&&
+                (
+                  #u8.>=
+                  first
+                  (#literal u8 240)
+                )
+                (
+                  #u8.<=
+                  first
+                  (#literal u8 244)
+                )
+              )
+              (#literal usize 4)
+              (#literal usize 0)
+            )
+          )
+        )
+      )
+    )
+    (
+      #if
+      (
+        #bool.||
+        (
+          #usize.==
+          width
+          (#literal usize 0)
+        )
+        (
+          #usize.>
+          width
+          (#usize.-.wrap count index)
+        )
+      )
+      (
+        #block
+        (#return false)
+      )
+      ()
+    )
+    (
+      #if
+      (
+        #usize.>
+        width
+        (#literal usize 1)
+      )
+      (
+        #block
+        (
+          #let
+          second
+          u8
+          (
+            #deref
+            (
+              #slice-idx
+              bytes
+              (
+                #usize.+.wrap
+                index
+                (#literal usize 1)
+              )
+            )
+          )
+        )
+        (
+          #if
+          (
+            #bool.||
+            (
+              #bool.||
+              (
+                #bool.&&
+                (
+                  #u8.==
+                  first
+                  (#literal u8 224)
+                )
+                (
+                  #u8.<
+                  second
+                  (#literal u8 160)
+                )
+              )
+              (
+                #bool.&&
+                (
+                  #u8.==
+                  first
+                  (#literal u8 237)
+                )
+                (
+                  #u8.>
+                  second
+                  (#literal u8 159)
+                )
+              )
+            )
+            (
+              #bool.||
+              (
+                #bool.&&
+                (
+                  #u8.==
+                  first
+                  (#literal u8 240)
+                )
+                (
+                  #u8.<
+                  second
+                  (#literal u8 144)
+                )
+              )
+              (
+                #bool.&&
+                (
+                  #u8.==
+                  first
+                  (#literal u8 244)
+                )
+                (
+                  #u8.>
+                  second
+                  (#literal u8 143)
+                )
+              )
+            )
+          )
+          (
+            #block
+            (#return false)
+          )
+          ()
+        )
+        (
+          #let-mut
+          continuation
+          usize
+          (#literal usize 1)
+        )
+        (
+          #while
+          (#usize.< continuation width)
+          (
+            #let
+            byte
+            u8
+            (
+              #deref
+              (
+                #slice-idx
+                bytes
+                (#usize.+.wrap index continuation)
+              )
+            )
+          )
+          (
+            #if
+            (
+              #bool.||
+              (
+                #u8.<
+                byte
+                (#literal u8 128)
+              )
+              (
+                #u8.>
+                byte
+                (#literal u8 191)
+              )
+            )
+            (
+              #block
+              (#return false)
+            )
+            ()
+          )
+          (
+            #set
+            continuation
+            (
+              #usize.+.wrap
+              continuation
+              (#literal usize 1)
+            )
+          )
+        )
+        ()
+      )
+      ()
+    )
+    (
+      #set
+      index
+      (#usize.+.wrap index width)
+    )
+  )
+  (#return true))
+(
+  #fn
+  String-push-utf8
+  (: string (#ref-mut String) : bytes (#slice u8))
+  StringStatus
+  (
+    #return
+    (
+      #if
+      (
+        #bool.!
+        (
+          #call
+          String-utf8-valid
+          (: bytes bytes)        )      )
+      (StringErr StringInvalidUtf8)
+      (
+        #match
+        (
+          #call
+          String-reserve
+          (: string string : additional (#slice-len bytes))        )
+        (
+          #case
+          (StringErr error)
+          (StringErr error)
+        )
+        (
+          #case
+          StringOk
+          (
+            #block
+            (
+              #let
+              length
+              usize
+              (#get string length)
+            )
+            (
+              #let
+              count
+              usize
+              (#slice-len bytes)
+            )
+            (
+              #let
+              pointer
+              (#ptr-mut u8)
+              (#get string pointer)
+            )
+            (
+              #let-mut
+              index
+              usize
+              (#literal usize 0)
+            )
+            (
+              #while
+              (#usize.< index count)
+              (
+                #unsafe
+                (
+                  #ptr-write
+                  (
+                    #ptr-offset
+                    pointer
+                    (#usize.+.wrap length index)
+                  )
+                  (
+                    #deref
+                    (#slice-idx bytes index)
+                  )
+                )
+              )
+              (
+                #set
+                index
+                (
+                  #usize.+.wrap
+                  index
+                  (#literal usize 1)
+                )
+              )
+            )
+            (
+              #deref-set
+              (
+                #borrow-mut
+                (#get string length)
+              )
+              (#usize.+.wrap length count)
+            )
+            StringOk
+          )
+        )      )    )  ))
+(
+  #fn
+  String-from-chars
+  (: text (#slice char))
+  StringCreateResult
+  (
+    #let-mut
+    string
+    String
+    (
+      #call
+      String-new
+      ()
+    )
+  )
+  (
+    #return
+    (
+      #match
+      (
+        #call
+        String-push-chars
+        (: string (#borrow-mut string) : text text)      )
+      (
+        #case
+        StringOk
+        (StringCreated string)
+      )
+      (
+        #case
+        (StringErr error)
+        (
+          #block
+          (
+            #call
+            String-free
+            (: string string)          )
+          (StringCreateFailed error)        )      )    )  ))
+(
+  #fn
+  String-from-utf8
+  (: bytes (#slice u8))
+  StringCreateResult
+  (
+    #let-mut
+    string
+    String
+    (
+      #call
+      String-new
+      ()
+    )
+  )
+  (
+    #return
+    (
+      #match
+      (
+        #call
+        String-push-utf8
+        (: string (#borrow-mut string) : bytes bytes)      )
+      (
+        #case
+        StringOk
+        (StringCreated string)
+      )
+      (
+        #case
+        (StringErr error)
+        (
+          #block
+          (
+            #call
+            String-free
+            (: string string)          )
+          (StringCreateFailed error)        )      )    )  ))
+; Return a byte by value. Packed allocation addresses must not be converted to
+; Lim word-layout references. A StringBytes view retains the owner's borrow.
+(
+  #fn
+  String-byte-at
+  (: string (#ref String) : index usize)
+  StringByteResult
+  (
+    #return
+    (
+      #if
+      (
+        #usize.<
+        index
+        (#get string length)
+      )
+      (
+        StringByte
+        (
+          #unsafe
+          (
+            #ptr-read
+            (
+              #ptr-offset
+              (#get string pointer)
+              index
+            )
+          )
+        )
+      )
+      StringByteOutOfBounds
+    )
+  ))
+(
+  #fn
+  String-bytes
+  (: string (#ref String))
+  StringBytes
+  (
+    #return
+    (
+      #struct-literal
+      StringBytes
+      (: owner string)    )  ))
+(
+  #fn
+  StringBytes-len
+  (: bytes StringBytes)
+  usize
+  (
+    #return
+    (
+      #call
+      String-len
+      (: string (#get bytes owner))    )  ))
+(
+  #fn
+  StringBytes-byte-at
+  (: bytes StringBytes : index usize)
+  StringByteResult
+  (
+    #return
+    (
+      #call
+      String-byte-at
+      (: string (#get bytes owner) : index index)    )  ))
+(
+  #fn
+  String-pop-char
+  (: string (#ref-mut String))
+  StringPopResult
+  (
+    #let
+    length
+    usize
+    (#get string length)
+  )
+  (
+    #return
+    (
+      #if
+      (
+        #usize.==
+        length
+        (#literal usize 0)
+      )
+      StringEmpty
+      (
+        #block
+        (
+          #let
+          pointer
+          (#ptr-mut u8)
+          (#get string pointer)
+        )
+        (
+          #let-mut
+          start
+          usize
+          (
+            #usize.-.wrap
+            length
+            (#literal usize 1)
+          )
+        )
+        (
+          #let-mut
+          first
+          u8
+          (
+            #unsafe
+            (
+              #ptr-read
+              (#ptr-offset pointer start)
+            )
+          )
+        )
+        (
+          #while
+          (
+            #bool.&&
+            (
+              #u8.>=
+              first
+              (#literal u8 128)
+            )
+            (
+              #u8.<=
+              first
+              (#literal u8 191)
+            )
+          )
+          (
+            #set
+            start
+            (
+              #usize.-.wrap
+              start
+              (#literal usize 1)
+            )
+          )
+          (
+            #set
+            first
+            (
+              #unsafe
+              (
+                #ptr-read
+                (#ptr-offset pointer start)
+              )
+            )
+          )
+        )
+        (
+          #let
+          mask
+          u32
+          (
+            #if
+            (
+              #u8.<
+              first
+              (#literal u8 128)
+            )
+            (#literal u32 127)
+            (
+              #if
+              (
+                #u8.<
+                first
+                (#literal u8 224)
+              )
+              (#literal u32 31)
+              (
+                #if
+                (
+                  #u8.<
+                  first
+                  (#literal u8 240)
+                )
+                (#literal u32 15)
+                (#literal u32 7)
+              )
+            )
+          )
+        )
+        (
+          #let-mut
+          code
+          u32
+          (
+            #u32.&
+            (#as first u32)
+            mask
+          )
+        )
+        (
+          #let-mut
+          index
+          usize
+          (
+            #usize.+.wrap
+            start
+            (#literal usize 1)
+          )
+        )
+        (
+          #while
+          (#usize.< index length)
+          (
+            #let
+            byte
+            u8
+            (
+              #unsafe
+              (
+                #ptr-read
+                (#ptr-offset pointer index)
+              )
+            )
+          )
+          (
+            #set
+            code
+            (
+              #u32.|
+              (
+                #u32.<<
+                code
+                (#literal u32 6)
+              )
+              (
+                #u32.&
+                (#as byte u32)
+                (#literal u32 63)
+              )
+            )
+          )
+          (
+            #set
+            index
+            (
+              #usize.+.wrap
+              index
+              (#literal usize 1)
+            )
+          )
+        )
+        (
+          #deref-set
+          (
+            #borrow-mut
+            (#get string length)
+          )
+          start
+        )
+        (
+          StringPopped
+          (#as code char)
+        )
+      )
+    )
+  ))
+(
+  #fn
+  String-clear
+  (: string (#ref-mut String))
+  ()
+  (
+    #deref-set
+    (
+      #borrow-mut
+      (#get string length)
+    )
+    (#literal usize 0)
+  )
+  (
+    #return
+    ()
+  ))
+(
+  #fn
+  String-try-clone
+  (: string (#ref String))
+  StringCreateResult
+  (
+    #let
+    length
+    usize
+    (#get string length)
+  )
+  (
+    #let-mut
+    copy
+    String
+    (
+      #call
+      String-new
+      ()
+    )
+  )
+  (
+    #return
+    (
+      #match
+      (
+        #call
+        String-reserve
+        (: string (#borrow-mut copy) : additional length)      )
+      (
+        #case
+        (StringErr error)
+        (
+          #block
+          (
+            #call
+            String-free
+            (: string copy)          )
+          (StringCreateFailed error)        )      )
+      (
+        #case
+        StringOk
+        (
+          #block
+          (
+            #let
+            source
+            (#ptr-mut u8)
+            (#get string pointer)
+          )
+          (
+            #let
+            target
+            (#ptr-mut u8)
+            (#get copy pointer)
+          )
+          (
+            #let-mut
+            index
+            usize
+            (#literal usize 0)
+          )
+          (
+            #while
+            (#usize.< index length)
+            (
+              #unsafe
+              (
+                #ptr-write
+                (#ptr-offset target index)
+                (
+                  #ptr-read
+                  (#ptr-offset source index)
+                )
+              )
+            )
+            (
+              #set
+              index
+              (
+                #usize.+.wrap
+                index
+                (#literal usize 1)
+              )
+            )
+          )
+          (#set-field copy length length)
+          (StringCreated copy)
+        )
+      )    )  ))
+(
+  #fn
+  String-free
+  (: string String)
+  ()
+  (
+    #if
+    (
+      #usize.!=
+      (#get string capacity)
+      (#literal usize 0)
+    )
+    (
+      #unsafe
+      (
+        #call
+        system-deallocate
+        (: pointer (#get string pointer))      )    )
+    ()  )
+  (#forget string)
+  (
+    #return
+    ()
+  ))

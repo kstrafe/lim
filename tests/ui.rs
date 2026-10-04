@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "string-borrow-mutation",
+            diagnostic_code: "E4100",
+            offending_line: "  (#call String-clear (: string (#borrow-mut text)))",
+            line_number: 6,
+        },
+        Case {
             name: "call-builtin-name-type",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#call panic (: value false))))",
@@ -1202,6 +1208,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unsafe-function-call" => Some("answer"),
             "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
+            "string-borrow-mutation" => Some("#borrow-mut"),
             "stored-reference-projection-replacement" => Some("#set"),
             "overlapping-call-borrows" => Some("(#borrow value)"),
             "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))"),

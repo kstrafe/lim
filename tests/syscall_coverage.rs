@@ -298,35 +298,84 @@ fn linux_wrappers_have_runnable_call_sites_and_catalogued_syscalls() {
 }
 
 #[test]
-fn library_sources_do_not_declare_ffi() {
-    fn inspect(path: &Path) {
+fn library_sources_only_declare_the_standard_allocator_ffi() {
+    // Core OS services remain syscall-only. The explicitly system-allocated
+    // String library adds exactly these three process allocator declarations,
+    // not a general exemption for FFI elsewhere or in generated templates.
+    let allocator = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/system_allocator.lim");
+    let expected: BTreeMap<_, _> = lim::parse(
+        "(#extern-fn #abi-c malloc (: size usize) (#ptr-mut u8))
+         (#extern-fn #abi-c realloc (: pointer (#ptr-mut u8) : size usize) (#ptr-mut u8))
+         (#extern-fn #abi-c free (: pointer (#ptr-mut u8)) ())",
+    )
+    .unwrap()
+    .into_iter()
+    .map(|form| {
+        let lim::Expr::List(items) = &form.expr else {
+            unreachable!()
+        };
+        let name = symbol(items.get(2)).unwrap().to_owned();
+        (name, form.expr)
+    })
+    .collect();
+    fn inspect(
+        path: &Path,
+        allocator: &Path,
+        expected: &BTreeMap<String, lim::Expr>,
+        seen: &mut BTreeSet<String>,
+    ) {
         for entry in fs::read_dir(path).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
-                inspect(&path);
+                inspect(&path, allocator, expected, seen);
             } else if path.extension().is_some_and(|ext| ext == "lim") {
                 // Spanned children also traverse quote/templates, ensuring
                 // generators cannot hide an external declaration in output.
-                fn visit(form: &lim::SpannedExpr, path: &Path) {
+                fn visit(
+                    form: &lim::SpannedExpr,
+                    path: &Path,
+                    allocator: &Path,
+                    expected: &BTreeMap<String, lim::Expr>,
+                    seen: &mut BTreeSet<String>,
+                    top_level: bool,
+                ) {
                     if let lim::Expr::List(items) = &form.expr {
-                        assert_ne!(
-                            symbol(items.first()),
-                            Some("#extern-fn"),
-                            "FFI in {}",
-                            path.display()
-                        );
+                        if symbol(items.first()) == Some("#extern-fn") {
+                            assert!(
+                                path == allocator && top_level,
+                                "unexpected FFI in {}",
+                                path.display()
+                            );
+                            let name = symbol(items.get(2)).expect("C allocator function name");
+                            assert_eq!(
+                                Some(&form.expr),
+                                expected.get(name),
+                                "unexpected allocator ABI: {name}"
+                            );
+                            assert!(
+                                seen.insert(name.to_owned()),
+                                "duplicate allocator declaration: {name}"
+                            );
+                        }
                     }
                     for child in &form.children {
-                        visit(child, path);
+                        visit(child, path, allocator, expected, seen, false);
                     }
                 }
                 for form in lim::parse(&fs::read_to_string(&path).unwrap()).unwrap() {
-                    visit(&form, &path);
+                    visit(&form, &path, allocator, expected, seen, true);
                 }
             }
         }
     }
-    inspect(&Path::new(env!("CARGO_MANIFEST_DIR")).join("library"));
+    let mut seen = BTreeSet::new();
+    inspect(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("library"),
+        &allocator,
+        &expected,
+        &mut seen,
+    );
+    assert_eq!(seen, expected.into_keys().collect());
 }
 
 #[test]

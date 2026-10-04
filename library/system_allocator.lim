@@ -1,0 +1,136 @@
+; The process's standard C allocator. No allocator instance is borrowed:
+; malloc/realloc/free refer to the same process-wide allocator. Byte counts
+; must be nonzero and at most PTRDIFF_MAX on the supported Linux x86-64 ABI.
+; Raw reallocation/deallocation require unique, live allocator-owned storage.
+; Generated kernel workers cannot call this foreign runtime (no libc TLS).
+(
+  #extern-fn
+  #abi-c
+  malloc
+  (: size usize)
+  (#ptr-mut u8))
+(
+  #extern-fn
+  #abi-c
+  realloc
+  (: pointer (#ptr-mut u8) : size usize)
+  (#ptr-mut u8))
+(
+  #extern-fn
+  #abi-c
+  free
+  (: pointer (#ptr-mut u8))
+  ())
+(
+  #const
+  SYSTEM-ALLOCATION-MAX
+  usize
+  (#literal usize 9223372036854775807)
+)
+(
+  #enum
+  SystemAllocationError
+  (SystemAllocationOutOfMemory SystemAllocationInvalidSize)
+)
+(
+  #enum
+  SystemAllocationResult
+  (
+    (
+      SystemAllocated
+      (#ptr-mut u8)
+    )
+    (SystemAllocationFailed SystemAllocationError)
+  )
+)
+(#linear SystemAllocationResult)
+(
+  #fn
+  system-allocate
+  (: size usize)
+  SystemAllocationResult
+  (
+    #return
+    (
+      #if
+      (
+        #bool.||
+        (
+          #usize.==
+          size
+          (#literal usize 0)
+        )
+        (#usize.> size SYSTEM-ALLOCATION-MAX)
+      )
+      (SystemAllocationFailed SystemAllocationInvalidSize)
+      (
+        #block
+        (
+          #let
+          pointer
+          (#ptr-mut u8)
+          (
+            #unsafe
+            (
+              #call
+              malloc
+              (: size size)            )          )        )
+        (
+          #if
+          (#ptr-is-null pointer)
+          (SystemAllocationFailed SystemAllocationOutOfMemory)
+          (SystemAllocated pointer)
+        )      )    )  ))
+; On failure the old allocation is unchanged, still owned by the caller.
+(
+  #unsafe-fn
+  system-reallocate
+  (: pointer (#ptr-mut u8) : size usize)
+  SystemAllocationResult
+  (
+    #return
+    (
+      #if
+      (
+        #bool.||
+        (
+          #usize.==
+          size
+          (#literal usize 0)
+        )
+        (#usize.> size SYSTEM-ALLOCATION-MAX)
+      )
+      (SystemAllocationFailed SystemAllocationInvalidSize)
+      (
+        #block
+        (
+          #let
+          resized
+          (#ptr-mut u8)
+          (
+            #unsafe
+            (
+              #call
+              realloc
+              (: pointer pointer : size size)            )          )        )
+        (
+          #if
+          (#ptr-is-null resized)
+          (SystemAllocationFailed SystemAllocationOutOfMemory)
+          (SystemAllocated resized)
+        )      )    )  ))
+(
+  #unsafe-fn
+  system-deallocate
+  (: pointer (#ptr-mut u8))
+  ()
+  (
+    #unsafe
+    (
+      #call
+      free
+      (: pointer pointer)    )  )
+  (
+    #return
+    ()
+  ))

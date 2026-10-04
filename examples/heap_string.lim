@@ -1,0 +1,79 @@
+(#import "../library/string.lim")
+(#import "../library/linux_x86_64.lim")
+(
+  #fn
+  main
+  ()
+  i32
+  (
+    #let
+    chars
+    (#array char 14)
+    "Heap: naïve 🙂\n"
+  )
+  (
+    #return
+    (
+      #match
+      (
+        #call
+        String-from-chars
+        (: text (#slice-of (#borrow chars)))      )
+      (
+        #case
+        (StringCreated text)
+        (
+          #block
+          (
+            #let-mut
+            index
+            usize
+            (#literal usize 0)
+          )
+          (
+            #while
+            (
+              #usize.<
+              index
+              (
+                #call
+                String-len
+                (: string (#borrow text))              )            )
+            (
+              #match
+              (
+                #call
+                String-byte-at
+                (: string (#borrow text) : index index)              )
+              (
+                #case
+                (StringByte byte)
+                (
+                  #assert
+                  (
+                    #i64.==
+                    (
+                      #call
+                      linux-write-byte
+                      (: source (#borrow byte))                    )
+                    (#literal i64 1)                  )                )              )
+              (
+                #case
+                StringByteOutOfBounds
+                (#assert false)
+              )            )
+            (
+              #set
+              index
+              (
+                #usize.+.wrap
+                index
+                (#literal usize 1)
+              )
+            )          )
+          (
+            #call
+            String-free
+            (: string text)          )
+          42        )      )
+      (#case _ 1)    )  ))

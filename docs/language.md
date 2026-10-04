@@ -1210,6 +1210,63 @@ for the allocator and destruction function signatures.
 must not reach a normal return.  A void function returns explicitly with
 `(#return ())`.
 
+### Heap-owned UTF-8 strings
+
+Import `library/string.lim` for the concrete, opaque, linear `String` type.
+String literals remain fixed character arrays; conversion is explicit. The
+standard process allocator (`malloc`, `realloc`, `free`) owns the bytes. This
+is an ordinary library, not a new builtin or an implicit allocation.
+
+```lisp run=42
+(#import "../library/string.lim")
+(#fn main () u64
+  (#let text (#array char 3) "Aé🙂")
+  (#return
+    (#match (#call String-from-chars (: text (#slice-of (#borrow text))))
+      (#case (StringCreated owned)
+        (#block
+          (#let length usize (#call String-len (: string (#borrow owned))))
+          (#call String-free (: string owned))
+          (#if (#usize.== length 7usize) 42u64 1u64)))
+      (#case (StringCreateFailed error) 2u64))))
+```
+
+`String-new` creates an empty string without allocating. `String-with-capacity`,
+`String-from-chars`, `String-from-utf8`, and `String-try-clone` return
+`StringCreateResult`: `StringCreated` contains an owned string;
+`StringCreateFailed` contains a `StringError`. Cloning is an explicit, fallible
+deep copy, never a shallow `#clone` of the allocation handle.
+
+`String-len` and `String-capacity` take `(: string (#ref String))` and count
+**bytes**, not characters. `String-is-empty` uses the same shared argument.
+`String-reserve` takes `(: string (#ref-mut String) : additional usize)`;
+additional capacity is relative to the current length. `String-push-char`,
+`String-push-chars`, and `String-push-utf8` take a mutable string and,
+respectively, `: value char`, `: text (#slice char)`, or `: bytes (#slice u8)`.
+These operations return `StringStatus`: `StringOk` or `(StringErr error)`.
+Validation, overflow, and allocation failures leave the original string
+unchanged. Errors are `StringOutOfMemory`, `StringCapacityOverflow`,
+`StringInvalidUtf8`, and `StringInvalidChar`.
+
+`String-byte-at` takes a shared string and `: index usize`. It returns
+`(StringByte byte)` with a copied `u8`, or `StringByteOutOfBounds`.
+`String-bytes (: string (#ref String))` returns an opaque `StringBytes` view
+that retains the owner borrow, preventing mutation, moving, or freeing its
+owner while the view is live. `StringBytes-len (: bytes view)` and
+`StringBytes-byte-at (: bytes view : index usize)` inspect that view without
+allocating; indexing also returns a copied byte. No mutable byte access is
+exposed: safe operations preserve valid UTF-8.
+`String-pop-char` takes a mutable string and returns
+`(StringPopped character)` or `StringEmpty`. `String-clear` takes a mutable
+string, empties it, and retains its capacity. Strings need not be
+NUL-terminated and may contain embedded NUL bytes.
+
+`String-free (: string owned)` consumes the owner and releases its allocation.
+Every owned string must be consumed, returned, or explicitly forgotten before
+returning; references do not implicitly destroy it. See
+[the system allocator contract](allocator.md#standard-system-allocator-and-string)
+and [the runnable printing example](../examples/heap_string.lim).
+
 ## Top-level declarations
 
 ### Functions

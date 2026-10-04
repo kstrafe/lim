@@ -251,8 +251,8 @@ fn documented_programs_compile_and_run() {
                 source = format!("(#fn main () ()\n{source}\n{epilogue})");
             }
             source = source.replace(
-                "../library/cell.lim",
-                &format!("{}/library/cell.lim", env!("CARGO_MANIFEST_DIR")),
+                "../library/",
+                &format!("{}/library/", env!("CARGO_MANIFEST_DIR")),
             );
             let path = directory.join(format!("{name}-{index}.lim"));
             let result = lim::compile_source_to_assembly(

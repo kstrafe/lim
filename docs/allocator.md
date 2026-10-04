@@ -4,6 +4,47 @@ This document specifies the first dynamic-memory ABI. It is deliberately
 small enough for generated collections and does not introduce function
 pointers, closures, methods, or implicit allocators.
 
+## Standard system allocator and String
+
+`library/system_allocator.lim` supplies byte-oriented wrappers around the
+process's standard C allocator on Linux x86-64. `system-allocate (: size usize)`
+returns `SystemAllocated` with a raw pointer, or `SystemAllocationFailed` with
+`SystemAllocationOutOfMemory` or `SystemAllocationInvalidSize`. Zero-size
+requests and sizes above `SYSTEM-ALLOCATION-MAX` (PTRDIFF_MAX) are rejected
+before calling libc. Empty owners therefore keep a null pointer without
+requesting a zero-size allocation.
+
+`system-reallocate (: pointer (#ptr-mut u8) : size usize)` and
+`system-deallocate (: pointer (#ptr-mut u8))` are unsafe functions. The caller
+must supply live storage from this allocator, ensure unique access, and stop
+using the old pointer after successful reallocation or deallocation. Failed
+reallocation leaves the original allocation valid. Reallocation never uses a
+zero size. Deallocation is explicit; there is no implicit destructor.
+
+`library/string.lim` builds an opaque, linear `String` from these functions.
+Its length and capacity are UTF-8 byte counts. Constructors and deep cloning
+are fallible; reserve uses checked geometric growth. Bulk appends validate
+the entire input and reserve once before copying, so an error cannot leave a
+partially appended string. UTF-8 validation rejects truncated sequences,
+invalid continuation bytes, overlong encodings, surrogate code points, and
+scalars above U+10FFFF. Interior NUL is permitted; no terminating NUL is added.
+Borrowed `StringBytes` views retain an owner borrow; byte indexing copies a
+`u8` and no mutable byte access is public. `String-free` consumes the owner
+and calls `free` exactly once for an allocation. `String-clear` retains
+allocated capacity; an empty
+string with retained capacity still needs freeing.
+
+The allocator is fixed by this concrete library type, not selected implicitly
+by a call or borrowed from a temporary allocator instance. It is a
+process-wide allocator with process lifetime. Collections using user-defined
+allocators continue to retain the instance borrow described below.
+
+This library adds no Rust crate dependencies and does not invoke external
+linker tools: Lim's native linker resolves the libc imports. Libc calls are
+not allowed in generated raw kernel-worker call graphs, which do not have
+libc thread-local state. The String library does not override structural
+Send/Sync checks or promise worker compatibility.
+
 ## Allocator identity
 
 An allocator is an ordinary user-defined value with a stable concrete type.
