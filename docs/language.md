@@ -1399,6 +1399,16 @@ implicitly nor consumes the string. Output can be partial on failure, and the
 newline is skipped when writing the string bytes fails. See
 `examples/string_println.lim` for building and printing a string.
 
+`std-read-line (: string (#ref-mut String))` explicitly appends a UTF-8 line
+from stdin to an existing String. `StdLineRead usize` reports appended bytes
+(excluding the consumed LF); `StdEndOfInput` reports EOF before any new text.
+`StdReadFailed StdReadError` distinguishes `StdIoError i64` (negative errno)
+from `StdTextError StringError` (invalid UTF-8 or allocation failure). Existing
+text and successfully appended complete characters remain intact on failure.
+EOF after a partial line returns that line normally; interrupted reads retry.
+This API is included in `#std`. See [the input contract](stdin.md) and
+`examples/string_stdin.lim` for an echo loop with explicit cleanup.
+
 `examples/echo_input.lim` shows byte-at-a-time input and output using Linux
 x86-64 `read` and `write` syscalls inside unsafe `#asm` blocks;
 `tests/io_examples.rs` runs it with piped input and checks that stdout matches.

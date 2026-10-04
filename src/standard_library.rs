@@ -10,6 +10,7 @@ pub(crate) fn source(path: &Path) -> Option<&'static str> {
         "/<lim-std>/string.lim" => Some(include_str!("../library/string.lim")),
         "/<lim-std>/system_allocator.lim" => Some(include_str!("../library/system_allocator.lim")),
         "/<lim-std>/stdio.lim" => Some(include_str!("../library/stdio.lim")),
+        "/<lim-std>/stdin.lim" => Some(include_str!("../library/stdin.lim")),
         _ => None,
     }
 }
