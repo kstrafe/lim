@@ -164,7 +164,7 @@ pub(crate) fn check_live_direct_loans_cached(
                     origins
                         .value_before(body, flow, FlowNodeId(index), value)
                         .into_iter()
-                        .filter(|origin| !origin.lifetime_only)
+                        .filter(|origin| !origin.lifetime_only && origin.storage.is_empty())
                         .collect()
                 }
                 _ => Vec::new(),
@@ -176,7 +176,7 @@ pub(crate) fn check_live_direct_loans_cached(
                     origins
                         .value_before(body, flow, FlowNodeId(index), value)
                         .into_iter()
-                        .filter(|origin| !origin.lifetime_only)
+                        .filter(|origin| !origin.lifetime_only && origin.storage.is_empty())
                         .collect()
                 }
                 NodeKind::Form { head, children, .. }
@@ -1271,10 +1271,21 @@ pub(crate) fn check_scope_escapes_cached(
         };
         if let Some((target, value)) = store {
             let event = FlowNodeId(index);
-            let targets = origins.value_before(body, flow, event, target);
-            let local_storage = !targets.is_empty() && targets.iter().all(|origin|
-                !origin.lifetime_only && origin.storage.is_empty()
-                && matches!(origin.place.root, PlaceRoot::Local(binding) if active.contains(&binding)));
+            let targets = origins
+                .value_before(body, flow, event, target)
+                .into_iter()
+                .filter(|origin| !origin.lifetime_only && origin.storage.is_empty())
+                .collect::<Vec<_>>();
+            let local_storage = !targets.is_empty()
+                && targets.iter().all(|origin| match origin.place.root {
+                    PlaceRoot::Local(binding) => active.contains(&binding),
+                    PlaceRoot::Allocation(..) => active.iter().any(|binding| {
+                        origins.before(event, *binding).iter().any(|held| {
+                            held.owned_allocation && held.place.root == origin.place.root
+                        })
+                    }),
+                    _ => false,
+                });
             for origin in origins.value_before(body, flow, event, value) {
                 let PlaceRoot::Local(binding) = origin.place.root else {
                     continue;

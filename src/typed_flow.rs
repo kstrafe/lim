@@ -465,6 +465,10 @@ impl LoanOrigin {
 #[derive(Clone)]
 struct LoanState {
     bindings: Vec<Vec<LoanOrigin>>,
+    // May-contents of stationary allocations. Replacements conservatively
+    // retain the old loans until the owner is consumed: forgetting a possible
+    // old loan is unsound at joins or across an unrefined helper call.
+    allocation_contents: HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>>,
     // Parameter input pointer slots and owned global storage have distinct
     // roots. These keys are not positions in the output value being stored.
     parameter_contents: Option<HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>>>,
@@ -477,6 +481,7 @@ impl From<Vec<Vec<LoanOrigin>>> for LoanState {
     fn from(bindings: Vec<Vec<LoanOrigin>>) -> Self {
         Self {
             bindings,
+            allocation_contents: HashMap::new(),
             parameter_contents: None,
             global_known_contents: HashMap::new(),
         }
@@ -497,9 +502,7 @@ impl std::ops::DerefMut for LoanState {
 }
 
 fn empty_loan_state(count: usize) -> LoanState {
-    {
-        vec![Vec::new(); count].into()
-    }
+    vec![Vec::new(); count].into()
 }
 
 /// Borrowed solver snapshots and their source-ordered expression-event index.
@@ -2578,13 +2581,8 @@ impl FlowGraph {
                             NodeKind::If { condition, .. } => condition,
                             _ => value,
                         };
-                        boolean_variant_value(body, condition, &partition.booleans).map(|value| {
-                            if value {
-                                0
-                            } else {
-                                1
-                            }
-                        })
+                        boolean_variant_value(body, condition, &partition.booleans)
+                            .map(|value| if value { 0 } else { 1 })
                     } else {
                         None
                     }
@@ -3273,7 +3271,7 @@ impl FlowGraph {
                         FlowAction::Assign { place, .. } | FlowAction::Release { place, .. }
                             if place.overlaps(&target) =>
                         {
-                            return None
+                            return None;
                         }
                         FlowAction::ScopeExit(locals) if locals.contains(&binding) => return None,
                         FlowAction::Borrow { place, .. } if place.overlaps(&target) => return None,
@@ -3288,7 +3286,7 @@ impl FlowGraph {
                                 NodeKind::Form { head, .. } if matches!(head.as_str(),
                                     "ptr-write" | "linux-syscall" | "pin-read")) =>
                         {
-                            return None
+                            return None;
                         }
                         FlowAction::Entry | FlowAction::Write { .. } => return None,
                         _ => None,
@@ -3341,7 +3339,7 @@ impl FlowGraph {
                     FlowAction::Assign { place, .. } | FlowAction::Release { place, .. }
                         if place.root == PlaceRoot::Local(binding) =>
                     {
-                        return None
+                        return None;
                     }
                     FlowAction::ScopeExit(bindings) if bindings.contains(&binding) => return None,
                     _ => {}
@@ -3965,14 +3963,13 @@ impl FlowGraph {
                 | FlowAction::Pattern { value, .. }
                 | FlowAction::Write { value, .. } => value,
                 FlowAction::Evaluate(value)
-                    if include_call_stores
-                        && matches!(
-                            &body.nodes[value.0].kind,
-                            NodeKind::Form {
-                                callee: Some(_),
-                                ..
-                            }
-                        ) =>
+                    if matches!(
+                        &body.nodes[value.0].kind,
+                        NodeKind::Form {
+                            callee: Some(_),
+                            ..
+                        }
+                    ) =>
                 {
                     value
                 }
@@ -4098,6 +4095,7 @@ impl FlowGraph {
             }
             empty.parameter_contents = Some(contents);
         }
+        seed_allocation_contents(&mut empty, None);
         let mut before: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
         let mut after: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
         let mut queued = vec![false; self.nodes.len()];
@@ -4366,6 +4364,10 @@ impl FlowGraph {
                         },
                     };
                     let mut known_places = Vec::new();
+                    let destinations = destinations
+                        .into_iter()
+                        .filter(|origin| origin.storage.is_empty())
+                        .collect::<Vec<_>>();
                     for origin in &destinations {
                         if !known_places.contains(&origin.place) {
                             known_places.push(origin.place.clone());
@@ -4467,6 +4469,14 @@ impl FlowGraph {
                         if store.destination.lifetime_only {
                             continue;
                         }
+                        if !include_call_stores
+                            && !matches!(store.destination.place.root, PlaceRoot::Allocation(..))
+                            && !state
+                                .allocation_contents
+                                .contains_key(&allocation_contents_key(&store.destination))
+                        {
+                            continue;
+                        }
                         store_parameter_contents(
                             &mut state,
                             &store.destination,
@@ -4500,6 +4510,21 @@ impl FlowGraph {
                         }
                     }
                 }
+                _ => {}
+            }
+            match &self.nodes[id.0].action {
+                FlowAction::Bind { binding, .. }
+                | FlowAction::Assign {
+                    place:
+                        Place {
+                            root: PlaceRoot::Local(binding),
+                            ..
+                        },
+                    ..
+                } => {
+                    seed_allocation_contents(&mut state, Some(*binding));
+                }
+                FlowAction::Pattern { .. } => seed_allocation_contents(&mut state, None),
                 _ => {}
             }
             for successor in &self.nodes[id.0].successors {
@@ -7730,7 +7755,7 @@ impl FlowGraph {
                 FlowAction::Assign { place, .. } | FlowAction::Release { place, .. }
                     if place.overlaps(&target) =>
                 {
-                    return None
+                    return None;
                 }
                 FlowAction::Write { .. } | FlowAction::Entry => return None,
                 FlowAction::ScopeExit(bindings) if bindings.contains(&binding) => return None,
@@ -7744,7 +7769,7 @@ impl FlowGraph {
                     ) || matches!(&body.nodes[value.0].kind,
                     NodeKind::Form { head, .. } if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "pin-read")) =>
                 {
-                    return None
+                    return None;
                 }
                 FlowAction::Pattern { pattern, .. } => {
                     let mut bindings = HashSet::new();
@@ -8206,7 +8231,9 @@ impl FlowGraph {
                     .collect(),
             };
             if targets.is_empty() || moves.unresolved.contains(&event) {
-                return Err(failure("cannot prove linear referent consumption before replacement: unresolved target"));
+                return Err(failure(
+                    "cannot prove linear referent consumption before replacement: unresolved target",
+                ));
             }
             for target in targets.iter() {
                 if !target.mutable
@@ -8238,7 +8265,9 @@ impl FlowGraph {
                         });
                     if !consumed {
                         if has_dynamic_projection(&leaf) {
-                            return Err(failure("cannot prove linear referent consumption before replacement: dynamic target identity"));
+                            return Err(failure(
+                                "cannot prove linear referent consumption before replacement: dynamic target identity",
+                            ));
                         }
                         if matches!(leaf.root, PlaceRoot::Parameter(_)) {
                             if let Some(requirements) = entry_requirements.as_deref_mut() {
@@ -8248,7 +8277,9 @@ impl FlowGraph {
                                 continue;
                             }
                         }
-                        return Err(failure("reference write would destroy a live linear referent; consume it explicitly first"));
+                        return Err(failure(
+                            "reference write would destroy a live linear referent; consume it explicitly first",
+                        ));
                     }
                 }
             }
@@ -8309,12 +8340,18 @@ impl FlowGraph {
                     return Err(ReleaseConflict {
                         message: format!(
                             "{} would destroy live linear projection '{name}'; consume it explicitly first",
-                            if pinned_write { "pin-write" } else { "assignment" }
+                            if pinned_write {
+                                "pin-write"
+                            } else {
+                                "assignment"
+                            }
                         ),
                         span: node.span,
-                        labels: body.bindings[binding.0].span.into_iter().map(|span| {
-                            (span, "owner was declared here".into())
-                        }).collect(),
+                        labels: body.bindings[binding.0]
+                            .span
+                            .into_iter()
+                            .map(|span| (span, "owner was declared here".into()))
+                            .collect(),
                     });
                 }
             }
@@ -9775,6 +9812,12 @@ fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
     for (held, other) in existing.iter_mut().zip(incoming.iter()) {
         changed |= merge_loan_origins(held, other);
     }
+    for (key, contents) in &incoming.allocation_contents {
+        changed |= merge_loan_origins(
+            existing.allocation_contents.entry(key.clone()).or_default(),
+            contents,
+        );
+    }
     if let (Some(held), Some(other)) = (
         &mut existing.parameter_contents,
         &incoming.parameter_contents,
@@ -9910,6 +9953,23 @@ fn store_parameter_contents(
     incoming: Vec<LoanOrigin>,
     strong: bool,
 ) {
+    let allocation_key = allocation_contents_key(destination);
+    if matches!(destination.place.root, PlaceRoot::Allocation(..))
+        || state.allocation_contents.contains_key(&allocation_key)
+    {
+        if !destination.lifetime_only && destination.storage.is_empty() {
+            extend_projected_origins(
+                state.allocation_contents.entry(allocation_key).or_default(),
+                &destination.place.segments,
+                incoming,
+            );
+            let contents = &state.allocation_contents;
+            for held in &mut state.bindings {
+                refresh_allocation_origins(held, contents);
+            }
+        }
+        return;
+    }
     if !matches!(
         destination.place.root,
         PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
@@ -9949,6 +10009,63 @@ fn store_parameter_contents(
         replace_projected_origins(held, &destination.place.segments, incoming);
     } else {
         extend_projected_origins(held, &destination.place.segments, incoming);
+    }
+}
+
+fn allocation_contents_key(address: &LoanOrigin) -> (PlaceRoot, Vec<Segment>) {
+    (
+        address.place.root.clone(),
+        address.parameter_storage.clone().unwrap_or_default(),
+    )
+}
+
+fn refresh_allocation_origins(
+    origins: &mut Vec<LoanOrigin>,
+    contents: &HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>>,
+) {
+    for address in origins.clone() {
+        if address.lifetime_only {
+            continue;
+        }
+        if let Some(held) = contents.get(&allocation_contents_key(&address)) {
+            let mut path = address.storage.clone();
+            path.push(Segment::Dereference);
+            for loan in held {
+                if !loan.storage.starts_with(&address.place.segments) {
+                    continue;
+                }
+                let mut loan = loan.clone();
+                loan.drain_storage(address.place.segments.len());
+                loan.prepend_storage(&path);
+                merge_loan_origins(origins, &[loan]);
+            }
+        }
+    }
+}
+
+fn seed_allocation_contents(state: &mut LoanState, binding: Option<BindingId>) {
+    let bindings = binding.map_or(&state.bindings[..], |binding| {
+        &state.bindings[binding.0..binding.0 + 1]
+    });
+    for origins in bindings {
+        for address in origins {
+            if !address.owned_allocation {
+                continue;
+            }
+            let mut path = address.storage.clone();
+            path.push(Segment::Dereference);
+            let contents = state
+                .allocation_contents
+                .entry(allocation_contents_key(address))
+                .or_default();
+            for loan in origins {
+                if loan.storage.starts_with(&path) {
+                    let mut loan = loan.clone();
+                    loan.drain_storage(path.len());
+                    merge_loan_origins(contents, &[loan]);
+                }
+            }
+        }
     }
 }
 
@@ -10115,6 +10232,7 @@ fn apply_parameter_loan_summary(
         .into_iter()
         .map(|selected| {
             let mut origin = selected.origin;
+            let selected_value_slot = origin.storage.is_empty();
             let mut storage = summary.storage.clone();
             let mut inputs = vec![None; storage.len()];
             for (output, input) in summary.storage_inputs.iter().enumerate() {
@@ -10135,7 +10253,7 @@ fn apply_parameter_loan_summary(
             // A lifetime anchor is not the pointee capability being returned.
             // Wrapping a mutable pin must not upgrade its shared allocator
             // anchor into an exclusive allocator borrow or an owning pointer.
-            if !origin.lifetime_only && !summary.lifetime_only {
+            if selected_value_slot && !origin.lifetime_only && !summary.lifetime_only {
                 origin.mutable = summary.mutable;
                 origin.owned_allocation = summary.owned_allocation;
                 origin.pinned = summary.pinned;
@@ -10524,7 +10642,13 @@ fn substitute_call_stores(
             complete &= !selected.is_empty();
             merge_loan_origins(&mut incoming, &selected);
         }
-        let destinations = substitute(&store.destination);
+        // Retained contents travel beside an address but are not themselves
+        // storage destinations. A root-slot summary may preserve those loans
+        // during value transfer; it must not reinterpret them as addresses.
+        let destinations = substitute(&store.destination)
+            .into_iter()
+            .filter(|origin| origin.storage.is_empty())
+            .collect::<Vec<_>>();
         let definitely_written =
             store.definitely_written && complete && one_concrete_store_destination(&destinations);
         for destination in destinations {
@@ -10589,6 +10713,25 @@ fn select_summary_inputs_with_slots(
         }];
     };
     if *head == Segment::Dereference && origin.storage.is_empty() && !origin.lifetime_only {
+        if let Some(contents) = state
+            .allocation_contents
+            .get(&allocation_contents_key(&origin))
+        {
+            let mut result = Vec::new();
+            for held in contents {
+                if !held.storage.starts_with(&origin.place.segments) {
+                    continue;
+                }
+                let mut loaded = held.clone();
+                loaded.drain_storage(origin.place.segments.len());
+                for mut selected in select_summary_inputs_with_slots(loaded, tail, state) {
+                    selected.slots.insert(0, Segment::Dereference);
+                    selected.inputs.insert(0, None);
+                    result.push(selected);
+                }
+            }
+            return result;
+        }
         if matches!(origin.place.root, PlaceRoot::Global(_)) && state.parameter_contents.is_some() {
             let mut result = Vec::new();
             for loaded in loaded_parameter_value_origins(&origin, state) {
@@ -10788,6 +10931,9 @@ fn projected_value_origins(
     );
     let mut result = Vec::new();
     for mut origin in incoming {
+        if borrowed_container && origin.storage.first() == Some(&Segment::Dereference) {
+            origin.drain_storage(1);
+        }
         if let Some(held) = origin.storage.first() {
             if storage_slot_matches(slot, held) {
                 origin.project_storage(slot);
@@ -10946,6 +11092,19 @@ fn dereference_value_origins(
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
     let mut result = loaded_local_value_origins(&incoming, state);
+    // Borrowed heap views carry known pointee contents alongside their
+    // allocation address. These are value loans, not fabricated projections
+    // of the pointer holder's own address.
+    for mut origin in incoming
+        .iter()
+        .filter(|origin| {
+            !origin.lifetime_only && origin.storage.first() == Some(&Segment::Dereference)
+        })
+        .cloned()
+    {
+        origin.drain_storage(1);
+        merge_loan_origins(&mut result, &[origin]);
+    }
     for origin in incoming {
         if origin.lifetime_only || !origin.storage.is_empty() {
             continue;
@@ -11041,7 +11200,13 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             let mut origin = allocation_origin(id, Vec::new(), node.span);
             origin.owned_allocation = true;
             origin.pinned = true;
-            vec![origin]
+            let mut result = vec![origin];
+            extend_projected_origins(
+                &mut result,
+                &[Segment::Dereference],
+                value_loan_origins(body, children[2], state),
+            );
+            result
         }
         NodeKind::Form {
             head,
@@ -11058,8 +11223,15 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             ) {
                 origins = dereference_value_origins(body, origins, state);
             }
-            origins.retain(|origin| origin.owned_allocation && origin.storage.is_empty());
+            origins.retain(|origin| {
+                (origin.owned_allocation && origin.storage.is_empty())
+                    || origin.storage.first() == Some(&Segment::Dereference)
+            });
             for origin in &mut origins {
+                if origin.storage.first() == Some(&Segment::Dereference) {
+                    origin.mutable &= head == "pin-own-borrow-mut";
+                    continue;
+                }
                 origin.owned_allocation = false;
                 origin.mutable = head == "pin-own-borrow-mut";
                 origin.pinned = true;
@@ -11546,6 +11718,19 @@ fn value_loan_origins_at_events(
         ..
     } = &body.nodes[value.0].kind
     {
+        if head == "pin-own-of" && children.len() == 3 && callee.is_none() {
+            let mut result = vec![allocation_origin(
+                value,
+                Vec::new(),
+                body.nodes[value.0].span,
+            )];
+            extend_projected_origins(
+                &mut result,
+                &[Segment::Dereference],
+                value_loan_origins_at_events(body, flow, before, children[2], state),
+            );
+            return result;
+        }
         if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
             return value_loan_origins_at_events(body, flow, before, children[1], state);
         }
@@ -11559,8 +11744,15 @@ fn value_loan_origins_at_events(
             ) {
                 loans = dereference_value_origins(body, loans, state);
             }
-            loans.retain(|origin| origin.owned_allocation && origin.storage.is_empty());
+            loans.retain(|origin| {
+                (origin.owned_allocation && origin.storage.is_empty())
+                    || origin.storage.first() == Some(&Segment::Dereference)
+            });
             for origin in &mut loans {
+                if origin.storage.first() == Some(&Segment::Dereference) {
+                    origin.mutable &= head == "pin-own-borrow-mut";
+                    continue;
+                }
                 origin.owned_allocation = false;
                 origin.mutable = head == "pin-own-borrow-mut";
                 origin.pinned = true;

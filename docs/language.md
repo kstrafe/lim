@@ -426,8 +426,12 @@ Transferring an owning allocation to a thread requires retirement of its
 existing pointee views.
 The caller still guarantees validity, alignment, unique raw ownership, and
 retirement of untracked raw pointers. Reference-bearing and nested owning-pin
-pointees are currently rejected: their heap-content lifetime provenance needs
-a separate extension. `library/pin_box.lim` generates this owning protocol;
+pointees retain their contents' loans through owner moves, return summaries,
+and field projections. Allocating storage does not extend a referent's lifetime.
+Heap writes, including helper-call writes, add retained loans to the owning
+allocation. Replacement conservatively retains old possible loans until the
+owner is consumed; this may reject early reuse of a replaced source, but never
+silently discards a borrow. `library/pin_box.lim` generates this owning protocol;
 `examples/pin_box.lim` demonstrates moving a handle while a view stays live.
 
 `#pin-read` and `#pin-write` are lower-level unsafe operations for compiler-
@@ -1951,7 +1955,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-own` | `(#pin-own TargetType)` | `(#let owner (#pin-own u64) (#unsafe (#pin-own-of pointer 42u64)))` (type) | Linear pointer-sized owner of stationary heap storage. Moving the owner does not move the pointee or invalidate its views. It cannot be cloned; forgetting it leaks the allocation. |
 | `#pin-own-borrow` | `(#pin-own-borrow owner-or-reference [allocator-reference])` | `(#let view (#pin-ref u64) (#pin-own-borrow owner allocator))` (expression) | Borrows the allocation, independently of the owner's stack address. An optional allocator anchor remains borrowed for the view's lifetime, even after moving or forgetting the owner. |
 | `#pin-own-borrow-mut` | `(#pin-own-borrow-mut mutable-owner-or-reference [allocator-reference])` | `(#let view (#pin-ref-mut u64) (#pin-own-borrow-mut owner))` (expression) | Exclusively borrows stationary heap storage. Requires a mutable owner binding or reference; rejects overlapping retained views. |
-| `#pin-own-of` | `(#pin-own-of mutable-pointer initializer)` | `(#let owner (#pin-own u64) (#unsafe (#pin-own-of pointer 42u64)))` (expression) | Consumes an initializer into aligned, uniquely owned writable storage using Lim's native layout, then adopts it as stationary. The caller ensures sufficient space, validity until release, and no raw-pointer aliases that move or free it. Reference-bearing and nested owning-pin pointees are currently rejected because their lifetime provenance is not yet represented. |
+| `#pin-own-of` | `(#pin-own-of mutable-pointer initializer)` | `(#let owner (#pin-own u64) (#unsafe (#pin-own-of pointer 42u64)))` (expression) | Consumes an initializer into aligned, uniquely owned writable storage using Lim's native layout, then adopts it as stationary. The caller ensures sufficient space, validity until release, and no raw-pointer aliases that move or free it. Stored references and nested owning pins retain their lifetime provenance; allocation does not extend those lifetimes. |
 | `#pin-ptr-borrow` | `(#pin-ptr-borrow pinned-anchor pointer)` | `(#unsafe (#pin-ptr-borrow pinned pointer))` (expression) | Unsafe shared pointer borrow tied to a pinned-reference anchor; returns a pinned reference and preserves anchor provenance. The caller proves pointer validity and address stability for the anchor lifetime. |
 | `#pin-ptr-borrow-mut` | `(#pin-ptr-borrow-mut pinned-mut-anchor mutable-pointer)` | `(#unsafe (#pin-ptr-borrow-mut pinned pointer))` (expression) | Unsafe exclusive pointer borrow tied to a mutable pinned-reference anchor; returns a mutable pinned reference. The caller proves validity, stability, and unique access. |
 | `#pin-read` | `(#pin-read pinned-reference)` | `(#unsafe (#pin-read pinned))` (expression) | Reads a pinned referent by value. Unsafe because the caller must prevent aliasing and must not duplicate ownership of linear data. |

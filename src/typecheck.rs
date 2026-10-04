@@ -7701,10 +7701,6 @@ fn list_expression(
                     mutable: true,
                     target,
                 } => {
-                    if type_contains_borrowed_storage(&target, structs, enums, &mut HashSet::new())
-                    {
-                        return Err("pin-own-of currently requires a pointee without reference or owning-pin fields; allocation contents need explicit lifetime provenance".into());
-                    }
                     let actual = expression(&items[2], variables, functions, structs, enums, mutable, aliases, Some(&target))?;
                     require_type(&actual, &target, "pin-own-of initializer")?;
                     Ok(Type::PinOwned(target))
@@ -7747,9 +7743,6 @@ fn list_expression(
             let Type::PinOwned(target) = owner else {
                 return Err("pin-own-borrow requires an owning pin or a reference to one".into());
             };
-            if type_contains_borrowed_storage(&target, structs, enums, &mut HashSet::new()) {
-                return Err("pin-own-borrow currently requires a pointee without reference or owning-pin fields; allocation contents need explicit lifetime provenance".into());
-            }
             if wants_mutable && !writable {
                 return Err("pin-own-borrow-mut requires a mutable owner binding or mutable owner reference".into());
             }
@@ -10078,42 +10071,6 @@ fn contains_reference_type(
                     .iter()
                     .flat_map(|variant| &variant.fields)
                     .any(|field| contains_reference_type(field, structs, enums, seen))
-            });
-            seen.remove(name);
-            result
-        }
-        _ => false,
-    }
-}
-
-fn type_contains_borrowed_storage(
-    ty: &Type,
-    structs: &HashMap<String, Vec<Field>>,
-    enums: &HashMap<String, Vec<EnumVariant>>,
-    seen: &mut HashSet<String>,
-) -> bool {
-    match ty {
-        Type::Reference { .. }
-        | Type::PinnedReference { .. }
-        | Type::Slice(_)
-        | Type::MutableSlice(_)
-        | Type::PinOwned(_) => true,
-        Type::Array(element, _) | Type::Atomic(element) => {
-            type_contains_borrowed_storage(element, structs, enums, seen)
-        }
-        Type::Tuple(fields) => fields
-            .iter()
-            .any(|field| type_contains_borrowed_storage(field, structs, enums, seen)),
-        Type::Named(name) if seen.insert(name.clone()) => {
-            let result = structs.get(name).is_some_and(|fields| {
-                fields
-                    .iter()
-                    .any(|field| type_contains_borrowed_storage(&field.ty, structs, enums, seen))
-            }) || enums.get(name).is_some_and(|variants| {
-                variants
-                    .iter()
-                    .flat_map(|variant| &variant.fields)
-                    .any(|field| type_contains_borrowed_storage(field, structs, enums, seen))
             });
             seen.remove(name);
             result

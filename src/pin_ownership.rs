@@ -220,7 +220,7 @@ fn allocation_accesses(
         return origins
             .value_before(body, flow, event, value)
             .into_iter()
-            .filter(|origin| !origin.lifetime_only)
+            .filter(|origin| !origin.lifetime_only && origin.storage.is_empty())
             .collect();
     }
     if callee.is_none() && head == "pin-release" {
@@ -237,7 +237,12 @@ fn allocation_accesses(
     if let Some(effects) = effects.get(callee) {
         for effect in effects {
             if let Some(argument) = children.get(effect.parameter + 1) {
-                result.extend(origins.apply_summary_before(body, flow, event, *argument, effect));
+                result.extend(
+                    origins
+                        .apply_summary_before(body, flow, event, *argument, effect)
+                        .into_iter()
+                        .filter(|origin| origin.storage.is_empty()),
+                );
             }
         }
     } else if !declarations
@@ -451,11 +456,11 @@ mod tests {
     }
 
     #[test]
-    fn raw_adoption_rejects_untracked_reference_contents() {
-        let source = "(#struct Held ((value (#ref u64))))
-          (#fn main () () (#let owner (#pin-own Held)
-          (#unsafe (#pin-own-of (#ptr-null (#ptr-mut Held)) (#unreachable)))) (#forget owner) (#return ()))";
-        assert!(check(source).unwrap_err().contains("lifetime provenance"));
+    fn heap_adoption_preserves_the_initializers_external_reference() {
+        let source = "(#struct Held (: value (#ref u64)))
+          (#fn adopt (: pointer (#ptr-mut Held) : source (#ref u64)) (#pin-own Held)
+          (#return (#unsafe (#pin-own-of pointer (#struct-literal Held (: value source))))))";
+        check(source).unwrap();
     }
 
     #[test]

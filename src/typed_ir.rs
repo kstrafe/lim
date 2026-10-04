@@ -457,7 +457,7 @@ fn collect_statement_binding_spans(
                         source,
                         expression_spans,
                         output,
-                    )
+                    );
                 }
                 _ => unreachable!(),
             };
@@ -2298,12 +2298,27 @@ impl Declarations {
     ) {
         use crate::typed_place::Segment;
         match ty {
-            Type::PinOwned(_) => output.push(crate::typed_body::ParameterLoanSeed {
-                owned_allocation: true,
-                mutable: true,
-                pinned: true,
-                storage: path.clone(),
-            }),
+            Type::PinOwned(target) => {
+                output.push(crate::typed_body::ParameterLoanSeed {
+                    owned_allocation: true,
+                    mutable: true,
+                    pinned: true,
+                    storage: path.clone(),
+                });
+                // Owning a pointer also retains the loans stored in its
+                // allocation, even when we are not expanding borrowed input
+                // referents. Moving the owner must not discard those loans.
+                path.push(Segment::Dereference);
+                self.collect_parameter_loan_slots(
+                    target,
+                    path,
+                    seen,
+                    output,
+                    expand_arrays,
+                    include_referents,
+                );
+                path.pop();
+            }
             Type::Reference { mutable, target } | Type::PinnedReference { mutable, target } => {
                 output.push(crate::typed_body::ParameterLoanSeed {
                     owned_allocation: false,
