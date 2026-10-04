@@ -1291,6 +1291,14 @@ returning `(#ptr-mut u8)`. The pointer does not retain the owner borrow. The
 caller must keep a shared borrow alive, read only initialized bytes, and never
 write, grow, move, or free the string while using it. Safe stdout functions
 uphold these obligations internally; printing does not require `#unsafe`.
+
+Raw-backed scalar references preserve exact byte addresses and access the
+native width of the scalar, including at odd `u8` addresses. References keep
+internal high-bit storage metadata, which is removed before syscall and
+assembly pointer operands. Lim aggregates and arrays still use Lim's word
+layout; raw borrowing does not turn them into packed C aggregates. Unsafe
+pointer-to-reference conversion still requires valid storage, alignment,
+lifetime, and exclusive-access proofs from its caller.
 `String-pop-char` takes a mutable string and returns
 `(StringPopped character)` or `StringEmpty`. `String-clear` takes a mutable
 string, empties it, and retains its capacity. Strings need not be

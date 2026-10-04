@@ -15,6 +15,23 @@ use crate::{parse_type, EnumVariant, Expr, Field, Function, Item, Program, State
 
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 const VALUE_REGISTERS: [&str; 6] = ["rax", "rdx", "rcx", "r8", "r9", "rdi"];
+// Linux x86-64 user addresses occupy at most 57 bits. Reserve bit 63 for
+// descending Lim aggregate storage and bit 62 for packed native scalars.
+// No address/alignment bit is borrowed: odd byte addresses remain exact.
+// Ordinary Lim scalar slots are whole words even when their type is narrow.
+fn packed_reference_scalar(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Bool
+            | Type::I8
+            | Type::U8
+            | Type::I16
+            | Type::U16
+            | Type::I32
+            | Type::U32
+            | Type::Char
+    )
+}
 const FLOAT_ARGUMENT_REGISTERS: [&str; 8] = [
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
 ];
@@ -6129,7 +6146,7 @@ impl FunctionContext<'_> {
     fn offset_slice_pointer(&mut self, pointer: &str, bytes: &str) {
         let descending = self.label("slice_descending");
         let done = self.label("slice_offset_done");
-        self.output.push_str(&format!("    test {pointer}, 1\n    jnz {descending}\n    add {pointer}, {bytes}\n    jmp {done}\n{descending}:\n    sub {pointer}, {bytes}\n{done}:\n"));
+        self.output.push_str(&format!("    test {pointer}, {pointer}\n    js {descending}\n    add {pointer}, {bytes}\n    jmp {done}\n{descending}:\n    sub {pointer}, {bytes}\n{done}:\n"));
     }
     fn clone_operand(&self, expression: &Expr) -> Expr {
         let Expr::List(items) = expression else {
@@ -8174,7 +8191,7 @@ impl FunctionContext<'_> {
                 let global_layout = self.label("indirect_deref_global_layout");
                 let done = self.label("indirect_deref_done");
                 self.output.push_str(&format!(
-                    "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+                    "    test rax, rax\n    jns {global_layout}\n    btr rax, 63\n    btr rax, 62\n"
                 ));
                 for index in 0..words {
                     let byte_offset = index * 8;
@@ -8188,7 +8205,7 @@ impl FunctionContext<'_> {
                     self.store_indirect_word("rcx", offset + index)?;
                 }
                 self.output.push_str(&format!(
-                    "    jmp {done}\n{global_layout}:\n    and rax, -2\n"
+                    "    jmp {done}\n{global_layout}:\n    btr rax, 63\n    btr rax, 62\n"
                 ));
                 for index in 0..words {
                     self.output
@@ -9577,7 +9594,7 @@ impl FunctionContext<'_> {
                         || matches!(&ty, Type::Named(name) if self.structs.contains_key(name) || self.enums.contains_key(name)),
                 )
             {
-                self.output.push_str("    or rax, 1\n");
+                self.output.push_str("    bts rax, 63\n");
             }
             return Ok(());
         }
@@ -9694,7 +9711,7 @@ impl FunctionContext<'_> {
                 .ok_or_else(|| "checked payload variant was lost".to_owned())?;
             let failure = self.label("inactive_enum_payload_borrow");
             let done = self.label("inactive_enum_payload_borrow_done");
-            self.output.push_str(&format!("    mov rcx, rax\n    and rcx, -2\n    cmp QWORD PTR [rcx], {discriminant}\n    jne {failure}\n"));
+            self.output.push_str(&format!("    mov rcx, rax\n    btr rcx, 63\n    btr rcx, 62\n    cmp QWORD PTR [rcx], {discriminant}\n    jne {failure}\n"));
             self.offset_reference_field_address(offset, true);
             self.output
                 .push_str(&format!("    jmp {done}\n{failure}:\n    ud2\n{done}:\n"));
@@ -9712,7 +9729,7 @@ impl FunctionContext<'_> {
     ) -> Result<(), String> {
         // Stack aggregates are laid out toward lower addresses; statics are laid
         // out toward higher addresses. Struct references use the aligned pointer's
-        // low bit to carry that distinction across calls and reference storage.
+        // high layout bit to carry that distinction across calls and storage.
         self.expression(reference)?;
         self.offset_reference_field_address(offset_words, preserve_layout_tag);
         Ok(())
@@ -9722,17 +9739,17 @@ impl FunctionContext<'_> {
         let offset = offset_words * 8;
         if offset == 0 {
             if !preserve_layout_tag {
-                self.output.push_str("    and rax, -2\n");
+                self.output.push_str("    btr rax, 63\n    btr rax, 62\n");
             }
             return;
         }
         let global_layout = self.label("reference_global_layout");
         let done = self.label("reference_field_address_done");
         self.output.push_str(&format!(
-            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n    sub rax, {offset}\n"
+            "    test rax, rax\n    jns {global_layout}\n    btr rax, 63\n    btr rax, 62\n    sub rax, {offset}\n"
         ));
         if preserve_layout_tag {
-            self.output.push_str("    or rax, 1\n");
+            self.output.push_str("    bts rax, 63\n");
         }
         self.output.push_str(&format!(
             "    jmp {done}\n{global_layout}:\n    add rax, {offset}\n{done}:\n"
@@ -9741,18 +9758,37 @@ impl FunctionContext<'_> {
 
     /// Load a checked target from the tagged reference already in rax.
     fn load_reference_value(&mut self, target: &Type) -> Result<(), String> {
+        if packed_reference_scalar(target) {
+            let word = self.label("reference_word_scalar");
+            let done = self.label("reference_scalar_done");
+            self.output.push_str(&format!(
+                "    bt rax, 62\n    jnc {word}\n    btr rax, 63\n    btr rax, 62\n"
+            ));
+            self.output.push_str(match target {
+                Type::Bool | Type::U8 => "    movzx eax, BYTE PTR [rax]\n",
+                Type::I8 => "    movsx rax, BYTE PTR [rax]\n",
+                Type::U16 => "    movzx eax, WORD PTR [rax]\n",
+                Type::I16 => "    movsx rax, WORD PTR [rax]\n",
+                Type::Char | Type::U32 => "    mov eax, DWORD PTR [rax]\n",
+                Type::I32 => "    movsxd rax, DWORD PTR [rax]\n",
+                _ => unreachable!(),
+            });
+            self.output.push_str(&format!(
+                "    jmp {done}\n{word}:\n    btr rax, 63\n    btr rax, 62\n    mov rax, QWORD PTR [rax]\n{done}:\n"));
+            return Ok(());
+        }
         match target {
             Type::F32 => self
                 .output
-                .push_str("    and rax, -2\n    movss xmm0, DWORD PTR [rax]\n"),
+                .push_str("    btr rax, 63\n    btr rax, 62\n    movss xmm0, DWORD PTR [rax]\n"),
             Type::F64 => self
                 .output
-                .push_str("    and rax, -2\n    movq xmm0, QWORD PTR [rax]\n"),
+                .push_str("    btr rax, 63\n    btr rax, 62\n    movq xmm0, QWORD PTR [rax]\n"),
             Type::I128 | Type::U128 => {
                 let ascending = self.label("wide_reference_global_layout");
                 let done = self.label("wide_reference_done");
                 self.output.push_str(&format!(
-                    "    test al, 1\n    jz {ascending}\n    and rax, -2\n    mov rdx, QWORD PTR [rax-8]\n    jmp {done}\n{ascending}:\n    and rax, -2\n    mov rdx, QWORD PTR [rax+8]\n{done}:\n    mov rax, QWORD PTR [rax]\n"
+                    "    test rax, rax\n    jns {ascending}\n    btr rax, 63\n    btr rax, 62\n    mov rdx, QWORD PTR [rax-8]\n    jmp {done}\n{ascending}:\n    btr rax, 63\n    btr rax, 62\n    mov rdx, QWORD PTR [rax+8]\n{done}:\n    mov rax, QWORD PTR [rax]\n"
                 ));
             }
             _ => {
@@ -9763,7 +9799,7 @@ impl FunctionContext<'_> {
                 let ascending = self.label("aggregate_reference_global_layout");
                 let done = self.label("aggregate_reference_done");
                 self.output.push_str(&format!(
-                    "    mov r11, rax\n    and r11, -2\n    test al, 1\n    jz {ascending}\n"
+                    "    mov r11, rax\n    btr r11, 63\n    btr r11, 62\n    test rax, rax\n    jns {ascending}\n"
                 ));
                 for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
                     self.output.push_str(&format!(
@@ -9832,7 +9868,8 @@ impl FunctionContext<'_> {
                 self.expression_type(argument),
                 Some(Type::Reference { .. } | Type::PinnedReference { .. })
             ) {
-                self.output.push_str(&format!("    and {register}, -2\n"));
+                self.output
+                    .push_str(&format!("    btr {register}, 63\n    btr {register}, 62\n"));
             }
         }
         let bytes = (arguments.len() + 1) * 8;
@@ -9867,6 +9904,12 @@ impl FunctionContext<'_> {
                 return Err("#asm operand must be a (register value) pair".into());
             };
             self.expression(&pair[1])?;
+            if matches!(
+                self.expression_type(&pair[1]),
+                Some(Type::Reference { .. } | Type::PinnedReference { .. })
+            ) {
+                self.output.push_str("    btr rax, 63\n    btr rax, 62\n");
+            }
             self.output.push_str("    push rax\n");
             self.stack_depth += 1;
         }
@@ -9985,9 +10028,9 @@ impl FunctionContext<'_> {
                 .ok_or_else(|| "unsupported atomic scalar width".to_owned())?;
             if operator == "atomic-load" {
                 self.expression(&items[1])?;
-                // Local references tag bit zero; atomic memory operands need
+                // References carry high metadata bits; atomic operands need
                 // the underlying address, just like ordinary dereferences.
-                self.output.push_str("    and rax, -2\n");
+                self.output.push_str("    btr rax, 63\n    btr rax, 62\n");
                 let instruction = match (bytes, signed) {
                     (1, true) => "movsx rax, BYTE PTR [rax]",
                     (1, false) => "movzx eax, BYTE PTR [rax]",
@@ -10002,7 +10045,7 @@ impl FunctionContext<'_> {
                 return Ok(());
             }
             self.expression(&items[1])?;
-            self.output.push_str("    and rax, -2\n");
+            self.output.push_str("    btr rax, 63\n    btr rax, 62\n");
             self.output.push_str("    push rax\n");
             self.stack_depth += 1;
             self.expression(&items[2])?;
@@ -10337,8 +10380,9 @@ impl FunctionContext<'_> {
                 );
                 self.expression(&items[1])?;
                 if indirect {
-                    self.output
-                        .push_str("    and rax, -2\n    mov rax, QWORD PTR [rax]\n");
+                    self.output.push_str(
+                        "    btr rax, 63\n    btr rax, 62\n    mov rax, QWORD PTR [rax]\n",
+                    );
                 }
                 if let Some(anchor) = items.get(2) {
                     self.output.push_str("    push rax\n");
@@ -10470,7 +10514,7 @@ impl FunctionContext<'_> {
                     let ascending = self.label("deref_set_ascending");
                     let done = self.label("deref_set_done");
                     self.output.push_str(&format!(
-                        "    test r11, 1\n    jz {ascending}\n    and r11, -2\n"
+                        "    test r11, r11\n    jns {ascending}\n    btr r11, 63\n    btr r11, 62\n"
                     ));
                     for (index, register) in VALUE_REGISTERS.iter().take(words).enumerate() {
                         self.output.push_str(&format!(
@@ -10494,8 +10538,25 @@ impl FunctionContext<'_> {
                 } else {
                     self.expression_as_expected(&items[2], &target)?;
                 }
-                self.output.push_str("    pop rcx\n    and rcx, -2\n");
+                self.output.push_str("    pop rcx\n");
                 self.stack_depth -= 1;
+                if packed_reference_scalar(&target) {
+                    let word = self.label("deref_set_word_scalar");
+                    let done = self.label("deref_set_scalar_done");
+                    self.output.push_str(&format!(
+                        "    bt rcx, 62\n    jnc {word}\n    btr rcx, 63\n    btr rcx, 62\n"
+                    ));
+                    self.output.push_str(match target {
+                        Type::Bool | Type::I8 | Type::U8 => "    mov BYTE PTR [rcx], al\n",
+                        Type::I16 | Type::U16 => "    mov WORD PTR [rcx], ax\n",
+                        Type::I32 | Type::U32 | Type::Char => "    mov DWORD PTR [rcx], eax\n",
+                        _ => unreachable!(),
+                    });
+                    self.output.push_str(&format!(
+                        "    jmp {done}\n{word}:\n    btr rcx, 63\n    btr rcx, 62\n    mov QWORD PTR [rcx], rax\n{done}:\n"));
+                    return Ok(());
+                }
+                self.output.push_str("    btr rcx, 63\n    btr rcx, 62\n");
                 match target {
                     Type::F32 => self.output.push_str("    movd DWORD PTR [rcx], xmm0\n"),
                     Type::F64 => self.output.push_str("    movq QWORD PTR [rcx], xmm0\n"),
@@ -10631,6 +10692,12 @@ impl FunctionContext<'_> {
                 self.output.push_str("    push rax\n");
                 self.stack_depth += 1;
                 self.expression(&items[2])?;
+                if self.expression_type(&items[2]).is_some_and(|ty| match ty {
+                    Type::RawPointer { target, .. } => packed_reference_scalar(&target),
+                    _ => false,
+                }) {
+                    self.output.push_str("    bts rax, 62\n");
+                }
                 self.output.push_str("    add rsp, 8\n");
                 self.stack_depth -= 1;
                 Ok(())
@@ -13551,7 +13618,7 @@ impl FunctionContext<'_> {
                 let global_layout = self.label("reference_value_global_layout");
                 let done = self.label("reference_value_done");
                 self.output.push_str(&format!(
-                    "    mov r11, rax\n    test r11b, 1\n    jz {global_layout}\n    and r11, -2\n"
+                    "    mov r11, rax\n    test r11, r11\n    jns {global_layout}\n    btr r11, 63\n    btr r11, 62\n"
                 ));
                 for (word, register) in VALUE_REGISTERS.iter().enumerate().take(field_words) {
                     let offset = word * 8;
@@ -13821,7 +13888,7 @@ impl FunctionContext<'_> {
         // word is always the discriminant. Do not load/copy any payload words.
         self.expression(&items[1])?;
         self.output.push_str(&format!(
-            "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    mov rax, {discriminant}\n    cmp rcx, rax\n    sete al\n    movzx eax, al\n"));
+            "    btr rax, 63\n    btr rax, 62\n    mov rcx, QWORD PTR [rax]\n    mov rax, {discriminant}\n    cmp rcx, rax\n    sete al\n    movzx eax, al\n"));
         Ok(())
     }
 
@@ -13870,7 +13937,7 @@ impl FunctionContext<'_> {
         let done = self.label("inactive_pinned_enum_payload_borrow_done");
         self.expression(&items[1])?;
         self.output.push_str(&format!(
-            "    mov rcx, rax\n    and rcx, -2\n    mov rcx, QWORD PTR [rcx]\n    mov r11, {}\n    cmp rcx, r11\n    jne {inactive}\n",
+            "    mov rcx, rax\n    btr rcx, 63\n    btr rcx, 62\n    mov rcx, QWORD PTR [rcx]\n    mov r11, {}\n    cmp rcx, r11\n    jne {inactive}\n",
             discriminant
         ));
         // The receiver may evaluate an index or call. Its original address
@@ -13974,7 +14041,7 @@ impl FunctionContext<'_> {
         }
         self.expression(&items[1])?;
         self.output.push_str(&format!(
-            "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
+            "    btr rax, 63\n    btr rax, 62\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
             discriminant
         ));
         self.emit_reference_field_address(&items[1], payload_offset, false)?;
@@ -15728,7 +15795,7 @@ impl FunctionContext<'_> {
         let global_layout = self.label("reference_copy_global_layout");
         let done = self.label("reference_copy_done");
         self.output.push_str(&format!(
-            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+            "    test rax, rax\n    jns {global_layout}\n    btr rax, 63\n    btr rax, 62\n"
         ));
         for (index, slot) in slots.iter().enumerate() {
             let offset = index * 8;
@@ -15787,7 +15854,7 @@ impl FunctionContext<'_> {
         let global_layout = self.label("reference_copy_global_layout");
         let done = self.label("reference_copy_done");
         self.output.push_str(&format!(
-            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+            "    test rax, rax\n    jns {global_layout}\n    btr rax, 63\n    btr rax, 62\n"
         ));
         for (index, slot) in slots.iter().enumerate() {
             let offset = index * 8;
@@ -15871,12 +15938,12 @@ impl FunctionContext<'_> {
         let done = self.label("large_enum_payload_projection_done");
         self.expression(&items[1])?;
         self.output.push_str(&format!(
-            "    and rax, -2\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
+            "    btr rax, 63\n    btr rax, 62\n    mov rcx, QWORD PTR [rax]\n    cmp rcx, {}\n    jne {inactive}\n",
             discriminant
         ));
         self.emit_reference_field_address(&items[1], payload_offset, true)?;
         self.output.push_str(&format!(
-            "    test al, 1\n    jz {global_layout}\n    and rax, -2\n"
+            "    test rax, rax\n    jns {global_layout}\n    btr rax, 63\n    btr rax, 62\n"
         ));
         for (index, slot) in slots.iter().enumerate() {
             self.output.push_str(&format!(

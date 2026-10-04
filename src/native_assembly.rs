@@ -709,13 +709,35 @@ fn parse_instruction(line: &str) -> Result<Instruction, String> {
                 source,
             })
         }
-        "bt" => {
+        "bt" | "bts" | "btr" => {
             let (register, width) = register(left)?;
-            Ok(Instruction::BitTest {
-                width,
-                register,
-                bit: u8::try_from(parse_i32(right)?).map_err(|_| "bit index exceeds byte")?,
-            })
+            let bit = u8::try_from(parse_i32(right)?).map_err(|_| "bit index exceeds byte")?;
+            let bits = match width {
+                Width::Word => 16,
+                Width::Dword => 32,
+                Width::Qword => 64,
+                Width::Byte => 8,
+            };
+            if u16::from(bit) >= bits {
+                return Err("bit index exceeds operand width".into());
+            }
+            match mnemonic {
+                "bt" => Ok(Instruction::BitTest {
+                    width,
+                    register,
+                    bit,
+                }),
+                "bts" => Ok(Instruction::BitSet {
+                    width,
+                    register,
+                    bit,
+                }),
+                _ => Ok(Instruction::BitReset {
+                    width,
+                    register,
+                    bit,
+                }),
+            }
         }
         "fld" | "fstp" => {
             if right.is_empty() && left == "st(0)" && mnemonic == "fstp" {
@@ -1161,6 +1183,30 @@ mod tests {
                 0xd8, 0xc3,
             ]
         );
+    }
+
+    #[test]
+    fn bit_set_reset_immediates_encode_exact_bytes_and_reject_bad_indices() {
+        let source = ".text\nmain:\n bts rax, 63\n btr r11, 62\n bts ax, 15\n btr eax, 31\n ret\n";
+        assert_eq!(
+            assemble(source).unwrap().code.bytes,
+            [
+                0x48, 0x0f, 0xba, 0xe8, 0x3f, 0x49, 0x0f, 0xba, 0xf3, 0x3e, 0x66, 0x0f, 0xba, 0xe8,
+                0x0f, 0x0f, 0xba, 0xf0, 0x1f, 0xc3,
+            ]
+        );
+        for invalid in [
+            "bts rax, 64",
+            "btr r11, 255",
+            "bts rax, -1",
+            "btr ax, 16",
+            "bt eax, 32",
+            "bts al, 1",
+            "btr rax, nope",
+        ] {
+            let source = format!(".text\nmain:\n{invalid}\nret\n");
+            assert!(assemble(&source).is_err(), "accepted {invalid}");
+        }
     }
 
     #[test]

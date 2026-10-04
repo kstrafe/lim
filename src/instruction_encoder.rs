@@ -290,6 +290,16 @@ pub(crate) enum Instruction {
         register: Register,
         bit: u8,
     },
+    BitSet {
+        width: Width,
+        register: Register,
+        bit: u8,
+    },
+    BitReset {
+        width: Width,
+        register: Register,
+        bit: u8,
+    },
     FloatLoad {
         width: Width,
         memory: Memory,
@@ -742,14 +752,42 @@ impl EncodedInstructions {
                 width,
                 register,
                 bit,
+            }
+            | I::BitSet {
+                width,
+                register,
+                bit,
+            }
+            | I::BitReset {
+                width,
+                register,
+                bit,
             } => {
-                if !matches!(width, Width::Dword | Width::Qword) {
-                    return Err("bit test requires 32 or 64 bits".into());
+                if !matches!(width, Width::Word | Width::Dword | Width::Qword) {
+                    return Err("bit operation requires 16, 32 or 64 bits".into());
+                }
+                let bits = match *width {
+                    Width::Word => 16,
+                    Width::Dword => 32,
+                    Width::Qword => 64,
+                    Width::Byte => 8,
+                };
+                if u16::from(*bit) >= bits {
+                    return Err("bit index exceeds operand width".into());
+                }
+                if *width == Width::Word {
+                    self.bytes.push(0x66);
                 }
                 let rm = register.number();
                 self.rex(*width, false, false, rm >= 8, false);
+                let group = match instruction {
+                    I::BitTest { .. } => 4,
+                    I::BitSet { .. } => 5,
+                    I::BitReset { .. } => 6,
+                    _ => unreachable!(),
+                };
                 self.bytes
-                    .extend_from_slice(&[0x0f, 0xba, 0xe0 | rm % 8, *bit]);
+                    .extend_from_slice(&[0x0f, 0xba, 0xc0 | group << 3 | rm % 8, *bit]);
             }
             I::FloatLoad { width, memory } | I::FloatStorePop { width, memory } => {
                 let store = matches!(instruction, I::FloatStorePop { .. });
@@ -1595,6 +1633,63 @@ mod tests {
                 0x30, 0xfe
             ]
         );
+    }
+
+    #[test]
+    fn bit_operations_encode_widths_registers_and_indices() {
+        let mut code = EncodedInstructions::default();
+        for instruction in [
+            Instruction::BitSet {
+                width: Width::Qword,
+                register: Register::Rax,
+                bit: 63,
+            },
+            Instruction::BitReset {
+                width: Width::Qword,
+                register: Register::R11,
+                bit: 62,
+            },
+            Instruction::BitSet {
+                width: Width::Word,
+                register: Register::Rax,
+                bit: 15,
+            },
+            Instruction::BitReset {
+                width: Width::Dword,
+                register: Register::Rax,
+                bit: 31,
+            },
+        ] {
+            code.append(&instruction).unwrap();
+        }
+        assert_eq!(
+            code.bytes,
+            [
+                0x48, 0x0f, 0xba, 0xe8, 0x3f, 0x49, 0x0f, 0xba, 0xf3, 0x3e, 0x66, 0x0f, 0xba, 0xe8,
+                0x0f, 0x0f, 0xba, 0xf0, 0x1f,
+            ]
+        );
+        assert!(EncodedInstructions::default()
+            .append(&Instruction::BitSet {
+                width: Width::Byte,
+                register: Register::Rax,
+                bit: 0
+            })
+            .is_err());
+        assert!(EncodedInstructions::default()
+            .append(&Instruction::BitReset {
+                width: Width::Word,
+                register: Register::Rax,
+                bit: 16
+            })
+            .is_err());
+        assert!(EncodedInstructions::default()
+            .append(&Instruction::BitTest {
+                width: Width::Qword,
+                register: Register::Rax,
+                bit: 64
+            })
+            .is_err());
     }
 
     #[test]
