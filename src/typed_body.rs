@@ -1160,7 +1160,7 @@ pub(crate) enum PlaceRoot {
     Allocation(NodeId, Vec<usize>),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 pub(crate) struct ParameterLoanSummary {
     pub fresh_allocation: Option<Vec<usize>>,
     pub owned_allocation: bool,

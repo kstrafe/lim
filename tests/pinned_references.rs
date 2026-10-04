@@ -824,6 +824,40 @@ fn a_callee_can_update_disjoint_storage_with_an_internal_owner_reference() {
 }
 
 #[test]
+fn ordinary_calls_reject_overwriting_an_internally_borrowed_owner() {
+    let source = include_str!("ui/call-self-loan-owner-mutation.lim");
+    for (operation, rejected) in [
+        ("(#pin-set-field target value 99u64)", true),
+        ("(#pin-set-field target state 2u32)", false),
+        ("(#pin-set-field target value 99u64) (#panic)", true),
+    ] {
+        let source = source.replace("(#pin-set-field target value 99u64)", operation);
+        let scratch = support::Scratch::new("internal-owner-callee-mutation");
+        let checked = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join(".lim"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        );
+        if !rejected {
+            checked.unwrap();
+            continue;
+        }
+        let error = checked
+            .err()
+            .expect("the child loan must forbid an owner write");
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        assert!(
+            error.message.contains("stored internal reference"),
+            "{error:?}"
+        );
+        let span = error.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "running");
+    }
+}
+
+#[test]
 fn a_pinned_field_reborrow_runs_through_the_native_backend() {
     let source = "(#struct Pair ((left u64) (right u64)))
       (#fn main () u64

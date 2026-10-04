@@ -4,9 +4,10 @@
 //! storage slot and the owner-relative pointee separately before attempting a
 //! context-sensitive callee check. This plan grants no borrow permission and
 //! does not replace ordinary checking or initialization/retirement contracts.
-//! This remains staged: caller loans and callee entry states must stay
-//! correlated before conditional poll functions can use these entry seeds.
-#![allow(dead_code)]
+//! Ordinary validation uses this as an additional rejection gate. Entry-tag
+//! guards distinguish conditional initialization from overwriting a retained
+//! pointee. These checks do not authorize parent reborrows; complete access
+//! permissions and external child relationships remain separate obligations.
 
 use crate::typed_body::{BindingId, Body, NodeId, NodeKind, PlaceRoot};
 use crate::typed_flow::{FlowAction, FlowGraph, FlowLoanOrigins, FlowNodeId, LoanOrigin};
@@ -36,12 +37,331 @@ pub(crate) struct Plan {
 
 /// One immutable-declaration analysis run, never a persistent compiler cache.
 #[derive(Default)]
-struct Cache {
+pub(crate) struct Cache {
     baseline: HashMap<FunctionId, std::rc::Rc<FlowLoanOrigins>>,
     checked: HashSet<Plan>,
+    writes: HashMap<FunctionId, Vec<GuardedWrite>>,
 }
 
-pub(crate) fn check_calls(
+#[derive(Clone, Eq, PartialEq, Hash)]
+struct GuardedWrite {
+    target: crate::typed_body::ParameterLoanSummary,
+    guards: Vec<(
+        crate::typed_body::ParameterLoanSummary,
+        crate::typed_ir::VariantId,
+    )>,
+}
+
+fn map_write_input(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    children: &[NodeId],
+    summary: &crate::typed_body::ParameterLoanSummary,
+) -> Vec<LoanOrigin> {
+    if let Some(global) = crate::typed_flow::global_summary_origin(summary) {
+        return vec![global];
+    }
+    // Newly allocated storage is local to the callee, not an input slot.
+    // The unused `parameter` of a global/fresh identity is never an argument.
+    if summary.fresh_allocation.is_some() {
+        return vec![];
+    }
+    origins.apply_summary_before(
+        body,
+        flow,
+        event,
+        *children
+            .get(summary.parameter + 1)
+            .expect("checked write parameter identity"),
+        summary,
+    )
+}
+
+fn physical_summary(body: &Body, place: &Place) -> Option<crate::typed_body::ParameterLoanSummary> {
+    let (parameter, global) = match place.root {
+        PlaceRoot::Parameter(parameter) => (parameter.0, None),
+        PlaceRoot::Global(global) => (0, Some(global)),
+        _ => return None,
+    };
+    let (input, projection) = crate::typed_flow::split_referent_effect_place(body, place);
+    Some(crate::typed_body::ParameterLoanSummary {
+        fresh_allocation: None,
+        owned_allocation: false,
+        parameter,
+        global,
+        mutable: true,
+        pinned: false,
+        lifetime_only: false,
+        referent_projection: projection,
+        input_storage: input.unwrap_or_default(),
+        storage: vec![],
+        storage_inputs: vec![],
+    })
+}
+
+/// Facts about entry tags, not the tags after an initializer has overwritten
+/// them. Once established before any possible mutation, an entry fact remains
+/// a path constraint even after a destructive read clears current tag facts.
+fn entry_guards(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+) -> Vec<HashMap<Place, crate::typed_ir::VariantId>> {
+    #[derive(Clone, Default)]
+    struct State {
+        guards: HashMap<Place, crate::typed_ir::VariantId>,
+        changed: HashSet<Place>,
+        unknown: bool,
+    }
+    let mut before = vec![None::<State>; flow.nodes.len()];
+    let mut result = vec![HashMap::new(); flow.nodes.len()];
+    before[flow.entry.0] = Some(State::default());
+    let mut pending = std::collections::VecDeque::from([flow.entry]);
+    let mut queued = vec![false; flow.nodes.len()];
+    queued[flow.entry.0] = true;
+    while let Some(event) = pending.pop_front() {
+        queued[event.0] = false;
+        let mut state = before[event.0].as_ref().unwrap().clone();
+        if !state.unknown {
+            for (place, variant) in origins
+                .variants_before(body, flow, event)
+                .into_iter()
+                .flat_map(|facts| facts.iter())
+            {
+                if matches!(place.root, PlaceRoot::Parameter(_))
+                    && !state.changed.iter().any(|changed| changed.overlaps(place))
+                {
+                    state.guards.insert(place.clone(), *variant);
+                }
+            }
+        }
+        result[event.0] = state.guards.clone();
+        let node = &flow.nodes[event.0];
+        state.changed.extend(
+            origins
+                .stores_before(body, flow, event)
+                .into_iter()
+                .map(|store| store.destination.referent_place()),
+        );
+        match node.action {
+            FlowAction::Evaluate(value) => {
+                if let NodeKind::Form {
+                    head,
+                    callee,
+                    children,
+                    ..
+                } = &body.nodes[value.0].kind
+                {
+                    if callee.is_some() {
+                        match origins.call_tag_mutations(body, flow, event, value) {
+                            Some(targets) => state
+                                .changed
+                                .extend(targets.into_iter().map(|target| target.referent_place())),
+                            None => state.unknown = true,
+                        }
+                    } else if head == "pin-read" && body.consuming_pin_reads.contains(&value) {
+                        state.changed.extend(
+                            origins
+                                .value_before(body, flow, event, children[1])
+                                .into_iter()
+                                .map(|target| target.referent_place()),
+                        );
+                    } else if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm") {
+                        state.unknown = true;
+                    }
+                }
+            }
+            FlowAction::Release { ref place, .. } => {
+                if let PlaceRoot::Local(binding) = place.root {
+                    state.changed.extend(origins.projected_referents(
+                        event,
+                        binding,
+                        &place.segments,
+                    ));
+                }
+            }
+            _ => {}
+        }
+        for successor in &node.successors {
+            let changed = match &mut before[successor.0] {
+                None => {
+                    before[successor.0] = Some(state.clone());
+                    true
+                }
+                Some(previous) => {
+                    let old_guards = previous.guards.len();
+                    previous
+                        .guards
+                        .retain(|place, variant| state.guards.get(place) == Some(variant));
+                    let old_changed = previous.changed.len();
+                    previous.changed.extend(state.changed.iter().cloned());
+                    let old_unknown = previous.unknown;
+                    previous.unknown |= state.unknown;
+                    old_guards != previous.guards.len()
+                        || old_changed != previous.changed.len()
+                        || old_unknown != previous.unknown
+                }
+            };
+            if changed && !queued[successor.0] {
+                queued[successor.0] = true;
+                pending.push_back(*successor);
+            }
+        }
+    }
+    result
+}
+
+/// All reachable writes, including paths that never return. Final store
+/// summaries alone erase an initializer's entry-tag guard and are insufficient
+/// for checking a caller's retained loan against that initializer.
+fn guarded_writes(
+    callee: FunctionId,
+    declarations: &Declarations,
+    types: &crate::linearcheck::LinearTypes,
+    cache: &mut Cache,
+    pending: &mut HashSet<FunctionId>,
+) -> Result<Vec<GuardedWrite>, String> {
+    if let Some(writes) = cache.writes.get(&callee) {
+        return Ok(writes.clone());
+    }
+    let name = declarations.function_name(callee).expect("resolved callee");
+    let body = declarations
+        .bodies
+        .get(name)
+        .ok_or("cannot inspect internally borrowed callee")?;
+    if !pending.insert(callee) {
+        return Err("recursive internal-loan checking is not permitted".into());
+    }
+    let flow = &declarations.flows[name];
+    let baseline = cache
+        .baseline
+        .entry(callee)
+        .or_insert_with(|| std::rc::Rc::new(flow.loan_origins(body)))
+        .clone();
+    let moves = flow.consumptions(body, types);
+    let entry = entry_guards(body, flow, &baseline);
+    let mut output = Vec::new();
+    let mut events = flow.reachable().into_iter().collect::<Vec<_>>();
+    events.sort_by_key(|event| event.0);
+    for event in events {
+        let node = &flow.nodes[event.0];
+        let guards = entry[event.0]
+            .iter()
+            .filter_map(|(place, variant)| {
+                physical_summary(body, place).map(|summary| (summary, *variant))
+            })
+            .collect::<Vec<_>>();
+        if let FlowAction::Evaluate(value) = node.action {
+            if let NodeKind::Form {
+                callee: Some(target),
+                children,
+                ..
+            } = &body.nodes[value.0].kind
+            {
+                for write in guarded_writes(*target, declarations, types, cache, pending)? {
+                    let targets =
+                        map_write_input(body, flow, &baseline, event, children, &write.target);
+                    let mut mapped_guards = guards.clone();
+                    for (guard, variant) in &write.guards {
+                        let targets =
+                            map_write_input(body, flow, &baseline, event, children, guard);
+                        if targets.len() == 1 && !targets[0].lifetime_only {
+                            if let Some(guard) = targets[0].parameter_summary() {
+                                mapped_guards.push((guard, *variant));
+                            }
+                        }
+                    }
+                    for target in targets.into_iter().filter(|target| !target.lifetime_only) {
+                        if let Some(target) = target.parameter_summary() {
+                            output.push(GuardedWrite {
+                                target,
+                                guards: mapped_guards.clone(),
+                            });
+                        }
+                    }
+                }
+                continue;
+            }
+        }
+        let mut targets = baseline
+            .stores_before(body, flow, event)
+            .into_iter()
+            .map(|store| store.destination)
+            .collect::<Vec<_>>();
+        match &node.action {
+            FlowAction::Read {
+                place,
+                place_base: false,
+                ..
+            } if moves.consumes_at(event, place) => {
+                if let PlaceRoot::Local(binding) = place.root {
+                    targets.extend(baseline.projected_origins(event, binding, &place.segments));
+                }
+            }
+            FlowAction::Release { place, .. } => {
+                if let PlaceRoot::Local(binding) = place.root {
+                    targets.extend(baseline.projected_origins(event, binding, &place.segments));
+                } else if let Some(summary) = physical_summary(body, place) {
+                    if let Some(global) = crate::typed_flow::global_summary_origin(&summary) {
+                        targets.push(global);
+                    }
+                }
+            }
+            FlowAction::Evaluate(value) if body.consuming_pin_reads.contains(value) => {
+                if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
+                    targets.extend(baseline.value_before(body, flow, event, children[1]));
+                }
+            }
+            FlowAction::Evaluate(value) => {
+                // Global forgets are Evaluate events, not local Release events.
+                if let NodeKind::Form {
+                    head,
+                    callee: None,
+                    children,
+                    ..
+                } = &body.nodes[value.0].kind
+                {
+                    if head == "forget" {
+                        if let Some(place) = Place::from_expression(body, children[1]) {
+                            if let Some(summary) = physical_summary(body, &place) {
+                                if let Some(global) =
+                                    crate::typed_flow::global_summary_origin(&summary)
+                                {
+                                    targets.push(global);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        for target in targets.into_iter().filter(|target| !target.lifetime_only) {
+            if let Some(target) = target.parameter_summary() {
+                output.push(GuardedWrite {
+                    target,
+                    guards: guards.clone(),
+                });
+            }
+        }
+    }
+    pending.remove(&callee);
+    // Repeated calls in an acyclic DAG must not expand their identical
+    // footprints exponentially. Guard order is not a semantic distinction.
+    let mut seen = HashSet::new();
+    output.retain_mut(|write| {
+        write.guards.sort_unstable();
+        write.guards.dedup();
+        seen.insert(write.clone())
+    });
+    cache.writes.insert(callee, output.clone());
+    Ok(output)
+}
+
+#[cfg(test)]
+fn check_calls(
     body: &Body,
     flow: &FlowGraph,
     declarations: &Declarations,
@@ -49,6 +369,17 @@ pub(crate) fn check_calls(
     cache: &std::cell::OnceCell<FlowLoanOrigins>,
 ) -> Result<(), crate::typed_borrow::BorrowConflict> {
     let mut checked = Cache::default();
+    check_calls_cached(body, flow, declarations, types, cache, &mut checked)
+}
+
+pub(crate) fn check_calls_cached(
+    body: &Body,
+    flow: &FlowGraph,
+    declarations: &Declarations,
+    types: &crate::linearcheck::LinearTypes,
+    cache: &std::cell::OnceCell<FlowLoanOrigins>,
+    checked: &mut Cache,
+) -> Result<(), crate::typed_borrow::BorrowConflict> {
     for (index, node) in flow.nodes.iter().enumerate() {
         let FlowAction::Evaluate(value) = node.action else {
             continue;
@@ -82,8 +413,28 @@ pub(crate) fn check_calls(
                     labels: vec![],
                 }
             })?;
+        // The extra rejection gate does not replace the authoritative direct
+        // loan checks. Exclusive pointers in conditional payload storage still
+        // need path-correlated incoming/fresh families before this specialized
+        // context can be used: unioning their resume and initial-entry paths
+        // incorrectly treats a write through a newly installed child as an
+        // access through its parent. Keep those contexts staged, without
+        // granting any additional reborrow permission.
+        if plan.aliases.iter().any(|alias| {
+            alias.mutable
+                && (alias
+                    .storage
+                    .iter()
+                    .any(|slot| matches!(slot, Segment::Payload(..)))
+                    || alias
+                        .projection
+                        .iter()
+                        .any(|slot| matches!(slot, Segment::Payload(..))))
+        }) {
+            continue;
+        }
         if let Err((parameter, mut error)) =
-            plan.check_owner_writes_inner(declarations, types, &mut Vec::new(), &mut checked)
+            plan.check_owner_writes_inner(declarations, types, &mut Vec::new(), checked)
         {
             if let Some(span) = error.span {
                 error.labels.push((
@@ -356,6 +707,42 @@ impl Plan {
                 .into_iter()
                 .map(|store| store.destination)
                 .collect::<Vec<_>>();
+            let mut guarded = Vec::new();
+            if let FlowAction::Evaluate(value) = node.action {
+                if let NodeKind::Form {
+                    callee: Some(target),
+                    children,
+                    ..
+                } = &body.nodes[value.0].kind
+                {
+                    let effects =
+                        guarded_writes(*target, declarations, types, cache, &mut HashSet::new())
+                            .map_err(|message| {
+                                (
+                                    self.aliases[0].parameter,
+                                    BorrowConflict {
+                                        message,
+                                        span: node.span,
+                                        labels: vec![],
+                                    },
+                                )
+                            })?;
+                    writes.clear();
+                    for effect in effects {
+                        let targets =
+                            map_write_input(body, flow, &baseline, event, children, &effect.target);
+                        let mut guards = Vec::new();
+                        for (guard, variant) in effect.guards {
+                            let mapped =
+                                map_write_input(body, flow, &baseline, event, children, &guard);
+                            if mapped.len() == 1 && !mapped[0].lifetime_only {
+                                guards.push((mapped[0].clone(), variant));
+                            }
+                        }
+                        guarded.extend(targets.into_iter().map(|target| (target, guards.clone())));
+                    }
+                }
+            }
             match &node.action {
                 FlowAction::Read {
                     place,
@@ -382,15 +769,60 @@ impl Plan {
                 if !origins.entry_alias_retained_before(event, family, alias, &live_bindings) {
                     continue;
                 }
+                // An incoming pointer into a particular enum payload cannot
+                // coexist with a checked different constructor of that same
+                // physical owner. This is a path constraint, not retirement
+                // of a copied pointer or a permission to replace its owner.
+                // In particular, clearing the pointer's *storage* does not
+                // prove that copies of it ceased to borrow the referent.
+                if baseline
+                    .variants_before(body, flow, event)
+                    .is_some_and(|facts| {
+                        alias.projection.iter().enumerate().any(|(index, segment)| {
+                            let Segment::Payload(wanted, _) = segment else {
+                                return false;
+                            };
+                            let mut segments = alias.owner_input.clone();
+                            segments.extend_from_slice(&alias.projection[..index]);
+                            facts
+                                .get(&Place {
+                                    root: PlaceRoot::Parameter(alias.parameter),
+                                    segments,
+                                })
+                                .is_some_and(|actual| {
+                                    actual.owner == wanted.owner && actual != wanted
+                                })
+                        })
+                    })
+                {
+                    continue;
+                }
                 let held = Place {
                     root: PlaceRoot::Parameter(alias.parameter),
                     segments: alias.projection.clone(),
                 };
-                if writes.iter().any(|write| {
+                let overlaps = |write: &LoanOrigin| {
                     write.place.root == held.root
                         && write.parameter_storage.as_deref() == Some(alias.owner_input.as_slice())
                         && write.place.overlaps(&held)
-                }) {
+                };
+                let incompatible = |guard: &LoanOrigin, actual: crate::typed_ir::VariantId| {
+                    guard.place.root == held.root
+                        && guard.parameter_storage.as_deref() == Some(alias.owner_input.as_slice())
+                        && alias.projection.iter().enumerate().any(|(index, segment)| {
+                            matches!(segment, Segment::Payload(wanted, _)
+                                if wanted.owner == actual.owner && *wanted != actual
+                                    && guard.place.segments == alias.projection[..index])
+                        })
+                };
+                if writes.iter().any(overlaps)
+                    || guarded.iter().any(|(write, guards)| {
+                        overlaps(write)
+                            && !guards
+                                .iter()
+                                .any(|(guard, variant)| incompatible(guard, *variant))
+                    })
+                {
                     return Err((alias.parameter, BorrowConflict {
                         message: format!("cannot mutate or consume an owner while its stored internal reference is retained in '{name}'"),
                         span: node.span, labels: vec![],
@@ -617,6 +1049,170 @@ mod tests {
         // An external child pointer does not borrow the owner's value field.
         let external = source.replace("(#let installed (#pin-ref-mut Link) (#call install (: target running)))\n        (#set running installed)", "");
         let declarations = fixture(&external);
+        call_plan(&declarations, "driver", "tick")
+            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .unwrap();
+    }
+
+    #[test]
+    fn entry_payload_aliases_are_correlated_with_checked_physical_tag_guards() {
+        let source = "(#enum Value (Empty (Full u64)))
+          (#struct Link (: value Value : view (#pin-ref u64)))
+          (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#let view (#pin-ref u64)
+              (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
+            (#pin-set-field target view view) (#return target))
+          (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#if (#variant-is (#pin-borrow (#get target value)) Empty)
+              (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 99u64))) ())
+            (#return target))
+          (#fn driver (: outside (#pin-ref u64)) ()
+            (#let-mut link Link (#struct-literal Link (: value (Full 42u64) : view outside)))
+            (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
+            (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
+            (#pin-set-field updated view outside)
+            (#drop updated) (#forget link) (#return ()))";
+        for (guard, rejected) in [("Empty", false), ("Full", true)] {
+            let source = source.replace("value)) Empty)", &format!("value)) {guard})"));
+            let declarations = fixture(&source);
+            let plan = call_plan(&declarations, "driver", "tick");
+            assert_eq!(plan.aliases.len(), 1);
+            let checked =
+                plan.check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default());
+            assert_eq!(checked.is_err(), rejected, "{checked:?}\n{source}");
+        }
+        // A write invalidating the guard must be checked before it can
+        // establish an incompatible tag; subsequent facts cannot excuse it.
+        let bad = source.replace(
+            "(#if (#variant-is",
+            "(#unsafe (#pin-write (#pin-borrow-mut (#get target value)) Empty)) (#if (#variant-is",
+        );
+        let declarations = fixture(&bad);
+        call_plan(&declarations, "driver", "tick")
+            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .unwrap_err();
+    }
+
+    #[test]
+    fn initializer_entry_guards_survive_destructive_reads_but_are_not_invented_after_writes() {
+        for early in [true, false] {
+            let assertion = "(#assert (#variant-is slot Empty))";
+            let (before, after) = if early {
+                (assertion, "")
+            } else {
+                ("", assertion)
+            };
+            let source = format!(
+                "(#enum Slot (Empty (Full u64))) (#linear Slot)
+              (#fn initialize (: slot (#pin-ref-mut Slot)) ()
+                {before}
+                (#let previous Slot (#unsafe (#pin-read slot))) (#forget previous)
+                (#unsafe (#pin-write slot Empty))
+                {after}
+                (#unsafe (#pin-write slot (Full 42u64))) (#return ()))"
+            );
+            let declarations = fixture(&source);
+            let function = declarations.function_id("initialize").unwrap();
+            let effects = guarded_writes(
+                function,
+                &declarations,
+                &crate::linearcheck::LinearTypes::default(),
+                &mut Cache::default(),
+                &mut HashSet::new(),
+            )
+            .unwrap();
+            let empty = declarations
+                .variant_id(&Type::Named("Slot".into()), "Empty")
+                .unwrap();
+            assert!(!effects.is_empty());
+            for effect in effects {
+                assert_eq!(
+                    effect.guards.iter().any(|(_, variant)| *variant == empty),
+                    early,
+                    "a tag created by the initializer is not its entry tag"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn user_assert_calls_and_ambiguous_guard_receivers_do_not_establish_entry_tags() {
+        for assertion in [
+            "(#call assert (: condition (#variant-is first Empty)))",
+            "(#assert (#variant-is (#if choose first second) Empty))",
+        ] {
+            let source = format!("(#enum Slot (Empty (Full u64))) (#linear Slot)
+              (#fn assert (: condition bool) () (#return ()))
+              (#fn initialize (: first (#pin-ref-mut Slot) : second (#pin-ref-mut Slot) : choose bool) ()
+                {assertion}
+                (#let previous Slot (#unsafe (#pin-read first))) (#forget previous)
+                (#unsafe (#pin-write first (Full 42u64))) (#return ()))");
+            let declarations = fixture(&source);
+            let effects = guarded_writes(
+                declarations.function_id("initialize").unwrap(),
+                &declarations,
+                &crate::linearcheck::LinearTypes::default(),
+                &mut Cache::default(),
+                &mut HashSet::new(),
+            )
+            .unwrap();
+            assert!(!effects.is_empty());
+            assert!(effects.iter().all(|effect| effect.guards.is_empty()));
+        }
+    }
+
+    #[test]
+    fn repeated_nested_calls_keep_one_distinct_write_footprint() {
+        let mut source = String::from(
+            "(#fn level0 (: target (#pin-ref-mut u64)) ()
+          (#unsafe (#pin-write target 42u64)) (#return ()))",
+        );
+        for level in 1..=20 {
+            source.push_str(&format!(
+                "(#fn level{level} (: target (#pin-ref-mut u64)) ()
+              (#call level{} (: target target))
+              (#call level{} (: target target)) (#return ()))",
+                level - 1,
+                level - 1
+            ));
+        }
+        let declarations = fixture(&source);
+        let mut cache = Cache::default();
+        let effects = guarded_writes(
+            declarations.function_id("level20").unwrap(),
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &mut cache,
+            &mut HashSet::new(),
+        )
+        .unwrap();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(cache.writes.len(), 21);
+        assert!(cache.writes.values().all(|writes| writes.len() == 1));
+    }
+
+    #[test]
+    fn global_consumption_identities_do_not_substitute_an_unused_parameter() {
+        let source = format!(
+            "(#static Count u64 0u64)
+          (#fn touch () () (#unsafe (#forget Count)) (#return ())) {}",
+            SOURCE.replace(
+                "(#pin-set-field target state 2u32)",
+                "(#call touch ()) (#pin-set-field target state 2u32)"
+            )
+        );
+        let declarations = fixture(&source);
+        let effects = guarded_writes(
+            declarations.function_id("tick").unwrap(),
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &mut Cache::default(),
+            &mut HashSet::new(),
+        )
+        .unwrap();
+        assert!(effects
+            .iter()
+            .any(|effect| effect.target.global == declarations.global_id("Count")));
         call_plan(&declarations, "driver", "tick")
             .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap();

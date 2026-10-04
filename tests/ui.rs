@@ -444,6 +444,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 8,
         },
         Case {
+            name: "call-self-loan-owner-mutation",
+            diagnostic_code: "E4100",
+            offending_line: "  (#let updated (#pin-ref-mut Link) (#call tick (: target running)))",
+            line_number: 10,
+        },
+        Case {
             name: "reordered-named-argument-error",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#call combine (: right 1u64 : left 2u64)))",
@@ -1006,6 +1012,12 @@ fn compilation_errors_render_the_offending_source_line() {
                 "UI case {} did not underline the source:\n{stderr}",
                 case.name
             );
+            if case.name == "call-self-loan-owner-mutation" {
+                assert!(
+                    stderr.contains("cannot mutate or consume an owner while its stored internal reference is retained in 'tick'"),
+                    "owner mutation did not report the retained internal reference:\n{stderr}"
+                );
+            }
             if case.name == "mismatched-let" {
                 let source_row = stderr
                     .lines()
@@ -1224,6 +1236,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "pinned-reference-replacement" => Some("pinned"),
             "pinned-reference-escape" => Some("(#return (#pin-borrow owner))"),
             "pinned-self-reference-conflict" => Some("#pin-set-field"),
+            "call-self-loan-owner-mutation" => Some("running"),
             "reordered-named-argument-error" => Some("1u64"),
             "nested-case-pattern-error" => Some("0u64"),
             "positional-call" => Some("add"),

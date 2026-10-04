@@ -485,6 +485,19 @@ is cleared. This operation is not a way to make a movable async frame
 self-referential; generated frames still need stable storage slots and
 cancellation-aware internal-loan handling.
 
+Ordinary calls also check statically resolved internal owner loans against
+the callee's writes and destructive accesses, including nested calls and
+paths that trap instead of returning. A disjoint field update is allowed;
+overwriting the internally borrowed field reports `E4100` at the caller's
+argument and labels the callee access. Checked enum tests and assertions
+retain entry-tag constraints for conditional initialization, rather than
+treating a tag written by the initializer as an incoming constructor.
+See `examples/pinned_self_reference.lim` for an ordinary-call example.
+This additional rejection check is not permission to reborrow a whole
+parent while its children remain live. Context-sensitive exclusive loans
+in conditional enum payloads still require incoming/fresh-family correlation
+and remain subject to the existing conservative borrow checks.
+
 `#asm` embeds target assembler at an expression site. Its form is
 `(#asm ResultType ((register value) ...) "instructions")`: each value is
 evaluated and loaded into its named 64-bit general-purpose register, and the

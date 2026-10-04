@@ -1102,7 +1102,7 @@ impl FlowLoanOrigins {
     /// Resolve the entire callee may-mutate footprint. An unresolved input
     /// (including a load through borrowed reference-bearing storage) is not
     /// evidence that nothing changes: it invalidates the whole tag table.
-    fn call_tag_mutations(
+    pub(crate) fn call_tag_mutations(
         &self,
         body: &Body,
         flow: &FlowGraph,
@@ -2241,15 +2241,53 @@ impl FlowGraph {
                     // Raw or kernel writes may alias any previously known tag.
                     state.clear();
                 }
+                FlowAction::Evaluate(value) => {
+                    if let NodeKind::Form {
+                        head,
+                        callee: None,
+                        children,
+                        ..
+                    } = &body.nodes[value.0].kind
+                    {
+                        if head == "assert" && children.len() == 2 {
+                            if let Some((place, variant)) =
+                                physical_variant_guard(body, self, origins, event, children[1])
+                            {
+                                state.insert(place, variant);
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
-            for successor in &node.successors {
+            let guarded_tag = match node.action {
+                FlowAction::Branch(value) if node.successors.len() == 2 => {
+                    let condition = match body.nodes[value.0].kind {
+                        NodeKind::If { condition, .. } => condition,
+                        _ => value,
+                    };
+                    physical_variant_guard(body, self, origins, event, condition)
+                }
+                _ => None,
+            };
+            for (edge, successor) in node.successors.iter().enumerate() {
+                // Ordinary edges reuse the existing table. Allocate an
+                // additional map only for a genuinely new true-edge fact.
+                let refined = guarded_tag
+                    .as_ref()
+                    .filter(|(place, variant)| edge == 0 && state.get(place) != Some(variant))
+                    .map(|(place, variant)| {
+                        let mut refined = state.clone();
+                        refined.insert(place.clone(), *variant);
+                        refined
+                    });
+                let outgoing = refined.as_ref().unwrap_or(&state);
                 let changed = match &mut before[successor.0] {
                     None => {
-                        before[successor.0] = Some(state.clone());
+                        before[successor.0] = Some(outgoing.clone());
                         true
                     }
-                    Some(previous) => join_variant_facts(previous, &state),
+                    Some(previous) => join_variant_facts(previous, outgoing),
                 };
                 if changed && !queued[successor.0] {
                     queued[successor.0] = true;
@@ -10009,6 +10047,33 @@ fn dereferenced_value_places(
     Some(places)
 }
 
+fn physical_variant_guard(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    value: NodeId,
+) -> Option<(Place, VariantId)> {
+    let NodeKind::Form {
+        head,
+        callee: None,
+        children,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return None;
+    };
+    if head != "#variant-is" || children.len() != 3 {
+        return None;
+    }
+    let NodeKind::Declaration(DeclarationId::Variant(variant)) = body.nodes[children[2].0].kind
+    else {
+        return None;
+    };
+    let places = dereferenced_value_places(body, flow, event, value, origins)?;
+    (places.len() == 1 && !has_dynamic_projection(&places[0])).then(|| (places[0].clone(), variant))
+}
+
 /// Physical owned storage supplying a checked read. Pin reads are values,
 /// not syntactic places; resolve their evaluated receiver's provenance.
 fn variant_value_sources(
@@ -10609,7 +10674,9 @@ fn select_summary_inputs_with_slots(
     }
 }
 
-fn global_summary_origin(summary: &crate::typed_body::ParameterLoanSummary) -> Option<LoanOrigin> {
+pub(crate) fn global_summary_origin(
+    summary: &crate::typed_body::ParameterLoanSummary,
+) -> Option<LoanOrigin> {
     Some(LoanOrigin {
         owned_allocation: summary.owned_allocation,
         place: Place {

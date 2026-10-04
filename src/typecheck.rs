@@ -2161,6 +2161,7 @@ fn check_types_inner(
         .keys()
         .map(|name| (name.as_str(), std::cell::OnceCell::new()))
         .collect::<HashMap<_, _>>();
+    let mut internal_owner_cache = crate::call_self_loans::Cache::default();
     crate::pin_ownership::check(&declarations, &linear_types, &loan_caches).map_err(|error| {
         *diagnostic_span = error.span;
         *diagnostic_labels = error.labels;
@@ -2227,6 +2228,20 @@ fn check_types_inner(
                             )
                         })
                         .collect();
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                    error.message
+                })?;
+                crate::call_self_loans::check_calls_cached(
+                    body,
+                    &declarations.flows[&function.name],
+                    &declarations,
+                    &linear_types,
+                    &loan_caches[function.name.as_str()],
+                    &mut internal_owner_cache,
+                )
+                .map_err(|error| {
+                    *diagnostic_span = error.span;
+                    *diagnostic_labels = error.labels;
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     error.message
                 })?;

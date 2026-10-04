@@ -5,7 +5,7 @@ use crate::typed_body::{Body, NodeId, NodeKind, PlaceRoot, Projection};
 use crate::typed_ir::{DeclarationId, FieldId, VariantId};
 use crate::Expr;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 pub(crate) enum Segment {
     Dereference,
     Field(FieldId),
