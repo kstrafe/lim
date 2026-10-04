@@ -4,6 +4,33 @@ This is an incremental internal migration, not a language or syntax change.
 Lim still requires explicit source types and performs the existing type,
 linearity, borrow, and unsafe checks before returning a `CheckedProgram`.
 
+## Actual internal-owner access contexts
+
+`call_self_loans.rs` maps references stored inside an argument's pointee to
+their actual owner-relative targets. Pointer storage and physical referents
+remain separate: access through the child pointer is not access through its
+owner's pointer, even when both resolve to the same address.
+
+Alongside writes and destructive operations, the rejection gate checks reads,
+clones, and shared/exclusive reborrows. Shared incoming loans allow shared
+access; exclusive incoming loans forbid owner reads and both kinds of reborrow.
+Child-pointer access and disjoint fields remain independent. A cleared slot
+does not retire a loan retained by a live loaded child.
+
+Nested ordinary calls have guarded observation footprints, including accesses
+on paths that do not return. Source labels retain the deepest access location;
+the primary error underlines the actual caller argument. Acyclic call-DAG
+caches deduplicate semantic effects rather than expanding repeated calls.
+
+This is additional rejection, not permission to recycle a parent poll handle.
+Observation checks for conditional enum payloads remain staged: initializer
+argument evaluation precedes the callee's Empty guard and must not inherit
+resume-only loans. Existing guarded write rejection for shared payloads remains
+active; conditional exclusive contexts still require correlated entry-state
+and access-slot permissions. Cache keys distinguish write-only checks from
+full observation checks. Existing fail-closed async tests remain unchanged.
+`examples/internal_owner_reads.lim` demonstrates ordinary shared internal loans.
+
 ## Original-source async control flow
 
 `async_cfg.rs` builds a graph before nested-task rewriting. Nodes borrow exact

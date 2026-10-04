@@ -6,8 +6,10 @@
 //! does not replace ordinary checking or initialization/retirement contracts.
 //! Ordinary validation uses this as an additional rejection gate. Entry-tag
 //! guards distinguish conditional initialization from overwriting a retained
-//! pointee. These checks do not authorize parent reborrows; complete access
-//! permissions and external child relationships remain separate obligations.
+//! pointee. Owner reads, clones, and reborrows are also compared with the
+//! incoming child's capability, including nested ordinary calls. These checks
+//! do not authorize parent reborrows; complete state-dependent permissions
+//! and external child relationships remain separate obligations.
 
 use crate::typed_body::{BindingId, Body, NodeId, NodeKind, PlaceRoot};
 use crate::typed_flow::{FlowAction, FlowGraph, FlowLoanOrigins, FlowNodeId, LoanOrigin};
@@ -39,8 +41,10 @@ pub(crate) struct Plan {
 #[derive(Default)]
 pub(crate) struct Cache {
     baseline: HashMap<FunctionId, std::rc::Rc<FlowLoanOrigins>>,
-    checked: HashSet<Plan>,
+    // Write-only staging must not cache permission for observation checks.
+    checked: HashSet<(Plan, bool)>,
     writes: HashMap<FunctionId, Vec<GuardedWrite>>,
+    observations: HashMap<FunctionId, Vec<GuardedObservation>>,
 }
 
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -50,6 +54,201 @@ struct GuardedWrite {
         crate::typed_body::ParameterLoanSummary,
         crate::typed_ir::VariantId,
     )>,
+}
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+struct GuardedObservation {
+    target: crate::typed_body::ParameterLoanSummary,
+    /// Shared reads/borrows conflict only with an exclusive incoming loan.
+    /// An exclusive borrow also conflicts with a shared incoming loan.
+    exclusive: bool,
+    guards: Vec<(
+        crate::typed_body::ParameterLoanSummary,
+        crate::typed_ir::VariantId,
+    )>,
+    span: Option<crate::Span>,
+}
+
+/// Non-destructive access through a reference, not a read of its pointer slot.
+/// Preserve evaluated receiver snapshots and keep the pointee input separate
+/// from the slot that contains the pointer. Raw lifetime anchors are not reads.
+fn observations_at(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    moves: &crate::typed_flow::FlowConsumptions,
+) -> Vec<(LoanOrigin, bool)> {
+    let address = |value| origins.address_before(body, flow, event, value);
+    let (targets, exclusive) = match &flow.nodes[event.0].action {
+        FlowAction::Read {
+            value,
+            place,
+            place_base: false,
+        } if !moves.consumes_at(event, place)
+            && crate::typed_place::reads_through_reference(body, *value) =>
+        {
+            (address(*value), false)
+        }
+        FlowAction::Clone { value, .. } => {
+            let NodeKind::Form {
+                children,
+                callee: None,
+                ..
+            } = &body.nodes[value.0].kind
+            else {
+                return Vec::new();
+            };
+            if !crate::typed_place::reads_through_reference(body, children[1]) {
+                return Vec::new();
+            }
+            (address(children[1]), false)
+        }
+        FlowAction::Borrow { value, mutable, .. } => {
+            let NodeKind::Form {
+                head,
+                children,
+                callee: None,
+                ..
+            } = &body.nodes[value.0].kind
+            else {
+                return Vec::new();
+            };
+            if !matches!(
+                head.as_str(),
+                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+            ) || !crate::typed_place::reads_through_reference(body, children[1])
+            {
+                return Vec::new();
+            }
+            (address(children[1]), *mutable)
+        }
+        FlowAction::Evaluate(value) => {
+            let NodeKind::Form {
+                head,
+                children,
+                callee: None,
+                ..
+            } = &body.nodes[value.0].kind
+            else {
+                return Vec::new();
+            };
+            if head != "deref" || children.len() != 2 {
+                return Vec::new();
+            }
+            (origins.value_before(body, flow, event, children[1]), false)
+        }
+        _ => return Vec::new(),
+    };
+    targets
+        .into_iter()
+        .filter(|target| {
+            !target.lifetime_only && !target.owned_allocation && target.storage.is_empty()
+        })
+        .map(|target| (target, exclusive))
+        .collect()
+}
+
+/// Acyclic read/reborrow footprints retain entry guards and deepest source
+/// locations. Repeated calls share analysis and deduplicate semantic effects.
+fn guarded_observations(
+    callee: FunctionId,
+    declarations: &Declarations,
+    types: &crate::linearcheck::LinearTypes,
+    cache: &mut Cache,
+    pending: &mut HashSet<FunctionId>,
+) -> Result<Vec<GuardedObservation>, String> {
+    if let Some(effects) = cache.observations.get(&callee) {
+        return Ok(effects.clone());
+    }
+    let name = declarations
+        .function_name(callee)
+        .ok_or("missing checked callee")?;
+    let Some(body) = declarations.bodies.get(name) else {
+        return Ok(Vec::new());
+    };
+    if !pending.insert(callee) {
+        return Err("recursive internal-loan checking is not permitted".into());
+    }
+    let flow = &declarations.flows[name];
+    let origins = cache
+        .baseline
+        .entry(callee)
+        .or_insert_with(|| std::rc::Rc::new(flow.loan_origins(body)))
+        .clone();
+    let moves = flow.consumptions(body, types);
+    let entry = entry_guards(body, flow, &origins);
+    let mut output = Vec::new();
+    let mut events = flow.reachable().into_iter().collect::<Vec<_>>();
+    events.sort_unstable_by_key(|event| event.0);
+    for event in events {
+        let guards = entry[event.0]
+            .iter()
+            .filter_map(|(place, variant)| {
+                physical_summary(body, place).map(|summary| (summary, *variant))
+            })
+            .collect::<Vec<_>>();
+        let node = &flow.nodes[event.0];
+        if let FlowAction::Evaluate(value) = node.action {
+            if let NodeKind::Form {
+                callee: Some(target),
+                children,
+                ..
+            } = &body.nodes[value.0].kind
+            {
+                for effect in guarded_observations(*target, declarations, types, cache, pending)? {
+                    let mut mapped_guards = guards.clone();
+                    for (guard, variant) in &effect.guards {
+                        let mapped = map_write_input(body, flow, &origins, event, children, guard);
+                        if mapped.len() == 1 && !mapped[0].lifetime_only {
+                            if let Some(guard) = mapped[0].parameter_summary() {
+                                mapped_guards.push((guard, *variant));
+                            }
+                        }
+                    }
+                    for target in
+                        map_write_input(body, flow, &origins, event, children, &effect.target)
+                    {
+                        if target.lifetime_only || !target.storage.is_empty() {
+                            continue;
+                        }
+                        if let Some(target) = target.parameter_summary() {
+                            output.push(GuardedObservation {
+                                target,
+                                exclusive: effect.exclusive,
+                                guards: mapped_guards.clone(),
+                                span: effect.span.or(node.span),
+                            });
+                        }
+                    }
+                }
+                continue;
+            }
+        }
+        for (target, exclusive) in observations_at(body, flow, &origins, event, &moves) {
+            if let Some(target) = target.parameter_summary() {
+                output.push(GuardedObservation {
+                    target,
+                    exclusive,
+                    guards: guards.clone(),
+                    span: node.span,
+                });
+            }
+        }
+    }
+    pending.remove(&callee);
+    let mut seen = HashSet::new();
+    output.retain_mut(|effect| {
+        effect.guards.sort_unstable();
+        effect.guards.dedup();
+        seen.insert((
+            effect.target.clone(),
+            effect.exclusive,
+            effect.guards.clone(),
+        ))
+    });
+    cache.observations.insert(callee, output.clone());
+    Ok(output)
 }
 
 fn map_write_input(
@@ -433,9 +632,24 @@ pub(crate) fn check_calls_cached(
         }) {
             continue;
         }
-        if let Err((parameter, mut error)) =
-            plan.check_owner_writes_inner(declarations, types, &mut Vec::new(), checked)
-        {
+        // Observation permissions for conditional shared payloads are staged
+        // too: constructing an initializer's argument happens before its
+        // checked Empty guard. Keep existing guarded write rejection, but do
+        // not apply resume-only observation contexts to the initial path.
+        let check_observations = !plan.aliases.iter().any(|alias| {
+            alias
+                .storage
+                .iter()
+                .chain(&alias.projection)
+                .any(|slot| matches!(slot, Segment::Payload(..)))
+        });
+        if let Err((parameter, mut error)) = plan.check_owner_accesses_inner(
+            declarations,
+            types,
+            &mut Vec::new(),
+            checked,
+            check_observations,
+        ) {
             if let Some(span) = error.span {
                 error.labels.push((
                     span,
@@ -631,24 +845,31 @@ impl Plan {
     /// Callee entry seeds are may-aliases; definite replacement may retire them,
     /// but a branch-only clear must not erase a retained child.
     #[cfg(test)]
-    pub fn check_owner_writes(
+    pub fn check_owner_accesses(
         &self,
         declarations: &Declarations,
         types: &crate::linearcheck::LinearTypes,
     ) -> Result<(), crate::typed_borrow::BorrowConflict> {
-        self.check_owner_writes_inner(declarations, types, &mut Vec::new(), &mut Cache::default())
-            .map_err(|(_, error)| error)
+        self.check_owner_accesses_inner(
+            declarations,
+            types,
+            &mut Vec::new(),
+            &mut Cache::default(),
+            true,
+        )
+        .map_err(|(_, error)| error)
     }
 
-    fn check_owner_writes_inner(
+    fn check_owner_accesses_inner(
         &self,
         declarations: &Declarations,
         types: &crate::linearcheck::LinearTypes,
         stack: &mut Vec<FunctionId>,
         cache: &mut Cache,
+        check_observations: bool,
     ) -> Result<(), (BindingId, crate::typed_borrow::BorrowConflict)> {
         use crate::typed_borrow::BorrowConflict;
-        if self.aliases.is_empty() || cache.checked.contains(self) {
+        if self.aliases.is_empty() || cache.checked.contains(&(self.clone(), check_observations)) {
             return Ok(());
         }
         let name = declarations
@@ -708,6 +929,14 @@ impl Plan {
                 .map(|store| store.destination)
                 .collect::<Vec<_>>();
             let mut guarded = Vec::new();
+            let mut observations = if check_observations {
+                observations_at(body, flow, &baseline, event, &consumptions)
+            } else {
+                Vec::new()
+            }
+            .into_iter()
+            .map(|(target, exclusive)| (target, exclusive, Vec::new(), node.span))
+            .collect::<Vec<_>>();
             if let FlowAction::Evaluate(value) = node.action {
                 if let NodeKind::Form {
                     callee: Some(target),
@@ -740,6 +969,50 @@ impl Plan {
                             }
                         }
                         guarded.extend(targets.into_iter().map(|target| (target, guards.clone())));
+                    }
+                    let effects = if check_observations {
+                        guarded_observations(
+                            *target,
+                            declarations,
+                            types,
+                            cache,
+                            &mut HashSet::new(),
+                        )
+                        .map_err(|message| {
+                            (
+                                self.aliases[0].parameter,
+                                BorrowConflict {
+                                    message,
+                                    span: node.span,
+                                    labels: vec![],
+                                },
+                            )
+                        })?
+                    } else {
+                        Vec::new()
+                    };
+                    for effect in effects {
+                        let mut guards = Vec::new();
+                        for (guard, variant) in effect.guards {
+                            let mapped =
+                                map_write_input(body, flow, &baseline, event, children, &guard);
+                            if mapped.len() == 1 && !mapped[0].lifetime_only {
+                                guards.push((mapped[0].clone(), variant));
+                            }
+                        }
+                        observations.extend(
+                            map_write_input(body, flow, &baseline, event, children, &effect.target)
+                                .into_iter()
+                                .filter(|target| !target.lifetime_only && target.storage.is_empty())
+                                .map(|target| {
+                                    (
+                                        target,
+                                        effect.exclusive,
+                                        guards.clone(),
+                                        effect.span.or(node.span),
+                                    )
+                                }),
+                        );
                     }
                 }
             }
@@ -828,6 +1101,20 @@ impl Plan {
                         span: node.span, labels: vec![],
                     }));
                 }
+                if let Some((_, _, _, span)) =
+                    observations.iter().find(|(target, exclusive, guards, _)| {
+                        (alias.mutable || *exclusive)
+                            && overlaps(target)
+                            && !guards
+                                .iter()
+                                .any(|(guard, variant)| incompatible(guard, *variant))
+                    })
+                {
+                    return Err((alias.parameter, BorrowConflict {
+                        message: format!("cannot read or reborrow an owner while its stored conflicting reference is retained in '{name}'"),
+                        span: span.or(node.span), labels: vec![],
+                    }));
+                }
             }
             if let FlowAction::Evaluate(value) = node.action {
                 if matches!(
@@ -848,9 +1135,13 @@ impl Plan {
                             },
                         )
                     })?;
-                    if let Err((parameter, error)) =
-                        nested.check_owner_writes_inner(declarations, types, stack, cache)
-                    {
+                    if let Err((parameter, error)) = nested.check_owner_accesses_inner(
+                        declarations,
+                        types,
+                        stack,
+                        cache,
+                        check_observations,
+                    ) {
                         let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
                             unreachable!()
                         };
@@ -875,7 +1166,7 @@ impl Plan {
             }
         }
         stack.pop();
-        cache.checked.insert(self.clone());
+        cache.checked.insert((self.clone(), check_observations));
         Ok(())
     }
 }
@@ -908,6 +1199,23 @@ mod tests {
             .unwrap_or_else(|error| panic!("{error:?}\n{source}"));
         declarations.staged_parameter_contents_summaries();
         declarations
+    }
+
+    fn exclusive_source() -> String {
+        SOURCE
+            .replace("#pin-ref u64", "#pin-ref-mut u64")
+            .replace(
+                "(#pin-borrow (#get target value))",
+                "(#pin-borrow-mut (#get target value))",
+            )
+            .replace(
+                "(#pin-set-field target view view)",
+                "(#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))",
+            )
+            .replace(
+                "(#pin-set-field running view outside)",
+                "(#unsafe (#pin-write (#pin-borrow-mut (#get running view)) outside))",
+            )
     }
 
     fn call_plan(declarations: &Declarations, caller: &str, callee: &str) -> Plan {
@@ -1025,7 +1333,7 @@ mod tests {
             let source = SOURCE.replace("(#pin-set-field target state 2u32)", operation);
             let declarations = fixture(&source);
             let plan = call_plan(&declarations, "driver", "tick");
-            plan.check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            plan.check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
                 .unwrap();
         }
     }
@@ -1039,7 +1347,7 @@ mod tests {
         let declarations = fixture(&source);
         let plan = call_plan(&declarations, "driver", "tick");
         let error = plan
-            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap_err();
         let span = error.span.unwrap();
         assert_eq!(
@@ -1050,8 +1358,178 @@ mod tests {
         let external = source.replace("(#let installed (#pin-ref-mut Link) (#call install (: target running)))\n        (#set running installed)", "");
         let declarations = fixture(&external);
         call_plan(&declarations, "driver", "tick")
-            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap();
+    }
+
+    #[test]
+    fn exclusive_internal_loans_block_owner_reads_clones_and_reborrows() {
+        for (operation, expected) in [
+            ("(#let observed u64 (#get target value)) (#forget observed)", "(#get target value)"),
+            ("(#let observed u64 (#clone (#get target value))) (#forget observed)", "(#clone (#get target value))"),
+            ("(#let another (#pin-ref u64) (#pin-borrow (#get target value))) (#drop another)", "(#pin-borrow (#get target value))"),
+            ("(#let another (#pin-ref-mut u64) (#pin-borrow-mut (#get target value))) (#drop another)", "(#pin-borrow-mut (#get target value))"),
+        ] {
+            let source = exclusive_source().replace("(#pin-set-field target state 2u32)", operation);
+            let declarations = fixture(&source);
+            let plan = call_plan(&declarations, "driver", "tick");
+            assert!(plan.aliases[0].mutable);
+            let error = plan.check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
+                .err().unwrap_or_else(|| panic!("a read or reborrow through the owner cannot bypass its exclusive child: {operation}"));
+            let span = error.span.unwrap();
+            assert_eq!(&source[span.start..span.end], expected, "{}", error.message);
+        }
+    }
+
+    #[test]
+    fn shared_internal_loans_allow_shared_access_but_not_exclusive_reborrows() {
+        for (operation, rejected) in [
+            ("(#let observed u64 (#get target value)) (#forget observed)", false),
+            ("(#let another (#pin-ref u64) (#pin-borrow (#get target value))) (#drop another)", false),
+            ("(#let another (#pin-ref-mut u64) (#pin-borrow-mut (#get target value))) (#drop another)", true),
+        ] {
+            let source = SOURCE.replace("(#pin-set-field target state 2u32)", operation);
+            let declarations = fixture(&source);
+            let result = call_plan(&declarations, "driver", "tick")
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
+            assert_eq!(result.is_err(), rejected, "{result:?}\n{source}");
+        }
+    }
+
+    #[test]
+    fn child_access_and_disjoint_owner_reads_preserve_their_pointer_permissions() {
+        for operation in [
+            "(#let observed u32 (#get target state)) (#forget observed)",
+            "(#let observed u64 (#deref (#get target view))) (#forget observed)",
+            "(#let observed u64 (#call child-read (: pointer (#get target view)))) (#forget observed)",
+        ] {
+            let source = format!("{} (#fn child-read (: pointer (#pin-ref-mut u64)) u64 (#return (#deref pointer)))",
+                exclusive_source().replace("(#pin-set-field target state 2u32)", operation));
+            let declarations = fixture(&source);
+            call_plan(&declarations, "driver", "tick")
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default()).unwrap();
+        }
+    }
+
+    #[test]
+    fn nested_observers_retain_the_deepest_access_span_at_the_caller_argument() {
+        let source = format!(
+            "{}
+          (#fn observe (: pointer (#pin-ref u64)) u64 (#return (#deref pointer)))
+          (#fn forward (: target (#pin-ref-mut Link)) u64
+            (#return (#call observe (: pointer (#pin-borrow (#get target value))))))",
+            exclusive_source().replace(
+                "(#pin-set-field target state 2u32)",
+                "(#let observed u64 (#call forward (: target target))) (#forget observed)"
+            )
+        );
+        let declarations = fixture(&source);
+        let body = &declarations.bodies["driver"];
+        let error = check_calls(
+            body,
+            &declarations.flows["driver"],
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &std::cell::OnceCell::new(),
+        )
+        .unwrap_err();
+        let span = error.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "running");
+        let label = error
+            .labels
+            .iter()
+            .find(|(_, label)| label.contains("callee accesses"))
+            .unwrap()
+            .0;
+        assert_eq!(&source[label.start..label.end], "(#deref pointer)");
+    }
+
+    #[test]
+    fn clearing_an_exclusive_slot_retires_its_family_but_not_a_live_loaded_child() {
+        for (saved, rejected) in [(false, false), (true, true)] {
+            let operation = format!(
+                "{}
+              (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) outside))
+              (#let observed u64 (#get target value)) (#forget observed) {}",
+                if saved {
+                    "(#let saved (#pin-ref-mut u64) (#get target view))"
+                } else {
+                    ""
+                },
+                if saved {
+                    "(#let used u64 (#deref saved)) (#forget used) (#drop saved)"
+                } else {
+                    ""
+                }
+            );
+            let source = exclusive_source()
+                .replace(
+                    "(#fn tick (: target (#pin-ref-mut Link))",
+                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref-mut u64))",
+                )
+                .replace(
+                    "(#call tick (: target running))",
+                    "(#call tick (: target running : outside outside))",
+                )
+                .replace("(#pin-set-field target state 2u32)", &operation);
+            let declarations = fixture(&source);
+            let checked = call_plan(&declarations, "driver", "tick")
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
+            assert_eq!(checked.is_err(), rejected, "{checked:?}\n{source}");
+        }
+    }
+
+    #[test]
+    fn repeated_nested_observers_deduplicate_without_erasing_the_access_slot() {
+        let mut source =
+            String::from("(#fn level0 (: pointer (#pin-ref u64)) u64 (#return (#deref pointer)))");
+        for level in 1..=20 {
+            source.push_str(&format!(
+                "(#fn level{level} (: pointer (#pin-ref u64)) u64
+              (#let ignored u64 (#call level{} (: pointer pointer)))
+              (#return (#call level{} (: pointer pointer))))",
+                level - 1,
+                level - 1
+            ));
+        }
+        let declarations = fixture(&source);
+        let mut cache = Cache::default();
+        let effects = guarded_observations(
+            declarations.function_id("level20").unwrap(),
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &mut cache,
+            &mut HashSet::new(),
+        )
+        .unwrap();
+        assert_eq!(effects.len(), 1);
+        assert_eq!(cache.observations.len(), 21);
+        assert!(cache
+            .observations
+            .values()
+            .all(|effects| effects.len() == 1));
+        assert_eq!(effects[0].target.input_storage, Vec::<Segment>::new());
+        assert!(!effects[0].exclusive);
+    }
+
+    #[test]
+    fn write_only_context_caching_does_not_authorize_observations() {
+        let source = exclusive_source().replace(
+            "(#pin-set-field target state 2u32)",
+            "(#let observed u64 (#get target value)) (#forget observed)",
+        );
+        let declarations = fixture(&source);
+        let plan = call_plan(&declarations, "driver", "tick");
+        let types = crate::linearcheck::LinearTypes::default();
+        let mut cache = Cache::default();
+        plan.check_owner_accesses_inner(&declarations, &types, &mut Vec::new(), &mut cache, false)
+            .unwrap();
+        let error = plan
+            .check_owner_accesses_inner(&declarations, &types, &mut Vec::new(), &mut cache, true)
+            .unwrap_err();
+        assert!(error.1.message.contains("stored conflicting reference"));
+        assert!(cache.checked.contains(&(plan.clone(), false)));
+        assert!(!cache.checked.contains(&(plan, true)));
     }
 
     #[test]
@@ -1077,8 +1555,8 @@ mod tests {
             let declarations = fixture(&source);
             let plan = call_plan(&declarations, "driver", "tick");
             assert_eq!(plan.aliases.len(), 1);
-            let checked =
-                plan.check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default());
+            let checked = plan
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
             assert_eq!(checked.is_err(), rejected, "{checked:?}\n{source}");
         }
         // A write invalidating the guard must be checked before it can
@@ -1089,7 +1567,7 @@ mod tests {
         );
         let declarations = fixture(&bad);
         call_plan(&declarations, "driver", "tick")
-            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap_err();
     }
 
@@ -1214,7 +1692,7 @@ mod tests {
             .iter()
             .any(|effect| effect.target.global == declarations.global_id("Count")));
         call_plan(&declarations, "driver", "tick")
-            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap();
     }
 
@@ -1241,7 +1719,7 @@ mod tests {
                 );
             let declarations = fixture(&source);
             let result = call_plan(&declarations, "driver", "tick")
-                .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default());
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
             assert_eq!(result.is_err(), conditional, "{result:?}\n{source}");
         }
     }
@@ -1291,7 +1769,7 @@ mod tests {
           (#pin-set-field owner value 99u64) (#return owner))";
         let declarations = fixture(&source);
         let result = call_plan(&declarations, "driver", "tick")
-            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default());
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
         let error = result.unwrap_err();
         let span = error.span.unwrap();
         assert_eq!(
@@ -1316,13 +1794,13 @@ mod tests {
         let plan = call_plan(&declarations, "driver", "tick");
         assert_eq!(plan.aliases.len(), 1);
         assert_eq!(plan.aliases[0].projection.last(), Some(&Segment::Tuple(1)));
-        plan.check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+        plan.check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap();
         let invalid = source.replace("(#pin-set-field target state 2u32)",
             "(#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple u64 u64) 99u64 100u64)))");
         let declarations = fixture(&invalid);
         assert!(call_plan(&declarations, "driver", "tick")
-            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .is_err());
     }
 
@@ -1350,7 +1828,7 @@ mod tests {
         let plan = call_plan(&declarations, "driver", "tick");
         assert_eq!(plan.aliases.len(), 1);
         assert!(plan.aliases[0].mutable);
-        plan.check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+        plan.check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap();
         let invalid = source.replace(
             "(#unsafe (#pin-write (#get target view) 9u64))",
@@ -1358,7 +1836,7 @@ mod tests {
         );
         let declarations = fixture(&invalid);
         assert!(call_plan(&declarations, "driver", "tick")
-            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .is_err());
     }
 
@@ -1386,7 +1864,7 @@ mod tests {
                 .replace("(#pin-set-field target state 2u32)", operation);
             let declarations = fixture(&source);
             let result = call_plan(&declarations, "driver", "tick")
-                .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default());
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
             assert_eq!(result.is_err(), read_after_write, "{result:?}\n{source}");
         }
     }
@@ -1485,7 +1963,7 @@ mod tests {
             );
         let declarations = fixture(&source);
         let error = call_plan(&declarations, "driver", "tick")
-            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap_err();
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end], "(#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple u64 u64) 99u64 100u64))");
@@ -1575,7 +2053,7 @@ mod tests {
             );
         let declarations = fixture(&source);
         let error = call_plan(&declarations, "driver", "tick")
-            .check_owner_writes(&declarations, &crate::linearcheck::LinearTypes::default())
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap_err();
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end],
@@ -1593,8 +2071,14 @@ mod tests {
         let types = crate::linearcheck::LinearTypes::default();
         let mut cache = Cache::default();
         for _ in 0..2 {
-            plan.check_owner_writes_inner(&declarations, &types, &mut Vec::new(), &mut cache)
-                .unwrap();
+            plan.check_owner_accesses_inner(
+                &declarations,
+                &types,
+                &mut Vec::new(),
+                &mut cache,
+                true,
+            )
+            .unwrap();
         }
         assert_eq!(cache.checked.len(), 1);
         assert_eq!(cache.baseline.len(), 1);
@@ -1608,9 +2092,9 @@ mod tests {
             .validate(&declarations.bodies["tick"].bindings[0].ty, &declarations)
             .unwrap();
         assert!(other
-            .check_owner_writes_inner(&declarations, &types, &mut Vec::new(), &mut cache)
+            .check_owner_accesses_inner(&declarations, &types, &mut Vec::new(), &mut cache, true)
             .is_err());
-        assert!(!cache.checked.contains(&other));
+        assert!(!cache.checked.contains(&(other, true)));
         // A different set of declarations never inherits a checked context.
         assert!(Cache::default().checked.is_empty());
     }

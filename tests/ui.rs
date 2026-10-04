@@ -480,6 +480,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 10,
         },
         Case {
+            name: "call-self-loan-owner-borrow",
+            diagnostic_code: "E4100",
+            offending_line: "  (#let updated (#pin-ref-mut Link) (#call tick (: target running)))",
+            line_number: 11,
+        },
+        Case {
             name: "reordered-named-argument-error",
             diagnostic_code: "E4000",
             offending_line: "  (#return (#call combine (: right 1u64 : left 2u64)))",
@@ -1271,6 +1277,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "pinned-reference-escape" => Some("(#return (#pin-borrow owner))"),
             "pinned-self-reference-conflict" => Some("#pin-set-field"),
             "call-self-loan-owner-mutation" => Some("running"),
+            "call-self-loan-owner-borrow" => Some("running"),
             "reordered-named-argument-error" => Some("1u64"),
             "nested-case-pattern-error" => Some("0u64"),
             "positional-call" => Some("add"),

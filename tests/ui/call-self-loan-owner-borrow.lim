@@ -1,0 +1,13 @@
+(#struct Link (: value u64 : state u32 : view (#pin-ref u64)))
+(#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+  (#let view (#pin-ref u64) (#pin-borrow (#get target value)))
+  (#pin-set-field target view view) (#return target))
+(#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+  (#let another (#pin-ref-mut u64) (#pin-borrow-mut (#get target value)))
+  (#drop another) (#return target))
+(#fn driver (: outside (#pin-ref u64)) u64
+  (#let-mut link Link (#struct-literal Link (: value 42u64 : state 0u32 : view outside)))
+  (#let running (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
+  (#let updated (#pin-ref-mut Link) (#call tick (: target running)))
+  (#pin-set-field updated view outside) (#drop updated) (#forget link)
+  (#return 0u64))
