@@ -446,6 +446,15 @@ owner is consumed; this may reject early reuse of a replaced source, but never
 silently discards a borrow. `library/pin_box.lim` generates this owning protocol;
 `examples/pin_box.lim` demonstrates moving a handle while a view stays live.
 
+An async function can initialize an owner containing an external reference
+after an await and retain it across later suspension. Its source remains
+borrowed through Pending; Ready or explicit state-specific cancellation must
+consume the owner before the source can be modified. Structural reference
+tracking includes references inside nested owning pins, not just inline
+fields. `examples/async_heap_reference.lim` demonstrates this case. It is not
+a frame-local self-reference: general delayed frame-owner initialization and
+named pinned poll-handle recycling remain separate checked-analysis work.
+
 `#pin-read` and `#pin-write` are lower-level unsafe operations for compiler-
 generated pinned state machines. They access aggregate referents at their
 existing storage address. A read can duplicate a linear value, and a write can

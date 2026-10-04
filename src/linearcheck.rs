@@ -746,7 +746,9 @@ fn contains_exclusive_reference(
         Type::Tuple(items) => items
             .iter()
             .any(|item| contains_exclusive_reference(item, types, seen)),
-        Type::Array(element, _) => contains_exclusive_reference(element, types, seen),
+        Type::Array(element, _) | Type::PinOwned(element) => {
+            contains_exclusive_reference(element, types, seen)
+        }
         Type::Named(name) => {
             if !seen.insert(name.clone()) {
                 return true;
@@ -784,7 +786,9 @@ fn contains_reference(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>
         Type::Tuple(items) => items
             .iter()
             .any(|item| contains_reference(item, types, seen)),
-        Type::Array(element, _) | Type::Atomic(element) => contains_reference(element, types, seen),
+        Type::Array(element, _) | Type::Atomic(element) | Type::PinOwned(element) => {
+            contains_reference(element, types, seen)
+        }
         Type::Named(name) => {
             if !seen.insert(name.clone()) {
                 return true;
@@ -1629,6 +1633,48 @@ fn check_expr_with_place(
 #[cfg(test)]
 mod tests {
     use crate::{check_types, parse_program};
+
+    #[test]
+    fn owning_pins_include_their_pointees_reference_obligations() {
+        use super::{contains_exclusive_reference, LinearTypes};
+        use crate::Type;
+        use std::collections::HashSet;
+
+        let program = parse_program(
+            "(#struct Shared (: link (#ref u64)))
+             (#struct Exclusive (: link (#ref-mut u64)))
+             (#struct Nested (: child (#pin-own Exclusive)))
+             (#enum Choice (: Empty : Present (#pin-own Shared)))",
+        )
+        .unwrap();
+        let types = LinearTypes::from_program(&program);
+        for (target, exclusive) in [
+            ("Shared", false),
+            ("Exclusive", true),
+            ("Nested", true),
+            ("Choice", false),
+        ] {
+            let owner = Type::PinOwned(Box::new(Type::Named(target.into())));
+            assert!(types.contains_reference(&owner), "{target}");
+            assert_eq!(
+                contains_exclusive_reference(&owner, &types, &mut HashSet::new()),
+                exclusive,
+                "{target}"
+            );
+            assert!(
+                !types.can_repeat(&owner),
+                "an owning pointer must remain linear"
+            );
+            assert!(
+                !types.contains_reference(&Type::RawPointer {
+                    mutable: true,
+                    target: Box::new(owner)
+                }),
+                "raw pointer targets carry no checked loan"
+            );
+        }
+        assert!(!types.contains_reference(&Type::PinOwned(Box::new(Type::U64))));
+    }
 
     #[test]
     fn returning_branches_do_not_join_restored_loop_state() {

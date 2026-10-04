@@ -1,0 +1,58 @@
+;; An owner initialized after an await can retain an external source's borrow
+;; through another suspension. Storage is stationary; the owner handle moves.
+;; This does not demonstrate a self-reference into the async frame itself.
+(#struct Holder (: link (#ref u64)))
+
+(#fn make-holder (: pointer (#ptr-mut Holder) : source (#ref u64)) (#pin-own Holder)
+  (#return (#unsafe
+    (#pin-own-of pointer (#struct-literal Holder (: link source))))))
+
+(#fn holder-source (: owner (#ref (#pin-own Holder))) (#ref u64)
+  (#let view (#pin-ref Holder) (#pin-own-borrow owner))
+  (#return (#get view link)))
+
+(#fn destroy-holder (: owner (#pin-own Holder)) ()
+  (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
+  (#assert (#i64.==
+    (#unsafe (#linux-syscall i64 11usize (pointer 4096usize))) 0i64))
+  (#return ()))
+
+(#enum Step (: Waiting u64))
+(#linear Step)
+(#enum StepPoll (: StepPending Step : StepReady u64))
+(#linear StepPoll)
+(#fn step-poll (: task Step : waker (#ref u64)) StepPoll
+  (#return (#match task
+    (#case (Waiting count)
+      (#if (#u64.== count 0u64)
+        (StepReady 0u64)
+        (StepPending (Waiting (#u64.-.wrap count 1u64))))))))
+
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
+  (#fn work (: pointer (#ptr-mut Holder) : source (#ref u64)) u64
+    (#let first-step u64 (#await Step StepPending StepReady step-poll (Waiting 1u64)))
+    (#let owner (#pin-own Holder)
+      (#call make-holder (: pointer pointer : source source)))
+    (#let second-step u64 (#await Step StepPending StepReady step-poll (Waiting 1u64)))
+    (#let stored (#ref u64) (#call holder-source (: owner (#borrow owner))))
+    (#let answer u64 (#deref stored))
+    (#call destroy-holder (: owner owner))
+    (#return answer))))
+
+(#fn main () u64
+  (#let-mut source u64 42u64)
+  (#let pointer (#ptr-mut Holder)
+    (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
+      (0usize 4096usize 3usize 34usize -1i64 0usize))))
+  (#assert (#usize.< (#ptr-address pointer) 18446744073709547521usize))
+  (#let waker u64 0u64)
+  (#let first Poll (#call poll
+    (: task (#call work (: pointer pointer : source (#borrow source)))
+     : waker (#borrow waker))))
+  (#let-else (Pending next) Poll first (#unreachable))
+  (#let second Poll (#call poll (: task next : waker (#borrow waker))))
+  (#let-else (Pending last) Poll second (#unreachable))
+  (#let third Poll (#call poll (: task last : waker (#borrow waker))))
+  (#return (#match third
+    (#case (Ready answer) answer)
+    (#case (Pending unfinished) (#block (#forget unfinished) (#unreachable))))))
