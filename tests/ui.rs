@@ -11,6 +11,30 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "println-missing-std",
+            diagnostic_code: "E4000",
+            offending_line: "  (#println 1u64)",
+            line_number: 2,
+        },
+        Case {
+            name: "println-arity",
+            diagnostic_code: "E4000",
+            offending_line: "  (#println)",
+            line_number: 3,
+        },
+        Case {
+            name: "println-type",
+            diagnostic_code: "E4000",
+            offending_line: "  (#println 1u64)",
+            line_number: 3,
+        },
+        Case {
+            name: "std-body",
+            diagnostic_code: "E2000",
+            offending_line: "  (#std)",
+            line_number: 2,
+        },
+        Case {
             name: "string-borrow-mutation",
             diagnostic_code: "E4100",
             offending_line: "  (#call String-clear (: string (#borrow-mut text)))",
@@ -1105,6 +1129,9 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "println-missing-std" | "println-arity" => Some("#println"),
+            "println-type" => Some("1u64"),
+            "std-body" => Some("#std"),
             "heap-pin-release" => Some("(#pin-release owner)"),
             "async-source-type-mismatch" => Some("false"),
             "async-unknown-loop-label" => Some("missing"),

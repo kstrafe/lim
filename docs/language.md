@@ -1247,6 +1247,36 @@ These operations return `StringStatus`: `StringOk` or `(StringErr error)`.
 Validation, overflow, and allocation failures leave the original string
 unchanged. Errors are `StringOutOfMemory`, `StringCapacityOverflow`,
 `StringInvalidUtf8`, and `StringInvalidChar`.
+`String-push-string (: string (#ref-mut String) : text (#ref String))`
+appends the borrowed source string and returns the same `StringStatus`. It
+does not consume either string; the source remains available after the call.
+
+With `#std`, the embedded String module can be used without an explicit
+import. This example builds a string from fixed character arrays, appends a
+second owned string by shared borrow, and releases both owners:
+
+```lisp library
+(#std)
+(#fn main () u64
+  (#let greeting (#array char 5) "Hello")
+  (#let suffix (#array char 9) ", world 🙂")
+  (#let-mut message String
+    (#match (#call String-from-chars (: text (#slice-of (#borrow greeting))))
+      (#case (StringCreated created-message) created-message)
+      (#case (StringCreateFailed error) (#panic))))
+  (#let tail String
+    (#match (#call String-from-chars (: text (#slice-of (#borrow suffix))))
+      (#case (StringCreated created-tail) created-tail)
+      (#case (StringCreateFailed error) (#panic))))
+  (#assert (#match (#call String-push-string (: string (#borrow-mut message) : text (#borrow tail)))
+    (#case StringOk true) (#case _ false)))
+  (#assert (#match (#call String-push-char (: string (#borrow-mut message) : value #\!))
+    (#case StringOk true) (#case _ false)))
+  (#assert (#i64.== (#println (#borrow message)) 0i64))
+  (#call String-free (: string tail))
+  (#call String-free (: string message))
+  (#return 42u64))
+```
 
 `String-byte-at` takes a shared string and `: index usize`. It returns
 `(StringByte byte)` with a copied `u8`, or `StringByteOutOfBounds`.
@@ -1256,6 +1286,11 @@ owner while the view is live. `StringBytes-len (: bytes view)` and
 `StringBytes-byte-at (: bytes view : index usize)` inspect that view without
 allocating; indexing also returns a copied byte. No mutable byte access is
 exposed: safe operations preserve valid UTF-8.
+`String-data-pointer (: string (#ref String))` is an unsafe raw-I/O escape
+returning `(#ptr-mut u8)`. The pointer does not retain the owner borrow. The
+caller must keep a shared borrow alive, read only initialized bytes, and never
+write, grow, move, or free the string while using it. Safe stdout functions
+uphold these obligations internally; printing does not require `#unsafe`.
 `String-pop-char` takes a mutable string and returns
 `(StringPopped character)` or `StringEmpty`. `String-clear` takes a mutable
 string, empties it, and retains its capacity. Strings need not be
@@ -1346,10 +1381,20 @@ object definitions and relocations, resolves requested shared libraries, and
 reports missing libraries or symbols before publishing output. These options
 apply to binary output, not `--emit-asm`.
 
-There are not yet dedicated standard-I/O builtins. `examples/echo_input.lim`
-shows byte-at-a-time input and output using Linux x86-64 `read` and `write`
-syscalls inside unsafe `#asm` blocks; `tests/io_examples.rs` runs it with piped
-input and checks that stdout matches. To try it yourself:
+`(#std)` is an explicit top-level opt-in to Lim's bundled standard modules,
+including `String` and standard output. Their immutable source is embedded in
+the compiler, so this works outside a source checkout. Without `#std`, these
+names are not added to the program. `(#println (#borrow string))` writes the
+UTF-8 bytes of a borrowed `String`, then a newline, and returns `i64`: zero on
+success or a negative errno on failure. It neither converts string literals
+implicitly nor consumes the string. Output can be partial on failure, and the
+newline is skipped when writing the string bytes fails. See
+`examples/string_println.lim` for building and printing a string.
+
+`examples/echo_input.lim` shows byte-at-a-time input and output using Linux
+x86-64 `read` and `write` syscalls inside unsafe `#asm` blocks;
+`tests/io_examples.rs` runs it with piped input and checks that stdout matches.
+To try it yourself:
 
 ```sh
 printf 'hello from Lim\n' | ./target/debug/lim examples/echo_input.lim -o /tmp/lim-echo
@@ -1898,6 +1943,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-set-field` | `(#pin-set-field pinned-reference field copy-or-shared-reference-value)` | `(#pin-set-field pinned state 2u32)` (statement) | Replaces one scalar/fieldless-enum or shared-reference struct field through a mutable pinned reference. The field loan is checked independently; it does not move or replace the pinned struct. |
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
+| `#println` | `(#println (#borrow string))` | `(#assert (#i64.== (#println (#borrow message)) 0i64))` (expression) | Writes a borrowed `String`'s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level `(#std)`. |
 | `#ptr` | `(#ptr PointeeType)` | `(#let p (#ptr u8) (#ptr-null (#ptr u8)))` (type) | Immutable raw-pointer type; dereference and address operations require unsafe context. |
 | `#ptr-address` | `(#ptr-address pointer)` | `(#ptr-address (#ptr-null (#ptr u8)))` (expression) | Converts a raw pointer to its machine address as `usize` without dereferencing it; useful for checking syscall error-pointer results before access. |
 | `#ptr-borrow` | `(#ptr-borrow reference-anchor pointer)` | `(#unsafe (#ptr-borrow owner pointer))` (expression) | Creates a shared reference tied to an existing reference's inferred borrow lifetime; caller must uphold pointer validity. |
@@ -1931,6 +1977,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#slice-of` | `(#slice-of shared-array-reference)` | `(#slice-of (#borrow bytes))` (expression) | Creates a full immutable slice while retaining the source borrow. |
 | `#slice-range` | `(#slice-range slice start end)` | `(#slice-range view 1usize 3usize)` (expression) | Creates a checked half-open immutable subslice `[start,end)`. |
 | `#static` | `(#static name Type value)` | `(#static answer u64 42u64)` (top level) | Declares storage with static lifetime; accesses must be inside `#unsafe`. |
+| `#std` | `(#std)` | `(#std)` (top level) | Loads the embedded standard String and stdout modules into the program. This is explicit opt-in and works without a source checkout. |
 | `#struct` | `(#struct Name [#repr-c] ((field Type)...))` | `(#struct Point ((x u64) (y u64)))` (top level) | Declares a concrete struct; optional `#repr-c` selects C layout for layout queries. |
 | `#struct-literal` | `(#struct-literal Type ((field value)...))` | `(#struct-literal Point ((x 1u64) (y 2u64)))` (expression) | Constructs a struct by explicitly naming every field; no defaults are applied. |
 | `#sync` | `(#unsafe-impl #sync Type)` | `(#struct Handle ((raw (#ptr u8)))) (#unsafe-impl #sync Handle)` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |

@@ -49,6 +49,7 @@ mod pin_ownership;
 mod reachability;
 mod source_error;
 mod stack_usage;
+mod standard_library;
 mod syntax_bundle;
 mod syntax_collection;
 mod thread_contract;
@@ -1114,7 +1115,9 @@ pub fn format_project_from_path(source_path: &Path) -> Result<Vec<PathBuf>, Stri
             return Ok(());
         };
         if let Some(specification) = import_form(expression)? {
-            if !specification.external {
+            if !specification.external
+                && standard_library::source(Path::new(specification.path)).is_none()
+            {
                 imports.push(specification.path.to_owned());
             }
             return Ok(());
@@ -3544,6 +3547,9 @@ fn collect_function_statement_spans(
 }
 
 fn precise_parse_error_span(expression: &SpannedExpr, error: &str) -> Option<Span> {
+    if error == "#std is only valid as a top-level declaration" {
+        return source_form_head_span(expression, &["#std"]);
+    }
     let variant = error
         .strip_prefix("duplicate enum variant '")?
         .split('\'')
@@ -3814,6 +3820,23 @@ fn source_form_child_span(
 }
 
 fn call_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
+    if error.starts_with("#println") {
+        fn find(expression: &SpannedExpr, bad_arity: bool) -> Option<Span> {
+            if matches!(&expression.expr, Expr::List(items)
+                if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#println")
+                    && (!bad_arity || items.len() != 2))
+            {
+                return expression.children.first().map(|head| head.span);
+            }
+            expression
+                .children
+                .iter()
+                .find_map(|child| find(child, bad_arity))
+        }
+        if let Some(span) = find(expression, error.contains("exactly one")) {
+            return span;
+        }
+    }
     if error.contains("more than once") {
         if let Some(span) = duplicate_call_parameter_span(expression) {
             return span;
@@ -3825,7 +3848,7 @@ fn call_normalization_span(expression: &SpannedExpr, error: &str) -> Span {
             return span;
         }
     }
-    source_form_head_span(expression, &["#call", "call"])
+    source_form_head_span(expression, &["#call", "call", "#println"])
         .unwrap_or_else(|| source_value_span(expression))
 }
 
@@ -3940,6 +3963,19 @@ fn normalize_call_expr(
 ) -> Result<(), String> {
     match expression {
         Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(name)) if name == "println") {
+                if items.len() != 2 {
+                    return Err("#println requires exactly one shared String reference".into());
+                }
+                if !signatures.contains_key("std-println") {
+                    return Err("#println requires the standard IO library; add (#std)".into());
+                }
+                normalize_call_expr(&mut items[1], signatures)?;
+                // Preserve the source shape and reuse the checked operand;
+                // this is only call sugar, not a new emission primitive.
+                items[0] = Expr::Function("std-println".into());
+                return Ok(());
+            }
             if matches!(items.first(), Some(Expr::Symbol(name)) if name == "call") {
                 if items.len() != 3 {
                     return Err("#call requires a function name and named arguments".into());
@@ -5085,6 +5121,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "capability"
             | "import"
             | "import-external"
+            | "std"
+            | "println"
             | "cfg-if"
             | "cfg-else"
             | "cfg-and"
@@ -5455,10 +5493,15 @@ fn load_imports_inner(
             .collect::<Vec<_>>();
         let unresolved_path = unresolved_paths
             .iter()
-            .find(|candidate| candidate.is_file())
+            .find(|candidate| standard_library::source(candidate).is_some() || candidate.is_file())
             .cloned()
             .unwrap_or_else(|| unresolved_paths[0].clone());
-        let path = fs::canonicalize(&unresolved_path).map_err(|error| {
+        let path = if standard_library::source(&unresolved_path).is_some() {
+            Ok(unresolved_path.clone())
+        } else {
+            fs::canonicalize(&unresolved_path)
+        }
+        .map_err(|error| {
             let path_span = expression
                 .children
                 .get(1)
@@ -5525,10 +5568,19 @@ fn load_imports_inner(
                 source_files,
             ));
         }
-        let source_size = fs::metadata(&path)
-            .map_err(|error| format!("cannot inspect import '{}': {error}", path.display()))?
-            .len();
-        let source_size = usize::try_from(source_size).unwrap_or(usize::MAX);
+        let embedded_source = standard_library::source(&path);
+        let source_size = if let Some(source) = embedded_source {
+            source.len()
+        } else {
+            usize::try_from(
+                fs::metadata(&path)
+                    .map_err(|error| {
+                        format!("cannot inspect import '{}': {error}", path.display())
+                    })?
+                    .len(),
+            )
+            .unwrap_or(usize::MAX)
+        };
         let next_total = budget
             .total_source_bytes
             .checked_add(source_size)
@@ -5543,13 +5595,16 @@ fn load_imports_inner(
                     source_files,
                 )
             })?;
-        let imported_source = fs::read_to_string(&path).map_err(|error| {
-            attach_span_to_source_error(
-                format!("cannot read import '{}': {error}", path.display()),
-                expression.span,
-                source_files,
-            )
-        })?;
+        let imported_source = embedded_source
+            .map(|source| Ok(source.to_owned()))
+            .unwrap_or_else(|| fs::read_to_string(&path))
+            .map_err(|error| {
+                attach_span_to_source_error(
+                    format!("cannot read import '{}': {error}", path.display()),
+                    expression.span,
+                    source_files,
+                )
+            })?;
         budget.import_count += 1;
         budget.total_source_bytes = next_total;
         let imported_source_id = *source_ids.entry(path.clone()).or_insert_with(|| {
@@ -5617,12 +5672,18 @@ pub fn collect_cfg_keys_from_path(source_path: &Path) -> Result<Vec<String>, Str
         visited: &mut HashSet<PathBuf>,
         keys: &mut BTreeSet<String>,
     ) -> Result<(), String> {
-        let path = fs::canonicalize(path)
-            .map_err(|error| format!("cannot resolve source '{}': {error}", path.display()))?;
+        let path = if standard_library::source(path).is_some() {
+            Ok(path.to_owned())
+        } else {
+            fs::canonicalize(path)
+        }
+        .map_err(|error| format!("cannot resolve source '{}': {error}", path.display()))?;
         if !visited.insert(path.clone()) {
             return Ok(());
         }
-        let source = fs::read_to_string(&path)
+        let source = standard_library::source(&path)
+            .map(|source| Ok(source.to_owned()))
+            .unwrap_or_else(|| fs::read_to_string(&path))
             .map_err(|error| format!("cannot read source '{}': {error}", path.display()))?;
         let expressions = parse(&source).map_err(|error| format!("{}: {error}", path.display()))?;
         for expression in expressions {
@@ -5768,6 +5829,16 @@ fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
         return Ok(None);
     };
     match operator.as_str() {
+        "#std" => {
+            if items.len() != 1 {
+                return Err("#std takes no arguments".into());
+            }
+            Ok(Some(ImportSpec {
+                external: false,
+                path: standard_library::ROOT,
+                prefix: None,
+            }))
+        }
         "#import" => {
             if items.len() != 2 {
                 return Err("#import requires one string path".into());
@@ -8301,6 +8372,9 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
 
 fn lower_expr(expression: &Expr) -> Result<Expr, String> {
     if let Expr::List(items) = expression {
+        if is_form(expression, "std") {
+            return Err("#std is only valid as a top-level declaration".into());
+        }
         if is_form(expression, "for-range") {
             if items.len() < 5 {
                 return Err(

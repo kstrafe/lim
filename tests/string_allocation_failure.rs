@@ -145,6 +145,39 @@ fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
 }
 
 #[test]
+fn failed_string_append_preserves_both_owners() {
+    let allocator = format!(
+        "{}\n{}",
+        allocator_with_calls(&[("realloc", "failing-realloc")]),
+        "(#fn failing-realloc (: pointer (#ptr-mut u8) : size usize) (#ptr-mut u8)
+          (#return (#ptr-null (#ptr-mut u8))))"
+    );
+    execute(
+        &allocator,
+        r#"(#fn main () u64
+      (#let prefix (#array char 3) "abc")
+      (#let suffix (#array char 9) "123456789")
+      (#let-mut target String (#match (#call String-from-chars (: text (#slice-of (#borrow prefix))))
+        (#case (StringCreated created-target) created-target) (#case _ (#panic))))
+      (#let source String (#match (#call String-from-chars (: text (#slice-of (#borrow suffix))))
+        (#case (StringCreated created-source) created-source) (#case _ (#panic))))
+      (#let capacity usize (#call String-capacity (: string (#borrow target))))
+      (#assert (#match (#call String-push-string (: string (#borrow-mut target) : text (#borrow source)))
+        (#case (StringErr StringOutOfMemory) true) (#case _ false)))
+      (#assert (#usize.== (#call String-len (: string (#borrow target))) 3usize))
+      (#assert (#usize.== (#call String-capacity (: string (#borrow target))) capacity))
+      (#assert (#usize.== (#call String-len (: string (#borrow source))) 9usize))
+      (#assert (#match (#call String-byte-at (: string (#borrow target) : index 2usize))
+        (#case (StringByte byte) (#u8.== byte 99u8)) (#case _ false)))
+      (#assert (#match (#call String-byte-at (: string (#borrow source) : index 8usize))
+        (#case (StringByte byte) (#u8.== byte 57u8)) (#case _ false)))
+      (#call String-free (: string target)) (#call String-free (: string source))
+      (#return 42u64))"#,
+        "string-failed-string-append",
+    );
+}
+
+#[test]
 fn failed_deep_clone_preserves_the_original_owner() {
     let allocator = format!(
         "{}\n{}",

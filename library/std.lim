@@ -1,0 +1,4 @@
+; Explicit standard-library entry point. The compiler embeds these modules,
+; so (#std) does not depend on a checkout or a working-directory search path.
+(#import "string.lim")
+(#import "stdio.lim")

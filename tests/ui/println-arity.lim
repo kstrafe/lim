@@ -1,0 +1,4 @@
+(#std)
+(#fn main () ()
+  (#println)
+  (#return ()))

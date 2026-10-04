@@ -1,0 +1,101 @@
+(#std)
+(
+  #fn
+  main
+  ()
+  u64
+  (
+    #let
+    greeting
+    (#array char 5)
+    "Hello"
+  )
+  (
+    #let
+    suffix
+    (#array char 9)
+    ", world 🙂"
+  )
+  (
+    #let-mut
+    message
+    String
+    (
+      #match
+      (
+        #call
+        String-from-chars
+        (: text (#slice-of (#borrow greeting)))      )
+      (
+        #case
+        (StringCreated created-message)
+        created-message
+      )
+      (
+        #case
+        (StringCreateFailed error)
+        (#panic)
+      )    )  )
+  (
+    #let
+    tail
+    String
+    (
+      #match
+      (
+        #call
+        String-from-chars
+        (: text (#slice-of (#borrow suffix)))      )
+      (
+        #case
+        (StringCreated created-tail)
+        created-tail
+      )
+      (
+        #case
+        (StringCreateFailed error)
+        (#panic)
+      )    )  )
+  (
+    #assert
+    (
+      #match
+      (
+        #call
+        String-push-string
+        (: string (#borrow-mut message) : text (#borrow tail))      )
+      (#case StringOk true)
+      (#case _ false)    )  )
+  (
+    #assert
+    (
+      #match
+      (
+        #call
+        String-push-char
+        (: string (#borrow-mut message) : value #\!)      )
+      (#case StringOk true)
+      (#case _ false)    )  )
+  (
+    #assert
+    (
+      #i64.==
+      (
+        #println
+        (#borrow message)
+      )
+      (#literal i64 0)
+    )
+  )
+  (
+    #call
+    String-free
+    (: string tail)  )
+  (
+    #call
+    String-free
+    (: string message)  )
+  (
+    #return
+    (#literal u64 42)
+  ))
