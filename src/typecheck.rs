@@ -2277,6 +2277,13 @@ fn check_types_inner(
         *diagnostic_span = span;
         message
     })?;
+    *diagnostic_code = crate::DiagnosticCode::Borrow;
+    crate::pin_access::check(&declarations, &linear_types, &loan_caches).map_err(|error| {
+        *diagnostic_span = error.span;
+        *diagnostic_labels = error.labels;
+        record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+        error.message
+    })?;
     *diagnostic_code = crate::DiagnosticCode::Linear;
     referent_contracts.map_err(|error| match error {
         crate::typed_ir::StagedReferentError::Dependency => {

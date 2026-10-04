@@ -1001,6 +1001,31 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
+    /// Resolve the address before a borrow conversion changes capabilities.
+    /// A reference-valued field crosses a pointer boundary, not an inline
+    /// physical field of the pointer's containing wrapper.
+    pub(crate) fn address_before(
+        &self,
+        body: &Body,
+        flow: &FlowGraph,
+        event: FlowNodeId,
+        value: NodeId,
+    ) -> Vec<LoanOrigin> {
+        self.before[event.0]
+            .as_ref()
+            .map_or_else(Vec::new, |state| {
+                borrow_address_origins(
+                    body,
+                    value,
+                    state,
+                    Some((
+                        flow,
+                        LoanSnapshots::new(&self.before, &self.events_by_value),
+                    )),
+                )
+            })
+    }
+
     pub(crate) fn apply_summary_before(
         &self,
         body: &Body,
@@ -1015,6 +1040,29 @@ impl FlowLoanOrigins {
         self.value_before(body, flow, event, argument)
             .into_iter()
             .flat_map(|origin| apply_parameter_loan_summary(origin, summary, state))
+            .collect()
+    }
+
+    /// Pointer slots actually selected when following a callee input path.
+    /// Keep the original local storage slot across dereferences so a lent
+    /// pointer is distinguished from sibling loans in the same aggregate.
+    pub(crate) fn summary_slots_before(
+        &self,
+        body: &Body,
+        flow: &FlowGraph,
+        event: FlowNodeId,
+        argument: NodeId,
+        summary: &crate::typed_body::ParameterLoanSummary,
+    ) -> Vec<Place> {
+        let Some(state) = &self.before[event.0] else {
+            return Vec::new();
+        };
+        self.value_before(body, flow, event, argument)
+            .into_iter()
+            .flat_map(|origin| {
+                select_summary_inputs_with_slots(origin, &summary.input_storage, state)
+            })
+            .filter_map(|selected| selected.source_slot)
             .collect()
     }
     pub(crate) fn variants_before<'a>(
@@ -10698,6 +10746,7 @@ struct SelectedLoan {
     origin: LoanOrigin,
     slots: Vec<Segment>,
     inputs: Vec<Option<usize>>,
+    source_slot: Option<Place>,
 }
 
 fn select_summary_inputs_with_slots(
@@ -10710,6 +10759,7 @@ fn select_summary_inputs_with_slots(
             origin,
             slots: Vec::new(),
             inputs: Vec::new(),
+            source_slot: None,
         }];
     };
     if *head == Segment::Dereference && origin.storage.is_empty() && !origin.lifetime_only {
@@ -10767,6 +10817,7 @@ fn select_summary_inputs_with_slots(
                 origin: loaded,
                 slots: path.to_vec(),
                 inputs,
+                source_slot: None,
             }];
         }
         if let PlaceRoot::Local(binding) = origin.place.root {
@@ -10785,6 +10836,12 @@ fn select_summary_inputs_with_slots(
                 loaded.drain_storage(prefix.len());
                 loaded.mutable &= origin.mutable;
                 for mut selected in select_summary_inputs_with_slots(loaded, tail, state) {
+                    if selected.source_slot.is_none() {
+                        selected.source_slot = Some(Place {
+                            root: PlaceRoot::Local(binding),
+                            segments: held.storage.clone(),
+                        });
+                    }
                     selected.slots.insert(0, Segment::Dereference);
                     selected.inputs.insert(0, None);
                     result.push(selected);

@@ -391,6 +391,18 @@ retain their source's borrow and cannot outlive it. Unsafe
 `PinnedFrame-into-view` consumes a handle and exposes its low-level pinned
 reference for trusted implementations; it does not unpin or move the referent.
 
+The same declarations also generate `PinnedFrame-child-borrow-mut`, taking
+`(: pin (#ref-mut PinnedFrame))`, and `PinnedFrame-child-borrow`, taking
+`(: pin (#ref PinnedFrame))`. Shared wrappers have their own shared `-borrow`
+function. These reborrow the child without consuming the parent handle.
+Disjoint mutable child fields can coexist, as can overlapping shared views;
+overlapping exclusive access is rejected at the offending call argument.
+Callee footprints follow the wrapper's actual pinned pointer slot, including
+helper calls and transferred child arguments, not just its stack address.
+Forgetting a wrapper does not unpin or destroy its referent: child views still
+retain that referent, and prevent scope escape or heap release. See
+`examples/pin_projection_borrows.lim` for two independently writable children.
+
 `with-pinned-frame` takes `value Frame`, initializes private stack storage,
 and calls `drive-frame` with `pin PinnedFrame`. It then calls `destroy-frame`
 with a fresh pin handle before retiring that storage in place. The run function

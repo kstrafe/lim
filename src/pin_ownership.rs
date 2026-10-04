@@ -327,7 +327,10 @@ fn check_stack(
         let violation = match &node.action {
             FlowAction::Borrow { value, place, .. } if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut"))
                 && matches!(&body.nodes[value.0].ty, Some(crate::Type::PinnedReference { target, .. }) if types.is_linear(target))
-                && matches!(place.root, PlaceRoot::Local(binding) if origins.projected_origins(event, binding, &place.segments).iter().any(|origin| !origin.pinned && !origin.owned_allocation)) => Some((place.clone(), "cannot create a permanent pin through an ordinary reference; pass a pinned reference instead")),
+                && matches!(&body.nodes[value.0].kind, NodeKind::Form { children, .. }
+                    if crate::typed_place::reads_through_reference(body, children[1])
+                        && origins.address_before(body, flow, event, children[1]).iter()
+                            .any(|origin| origin.storage.is_empty() && !origin.pinned && !origin.owned_allocation)) => Some((place.clone(), "cannot create a permanent pin through an ordinary reference; pass a pinned reference instead")),
             FlowAction::Read { place, place_base: false, .. }
                 if matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding) && transfers.consumes_at(event, place)) => Some((place.clone(), "cannot move or copy stationary storage; access it through a pinned reference")),
             FlowAction::Clone { place, value }

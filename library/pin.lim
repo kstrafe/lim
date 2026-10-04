@@ -7,6 +7,8 @@
 ;; whole-value read/write functions, with a compiler-checked Copy proof.
 ;; `projections (: child PinnedChild)` exposes a nonmoving field through
 ;; another already-generated opaque pin API, including linear fields.
+;; `-project`/`-project-mut` consume the parent; `-borrow`/`-borrow-mut`
+;; reborrow a parent handle and retain the child's checked lifetime.
 ;;
 ;; (@pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
 ;;   : run drive-frame : destroy destroy-frame : result u64))
@@ -61,6 +63,15 @@
     (#fn ,(#gn-call pin-name name "-write") (: pin (#ref-mut ,name) : value ,element) ()
       (#unsafe (#pin-write (#get pin view) value)) (#return ()))))
 
+(#gn-fn pin-borrow-project (name field function mutable)
+  (#gn-if (#gn-equal mutable true)
+    `(#fn ,function (: pin (#ref-mut ,name)) ,(#gn-call pin-second field)
+      (#return (#unsafe (#call ,(#gn-call pin-name (#gn-call pin-second field) "-from-mut")
+        (: view (#pin-borrow-mut (#get (#get pin view) ,(#gn-first field))))))))
+    `(#fn ,function (: pin (#ref ,name)) ,(#gn-call pin-name (#gn-call pin-second field) "-shared")
+      (#return (#unsafe (#call ,(#gn-call pin-name (#gn-call pin-second field) "-shared-from-ref")
+        (: view (#pin-borrow (#get (#get pin view) ,(#gn-first field))))))))))
+
 (#gn-fn pin-build (element name shared fields projections copy checked)
   `((#struct ,name (: view (#pin-ref-mut ,element)))
     (#opaque ,name) (#linear ,name)
@@ -94,6 +105,15 @@
     ,@(#gn-for-each field projections
       (#gn-call pin-project element shared field
         (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name shared "-") (#gn-first field)) "-project") false true))
+    ,@(#gn-for-each field projections
+      (#gn-call pin-borrow-project name field
+        (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name name "-") (#gn-first field)) "-borrow-mut") true))
+    ,@(#gn-for-each field projections
+      (#gn-call pin-borrow-project name field
+        (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name name "-") (#gn-first field)) "-borrow") false))
+    ,@(#gn-for-each field projections
+      (#gn-call pin-borrow-project shared field
+        (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name shared "-") (#gn-first field)) "-borrow") false))
     ,@(#gn-if (#gn-equal copy true)
       (#gn-call pin-copy-functions element name shared)
       (#gn-if (#gn-equal copy false) () (#gn-error "@pin copy must be true or false")))))

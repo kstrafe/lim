@@ -45,6 +45,7 @@ mod linearcheck;
 mod native_assembly;
 mod native_linker;
 mod output;
+mod pin_access;
 mod pin_ownership;
 mod reachability;
 mod source_error;
