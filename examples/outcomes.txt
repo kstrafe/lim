@@ -15,6 +15,7 @@ exit 42 string_println.lim tests/fixtures/string_println.stdout -
 exit 42 string_stdin.lim - -
 exit 42 pin_projection_borrows.lim - -
 exit 42 internal_owner_reads.lim - -
+exit 42 internal_owner_entry_tags.lim - -
 exit 42 distributed_errors.lim - -
 exit 42 distributed_slice.lim - -
 exit 42 enum_dispatch.lim - -

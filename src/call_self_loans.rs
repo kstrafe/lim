@@ -41,10 +41,27 @@ pub(crate) struct Plan {
 #[derive(Default)]
 pub(crate) struct Cache {
     baseline: HashMap<FunctionId, std::rc::Rc<FlowLoanOrigins>>,
+    entry_tags: HashMap<FunctionId, std::rc::Rc<EntryTags>>,
     // Write-only staging must not cache permission for observation checks.
     checked: HashSet<(Plan, bool)>,
     writes: HashMap<FunctionId, Vec<GuardedWrite>>,
     observations: HashMap<FunctionId, Vec<GuardedObservation>>,
+}
+
+type EntryTags = Vec<HashMap<Place, crate::typed_ir::VariantId>>;
+
+fn cached_entry_tags(
+    callee: FunctionId,
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    cache: &mut Cache,
+) -> std::rc::Rc<EntryTags> {
+    cache
+        .entry_tags
+        .entry(callee)
+        .or_insert_with(|| std::rc::Rc::new(entry_guards(body, flow, origins)))
+        .clone()
 }
 
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -177,7 +194,7 @@ fn guarded_observations(
         .or_insert_with(|| std::rc::Rc::new(flow.loan_origins(body)))
         .clone();
     let moves = flow.consumptions(body, types);
-    let entry = entry_guards(body, flow, &origins);
+    let entry = cached_entry_tags(callee, body, flow, &origins, cache);
     let mut output = Vec::new();
     let mut events = flow.reachable().into_iter().collect::<Vec<_>>();
     events.sort_unstable_by_key(|event| event.0);
@@ -303,11 +320,7 @@ fn physical_summary(body: &Body, place: &Place) -> Option<crate::typed_body::Par
 /// Facts about entry tags, not the tags after an initializer has overwritten
 /// them. Once established before any possible mutation, an entry fact remains
 /// a path constraint even after a destructive read clears current tag facts.
-fn entry_guards(
-    body: &Body,
-    flow: &FlowGraph,
-    origins: &FlowLoanOrigins,
-) -> Vec<HashMap<Place, crate::typed_ir::VariantId>> {
+fn entry_guards(body: &Body, flow: &FlowGraph, origins: &FlowLoanOrigins) -> EntryTags {
     #[derive(Clone, Default)]
     struct State {
         guards: HashMap<Place, crate::typed_ir::VariantId>,
@@ -440,7 +453,7 @@ fn guarded_writes(
         .or_insert_with(|| std::rc::Rc::new(flow.loan_origins(body)))
         .clone();
     let moves = flow.consumptions(body, types);
-    let entry = entry_guards(body, flow, &baseline);
+    let entry = cached_entry_tags(callee, body, flow, &baseline, cache);
     let mut output = Vec::new();
     let mut events = flow.reachable().into_iter().collect::<Vec<_>>();
     events.sort_by_key(|event| event.0);
@@ -730,6 +743,34 @@ fn project(mut ty: Type, path: &[Segment], declarations: &Declarations) -> Resul
 }
 
 impl Alias {
+    /// An incoming family exists only in the entry constructors containing its
+    /// owner target AND its pointer storage. A later constructor assignment
+    /// cannot establish such an entry fact or revive an impossible family.
+    fn excluded_at_entry(&self, facts: &HashMap<Place, crate::typed_ir::VariantId>) -> bool {
+        let contradicts = |path: &[Segment]| {
+            path.iter().enumerate().any(|(index, segment)| {
+                let Segment::Payload(wanted, _) = segment else {
+                    return false;
+                };
+                let mut segments = self.owner_input.clone();
+                segments.extend_from_slice(&path[..index]);
+                facts
+                    .get(&Place {
+                        root: PlaceRoot::Parameter(self.parameter),
+                        segments,
+                    })
+                    .is_some_and(|actual| actual.owner == wanted.owner && actual != wanted)
+            })
+        };
+        let mut storage_prefix = self.owner_input.clone();
+        storage_prefix.push(Segment::Dereference);
+        contradicts(&self.projection)
+            || self
+                .storage
+                .strip_prefix(storage_prefix.as_slice())
+                .is_some_and(contradicts)
+    }
+
     pub fn validate(
         &self,
         parameter_type: &Type,
@@ -776,6 +817,26 @@ impl Plan {
         origins: &FlowLoanOrigins,
         declarations: &Declarations,
     ) -> Result<Self, String> {
+        Self::for_call_excluding_entry_families(
+            body,
+            flow,
+            event,
+            value,
+            origins,
+            declarations,
+            &HashSet::new(),
+        )
+    }
+
+    fn for_call_excluding_entry_families(
+        body: &Body,
+        flow: &FlowGraph,
+        event: FlowNodeId,
+        value: NodeId,
+        origins: &FlowLoanOrigins,
+        declarations: &Declarations,
+        excluded: &HashSet<usize>,
+    ) -> Result<Self, String> {
         let NodeKind::Form {
             callee: Some(callee),
             children,
@@ -796,6 +857,9 @@ impl Plan {
             let ty = &target.parameters[parameter];
             for parent in origins.value_before(body, flow, event, *argument) {
                 if parent.lifetime_only
+                    || parent
+                        .entry_loan
+                        .is_some_and(|family| excluded.contains(&family))
                     || !static_path(&parent.storage)
                     || !static_path(&parent.place.segments)
                 {
@@ -810,6 +874,9 @@ impl Plan {
                 }
                 for child in origins.pointee_before(body, event, &parent) {
                     if child.lifetime_only
+                        || child
+                            .entry_loan
+                            .is_some_and(|family| excluded.contains(&family))
                         || !same_pointer_root(&parent, &child)
                         || !child.place.segments.starts_with(&parent.place.segments)
                         || !static_path(&child.storage)
@@ -905,6 +972,7 @@ impl Plan {
             .entry(self.callee)
             .or_insert_with(|| std::rc::Rc::new(flow.loan_origins(body)))
             .clone();
+        let entry = cached_entry_tags(self.callee, body, flow, &baseline, cache);
         let consumptions = flow.consumptions(body, types);
         let live = flow.liveness(body);
         for (index, node) in flow.nodes.iter().enumerate() {
@@ -1042,6 +1110,9 @@ impl Plan {
                 if !origins.entry_alias_retained_before(event, family, alias, &live_bindings) {
                     continue;
                 }
+                if alias.excluded_at_entry(&entry[event.0]) {
+                    continue;
+                }
                 // An incoming pointer into a particular enum payload cannot
                 // coexist with a checked different constructor of that same
                 // physical owner. This is a path constraint, not retirement
@@ -1124,8 +1195,27 @@ impl Plan {
                         ..
                     }
                 ) {
-                    let nested = Self::for_call(body, flow, event, value, &origins, declarations)
-                        .map_err(|message| {
+                    // Carry the parent's proved entry constraints into nested
+                    // contexts. Exclude only those run-local incoming families,
+                    // never a fresh borrow of the same address or sibling loan.
+                    let excluded = self
+                        .aliases
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(family, alias)| {
+                            alias.excluded_at_entry(&entry[event.0]).then_some(family)
+                        })
+                        .collect::<HashSet<_>>();
+                    let nested = Self::for_call_excluding_entry_families(
+                        body,
+                        flow,
+                        event,
+                        value,
+                        &origins,
+                        declarations,
+                        &excluded,
+                    )
+                    .map_err(|message| {
                         (
                             self.aliases[0].parameter,
                             BorrowConflict {
@@ -1530,6 +1620,204 @@ mod tests {
         assert!(error.1.message.contains("stored conflicting reference"));
         assert!(cache.checked.contains(&(plan.clone(), false)));
         assert!(!cache.checked.contains(&(plan, true)));
+    }
+
+    const PAYLOAD_ENTRY_SOURCE: &str = "(#enum Value (Empty (Full u64)))
+          (#struct Link (: value Value : view (#pin-ref u64)))
+          (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#let view (#pin-ref u64)
+              (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
+            (#pin-set-field target view view) (#return target))
+          (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#if (#variant-is (#pin-borrow (#get target value)) Empty)
+              (#block
+                (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 40u64)))
+                (#unsafe (#pin-write
+                  (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0) 42u64))) ())
+            (#return target))
+          (#fn driver (: outside (#pin-ref u64)) ()
+            (#let-mut link Link (#struct-literal Link (: value (Full 42u64) : view outside)))
+            (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
+            (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
+            (#pin-set-field updated view outside)
+            (#drop updated) (#forget link) (#return ()))";
+
+    #[test]
+    fn entry_payload_constraints_survive_reinitializing_the_current_constructor() {
+        let source = PAYLOAD_ENTRY_SOURCE;
+        for (guard, rejected) in [("Empty", false), ("Full", true)] {
+            let source = source.replace("value)) Empty)", &format!("value)) {guard})"));
+            let declarations = fixture(&source);
+            let plan = call_plan(&declarations, "driver", "tick");
+            assert!(plan.aliases[0]
+                .projection
+                .iter()
+                .any(|part| matches!(part, Segment::Payload(..))));
+            let checked = plan
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
+            assert_eq!(checked.is_err(), rejected, "{checked:?}\n{source}");
+        }
+    }
+
+    const STORAGE_ENTRY_SOURCE: &str = "(#enum View (NoView (HasView (#pin-ref u64))))
+          (#struct Link (: value u64 : view View))
+          (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#let view (#pin-ref u64) (#pin-borrow (#get target value)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view))) (#return target))
+          (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#if (#variant-is (#pin-borrow (#get target view)) NoView)
+              (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) 99u64)) ())
+            (#return target))
+          (#fn driver () ()
+            (#let-mut link Link (#struct-literal Link (: value 42u64 : view NoView)))
+            (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
+            (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get updated view)) NoView))
+            (#drop updated) (#forget link) (#return ()))";
+
+    fn with_entry_tick(source: &str, statements: &str) -> String {
+        let start = source.find("(#fn tick").unwrap();
+        let end = source.find("(#fn driver").unwrap();
+        format!(
+            "{} (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            {statements} (#return target)) {}",
+            &source[..start],
+            &source[end..]
+        )
+    }
+
+    #[test]
+    fn nested_initialization_excludes_only_impossible_incoming_families() {
+        for fresh in [false, true] {
+            let child = if fresh {
+                "(#let view (#pin-ref u64)
+                  (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
+                 (#pin-set-field target view view)"
+            } else {
+                ""
+            };
+            let source = format!(
+                "{}
+                (#fn rewrite (: target (#pin-ref-mut Link)) ()
+                  (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 99u64)))
+                  (#return ()))",
+                with_entry_tick(
+                    PAYLOAD_ENTRY_SOURCE,
+                    &format!(
+                        "
+                (#assert (#variant-is (#pin-borrow (#get target value)) Empty))
+                (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 40u64)))
+                {child} (#call rewrite (: target target))"
+                    )
+                )
+            );
+            let declarations = fixture(&source);
+            let checked = call_plan(&declarations, "driver", "tick")
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
+            assert_eq!(checked.is_err(), fresh, "{checked:?}\n{source}");
+        }
+    }
+
+    #[test]
+    fn a_constructor_written_into_an_owner_is_not_its_entry_constructor() {
+        let source = with_entry_tick(
+            PAYLOAD_ENTRY_SOURCE,
+            "
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) Empty))
+          (#assert (#variant-is (#pin-borrow (#get target value)) Empty))",
+        );
+        let declarations = fixture(&source);
+        let body = &declarations.bodies["tick"];
+        let flow = &declarations.flows["tick"];
+        let tags = entry_guards(body, flow, &flow.loan_origins(body));
+        let field = declarations
+            .field_id(&Type::Named("Link".into()), "value")
+            .unwrap();
+        let empty = declarations
+            .variant_id(&Type::Named("Value".into()), "Empty")
+            .unwrap();
+        let owner = Place {
+            root: PlaceRoot::Parameter(BindingId(0)),
+            segments: vec![Segment::Field(field)],
+        };
+        assert!(
+            tags.iter().all(|facts| facts.get(&owner) != Some(&empty)),
+            "a constructor assigned after entry cannot exclude a retained incoming family"
+        );
+    }
+
+    #[test]
+    fn joining_an_initialized_branch_does_not_guard_a_later_owner_write() {
+        let source = with_entry_tick(
+            PAYLOAD_ENTRY_SOURCE,
+            "
+          (#if (#variant-is (#pin-borrow (#get target value)) Empty)
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 40u64))) ())
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 99u64)))",
+        );
+        let declarations = fixture(&source);
+        call_plan(&declarations, "driver", "tick")
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
+            .unwrap_err();
+    }
+
+    #[test]
+    fn clearing_conditional_pointer_storage_does_not_excuse_its_live_copy() {
+        let source = with_entry_tick(
+            STORAGE_ENTRY_SOURCE,
+            "
+          (#let saved (#pin-ref u64)
+            (#deref (#pin-get-payload (#pin-borrow (#get target view)) HasView 0)))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) NoView))
+          (#assert (#variant-is (#pin-borrow (#get target view)) NoView))
+          (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) 99u64))
+          (#let observed u64 (#deref saved)) (#forget observed) (#drop saved)",
+        );
+        let declarations = fixture(&source);
+        let error = call_plan(&declarations, "driver", "tick")
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
+            .unwrap_err();
+        let span = error.span.unwrap();
+        assert!(
+            &source[span.start..span.end].contains("(#get target value)"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn a_disjoint_same_type_tag_does_not_exclude_the_incoming_pointer() {
+        let source = STORAGE_ENTRY_SOURCE
+            .replace(": view View", ": view View : other View")
+            .replace(": view NoView", ": view NoView : other NoView")
+            .replace(
+                "(#variant-is (#pin-borrow (#get target view)) NoView)",
+                "(#variant-is (#pin-borrow (#get target other)) NoView)",
+            );
+        let declarations = fixture(&source);
+        call_plan(&declarations, "driver", "tick")
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
+            .unwrap_err();
+    }
+
+    #[test]
+    fn entry_pointer_storage_tags_constrain_the_incoming_family_not_its_owner() {
+        let source = STORAGE_ENTRY_SOURCE;
+        for (guard, rejected) in [("NoView", false), ("HasView", true)] {
+            let source = source.replace("view)) NoView)", &format!("view)) {guard})"));
+            let declarations = fixture(&source);
+            let plan = call_plan(&declarations, "driver", "tick");
+            assert!(plan.aliases[0]
+                .storage
+                .iter()
+                .any(|part| matches!(part, Segment::Payload(..))));
+            assert!(!plan.aliases[0]
+                .projection
+                .iter()
+                .any(|part| matches!(part, Segment::Payload(..))));
+            let checked = plan
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
+            assert_eq!(checked.is_err(), rejected, "{checked:?}\n{source}");
+        }
     }
 
     #[test]
@@ -2082,6 +2370,25 @@ mod tests {
         }
         assert_eq!(cache.checked.len(), 1);
         assert_eq!(cache.baseline.len(), 1);
+        assert_eq!(cache.entry_tags.len(), 1);
+        let entry = cache.entry_tags[&plan.callee].clone();
+        guarded_writes(
+            plan.callee,
+            &declarations,
+            &types,
+            &mut cache,
+            &mut HashSet::new(),
+        )
+        .unwrap();
+        guarded_observations(
+            plan.callee,
+            &declarations,
+            &types,
+            &mut cache,
+            &mut HashSet::new(),
+        )
+        .unwrap();
+        assert!(std::rc::Rc::ptr_eq(&entry, &cache.entry_tags[&plan.callee]));
         let mut other = plan.clone();
         other.aliases[0].projection = vec![Segment::Field(
             declarations

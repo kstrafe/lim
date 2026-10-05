@@ -31,6 +31,23 @@ and access-slot permissions. Cache keys distinguish write-only checks from
 full observation checks. Existing fail-closed async tests remain unchanged.
 `examples/internal_owner_reads.lim` demonstrates ordinary shared internal loans.
 
+Incoming family checks also retain proved **entry** constructors of both the
+owner target and the slot storing its child pointer. Restoring a Full payload
+after an Empty-entry assertion cannot revive an impossible incoming family.
+Clearing the pointer's slot and then testing Empty cannot manufacture an entry
+fact or retire a copied child. At branch joins, only common entry constraints
+survive; a tag on a sibling field does not constrain this field.
+
+Nested contexts exclude only the run-local incoming families contradicted by
+those constraints. Fresh same-address references keep their own permissions
+and conflicts. Entry-tag analysis is shared with guarded write and observation
+footprints within the immutable-declaration cache, not persisted across builds.
+
+These constraints do not waive `pin_access` or call-parent checking. A caller
+retaining a self-reference may still be rejected before its guarded initializer
+can run; this is tested explicitly. `examples/internal_owner_entry_tags.lim`
+initializes the owner before installing its shared internal reference.
+
 ## Original-source async control flow
 
 `async_cfg.rs` builds a graph before nested-task rewriting. Nodes borrow exact
