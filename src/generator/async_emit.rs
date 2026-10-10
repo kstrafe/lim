@@ -320,6 +320,13 @@ impl<'a> Emitter<'a> {
                 "an in-place read lease cannot transfer ownership"
             );
             let slot = &self.slots[self.bindings[&lease.binding]];
+            let descriptor = &self.function.graph.places[lease.place.0];
+            if !descriptor.projections.is_empty() {
+                return self
+                    .owned_projection_address(descriptor, true)
+                    .expect("a projected lease must have a checked owning address")
+                    .0;
+            }
             return format!(
                 "(#deref (#pin-get-payload-mut {} {} 0))",
                 Self::slot_ref(slot, true),
@@ -652,7 +659,7 @@ impl<'a> Emitter<'a> {
         ))
     }
 
-    fn owned_projection_place(
+    fn owned_projection_address(
         &self,
         descriptor: &PlaceDescriptor,
         mutable: bool,
@@ -711,7 +718,17 @@ impl<'a> Emitter<'a> {
         if ty != descriptor.ty {
             return Err(reject("projected leaf disagrees with its checked type"));
         }
+        Ok((place, ty))
+    }
+
+    fn owned_projection_place(
+        &self,
+        descriptor: &PlaceDescriptor,
+        mutable: bool,
+    ) -> Result<(String, Type), Error> {
+        let (place, ty) = self.owned_projection_address(descriptor, mutable)?;
         if !self.types.can_repeat(&ty) || self.types.contains_reference(&ty) {
+            let reject = |message: &str| fail(self.function, message);
             return Err(reject(
                 "projected moves or reference holders need checked lending and restoration storage",
             ));
@@ -1255,6 +1272,10 @@ impl<'a> Emitter<'a> {
                     ));
                 };
                 if !descriptor.projections.is_empty() {
+                    if self.leases.get(*dst).is_some() {
+                        self.owned_projection_address(descriptor, true)?;
+                        return Ok(String::new());
+                    }
                     let read = self.owned_projection_read(descriptor)?;
                     let read = if *kind == LoadKind::Clone {
                         self.clone_read(&descriptor.ty, &read)
@@ -2720,6 +2741,91 @@ mod tests {
                 &proposed.source_files[span.source_id as usize].source[span.start..span.end],
                 "#deref"
             );
+        }
+    }
+
+    #[test]
+    fn aggregate_returned_children_keep_evaluated_parents_across_later_awaits() {
+        let function = "(#fn work (: view (#ref-mut #u64)) #u64
+          (#let returned Holder (#call capture (: view view : amount
+            (#await Child ChildPending ChildReady child-poll (Start 1u64)))))
+          (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 1u64)))
+          (#let answer #u64 (#u64.+.wrap (#deref (#get returned view)) child))
+          (#forget returned) (#drop view) (#return answer))";
+        let main = "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+          (#fn capture (: view (#ref-mut #u64) : amount #u64) Holder
+            (#deref-set view (#u64.+.wrap (#deref view) amount))
+            (#return (#struct-literal Holder (: view view))))
+          (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
+            (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
+            (#let-mut running (#pin-ref-mut work-frame) (#pin-borrow-mut task))
+            (#let-mut retries #u64 0u64) (#let-mut answer #u64 0u64)
+            (#loop (#match (#call work-poll (: task running : waker (#borrow waker)))
+              (#case (work-pending next) (#block (#set running next)
+                (#set retries (#u64.+.wrap retries 1u64)) ()))
+              (#case (work-ready result) (#block (#set answer result) (#break) (#unreachable)))))
+            (#drop running) (#forget task) (#set value 99u64)
+            (#assert (#u64.== retries 2u64)) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        let invalid = function.replace(
+            "(#let child #u64",
+            "(#deref-set view 99u64) (#let child #u64",
+        );
+        let planning = prepare_generator("async-fn-pinned", &invalid, main);
+        let generated = generate(&planning).unwrap();
+        let proposed = program(&planning, &generated).unwrap();
+        let error = crate::CheckedProgram::validate_with_span(&proposed)
+            .err()
+            .unwrap();
+        assert_eq!(error.1, DiagnosticCode::Borrow, "{}", error.0);
+        let span = error.2.unwrap();
+        assert!((span.source_id as usize) < planning.program.source_files.len());
+        assert_eq!(
+            &proposed.source_files[span.source_id as usize].source[span.start..span.end],
+            "#deref-set",
+        );
+        let first = "(#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) work-poll-result first (#unreachable))";
+        let second =
+            "(#let second work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+          (#let-else (work-pending last) work-poll-result second (#unreachable))";
+        for (polls, handle, expected) in [
+            (String::new(), "(#pin-borrow-mut task)", 40),
+            (first.to_owned(), "next", 40),
+            (format!("{first}\n{second}"), "last", 41),
+        ] {
+            let main = format!(
+                "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+                  (#fn capture (: view (#ref-mut #u64) : amount #u64) Holder
+                    (#deref-set view (#u64.+.wrap (#deref view) amount))
+                    (#return (#struct-literal Holder (: view view))))
+                  (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
+                    (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
+                    {polls}
+                    (#let state work-frame-state (#call work-poll-cancel (: task {handle})))
+                    (#forget state) (#forget task)
+                    (#assert (#u64.== value {expected}u64)) (#set value 99u64)
+                    (#return 42u64))"
+            );
+            {
+                // Cancellation of this aggregate-bearing suspended state
+                // still needs complete output-slot provenance. Preserve the
+                // ordinary checker's fail-closed boundary until that contract
+                // exists; successful polling is not cancellation permission.
+                let planning = prepare_generator("async-fn-pinned", function, &main);
+                let generated = generate(&planning).unwrap();
+                let proposed = program(&planning, &generated).unwrap();
+                let error = crate::CheckedProgram::validate_with_span(&proposed)
+                    .err()
+                    .unwrap();
+                assert_eq!(error.1, DiagnosticCode::Linear, "{}", error.0);
+                let span = error.2.unwrap();
+                assert!(error.0.contains("missing slot provenance"), "{}", error.0);
+                assert!((span.source_id as usize) < planning.program.source_files.len());
+                assert!(proposed.source_files[span.source_id as usize].source
+                    [span.start..span.end]
+                    .contains("#call work-poll-cancel"));
+            }
         }
     }
 

@@ -4,8 +4,11 @@
 //! An in-place window keeps the owning handle Full. Its only consumer is a
 //! Copy leaf load or resolved call without reference-bearing results, after
 //! pure address formation in the same executable block.
-//! Other exclusive reads materialize an ordinary checked reborrow in a value
-//! cell at the original evaluation point. The parent is not moved or copied,
+//! Other whole-binding exclusive reads materialize an ordinary checked
+//! reborrow in a value cell at the original evaluation point. Projected
+//! holders currently require an immediate window; retained projected reads
+//! remain unsupported rather than moving the holder or delaying evaluation.
+//! The parent is not moved or copied,
 //! and its pointer is never reevaluated after an effect or suspension.
 //! This is an emission proof, not borrow permission:
 //! the original source and the generated ordinary program remain mandatory.
@@ -14,7 +17,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::generator::async_exec::{
-    Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Graph, LoadKind, ValueId,
+    Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Graph, LoadKind, PlaceId,
+    ValueId,
 };
 use crate::generator::async_lend::{Access, Plan as Accesses};
 use crate::linearcheck::LinearTypes;
@@ -31,6 +35,7 @@ pub(crate) enum Consumer {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Lease {
     pub binding: BindingId,
+    pub place: PlaceId,
     pub block: BlockId,
     pub load: usize,
     pub read: usize,
@@ -115,13 +120,29 @@ impl Plan {
                 let AddressRoot::Local(binding) = descriptor.root else {
                     continue;
                 };
-                if !descriptor.projections.is_empty()
+                let mut projected = Place::root(PlaceRoot::Local(binding));
+                let mut pure = descriptor.checks().is_empty();
+                for projection in &descriptor.projections {
+                    projected.segments.push(match projection {
+                        AddressProjection::Field(field) => {
+                            crate::typed_place::Segment::Field(*field)
+                        }
+                        AddressProjection::Tuple(index) => {
+                            crate::typed_place::Segment::Tuple(*index)
+                        }
+                        _ => {
+                            pure = false;
+                            break;
+                        }
+                    });
+                }
+                if !pure
                     || !located
                         .source
                         .and_then(|source| accesses.access(source))
-                        .is_some_and(|access| {
-                            access == &Access::Lend(Place::root(PlaceRoot::Local(binding)))
-                        })
+                        .is_some_and(
+                            |access| matches!(access, Access::Lend(place) if place == &projected),
+                        )
                 {
                     continue;
                 }
@@ -138,10 +159,12 @@ impl Plan {
                 ) {
                     continue;
                 }
-                // A checked nonmoving load materializes a child reborrow,
-                // never an owned copy of the parent's exclusive handle.
-                // Immediate windows below can elide its physical cell.
-                snapshots.insert(dst, binding);
+                // Whole-binding reads have a checked reborrow adapter.
+                // Projected holders can only elide certified windows below;
+                // do not mistake a field read for a whole-binding snapshot.
+                if descriptor.projections.is_empty() {
+                    snapshots.insert(dst, binding);
+                }
                 let mut consumer = None;
                 let mut valid = !escapes[dst.0];
                 for &(user_block, index) in &users[dst.0] {
@@ -199,6 +222,7 @@ impl Plan {
                     dst,
                     Lease {
                         binding,
+                        place,
                         block,
                         load,
                         read,
@@ -336,6 +360,38 @@ mod tests {
                     }
                 ));
             }
+        }
+    }
+
+    #[test]
+    fn projected_exclusive_handles_only_elide_certified_immediate_windows() {
+        for projection in ["(#get owner view)", "(#get (#get owner pair) 0)"] {
+            let context =
+                "(#struct Holder (: view (#ref-mut #u64) : pair (#tuple (#ref-mut #u64))))
+              (#linear Holder)
+              (#fn read (: view (#ref-mut #u64) : amount #u64) #u64
+                (#return (#u64.+.wrap (#deref view) amount)))
+              (#fn later () #u64 (#return 1u64))";
+            let immediate = Checked::new(&format!(
+                "{context} (#fn work (: owner Holder) #u64
+                  (#let answer #u64 (#deref {projection}))
+                  (#forget owner) (#return answer))"
+            ));
+            let plan = immediate.plan();
+            assert_eq!(plan.leases.len(), 1);
+            assert!(plan.snapshots.is_empty());
+            let (_, lease) = plan.leases.iter().next().unwrap();
+            assert!(!immediate.graph.places[lease.place.0].projections.is_empty());
+            let effectful = Checked::new(&format!(
+                "{context} (#fn work (: owner Holder) #u64
+                  (#let answer #u64 (#call read (: view {projection} : amount (#call later ()))))
+                  (#forget owner) (#return answer))"
+            ));
+            let plan = effectful.plan();
+            assert!(plan.leases.is_empty());
+            // A projected holder has no whole-binding snapshot adapter.
+            // Never fall back to moving or reevaluating the field after later().
+            assert!(plan.snapshots.is_empty());
         }
     }
 
