@@ -240,6 +240,133 @@ fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
 }
 
 #[test]
+fn generated_function_definition_publishes_an_exact_source_snapshot() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-generated-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let path = base.join("main.lim");
+    let uri = format!("file://{}", path.display());
+    let source = "(@optional (: type #u64 : name Maybe))\n(#fn main () () (#let value Maybe (#call Maybe-construct (: value 42u64))) (#forget value) (#return ()))";
+    let character = source
+        .lines()
+        .nth(1)
+        .unwrap()
+        .find("Maybe-construct")
+        .unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, source));
+    messages.push(request(2, "textDocument/definition", &format!(
+        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":1,\"character\":{character}}}}}", diagnostic_json::quoted(&uri))));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let result = reply(&replies, 2).get("result").unwrap();
+    let target = lsp::uri_to_path(result.get("uri").unwrap().string().unwrap()).unwrap();
+    assert!(target.starts_with(base.join(".lim/generated")));
+    let generated = std::fs::read_to_string(&target).unwrap();
+    assert!(generated.contains("Maybe-construct"));
+    let range_start = result.get("range").unwrap().get("start").unwrap();
+    let line = range_start.get("line").unwrap().integer().unwrap() as usize;
+    let column = range_start.get("character").unwrap().integer().unwrap() as usize;
+    assert!(generated.lines().nth(line).unwrap()[column..].starts_with("Maybe-construct"));
+    assert!(!base.join(".lim/cache").exists());
+    let modified = std::fs::metadata(&target).unwrap().modified().unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, source));
+    messages.push(request(2, "textDocument/definition", &format!(
+        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":1,\"character\":{character}}}}}", diagnostic_json::quoted(&uri))));
+    finish(&mut messages);
+    let (_, repeated) = session(messages.clone());
+    assert_eq!(reply(&repeated, 2).get("result"), Some(result));
+    assert_eq!(
+        std::fs::metadata(&target).unwrap().modified().unwrap(),
+        modified
+    );
+    std::fs::write(&target, "; user-edited snapshot\n").unwrap();
+    let (_, corrupt) = session(messages);
+    assert_eq!(reply(&corrupt, 2).get("result"), Some(&Json::Null));
+    assert_eq!(
+        std::fs::read_to_string(&target).unwrap(),
+        "; user-edited snapshot\n"
+    );
+    // Restore the fixture for repeatable reruns, not navigation publication.
+    std::fs::write(&target, generated).unwrap();
+}
+
+#[test]
+fn generated_type_navigation_tracks_unsaved_generator_changes() {
+    let base = std::env::temp_dir().join(format!("lim-lsp-generated-type-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let uri = format!("file://{}", base.join("main.lim").display());
+    let source = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n(@emit Number)\n(#fn main () Number (#return 42u64))";
+    let position = source.lines().nth(2).unwrap().find("Number").unwrap();
+    let params = format!(
+        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":2,\"character\":{position}}}}}",
+        diagnostic_json::quoted(&uri)
+    );
+    let mut messages = start();
+    messages.push(open(&uri, 1, source));
+    messages.push(request(2, "textDocument/definition", &params));
+    messages.push(request(3, "textDocument/definition", &params));
+    messages.push(change(
+        &uri,
+        2,
+        &source.replace("#u64", "#u32").replace("42u64", "42u32"),
+    ));
+    messages.push(request(4, "textDocument/definition", &params));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let first = reply(&replies, 2).get("result").unwrap();
+    assert_eq!(first, reply(&replies, 3).get("result").unwrap());
+    let next = reply(&replies, 4).get("result").unwrap();
+    assert_ne!(first, next);
+    for (result, ty) in [(first, "#u64"), (next, "#u32")] {
+        let path = lsp::uri_to_path(result.get("uri").unwrap().string().unwrap()).unwrap();
+        let text = std::fs::read_to_string(path).unwrap();
+        assert!(text.contains(&format!("(#type Number {ty})")));
+        let start = result.get("range").unwrap().get("start").unwrap();
+        let line = start.get("line").unwrap().integer().unwrap() as usize;
+        let col = start.get("character").unwrap().integer().unwrap() as usize;
+        assert!(text.lines().nth(line).unwrap()[col..].starts_with("Number"));
+    }
+    assert!(!base.join("main.lim").exists());
+    assert!(!base.join(".lim/cache").exists());
+}
+
+#[test]
+fn generated_definition_uses_unsaved_imports_and_rejects_invalid_expansions() {
+    let base =
+        std::env::temp_dir().join(format!("lim-lsp-generated-import-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let uri = format!("file://{}", base.join("main.lim").display());
+    let imported_uri = format!("file://{}", base.join("types.lim").display());
+    let source = "(#import \"types.lim\")\n(#fn main () Number (#return 42u64))";
+    let imported =
+        "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (@emit Number)";
+    let character = source.lines().nth(1).unwrap().find("Number").unwrap();
+    let params = format!(
+        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":1,\"character\":{character}}}}}",
+        diagnostic_json::quoted(&uri)
+    );
+    let mut messages = start();
+    messages.push(open(&imported_uri, 1, imported));
+    messages.push(open(&uri, 1, source));
+    messages.push(request(2, "textDocument/definition", &params));
+    messages.push(change(
+        &imported_uri,
+        2,
+        &imported.replace("#u64", "MissingType"),
+    ));
+    messages.push(request(3, "textDocument/definition", &params));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let result = reply(&replies, 2).get("result").unwrap();
+    let target = lsp::uri_to_path(result.get("uri").unwrap().string().unwrap()).unwrap();
+    let text = std::fs::read_to_string(target).unwrap();
+    assert!(text.contains(&format!("{}:1", base.join("types.lim").display())));
+    assert_eq!(reply(&replies, 3).get("result"), Some(&Json::Null));
+    assert!(!base.join("types.lim").exists());
+}
+
+#[test]
 fn unknown_methods_invalid_types_and_json_recover() {
     let mut messages = start();
     messages.extend([

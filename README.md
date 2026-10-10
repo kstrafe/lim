@@ -140,7 +140,10 @@ overlapping event. Failed commands report stages reached before the failure.
 
 Run `lim lsp` to serve LSP over stdin/stdout. It provides live compiler
 diagnostics for unsaved buffers and imports, formatting, document symbols,
-and same-file explicit `#call` definitions. It discovers project module paths
+and same-file explicit `#call` definitions, plus generated call/type definitions.
+Generated navigation publishes inspectable `.lim/generated/editor-*.lim` source
+snapshots on demand, including expansions from unsaved buffers.
+It discovers project module paths
 and accepts `--cfg KEY=VALUE` and `--module-path PATH` for session settings.
 Checks do not write source files or generator caches. See the
 [Neovim setup and feature limits](utilities/nvim/README.md#language-server).

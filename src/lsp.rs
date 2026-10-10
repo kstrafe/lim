@@ -335,11 +335,26 @@ impl Server<'_> {
         let callee = crate::parse(&doc.text)
             .ok()
             .and_then(|tree| call_callee(&tree, byte));
+        if callee.is_none() {
+            if let Some(name) = crate::parse(&doc.text)
+                .ok()
+                .and_then(|tree| type_reference(&tree, byte))
+            {
+                if let Some(location) = self.generated_definition(doc, &name) {
+                    return Ok(location);
+                }
+            }
+        }
         let target = if let Some(callee) = callee {
             let mut candidates = declarations
                 .iter()
                 .filter(|d| d.kind == 12 && d.name == callee);
             let first = candidates.next();
+            if first.is_none() {
+                if let Some(location) = self.generated_definition(doc, &callee) {
+                    return Ok(location);
+                }
+            }
             if candidates.next().is_none() {
                 first
             } else {
@@ -359,6 +374,57 @@ impl Server<'_> {
                 )
             })
             .unwrap_or_else(|| "null".into()))
+    }
+
+    fn generated_definition(&self, doc: &Document, name: &str) -> Option<String> {
+        let overlays = self
+            .documents
+            .values()
+            .map(|d| (d.path.clone(), d.text.clone()))
+            .collect();
+        let program =
+            crate::editor::checked_program_for_editor(&doc.text, &doc.path, self.config, &overlays)
+                .ok()?;
+        let expression = program.declaration_expressions.get(name)?;
+        let span = expression.children.get(1)?.span;
+        let invocation = program.generated_source_invocations.get(&span.source_id)?;
+        let file = program.source_files.get(span.source_id as usize)?;
+        let origin = program.source_files.get(invocation.source_id as usize)?;
+        let header = format!(
+            "; Generated definition invoked at {}:{}\n",
+            origin
+                .path
+                .display()
+                .to_string()
+                .replace('\n', "\\n")
+                .replace('\r', "\\r"),
+            invocation.line
+        );
+        let source = format!("{header}{}", file.source);
+        let hash = crate::generator::stable_hash(source.as_bytes());
+        let directory = doc.path.parent()?.join(".lim/generated");
+        let path = directory.join(format!("editor-{hash:032x}.lim"));
+        let uri = path_to_uri(&path)?;
+        // Navigation publishes a source snapshot, never a generator-cache entry.
+        // Do not overwrite an existing snapshot with different contents.
+        if path.exists() {
+            if std::fs::read_to_string(&path).ok()? != source {
+                return None;
+            }
+        } else {
+            std::fs::create_dir_all(&directory).ok()?;
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .ok()?;
+            output.write_all(source.as_bytes()).ok()?;
+        }
+        Some(format!(
+            "{{\"uri\":{},\"range\":{}}}",
+            quoted(&uri),
+            byte_range(&source, header.len() + span.start, header.len() + span.end)
+        ))
     }
 }
 
@@ -478,6 +544,65 @@ fn call_callee(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
             }
         }
         if let Some(name) = call_callee(&expression.children, byte) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+// Only explicit type positions are navigable: never treat arbitrary symbols,
+// named argument labels, quoted templates, or generator literals as types.
+fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
+    fn in_type(expr: &SpannedExpr, byte: usize) -> Option<String> {
+        if byte < expr.span.start || byte >= expr.span.end {
+            return None;
+        }
+        if let Expr::Symbol(name) = &expr.expr {
+            return Some(name.clone());
+        }
+        expr.children
+            .iter()
+            .skip(1)
+            .find_map(|child| in_type(child, byte))
+    }
+    for expr in expressions {
+        if byte < expr.span.start || byte >= expr.span.end {
+            continue;
+        }
+        if matches!(expr.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
+            continue;
+        }
+        let head = expr.children.first().and_then(|child| match &child.expr {
+            Expr::Symbol(name) => Some(name.as_str()),
+            _ => None,
+        });
+        if matches!(head, Some("#gn" | "#gn-fn"))
+            || matches!(expr.children.first().map(|e| &e.expr), Some(Expr::At))
+        {
+            continue;
+        }
+        let index = match head {
+            Some("#let" | "#let-mut" | "#type") => Some(2),
+            Some("#struct-literal") => Some(1),
+            Some("#fn" | "#unsafe-fn" | "#extern-fn") => {
+                if let Some(args) = expr.children.get(2) {
+                    for arg in &args.children {
+                        if let Some(name) = arg.children.get(1).and_then(|ty| in_type(ty, byte)) {
+                            return Some(name);
+                        }
+                    }
+                }
+                Some(3)
+            }
+            _ => None,
+        };
+        if let Some(name) = index
+            .and_then(|i| expr.children.get(i))
+            .and_then(|ty| in_type(ty, byte))
+        {
+            return Some(name);
+        }
+        if let Some(name) = type_reference(&expr.children, byte) {
             return Some(name);
         }
     }

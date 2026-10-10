@@ -55,6 +55,15 @@ pub fn check_source_for_editor(
     config: &crate::CompileConfig,
     overlays: &HashMap<PathBuf, String>,
 ) -> Result<(), crate::Diagnostic> {
+    checked_program_for_editor(source, path, config, overlays).map(|_| ())
+}
+
+pub(crate) fn checked_program_for_editor(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+) -> Result<crate::Program, crate::Diagnostic> {
     let overlays = overlays
         .iter()
         .map(|(path, text)| (path_key(path), text.clone()))
@@ -86,11 +95,12 @@ pub fn check_source_for_editor(
     .map_err(|error| crate::generator_diagnostic(error, path, source))?;
     let (program, _) = crate::expand_prepared_program(&prepared)
         .map_err(|error| crate::generator_diagnostic(error, path, source))?;
-    crate::CheckedProgram::validate_with_span(&program)
-        .map(|_| ())
-        .map_err(|(message, code, span, labels)| {
+    crate::CheckedProgram::validate_with_span(&program).map_err(
+        |(message, code, span, labels)| {
             crate::analysis_diagnostic(message, code, span, labels, &program)
-        })
+        },
+    )?;
+    Ok(program)
 }
 
 #[cfg(test)]
