@@ -38,6 +38,7 @@ mod standard_library;
 mod syntax_bundle;
 mod syntax_collection;
 mod thread_contract;
+mod timing;
 mod typecheck;
 mod typed_body;
 mod typed_borrow;
@@ -57,6 +58,7 @@ pub use codegen::generate_assembly_for_target;
 pub use diagnostic_json::render_diagnostic_json;
 pub use output::{reject_source_output_collision, write_output_atomic};
 pub use stack_usage::stack_usage_report;
+pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
 pub use typecheck::{check_types, type_has_thread_property, CheckedProgram};
 
 /// CPU architecture descriptions understood by the native backend.
@@ -2046,6 +2048,7 @@ pub fn check_source_with_generated_sources(
     cache_directory: &Path,
     generated_directory: &Path,
 ) -> Result<(), Diagnostic> {
+    let _stage = timing::stage("prepare_imports_parse_cfg");
     let prepared = prepare_program_syntax(
         source,
         source_path.parent().unwrap_or(Path::new(".")),
@@ -2054,8 +2057,12 @@ pub fn check_source_with_generated_sources(
         Some(cache_directory),
     )
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    drop(_stage);
+    let _stage = timing::stage("expansion");
     let (program, capture_plans) = expand_prepared_program(&prepared)
         .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    drop(_stage);
+    let _stage = timing::stage("materialize_generated_sources");
     write_prepared_generated_sources(
         &prepared,
         generated_directory,
@@ -2063,6 +2070,8 @@ pub fn check_source_with_generated_sources(
         &capture_plans,
     )
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    drop(_stage);
+    let _stage = timing::stage("semantic_validate");
     typecheck::CheckedProgram::validate_with_span(&program)
         .map(|_| ())
         .map_err(|(message, code, span, labels)| {
@@ -2104,6 +2113,7 @@ fn compile_source_with_artifacts(
     executable: bool,
 ) -> Result<String, Diagnostic> {
     // Import loading lexes and parses the root source, preserving its spans.
+    let _stage = timing::stage("prepare_imports_parse_cfg");
     let prepared = prepare_program_syntax(
         source,
         source_path.parent().unwrap_or(Path::new(".")),
@@ -2112,9 +2122,13 @@ fn compile_source_with_artifacts(
         Some(cache_directory),
     )
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    drop(_stage);
+    let _stage = timing::stage("expansion");
     let (program, capture_plans) = expand_prepared_program(&prepared)
         .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    drop(_stage);
     if let Some(directory) = generated_directory {
+        let _stage = timing::stage("materialize_generated_sources");
         write_prepared_generated_sources(
             &prepared,
             directory,
@@ -2123,9 +2137,11 @@ fn compile_source_with_artifacts(
         )
         .map_err(|message| generator_diagnostic(message, source_path, source))?;
     }
+    let _stage = timing::stage("semantic_validate");
     let checked = typecheck::CheckedProgram::validate_with_span(&program).map_err(
         |(message, code, span, labels)| analysis_diagnostic(message, code, span, labels, &program),
     )?;
+    drop(_stage);
     if let Some(output) = output {
         for file in &program.source_files {
             if file.path.exists() {
@@ -2134,6 +2150,7 @@ fn compile_source_with_artifacts(
             }
         }
     }
+    let _stage = timing::stage("native_emission");
     let assembly = if executable {
         codegen::generate_checked_executable_assembly(&checked, target)
     } else {
@@ -2259,7 +2276,10 @@ pub fn link_native_binary(
     let entry = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 231\n    syscall\n    ud2\n.size _start, .-_start\n";
     let complete_assembly = format!("{assembly}{entry}");
     let build = || -> Result<Vec<u8>, String> {
+        let _encoding_timing = timing::stage("native_assembly");
         let assembled = native_assembly::assemble(&complete_assembly)?;
+        drop(_encoding_timing);
+        let _link_timing = timing::stage("native_link");
         let objects = object_files
             .iter()
             .map(|path| {
@@ -2296,6 +2316,7 @@ pub fn link_native_binary(
         }
     };
     let image = build().map_err(|error| Diagnostic::new(DiagnosticCode::Link, error))?;
+    let _output_timing = timing::stage("output_write");
     fs::write(&staged_output, image).map_err(|error| {
         Diagnostic::new(
             DiagnosticCode::Link,

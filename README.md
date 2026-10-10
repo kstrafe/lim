@@ -115,3 +115,23 @@ reports reveals changed key material. Damaged existing entries report
 materialization and checking share the cache. Reports are opt-in and can
 contain source code; they do not alter cache keys or add metadata files.
 Checksums detect damage, not an attacker rewriting cache data and metadata.
+
+# Compiler timings
+
+Pass `--timings` to a compile, check, or assembly emission command to print
+elapsed stages to stderr. With `--diagnostic-format=json`, timings are emitted
+as a JSON object on stderr. Timings are opt-in; without the flag the compiler
+does not collect events. The flag is accepted for compile, `--check`, and
+`--emit-asm` commands; it is not available on `--stack-usage` or other commands.
+
+Stages cover input reading; import loading, root lexing/parsing, cfg selection,
+and user-defined generator preparation; user-defined and native builtin
+generator expansion; generated-source materialization; semantic validation;
+native assembly emission; and total command time. Binary builds
+also report `native_assembly`, `native_link`, and `output_write`.
+`native_assembly` parses the generated Intel assembly and encodes its
+instructions. `native_link` covers object processing, symbol/relocation
+resolution, and ELF construction; `output_write` covers publishing the
+resulting binary. Assembly builds report output writing separately. Nested
+instrumented work is included in its outer stage and is not reported as an
+overlapping event. Failed commands report stages reached before the failure.

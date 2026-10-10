@@ -25,13 +25,48 @@ macro_rules! eprintln {
 
 fn main() -> ExitCode {
     let mut arguments: Vec<String> = env::args().skip(1).collect();
+    let timings = arguments.iter().any(|arg| arg == "--timings");
+    arguments.retain(|arg| arg != "--timings");
+    let json = arguments
+        .iter()
+        .any(|arg| arg == "--diagnostic-format=json");
+    JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
+    if timings {
+        let command = arguments
+            .iter()
+            .find(|arg| !arg.starts_with("--diagnostic-format="))
+            .map(String::as_str);
+        let supported = matches!(command, Some("--check" | "--emit-asm"))
+            || command.is_some_and(|command| !command.starts_with('-') && command != "fmt");
+        if !supported {
+            eprintln!("lim: --timings is supported for compile, --check, and --emit-asm commands");
+            return ExitCode::FAILURE;
+        }
+    }
+    if timings {
+        let session = lim::TimingSession::start();
+        let status = run_main(arguments);
+        std::eprintln!(
+            "{}",
+            lim::render_timings(&session.finish(), arguments_json_mode())
+        );
+        return status;
+    }
+    run_main(arguments)
+}
+
+fn arguments_json_mode() -> bool {
+    JSON_DIAGNOSTICS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+fn run_main(mut arguments: Vec<String>) -> ExitCode {
     let json = arguments
         .iter()
         .any(|arg| arg == "--diagnostic-format=json");
     JSON_DIAGNOSTICS.store(json, std::sync::atomic::Ordering::Relaxed);
     arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
-        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]...\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--diagnostic-format=json]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         return ExitCode::SUCCESS;
     }
     if matches!(
@@ -288,6 +323,7 @@ fn check_command(arguments: &[String]) -> ExitCode {
         }
     }
 
+    let _input_timing = lim::timing_stage("input_read");
     let source = match fs::read_to_string(input_path) {
         Ok(source) => source,
         Err(error) => {
@@ -295,6 +331,7 @@ fn check_command(arguments: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    drop(_input_timing);
     let input_file = Path::new(input_path);
     let generated_directory = input_file
         .parent()
@@ -708,6 +745,7 @@ fn compile_with_links(
             return ExitCode::FAILURE;
         }
     }
+    let _input_timing = lim::timing_stage("input_read");
     let input = match fs::read_to_string(input_path) {
         Ok(source) => source,
         Err(error) => {
@@ -715,6 +753,7 @@ fn compile_with_links(
             return ExitCode::FAILURE;
         }
     };
+    drop(_input_timing);
     let input_file = Path::new(input_path);
     let generated_directory = input_file
         .parent()
@@ -746,6 +785,7 @@ fn compile_with_links(
     };
 
     if emit_assembly {
+        let _output_timing = lim::timing_stage("output_write");
         return match lim::write_output_atomic(output_path, assembly) {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
