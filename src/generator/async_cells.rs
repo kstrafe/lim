@@ -4,7 +4,9 @@
 //! A poll's scalar program counter is not an ownership contract for ordinary
 //! callees. At Pending, make graph-proved Empty cells visibly Empty even for
 //! dispatch cases that the ordinary loop analysis cannot correlate with an
-//! earlier state. Never clear a live or conditionally owned cell. This is a
+//! earlier state. The emitter asserts the tag of a proved Empty cell before
+//! extracting/restoring it, including after its referent has been destroyed.
+//! Never clear a live or conditionally owned cell. This is a
 //! representation check, not a replacement for source or generated borrowing.
 #![allow(dead_code)]
 

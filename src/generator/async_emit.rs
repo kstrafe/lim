@@ -597,7 +597,25 @@ impl<'a> Emitter<'a> {
                 }
             })
             .collect::<Vec<_>>();
-        self.clear_handle_slots(&slots)
+        // These cells were proved Empty by the physical graph solver. Expose
+        // that invariant with a checked tag assertion before ordinary
+        // empty-cell extraction/restoration. A user cleanup call may consume
+        // its referent; without this tag fact an extraction would require
+        // nonexistent reference provenance. Restoration still publishes the
+        // definite Empty store to callers' retained-contents contracts.
+        let assertions = slots
+            .iter()
+            .map(|index| {
+                let slot = &self.slots[*index];
+                format!(
+                    "(#assert (#variant-is {} {}))",
+                    Self::slot_ref(slot, false),
+                    slot.empty
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("{assertions}\n{}", self.clear_handle_slots(&slots))
     }
 
     fn pattern_value(
@@ -3538,6 +3556,115 @@ mod tests {
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
             (#forget task) (#assert (#u64.== count 1u64)) (#return answer))";
         runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+    }
+
+    #[test]
+    fn delayed_pinned_owners_cancel_only_after_initialization() {
+        let function = "(#fn work (: created (#ref Counter) : destroyed (#ref Counter)) #u64
+          (#let offset #u64 (#await Child ChildPending ChildReady child-poll (Start 5u64)))
+          (#let owner Source (#call make-owner (: amount (#u64.+.wrap 35u64 offset) : count created)))
+          (#let view (#pin-ref #u64) (#pin-borrow (#get owner amount)))
+          (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#let observed #u64 (#deref view)) (#drop view)
+          (#call destroy-owner (: owner owner : count destroyed))
+          (#return (#u64.+.wrap observed child)))";
+        let declarations = "(#struct Counter (: storage (#atomic #u64))) (#linear Counter)
+          (#fn read-counter (: count (#ref Counter)) #u64
+            (#return (#atomic-load (#borrow (#get count storage)) #memory-relaxed)))
+          (#fn bump-counter (: count (#ref Counter)) ()
+            (#atomic-store (#borrow (#get count storage))
+              (#u64.+.wrap (#call read-counter (: count count)) 1u64) #memory-relaxed)
+            (#return ()))
+          (#struct Source (: amount #u64)) (#linear Source)
+          (#fn make-owner (: amount #u64 : count (#ref Counter)) Source
+            (#call bump-counter (: count count))
+            (#return (#struct-literal Source (: amount amount))))
+          (#fn destroy-owner (: owner Source : count (#ref Counter)) ()
+            (#assert (#u64.== (#get owner amount) 40u64))
+            (#call bump-counter (: count count))
+            (#forget owner) (#return ()))";
+        let planning = prepare_generator("async-fn-pinned", function, declarations);
+        let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let binding = BindingId(
+            emitter
+                .body
+                .bindings
+                .iter()
+                .position(|binding| binding.name == "owner")
+                .unwrap(),
+        );
+        let slot = &emitter.slots[emitter.bindings[&binding]];
+        let cleanup = format!(
+            "(#fn cancel-state (: state work-frame-state : count (#ref Counter)) ()
+            (#match (#get state {})
+              (#case {} ())
+              (#case ({} owner) (#call destroy-owner (: owner owner : count count))))
+            (#forget state) (#return ()))",
+            slot.field, slot.empty, slot.full
+        );
+        let first = "(#let first work-poll-result
+            (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) work-poll-result first (#unreachable))";
+        let second = "(#let second work-poll-result
+            (#call work-poll (: task next : waker (#borrow waker))))
+            (#let-else (work-pending last) work-poll-result second (#unreachable))";
+        let ready = "(#let answer #u64 (#match
+            (#call work-poll (: task last : waker (#borrow waker)))
+              (#case (work-ready result) result)
+              (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+            (#assert (#u64.== answer 42u64))";
+        for (polls, handle, constructed, prior_destroyed) in [
+            (String::new(), "(#pin-borrow-mut task)", 0, 0),
+            (first.to_owned(), "next", 0, 0),
+            (format!("{first}\n{second}"), "last", 1, 0),
+            (
+                format!("{first}\n{second}\n{ready}"),
+                "(#pin-borrow-mut task)",
+                1,
+                1,
+            ),
+        ] {
+            let main = format!("{declarations}\n{cleanup}
+              (#fn main () #u64 (#let waker #u64 0u64)
+                (#let created Counter (#struct-literal Counter (: storage (#atomic-init #u64 0u64))))
+                (#let destroyed Counter (#struct-literal Counter (: storage (#atomic-init #u64 0u64))))
+                (#let-mut task work-frame (#call work (: created (#borrow created) : destroyed (#borrow destroyed))))
+                (#assert (#u64.== (#call read-counter (: count (#borrow created))) 0u64)) {polls}
+                (#assert (#u64.== (#call read-counter (: count (#borrow created))) {constructed}u64))
+                (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {prior_destroyed}u64))
+                (#let state work-frame-state (#call work-poll-cancel (: task {handle})))
+                (#call cancel-state (: state state : count (#borrow destroyed)))
+                (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {constructed}u64))
+                (#let again work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
+                (#assert (#u32.== (#get again pc) 4294967295u32))
+                (#call cancel-state (: state again : count (#borrow destroyed)))
+                (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {constructed}u64))
+                (#forget task) (#forget created) (#forget destroyed) (#return 42u64))");
+            let planning = prepare_generator("async-fn-pinned", function, &main);
+            let generated = generate(&planning).unwrap();
+            let proposed = program(&planning, &generated).unwrap();
+            if let Err((message, code, span, _)) =
+                crate::CheckedProgram::validate_with_span(&proposed)
+            {
+                let span = span.unwrap();
+                let source = &proposed.source_files[span.source_id as usize].source;
+                panic!(
+                    "{code:?}: {message}\n{}\n{}",
+                    source[..span.start]
+                        .lines()
+                        .rev()
+                        .find(|line| line.starts_with("(#fn "))
+                        .unwrap_or("no function"),
+                    source
+                        .lines()
+                        .skip(span.line.saturating_sub(4))
+                        .take(8)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                );
+            }
+            runtime_generated(planning, generated, 42);
+        }
     }
 
     #[test]
