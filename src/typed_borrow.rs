@@ -180,6 +180,25 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
             _ => None,
         };
         let computed_targets = match node.action {
+            FlowAction::Read { value, .. } | FlowAction::Write { value, .. } => {
+                match &body.nodes[value.0].kind {
+                    NodeKind::Form { head, children, .. }
+                        if matches!(head.as_str(), "deref" | "deref-set") =>
+                    {
+                        let targets =
+                            origins.value_before(body, flow, FlowNodeId(index), children[1]);
+                        if targets.iter().any(|origin| origin.reborrow_slot.is_some()) {
+                            targets
+                                .into_iter()
+                                .filter(|origin| !origin.lifetime_only && origin.storage.is_empty())
+                                .collect()
+                        } else {
+                            Vec::new()
+                        }
+                    }
+                    _ => Vec::new(),
+                }
+            }
             FlowAction::Borrow { value, .. } => match &body.nodes[value.0].kind {
                 NodeKind::Form { head, .. }
                     if matches!(
@@ -189,6 +208,7 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                             | "borrow-slice"
                             | "borrow-slice-mut"
                             | "slice-mut-range"
+                            | "slice-mut-idx"
                     ) =>
                 {
                     origins
@@ -314,6 +334,10 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
             call_argument_slots(body, receiver, &mut tag_sources);
         }
         let mut suspended_parents = HashSet::new();
+        let mut suspended_slots = access_origins
+            .iter()
+            .filter_map(|origin| origin.reborrow_slot.clone())
+            .collect::<Vec<_>>();
         let mut pending_parents = reborrow_parent.into_iter().collect::<Vec<_>>();
         if tag_receiver.is_some() {
             pending_parents.extend(
@@ -326,15 +350,27 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
             if !suspended_parents.insert(parent) {
                 continue;
             }
-            pending_parents.extend(
-                origins
-                    .before(event, parent)
-                    .iter()
-                    .filter_map(|origin| origin.borrowed_from),
-            );
+            for origin in origins.before(event, parent) {
+                if let Some(slot) = &origin.reborrow_slot {
+                    if !suspended_slots.contains(slot) {
+                        suspended_slots.push(slot.clone());
+                    }
+                }
+                pending_parents.extend(origin.borrowed_from);
+            }
         }
         for binding in visible_loan_bindings(&live, &unread, event, body.bindings.len()) {
-            if suspended_parents.contains(&binding) {
+            if suspended_parents.contains(&binding)
+                && (matches!(
+                    body.bindings[binding.0].ty,
+                    Type::Reference { .. }
+                        | Type::PinnedReference { .. }
+                        | Type::Slice(_)
+                        | Type::MutableSlice(_)
+                ) || !suspended_slots
+                    .iter()
+                    .any(|slot| slot.root == PlaceRoot::Local(binding)))
+            {
                 continue;
             }
             if consumptions
@@ -343,6 +379,11 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                 continue;
             }
             for held in origins.before(event, binding) {
+                if suspended_slots.iter().any(|slot| {
+                    slot.root == PlaceRoot::Local(binding) && slot.segments == held.storage
+                }) {
+                    continue;
+                }
                 if held.owned_allocation {
                     continue;
                 }
@@ -380,6 +421,20 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                 }
                 if access_is_through_child_of_held_parent(origins, event, place, held) {
                     continue;
+                }
+                if held
+                    .reborrow_slot
+                    .as_ref()
+                    .is_some_and(|slot| slot.overlaps(place))
+                    && !matches!(&node.action,
+                        FlowAction::Read { value, .. } if is_mutable_slice_index_base(body, *value))
+                {
+                    return Err(BorrowConflict {
+                        message: "cannot access or release a slice handle while its derived reference is active".into(),
+                        span: node.span,
+                        labels: held.span.into_iter().map(|span|
+                            (span, "derived reference originates here".into())).collect(),
+                    });
                 }
                 let resumes_suspended_parent =
                     accesses_suspended_exclusive_parent(body, origins, event, place, held);
@@ -2541,6 +2596,7 @@ mod tests {
             lifetime_only: false,
             span: None,
             borrowed_from: None,
+            reborrow_slot: None,
             call_reborrow: false,
             entry_loan: None,
             storage: Vec::new(),
@@ -4455,6 +4511,7 @@ mod tests {
                 pinned: false,
                 span: None,
                 borrowed_from: None,
+                reborrow_slot: None,
                 call_reborrow: false,
                 entry_loan: None,
                 storage: Vec::new(),
@@ -4469,6 +4526,7 @@ mod tests {
                 pinned: false,
                 span: None,
                 borrowed_from: None,
+                reborrow_slot: None,
                 call_reborrow: false,
                 entry_loan: None,
                 storage: Vec::new(),
@@ -4519,6 +4577,7 @@ mod tests {
             pinned: false,
             span: None,
             borrowed_from: None,
+            reborrow_slot: None,
             call_reborrow: false,
             entry_loan: None,
             storage: vec![crate::typed_place::Segment::Payload(variant, field)],

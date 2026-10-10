@@ -1824,10 +1824,14 @@ half must itself be consumed (for example, passed to a function or explicitly
 `#forget`-ted). Mutable slices can be returned when their inferred provenance
 comes from a function argument; a view of a local array cannot escape.
 
-`(#slice-mut-range parent start end)` reborrows an existing named mutable slice
-handle. It does not consume the parent. Parent access,
+`(#slice-mut-range parent start end)` reborrows an existing mutable slice
+handle: a named handle or an exclusive, variable-rooted aggregate field/tuple
+slot such as `(#get holder view)`. Owned aggregate projections require a
+mutable owner; projections through a shared reference and temporary receiver
+expressions are rejected. It does not consume the parent. Parent access,
 transfer and destruction are suspended until the child is released. Nested views
-retain the original backing storage's lifetime and physical offsets. All range
+retain the original backing storage's lifetime and physical offsets. Unrelated
+aggregate slots remain usable while a field's child is live. All range
 constructors check `start <= end <= length` and trap on failure; empty ranges are
 valid. Constant disjoint regions permit independent exclusive borrows (or an
 exclusive and a shared borrow). Dynamic bounds are conservatively overlapping;
@@ -2216,7 +2220,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#slice-mut-idx` | `(#slice-mut-idx slice usize-index)` | `(#deref-set (#slice-mut-idx view 0usize) 9u8)` (expression) | Bounds-checks and returns a mutable reference to an element. |
 | `#slice-mut-len` | `(#slice-mut-len slice)` | `(#slice-mut-len view)` (expression) | Returns the mutable slice length as `#usize`. |
 | `#slice-mut-of` | `(#slice-mut-of mutable-array-reference)` | `(#slice-mut-of (#borrow-mut bytes))` (expression) | Creates a mutable slice over an array while retaining its exclusive borrow. |
-| `#slice-mut-range` | `(#slice-mut-range mutable-slice-handle start end)` | `(#let child (#slice-mut #u8) (#slice-mut-range parent 1usize 3usize))` (binding) | Reborrows a checked half-open mutable subrange of a named handle without consuming the parent; parent access and release are suspended while the child is live. Bounds are #usize. |
+| `#slice-mut-range` | `(#slice-mut-range mutable-slice-place start end)` | `(#let child (#slice-mut #u8) (#slice-mut-range parent 1usize 3usize))` (binding) | Reborrows a checked half-open mutable subrange of a named handle or exclusive aggregate slot without consuming the parent; parent access and release are suspended while the child is live. Bounds are #usize. |
 | `#slice-mut-split` | `(#slice-mut-split slice usize-index)` | `(#let pair (#tuple (#slice-mut #u8) (#slice-mut #u8)) (#slice-mut-split view 2usize))` (expression) | Consumes a mutable slice and returns two disjoint mutable slices. |
 | `#slice-of` | `(#slice-of shared-array-reference)` | `(#slice-of (#borrow bytes))` (expression) | Creates a full immutable slice while retaining the source borrow. |
 | `#slice-range` | `(#slice-range slice start end)` | `(#slice-range view 1usize 3usize)` (expression) | Creates a checked half-open immutable subslice `[start,end)`. |

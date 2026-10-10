@@ -7701,10 +7701,16 @@ fn list_expression(
         "slice-range" | "slice-mut-range" => {
             require_arity(operator, items, 4)?;
             if operator == "slice-mut-range" && !matches!(&items[1], Expr::Symbol(_)) {
-                return Err(semantic_at!(
-                    ErrorSite::Argument(operator.into(), 1),
-                    "slice-mut-range requires a named mutable slice handle"
-                ));
+                let (exclusive, pinned) = borrow_projection_permissions(
+                    &items[1], variables, functions, structs, enums, mutable, aliases,
+                )
+                .map_err(|error| error.at(ErrorSite::Argument(operator.into(), 1)))?;
+                if !exclusive || pinned {
+                    return Err(semantic_at!(
+                        ErrorSite::Argument(operator.into(), 1),
+                        "slice-mut-range requires an exclusive unpinned handle place"
+                    ));
+                }
             }
             let source = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,

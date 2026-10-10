@@ -381,6 +381,9 @@ pub(crate) struct LoanOrigin {
     pub span: Option<Span>,
     /// Immediate reference binding whose referent this loan reborrows.
     pub borrowed_from: Option<BindingId>,
+    /// Exact aggregate slot lending a slice handle. Binding-only ancestry is
+    /// retained for named references; a slot keeps unrelated fields usable.
+    pub reborrow_slot: Option<Place>,
     /// A call-duration reborrow restricts parent referent access, not lifetime
     /// of the temporary parent handle. Its actual referent remains retained.
     pub call_reborrow: bool,
@@ -406,6 +409,7 @@ impl PartialEq for LoanOrigin {
             && self.pinned == other.pinned
             && self.lifetime_only == other.lifetime_only
             && self.borrowed_from == other.borrowed_from
+            && self.reborrow_slot == other.reborrow_slot
             && self.call_reborrow == other.call_reborrow
             && self.entry_loan == other.entry_loan
             && self.storage == other.storage
@@ -4424,6 +4428,7 @@ impl FlowGraph {
                     pinned: slot.pinned,
                     span: None,
                     borrowed_from: None,
+                    reborrow_slot: None,
                     call_reborrow: false,
                     entry_loan: None,
                     storage: slot.storage.clone(),
@@ -4453,6 +4458,7 @@ impl FlowGraph {
                     lifetime_only: false,
                     span: None,
                     borrowed_from: None,
+                    reborrow_slot: None,
                     call_reborrow: false,
                     entry_loan: Some(family),
                     parameter_storage: Some(alias.owner_input.clone()),
@@ -10383,6 +10389,7 @@ fn seed_parameter_contents(body: &Body) -> HashMap<(PlaceRoot, Vec<Segment>), Ve
                 pinned: slot.pinned,
                 span: None,
                 borrowed_from: None,
+                reborrow_slot: None,
                 call_reborrow: false,
                 entry_loan: None,
                 storage: slot.storage[boundary + 1..].to_vec(),
@@ -10852,6 +10859,31 @@ fn apply_return_loan_summary(
     state: &LoanState,
     events: Option<(&FlowGraph, LoanSnapshots<'_>)>,
 ) -> Vec<LoanOrigin> {
+    if summary.mutable
+        && summary.input_storage.contains(&Segment::Dereference)
+        && summary.referent_projection.iter().any(|segment| {
+            matches!(
+                segment,
+                Segment::SliceRange { .. } | Segment::SliceRangeUnknown
+            )
+        })
+    {
+        // A helper lending a slice stored in borrowed aggregate storage must
+        // retain the actual caller slot, not merely the pointee's address.
+        let selected =
+            select_summary_inputs_with_slots(origin.clone(), &summary.input_storage, state);
+        let mut results = apply_parameter_loan_summary(origin, summary, state);
+        for (result, selected) in results.iter_mut().zip(selected) {
+            if let Some(slot) = selected.source_slot {
+                if let PlaceRoot::Local(parent) = slot.root {
+                    result.borrowed_from = Some(parent);
+                    result.reborrow_slot = Some(slot);
+                    result.call_reborrow = false;
+                }
+            }
+        }
+        return results;
+    }
     if !origin.mutable || !summary.input_storage.is_empty() || !origin.storage.is_empty() {
         return apply_parameter_loan_summary(origin, summary, state);
     }
@@ -11530,6 +11562,7 @@ pub(crate) fn global_summary_origin(
         lifetime_only: summary.lifetime_only,
         span: None,
         borrowed_from: None,
+        reborrow_slot: None,
         call_reborrow: false,
         entry_loan: None,
         storage: summary.storage.clone(),
@@ -11562,6 +11595,7 @@ fn allocation_origin(site: NodeId, group: Vec<usize>, span: Option<Span>) -> Loa
         lifetime_only: false,
         span,
         borrowed_from: None,
+        reborrow_slot: None,
         call_reborrow: false,
         entry_loan: None,
         storage: Vec::new(),
@@ -11611,6 +11645,24 @@ fn reference_binding(body: &Body, id: NodeId) -> Option<BindingId> {
             | Type::MutableSlice(_)
     )
     .then_some(binding)
+}
+
+fn set_slice_reborrow_parent(body: &Body, source: NodeId, ranged: bool, origin: &mut LoanOrigin) {
+    if ranged || matches!(body.nodes[source.0].ty, Some(Type::MutableSlice(_))) {
+        if let Some(place) = Place::from_expression(body, source) {
+            if let PlaceRoot::Local(binding) = place.root {
+                origin.borrowed_from = Some(binding);
+                origin.reborrow_slot = (!place.segments.is_empty()).then_some(place);
+                origin.call_reborrow = false;
+                return;
+            }
+        }
+    }
+    if let Some(binding) = reference_binding(body, source) {
+        origin.borrowed_from = Some(binding);
+        origin.reborrow_slot = None;
+        origin.call_reborrow = false;
+    }
 }
 
 /// A borrowed container's address is not the referent of a reference stored
@@ -11968,6 +12020,7 @@ fn global_storage_address(global: crate::typed_ir::GlobalId, span: Option<Span>)
         lifetime_only: false,
         span,
         borrowed_from: None,
+        reborrow_slot: None,
         call_reborrow: false,
         entry_loan: None,
         storage: Vec::new(),
@@ -12206,13 +12259,9 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 .get(1)
                 .map(|source| value_loan_origins(body, *source, state))
                 .unwrap_or_default();
-            let borrowed_from = children
-                .get(1)
-                .and_then(|source| reference_binding(body, *source));
             for origin in &mut origins {
-                if borrowed_from.is_some() {
-                    origin.borrowed_from = borrowed_from;
-                    origin.call_reborrow = false;
+                if let Some(source) = children.get(1) {
+                    set_slice_reborrow_parent(body, *source, head == "slice-mut-range", origin);
                 }
                 if matches!(head.as_str(), "slice-range" | "slice-mut-range") {
                     record_slice_range(body, children, origin);
@@ -12665,13 +12714,9 @@ fn value_loan_origins_at_events(
             let mut loans = children.get(1).map_or_else(Vec::new, |source| {
                 value_loan_origins_at_events(body, flow, before, *source, state)
             });
-            let borrowed_from = children
-                .get(1)
-                .and_then(|source| reference_binding(body, *source));
             for origin in &mut loans {
-                if borrowed_from.is_some() {
-                    origin.borrowed_from = borrowed_from;
-                    origin.call_reborrow = false;
+                if let Some(source) = children.get(1) {
+                    set_slice_reborrow_parent(body, *source, head == "slice-mut-range", origin);
                 }
                 if matches!(head.as_str(), "slice-range" | "slice-mut-range") {
                     record_slice_range(body, children, origin);
@@ -12989,6 +13034,7 @@ fn reborrow_source_origins(
         lifetime_only: false,
         span: None,
         borrowed_from: None,
+        reborrow_slot: None,
         call_reborrow: false,
         entry_loan: None,
         storage: Vec::new(),
@@ -15319,6 +15365,7 @@ mod tests {
             lifetime_only: false,
             span: None,
             borrowed_from: None,
+            reborrow_slot: None,
             call_reborrow: false,
             entry_loan: None,
             storage: Vec::new(),
@@ -15370,6 +15417,7 @@ mod tests {
             lifetime_only: false,
             span: None,
             borrowed_from: None,
+            reborrow_slot: None,
             call_reborrow: false,
             entry_loan: None,
             storage: Vec::new(),
@@ -15640,6 +15688,7 @@ mod tests {
             pinned: true,
             span: None,
             borrowed_from: None,
+            reborrow_slot: None,
             call_reborrow: false,
             entry_loan: None,
             storage: Vec::new(),
@@ -15654,6 +15703,7 @@ mod tests {
             pinned: true,
             span: None,
             borrowed_from: None,
+            reborrow_slot: None,
             call_reborrow: false,
             entry_loan: None,
             storage: vec![Segment::DynamicIndex],
@@ -17418,6 +17468,7 @@ mod tests {
             pinned: false,
             span: None,
             borrowed_from: None,
+            reborrow_slot: None,
             call_reborrow: false,
             entry_loan: None,
             storage,
@@ -17455,6 +17506,7 @@ mod tests {
             lifetime_only: false,
             span: None,
             borrowed_from: None,
+            reborrow_slot: None,
             call_reborrow: false,
             entry_loan: None,
             storage,

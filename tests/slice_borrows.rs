@@ -248,19 +248,115 @@ fn bounds_are_evaluated_once_in_start_end_order() {
 }
 
 #[test]
-fn mutable_range_requires_a_named_handle_not_an_implicit_field_move() {
+fn mutable_range_reborrows_a_field_without_moving_it() {
     let source = format!(
         "(#struct Holder (: view (#slice-mut #u64)))
       (#fn main () #u64 {ARRAY}
-        (#let holder Holder (#struct-literal Holder (: view (#borrow-slice-mut values))))
+        (#let-mut holder Holder (#struct-literal Holder (: view (#borrow-slice-mut values))))
         (#let child (#slice-mut #u64) (#slice-mut-range (#get holder view) 1usize 3usize))
         (#deref-set (#slice-mut-idx child 0usize) 42u64) (#forget child)
         (#let count #usize (#slice-mut-len (#get holder view)))
         (#forget holder) (#return (#as count #u64)))"
     );
+    check_types(&parse_program(&source).unwrap()).unwrap();
+    assert_eq!(run(&source).status.code(), Some(4));
+}
+
+#[test]
+fn slice_field_parent_is_suspended_and_sibling_fields_remain_usable() {
+    let source = format!(
+        "(#struct Holder (: view (#slice-mut #u64) : other (#slice-mut #u64)))
+         (#fn main () #u64 {ARRAY}
+           (#let-mut holder Holder (#struct-literal Holder
+             (: view (#borrow-slice-mut values 0usize 2usize)
+              : other (#borrow-slice-mut values 2usize 4usize))))
+           (#let child (#slice-mut #u64) (#slice-mut-range (#get holder view) 0usize 1usize))
+           (#deref-set (#slice-mut-idx child 0usize) 40u64)
+           (#let other-child (#slice-mut #u64) (#slice-mut-range (#get holder other) 0usize 1usize))
+           (#deref-set (#slice-mut-idx other-child 0usize) 2u64)
+           (#let answer #u64 (#u64.+.wrap (#deref (#slice-mut-idx child 0usize))
+             (#deref (#slice-mut-idx other-child 0usize))))
+           (#forget child) (#forget other-child) (#forget holder) (#return answer))"
+    );
+    check_types(&parse_program(&source).unwrap()).unwrap();
+    assert_eq!(run(&source).status.code(), Some(42));
+    for access in [
+        "(#let count #usize (#slice-mut-len (#get holder view)))",
+        "(#forget (#get holder view))",
+        "(#forget holder)",
+    ] {
+        let bad = source.replace("(#forget child)", &format!("{access} (#forget child)"));
+        assert!(
+            check_types(&parse_program(&bad).unwrap()).is_err(),
+            "{access}"
+        );
+    }
+}
+
+#[test]
+fn slice_field_reborrowing_rejects_shared_and_temporary_receivers() {
+    let source = format!(
+        "(#struct Holder (: view (#slice-mut #u64)))
+         (#fn main () #u64 {ARRAY}
+           (#let holder Holder (#struct-literal Holder (: view (#borrow-slice-mut values))))
+           (#let child (#slice-mut #u64) (#slice-mut-range (#get holder view) 0usize 1usize))
+           (#forget child) (#forget holder) (#return 0u64))"
+    );
     assert!(check_types(&parse_program(&source).unwrap())
         .unwrap_err()
-        .contains("named mutable slice"));
+        .contains("exclusive"));
+    let temporary = source.replace(
+        "(#get holder view)",
+        "(#if #true (#get holder view) (#get holder view))",
+    );
+    assert!(check_types(&parse_program(&temporary).unwrap()).is_err());
+}
+
+#[test]
+fn returned_slice_field_reborrow_retains_its_owner_and_nested_offset() {
+    let source = format!(
+        "(#struct Holder (: view (#slice-mut #u64)))
+         (#fn middle (: source (#ref-mut Holder)) (#slice-mut #u64)
+           (#return (#slice-mut-range (#get source view) 1usize 3usize)))
+         (#fn main () #u64 {ARRAY}
+           (#let-mut holder Holder (#struct-literal Holder (: view (#borrow-slice-mut values))))
+           (#let child (#slice-mut #u64) (#call middle (: source (#borrow-mut holder))))
+           (#let nested (#slice-mut #u64) (#slice-mut-range child 1usize 2usize))
+           (#deref-set (#slice-mut-idx nested 0usize) 42u64)
+           (#forget nested) (#forget child)
+           (#let answer #u64 (#deref (#slice-mut-idx (#get holder view) 2usize)))
+           (#forget holder) (#return answer))"
+    );
+    check_types(&parse_program(&source).unwrap()).unwrap();
+    assert_eq!(run(&source).status.code(), Some(42));
+    for action in ["(#forget holder)", "(#set-index values 0usize 5u64)"] {
+        let bad = source.replace("(#forget nested)", &format!("{action} (#forget nested)"));
+        assert!(check_types(&parse_program(&bad).unwrap()).is_err());
+    }
+    let shared = source.replace("(#ref-mut Holder)", "(#ref Holder)");
+    assert!(check_types(&parse_program(&shared).unwrap()).is_err());
+}
+
+#[test]
+fn nested_tuple_slice_handles_reborrow_and_prevent_parent_moves() {
+    let source = format!(
+        "(#struct Holder (: pair (#tuple #u64 (#slice-mut #u64))))
+         (#fn main () #u64 {ARRAY}
+           (#let-mut holder Holder (#struct-literal Holder
+             (: pair (#tuple (#tuple #u64 (#slice-mut #u64)) 7u64 (#borrow-slice-mut values)))))
+           (#let child (#slice-mut #u64) (#slice-mut-range (#get (#get holder pair) 1) 1usize 3usize))
+           (#let sibling #u64 (#get (#get holder pair) 0))
+           (#deref-set (#slice-mut-idx child 0usize) 35u64)
+           (#let answer #u64 (#u64.+.wrap sibling (#deref (#slice-mut-idx child 0usize))))
+           (#forget child) (#forget holder) (#return answer))"
+    );
+    check_types(&parse_program(&source).unwrap()).unwrap();
+    assert_eq!(run(&source).status.code(), Some(42));
+    let bad = source.replace(
+        "(#forget child)",
+        "(#forget (#get holder pair)) (#forget child)",
+    );
+    assert!(check_types(&parse_program(&bad).unwrap()).is_err());
 }
 
 #[test]
