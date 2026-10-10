@@ -35,7 +35,7 @@ fn allocator_owned_pin_box_runs_and_generated_code_is_inspectable() {
     .unwrap();
     assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
 
-    let generated = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated = fs::read_dir(scratch.path().join(".lim/generated"))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "lim"))

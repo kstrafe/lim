@@ -135,7 +135,7 @@ fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
         .unwrap()
     };
     let sources = || {
-        let mut artifacts = fs::read_dir(scratch.path().join(".lim/cache"))
+        let mut artifacts = fs::read_dir(scratch.path().join(".lim/generated"))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| {
@@ -412,7 +412,7 @@ fn build_and_run(source: &str, expected: i32) -> String {
         1024 * 1024,
     )
     .unwrap();
-    let generated_sources = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated_sources = fs::read_dir(scratch.path().join(".lim/generated"))
         .into_iter()
         .flatten()
         .filter_map(Result::ok)

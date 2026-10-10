@@ -47,7 +47,7 @@ fn scoped_pins_are_inspectable_and_cleanup_runs_before_return() {
     assert_eq!(status.code(), Some(42), "{stderr:?}");
     assert_eq!(stdout, b"C", "cleanup must run exactly once");
 
-    let generated = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated = fs::read_dir(scratch.path().join(".lim/generated"))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "lim"))

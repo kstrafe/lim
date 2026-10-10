@@ -198,7 +198,7 @@ fn gensym_example_reuses_identical_inspectable_cached_files() {
         .unwrap()
     };
     let artifacts = || {
-        let mut artifacts = std::fs::read_dir(&cache)
+        let mut artifacts = std::fs::read_dir(scratch.path().join(".lim/generated"))
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| {

@@ -63,7 +63,7 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
     )
     .unwrap();
     assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
-    let generated = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated = fs::read_dir(scratch.path().join(".lim/generated"))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| {
@@ -155,7 +155,7 @@ fn generated_pin_slot_try_insert_refills_in_place_and_returns_occupied_input() {
     )
     .unwrap();
     assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
-    let generated = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated = fs::read_dir(scratch.path().join(".lim/generated"))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| {

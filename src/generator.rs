@@ -1065,9 +1065,21 @@ pub(crate) fn cache_path(directory: &Path, key: &str) -> PathBuf {
     ))
 }
 
+/// Keep inspectable Lim separate from serialized syntax and cache metadata.
+pub(crate) fn generated_source_directory(cache: &Path) -> PathBuf {
+    if cache.file_name().is_some_and(|name| name == "cache") {
+        cache
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("generated")
+    } else {
+        cache.join("generated")
+    }
+}
+
 /// Read or create an inspectable generated-source artifact in the shared
-/// content-addressed cache. The complete key lives beside the `.lim` file so
-/// a digest collision is detected instead of treated as a hit.
+/// content-addressed cache. The complete key and digest remain in the metadata
+/// directory, so a digest collision is detected instead of treated as a hit.
 pub(crate) fn cached_generated_source(
     directory: &Path,
     key: &str,
@@ -1076,10 +1088,12 @@ pub(crate) fn cached_generated_source(
     let formatted_key = format!("lim-generated-source-format-v1\n{key}");
     let key = formatted_key.as_str();
     let digest = stable_hash(key.as_bytes());
-    let path = directory.join(format!("generated-{digest:032x}.lim"));
+    let source_directory = generated_source_directory(directory);
+    let path = source_directory.join(format!("generated-{digest:032x}.lim"));
     let key_path = directory.join(format!("generated-{digest:032x}.key"));
     let digest_path = directory.join(format!("generated-{digest:032x}.hash"));
     cleanup_abandoned_staging(directory);
+    cleanup_abandoned_staging(&source_directory);
     if let Some(existing_key) = read_bounded_cache_text(&key_path) {
         if existing_key != key {
             crate::cache_report::record("source", &path, key, "key-collision");
@@ -1114,6 +1128,8 @@ pub(crate) fn cached_generated_source(
     let source = format_generated_source(&generate()?)?;
     fs::create_dir_all(directory)
         .map_err(|error| format!("cannot create generated-source cache: {error}"))?;
+    fs::create_dir_all(&source_directory)
+        .map_err(|error| format!("cannot create generated-source directory: {error}"))?;
     publish_cache_file(&path, source.as_bytes(), "generated source")?;
     publish_cache_file(&key_path, key.as_bytes(), "generated-source cache key")?;
     // Publish the digest last: readers treat it as the commit marker for the
@@ -2028,7 +2044,7 @@ mod tests {
         let first =
             cached_generated_source(&directory, "key-a", || Ok("(#type Cached u64)".into()))
                 .unwrap();
-        let source_path = fs::read_dir(&directory)
+        let source_path = fs::read_dir(generated_source_directory(&directory))
             .unwrap()
             .filter_map(Result::ok)
             .map(|entry| entry.path())
@@ -2048,7 +2064,7 @@ mod tests {
                 .unwrap();
         assert_eq!(first, second);
         assert_ne!(first, different);
-        let entries = fs::read_dir(&directory)
+        let entries = fs::read_dir(generated_source_directory(&directory))
             .unwrap()
             .filter_map(Result::ok)
             .map(|entry| entry.path())
@@ -2060,10 +2076,14 @@ mod tests {
                 .count(),
             2
         );
+        assert!(entries
+            .iter()
+            .all(|path| path.extension().is_some_and(|ext| ext == "lim")));
         assert_eq!(
-            entries
-                .iter()
-                .filter(|path| path.extension().is_some_and(|ext| ext == "key"))
+            fs::read_dir(&directory)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "key"))
                 .count(),
             2
         );
@@ -2196,6 +2216,7 @@ mod tests {
         assert!(fs::read_dir(&directory)
             .unwrap()
             .filter_map(Result::ok)
+            .filter(|entry| entry.path().is_file())
             .all(|entry| entry
                 .path()
                 .extension()

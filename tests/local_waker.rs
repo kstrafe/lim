@@ -85,7 +85,7 @@ fn generated_local_waker_is_inspectable_and_reports_shape_errors() {
     )
     .unwrap();
     assert!(status.success(), "{}", String::from_utf8_lossy(&error));
-    let generated = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated = fs::read_dir(scratch.path().join(".lim/generated"))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| {

@@ -451,7 +451,7 @@ fn wake_executor_generated_code_is_inspectable() {
     )
     .unwrap();
     assert!(build.0.success(), "{}", String::from_utf8_lossy(&build.2));
-    let generated = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated = fs::read_dir(scratch.path().join(".lim/generated"))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| {

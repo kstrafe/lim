@@ -5960,7 +5960,7 @@ fn is_unprefixed_builtin_name(name: &str) -> bool {
 /// Materialize built-in generated declarations as source files.
 ///
 /// Expansion remains part of parse_program; this helper gives command-line
-/// builds an inspectable cache of generated Lim source under .lim/cache/.
+/// builds inspectable generated Lim source under .lim/generated/.
 pub fn write_generated_sources(source: &str, directory: &Path) -> Result<(), String> {
     let base =
         env::current_dir().map_err(|error| format!("cannot get current directory: {error}"))?;
@@ -9321,7 +9321,7 @@ mod tests {
     }
 
     fn read_cached_generated_source(directory: &Path, contains: &str) -> (PathBuf, String) {
-        let cache = directory.join("cache");
+        let cache = directory.join("generated");
         for entry in std::fs::read_dir(cache).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().is_some_and(|extension| extension == "lim") {

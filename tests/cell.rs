@@ -23,7 +23,7 @@ fn generated_cell_is_inspectable_and_preserves_its_value() {
     .unwrap();
     assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
 
-    let generated = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated = fs::read_dir(scratch.path().join(".lim/generated"))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "lim"))

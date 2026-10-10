@@ -871,7 +871,7 @@ individually and returns failure if any example fails.
 reports generated-code stack bounds without invoking the native linker. It
 accepts `--target`, `--cfg`, and `--module-path` options just like compilation.
 Every generated `@` expansion is materialized as a readable, content-addressed
-`.lim` entry under `.lim/cache/`, regardless of whether it uses a built-in or a
+`.lim` entry under `.lim/generated/`, regardless of whether it uses a built-in or a
 user-defined generator. The digest is derived from the normalized invocation,
 compiler version, target, complete loaded import forms, and compiler cfg
 values. A neighboring key file verifies the full key before a cache hit, so a
@@ -2302,7 +2302,9 @@ free-standing helpers:
 
 Expansion is part of program parsing. Readable generated Lim sources for both
 built-in and user-defined `@` invocations are stored as hash-named `.lim` files
-under `.lim/cache/`. Their keys include the invocation, compiler version,
+under `.lim/generated/`. Serialized expansions and integrity metadata remain
+in `.lim/cache/`, so `rg 'pattern' .lim/generated` searches only Lim code.
+Their keys include the invocation, compiler version,
 supported target, loaded imports, cfg values, and a deterministic fingerprint
 of compiler Rust sources and build logic. User-generator execution also caches
 raw emitted syntax there using the generator and transitive `#gn-fn` hashes.

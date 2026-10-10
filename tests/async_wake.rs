@@ -31,7 +31,7 @@ fn wake_aware_pipeline_is_generated_and_runs() {
     )
     .unwrap();
     assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
-    let generated = fs::read_dir(scratch.path().join(".lim/cache"))
+    let generated = fs::read_dir(scratch.path().join(".lim/generated"))
         .unwrap()
         .filter_map(Result::ok)
         .filter(|entry| {
