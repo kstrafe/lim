@@ -116,6 +116,29 @@ materialization and checking share the cache. Reports are opt-in and can
 contain source code; they do not alter cache keys or add metadata files.
 Checksums detect damage, not an attacker rewriting cache data and metadata.
 
+### Checked library inference summaries
+
+Final checking and compilation cache imported/generated function parameter
+summaries in `.lim/cache/semantic/summaries-<hash>.bin`. This is a separate,
+versioned, bounded binary cache; generated Lim sources remain inspectable in
+the generated-source directory. Each validation session reads its artifact
+once into RAM. Warm hits do not rewrite it.
+
+The initial key conservatively includes the entire expanded program, all
+loaded source dependencies, generator validation witnesses, sorted cfg values,
+module search paths, target and compiler fingerprint/version. Even an unrelated
+root or dependency change invalidates it; this is not yet per-library incremental
+checking. Exact stored key material guards hash collisions, and a payload checksum
+detects damage. Declaration identities are remapped by name, not arena index.
+Missing, truncated, incompatible or corrupt artifacts are recomputed. Cache I/O
+failure is nonfatal. New summaries are published atomically only after successful
+whole-program validation; all type, ownership, borrowing and unsafe checks still
+run on warm builds. Build caches are trusted compiler-owned artifacts, not a
+security boundary against malicious cache replacement.
+
+`--explain-cache` also reports `semantic-summary` events with function, analysis
+mode and context digest in `key_material`, using `hit` or `miss` decisions.
+
 # Compiler timings
 
 Pass `--timings` to a compile, check, or assembly emission command to print
@@ -130,6 +153,9 @@ contracts, provenance, outcome graphs, consumption, borrowing and unsafe
 checks. Repeated per-function work is aggregated by category. These detail
 times are inclusive and overlap (for example, provenance is part of summary
 inference); do not add them together. `total` remains the command's wall time.
+Semantic work during generator planning is included too, so a category can
+span more than the final `semantic_validate` stage. Cache sessions also report
+`semantic.cache_load` and `semantic.cache_publish`.
 
 Stages cover input reading; import loading, root lexing/parsing, cfg selection,
 and user-defined generator preparation; user-defined and native builtin
@@ -140,7 +166,7 @@ also report `native_assembly`, `native_link`, and `output_write`.
 instructions. `native_link` covers object processing, symbol/relocation
 resolution, and ELF construction; `output_write` covers publishing the
 resulting binary. Assembly builds report output writing separately. Nested
-instrumented work is included in its outer stage and is not reported as an
+top-level stages are included in their outer stage and are not reported as an
 overlapping event. Failed commands report stages reached before the failure.
 
 ## Language server

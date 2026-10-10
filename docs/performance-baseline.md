@@ -1059,3 +1059,39 @@ A representative timed string_view check spent 51.240 ms in semantic validation:
 30.057 ms in referent contracts, 13.977 ms in provenance, 8.329 ms in referent
 consumptions, 7.040 ms in initial summaries and 6.044 ms in contents summaries.
 The solver totals are included in their enclosing phases, not additional work.
+
+## Persistent library inference summaries (2026-10-10)
+
+Imported/generated function parameter summaries are cached in
+`.lim/cache/semantic/summaries-<hash>.bin`. The versioned, bounded binary
+artifact includes exact key material and a payload checksum. Declaration IDs
+are stored by name and remapped into the current checked program. Sessions read
+once into RAM, publish atomically only after successful validation, and do not
+rewrite unchanged warm hits. I/O or decoding failures fall back to inference.
+
+Invalidation is initially conservative: the entire expanded program and all
+loaded source dependencies, generator witnesses, cfg, search paths, target,
+compiler fingerprint and version participate. Root edits also invalidate the
+cache. This saves repeated summary inference, not library validation: every
+type, ownership, borrowing, initialized-referent and unsafe gate still runs.
+
+The preceding CPU-pinned, alternating, 40-pair warm protocol measured:
+
+| Warm median | Before cache | After cache | Reduction |
+| --- | ---: | ---: | ---: |
+| `string_view` | 77.117 ms | 66.696 ms | 13.5% |
+| `string_println` | 76.876 ms | 66.300 ms | 13.8% |
+| `async_fn` | 62.154 ms | 61.116 ms | 1.7% |
+
+Native bytes, exit status, stdout and stderr are identical. These measurements
+use warm generator and summary caches; cold latency was not measured.
+
+All 1,291 unit tests, 213 async tests, native examples, UI diagnostics, String
+and standard-library tests, UTF-8 oracles, documentation and LSP end-to-end
+tests pass, plus the additional heap/reference/slice/pin borrow regressions.
+Cache tests cover both transfer modes, aggregate outcomes and mutable field
+stores, transitive and generated dependencies, cfg/root/type changes, target
+contexts, name-based ID remapping, damaged/schema-incompatible files, unchanged
+file modification times, failed-validation publication, unavailable storage and
+concurrent writers. Timing/cache-report tests, formatting and all-target checking
+also pass.

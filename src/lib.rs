@@ -35,6 +35,7 @@ mod output;
 mod pin_access;
 mod pin_ownership;
 mod reachability;
+mod semantic_cache;
 mod source_error;
 mod stack_usage;
 mod standard_library;
@@ -2076,11 +2077,12 @@ pub fn check_source_with_generated_sources(
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
     let _stage = timing::stage("semantic_validate");
-    typecheck::CheckedProgram::validate_with_span(&program)
-        .map(|_| ())
-        .map_err(|(message, code, span, labels)| {
-            analysis_diagnostic(message, code, span, labels, &program)
-        })
+    let summaries = semantic_cache::Session::begin(cache_directory, &program, config, "check");
+    typecheck::CheckedProgram::validate_with_span(&program).map_err(
+        |(message, code, span, labels)| analysis_diagnostic(message, code, span, labels, &program),
+    )?;
+    summaries.publish();
+    Ok(())
 }
 
 /// Emit only executable-reachable functions after validating the full program.
@@ -2142,9 +2144,13 @@ fn compile_source_with_artifacts(
         .map_err(|message| generator_diagnostic(message, source_path, source))?;
     }
     let _stage = timing::stage("semantic_validate");
+    let summaries =
+        semantic_cache::Session::begin(cache_directory, &program, config, &format!("{target:?}"));
     let checked = typecheck::CheckedProgram::validate_with_span(&program).map_err(
         |(message, code, span, labels)| analysis_diagnostic(message, code, span, labels, &program),
     )?;
+    summaries.publish();
+    drop(summaries);
     drop(_stage);
     if let Some(output) = output {
         for file in &program.source_files {

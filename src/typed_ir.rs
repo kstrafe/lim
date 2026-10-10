@@ -1895,6 +1895,12 @@ impl Declarations {
             }
             let body = &self.bodies[&name];
             let flow = &self.flows[&name];
+            let facts = crate::semantic_cache::lookup(&name, include_parameter_contents, self)
+                .unwrap_or_else(|| {
+                    let facts = flow.parameter_summary(body, include_parameter_contents);
+                    crate::semantic_cache::record(&name, include_parameter_contents, &facts, self);
+                    facts
+                });
             let crate::typed_flow::ParameterSummary {
                 returned,
                 stores,
@@ -1903,7 +1909,7 @@ impl Declarations {
                 clears,
                 bounds: returned_bounds,
                 output_clears,
-            } = flow.parameter_summary(body, include_parameter_contents);
+            } = facts;
             let variants = output_stores
                 .iter()
                 .filter_map(|((path, variant), stores)| {
