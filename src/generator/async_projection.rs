@@ -1,4 +1,5 @@
 //! Ordinary projection contracts for evaluated async reference handles.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! A projection is checked against concrete declaration identities, not the
 //! spelling of a field. Its ordinary generated function borrows from the
@@ -8,7 +9,9 @@
 //! frame-local referents still require their separate storage plans.
 #![allow(dead_code)]
 
-use crate::async_exec::{AddressProjection, AddressRoot, Graph, PlaceDescriptor, ValueId};
+use crate::generator::async_exec::{
+    AddressProjection, AddressRoot, Graph, PlaceDescriptor, ValueId,
+};
 use crate::typed_ir::{resolve_type, Declarations};
 use crate::Type;
 
@@ -231,7 +234,7 @@ impl Write {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_exec::{Action, PlaceId};
+    use crate::generator::async_exec::{Action, PlaceId};
     use crate::typed_body::BindingId;
 
     fn fixture(
@@ -269,7 +272,8 @@ mod tests {
         );
         let program = crate::parse_program(&source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
-        let graph = crate::async_exec::build(&declarations.bodies["project"], &[]).unwrap();
+        let graph =
+            crate::generator::async_exec::build(&declarations.bodies["project"], &[]).unwrap();
         let place = graph
             .blocks
             .iter()

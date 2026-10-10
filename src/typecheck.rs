@@ -163,7 +163,7 @@ use crate::typed_ir::{Declarations, Signature};
 #[derive(Default)]
 struct FunctionTable {
     signatures: HashMap<String, Signature>,
-    deferred_layouts: HashMap<String, crate::async_interfaces::DeferredLayout>,
+    deferred_layouts: HashMap<String, crate::generation_interfaces::DeferredLayout>,
     return_type_context: std::cell::RefCell<Option<Type>>,
     expression_ids: HashMap<usize, crate::typed_ir::ExpressionId>,
     statement_ids: HashMap<usize, crate::typed_ir::StatementId>,
@@ -408,7 +408,7 @@ mod checked_program_tests {
     }
 
     #[test]
-    fn async_capture_requirements_include_cleanup_but_not_dead_parameter_loans() {
+    fn generated_capture_requirements_include_cleanup_but_not_dead_parameter_loans() {
         let program = crate::parse_program(
             "(#struct Token ((value #u64))) (#linear Token)
              (#fn poll-resume-0 ((live #u64) (unused Token) (dead (#ref #u64))) #u64
@@ -416,8 +416,7 @@ mod checked_program_tests {
              (#fn unrelated ((unused Token)) () (#return ()))",
         )
         .unwrap();
-        let requirements =
-            typed_async_capture_requirements(&program, &["poll-resume-".into()]).unwrap();
+        let requirements = typed_capture_requirements(&program, &["poll-resume-".into()]).unwrap();
         assert_eq!(requirements["poll-resume-0"], HashSet::from([0, 1]));
         assert!(!requirements.contains_key("unrelated"));
         let error = CheckedProgram::validate(&program)
@@ -835,11 +834,11 @@ pub(crate) fn check_types_with_span(
 }
 
 fn resolve_program(program: &Program) -> Result<Declarations, AnalysisError> {
-    crate::async_source::resolve(program)
+    crate::generated_validation::resolve(program)
 }
 
 /// Build checked typed bodies and CFG liveness before ownership enforcement.
-/// This is for compiler staging analyses (such as async frame capture
+/// This is for compiler staging analyses (such as generated frame capture
 /// discovery); it is not a successful program-validation boundary.
 #[cfg(test)]
 pub(crate) fn typed_live_parameters(
@@ -860,10 +859,10 @@ pub(crate) fn typed_live_parameters(
     Ok(live_parameters)
 }
 
-/// Capture discovery also retains owned cleanup obligations and held loans.
-/// Restrict analysis to actual generated resume helpers: solving storage for
+/// Generated-code capture discovery also retains owned cleanup obligations
+/// and held loans. Restrict analysis to actual generated helpers: solving storage for
 /// unrelated imported functions would be needless whole-program work.
-pub(crate) fn typed_async_capture_requirements(
+pub(crate) fn typed_capture_requirements(
     program: &Program,
     prefixes: &[String],
 ) -> Result<HashMap<String, HashSet<usize>>, AnalysisError> {
@@ -879,7 +878,7 @@ pub(crate) fn typed_async_capture_requirements(
         }
         let flow = &declarations.flows[name];
         let facts = crate::typed_flow::StorageFacts::for_entry(body, flow, &types);
-        let storage = crate::async_storage::Analysis::new(body, &facts, &types, &declarations);
+        let storage = crate::capture_storage::Analysis::new(body, &facts, &types, &declarations);
         let snapshot = storage
             .before(flow.entry)
             .expect("checked function entry is reachable");
@@ -916,23 +915,23 @@ pub(crate) fn resolve_program_for_analysis(
     .map_err(|message| (message, diagnostic_code, diagnostic_span, diagnostic_labels))
 }
 
-struct AsyncPlanning<'a> {
-    registry: &'a crate::async_interfaces::Registry,
+struct GenerationPlanning<'a> {
+    interfaces: &'a crate::generation_interfaces::DeclarationInterfaces,
     selected_bodies: &'a HashSet<String>,
 }
 
 /// Resolve only original source witnesses/drivers. This establishes types and
 /// explicit unsafe scope, not ownership, callee effects, or a usable layout.
-pub(crate) fn resolve_async_planning(
+pub(crate) fn resolve_generation_planning(
     program: &Program,
-    registry: &crate::async_interfaces::Registry,
+    interfaces: &crate::generation_interfaces::DeclarationInterfaces,
     selected_bodies: &HashSet<String>,
 ) -> Result<Declarations, AnalysisError> {
     let mut span = None;
     let mut code = crate::DiagnosticCode::Type;
     let mut labels = Vec::new();
-    let planning = AsyncPlanning {
-        registry,
+    let planning = GenerationPlanning {
+        interfaces,
         selected_bodies,
     };
     check_types_inner(
@@ -967,7 +966,7 @@ fn ownership_subjects_overlap(syntax_subject: &str, typed_subject: &str) -> bool
 
 fn validate_planning_declaration_types(
     program: &Program,
-    registry: &crate::async_interfaces::Registry,
+    interfaces: &crate::generation_interfaces::DeclarationInterfaces,
     declared: &HashSet<&String>,
     aliases: &HashMap<String, Type>,
 ) -> Result<(), (String, Option<crate::Span>)> {
@@ -975,7 +974,7 @@ fn validate_planning_declaration_types(
         let ty = resolve_type(ty, aliases).map_err(|error| (error.message, span))?;
         if let Some(unknown) = first_unresolved_type(&ty, declared, aliases) {
             return Err((
-                format!("undeclared type '{unknown}' in async planning declaration"),
+                format!("undeclared type '{unknown}' in generated declaration"),
                 span,
             ));
         }
@@ -1046,7 +1045,7 @@ fn validate_planning_declaration_types(
             _ => {}
         }
     }
-    for interface in registry.functions.values() {
+    for interface in interfaces.functions.values() {
         let function = &interface.declaration;
         if function.external != (function.calling_convention == CallingConvention::C) {
             return Err((
@@ -1059,7 +1058,7 @@ fn validate_planning_declaration_types(
         }
         if !function.type_parameters.is_empty() {
             return Err((
-                "generic async planning interfaces are not supported".into(),
+                "generic generated interfaces are not supported".into(),
                 interface.span,
             ));
         }
@@ -1078,8 +1077,8 @@ fn validate_planning_declaration_types(
         }
         check(&function.return_type, interface.span)?;
     }
-    for (name, variants) in &registry.protocols {
-        let span = registry.generated_names.get(name).copied();
+    for (name, variants) in &interfaces.protocols {
+        let span = interfaces.generated_names.get(name).copied();
         for variant in variants {
             for field in &variant.fields {
                 check(field, span)?;
@@ -1093,7 +1092,7 @@ fn validate_planning_declaration_types(
 /// By-value containers, however, cannot hide a layout dependency.
 fn deferred_value_layout(
     ty: &Type,
-    deferred: &HashMap<String, crate::async_interfaces::DeferredLayout>,
+    deferred: &HashMap<String, crate::generation_interfaces::DeferredLayout>,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
     seen: &mut HashSet<String>,
@@ -1126,7 +1125,7 @@ fn deferred_value_layout(
 fn deferred_layout_error(name: &str, operation: &str, site: ErrorSite) -> SemanticError {
     semantic_at!(
         site,
-        "async layout '{name}' is deferred; '{operation}' requires a concrete layout"
+        "generated layout '{name}' is deferred; '{operation}' requires a concrete layout"
     )
 }
 
@@ -1136,7 +1135,7 @@ fn check_types_inner(
     diagnostic_span: &mut Option<crate::Span>,
     diagnostic_labels: &mut Vec<(crate::Span, String)>,
     enforce_ownership: bool,
-    planning: Option<&AsyncPlanning<'_>>,
+    planning: Option<&GenerationPlanning<'_>>,
 ) -> Result<Declarations, String> {
     #[cfg(test)]
     SEMANTIC_PASSES.with(|passes| passes.set(passes.get() + 1));
@@ -1158,11 +1157,11 @@ fn check_types_inner(
                 _ => {}
             }
             for name in names {
-                if let Some(span) = planning.registry.generated_names.get(&name) {
+                if let Some(span) = planning.interfaces.generated_names.get(&name) {
                     *diagnostic_span = declaration_name_span(program, &name).or(Some(*span));
-                    diagnostic_labels.push((*span, "async interface reserved here".into()));
+                    diagnostic_labels.push((*span, "generated interface reserved here".into()));
                     return Err(format!(
-                        "async generated name '{name}' conflicts with an existing declaration"
+                        "generated name '{name}' conflicts with an existing declaration"
                     ));
                 }
             }
@@ -1170,7 +1169,7 @@ fn check_types_inner(
         for name in planning.selected_bodies {
             if !program.items.iter().any(|item| matches!(item, Item::Function(function) if function.name == *name && !function.external)) {
                 *diagnostic_span = declaration_name_span(program, name);
-                return Err(format!("async planning body '{name}' is missing or external"));
+                return Err(format!("generated planning body '{name}' is missing or external"));
             }
         }
     }
@@ -1272,8 +1271,8 @@ fn check_types_inner(
         }
     }
     if let Some(planning) = planning {
-        declared_types.extend(planning.registry.deferred_layouts.keys());
-        declared_types.extend(planning.registry.protocols.keys());
+        declared_types.extend(planning.interfaces.deferred_layouts.keys());
+        declared_types.extend(planning.interfaces.protocols.keys());
     }
     let mut linear_annotations = HashSet::new();
     for item in &program.items {
@@ -1409,11 +1408,16 @@ fn check_types_inner(
         }
     }
     if let Some(planning) = planning {
-        validate_planning_declaration_types(program, planning.registry, &declared_types, &aliases)
-            .map_err(|(message, span)| {
-                *diagnostic_span = span;
-                message
-            })?;
+        validate_planning_declaration_types(
+            program,
+            planning.interfaces,
+            &declared_types,
+            &aliases,
+        )
+        .map_err(|(message, span)| {
+            *diagnostic_span = span;
+            message
+        })?;
     }
     let mut globals = HashMap::new();
     for item in &program.items {
@@ -1528,15 +1532,15 @@ fn check_types_inner(
     functions.expression_ids = crate::typed_ir::expression_ids_selected(program, selected);
     functions.statement_ids = crate::typed_ir::statement_ids_selected(program, selected);
     if let Some(planning) = planning {
-        functions.deferred_layouts = planning.registry.deferred_layouts.clone();
-        for (name, variants) in &planning.registry.protocols {
+        functions.deferred_layouts = planning.interfaces.deferred_layouts.clone();
+        for (name, variants) in &planning.interfaces.protocols {
             if enums.contains_key(name) {
                 continue;
             }
             for variant in variants {
                 if let Some(previous) = variant_names.insert(variant.name.clone(), name.clone()) {
                     *diagnostic_span = planning
-                        .registry
+                        .interfaces
                         .generated_names
                         .get(&variant.name)
                         .copied();
@@ -1624,21 +1628,19 @@ fn check_types_inner(
         }
     }
     if let Some(planning) = planning {
-        for (name, interface) in &planning.registry.functions {
-            if interface.provenance == crate::async_interfaces::Provenance::Ordinary
-                && functions.contains_key(name)
-            {
+        for (name, interface) in &planning.interfaces.functions {
+            if !interface.is_generated && functions.contains_key(name) {
                 continue;
             }
             let function = &interface.declaration;
-            if interface.provenance != crate::async_interfaces::Provenance::Ordinary
+            if interface.is_generated
                 && (function.external
                     || function.calling_convention != CallingConvention::Lim
                     || function.unsafe_call)
             {
                 *diagnostic_span = interface.span;
                 return Err(format!(
-                    "async interface '{name}' has inconsistent calling flags"
+                    "generated interface '{name}' has inconsistent calling flags"
                 ));
             }
             if functions
@@ -1958,7 +1960,7 @@ fn check_types_inner(
     if let Some(planning) = planning {
         declaration_spans.extend(
             planning
-                .registry
+                .interfaces
                 .generated_names
                 .iter()
                 .map(|(name, span)| (name.clone(), *span)),
@@ -1972,55 +1974,8 @@ fn check_types_inner(
         functions.signatures,
         &declaration_spans,
     );
-    let mut async_graph_sources = program
-        .source_files
-        .iter()
-        .enumerate()
-        .filter_map(|(source_id, file)| {
-            file.path
-                .to_string_lossy()
-                .starts_with("<async graph ")
-                .then_some(source_id as u32)
-        })
-        .collect::<HashSet<_>>();
-    let mut async_invocation_spans = HashSet::new();
-    for (source_id, invocation) in &program.generated_source_invocations {
-        let is_async_generator = program
-            .source_files
-            .get(invocation.source_id as usize)
-            .and_then(|file| file.source.get(invocation.start..invocation.end))
-            .is_some_and(|text| text.trim_start().starts_with("(@async-fn"));
-        if is_async_generator {
-            async_graph_sources.insert(*source_id);
-            async_invocation_spans.insert((invocation.source_id, invocation.start, invocation.end));
-        }
-    }
-    if !async_graph_sources.is_empty() {
-        for item in &program.items {
-            let crate::Item::Function(function) = item else {
-                continue;
-            };
-            let async_generated =
-                program
-                    .declaration_spans
-                    .get(&function.name)
-                    .is_some_and(|span| {
-                        async_graph_sources.contains(&span.source_id)
-                            || async_invocation_spans.contains(&(
-                                span.source_id,
-                                span.start,
-                                span.end,
-                            ))
-                    });
-            if async_generated {
-                if let Some(id) = declarations.function_id(&function.name) {
-                    declarations.async_generated_functions.insert(id);
-                }
-            }
-        }
-    }
     if let Some(planning) = planning {
-        declarations.set_deferred_layouts(&planning.registry.deferred_layouts);
+        declarations.set_deferred_layouts(&planning.interfaces.deferred_layouts);
     }
     let checked_expression_types = std::sync::Arc::new(functions.expression_types.into_inner());
     let checked_expression_spans = std::sync::Arc::new(functions.expression_spans.into_inner());
@@ -2043,10 +1998,16 @@ fn check_types_inner(
     })?;
     if let Some(planning) = planning {
         *diagnostic_code = crate::DiagnosticCode::Unsafe;
-        crate::async_interfaces::check_selected_unsafe(
+        let interfaces = planning
+            .interfaces
+            .functions
+            .values()
+            .map(|interface| &interface.declaration)
+            .collect::<Vec<_>>();
+        crate::unsafecheck::check_selected_with_span(
             program,
-            planning.registry,
             planning.selected_bodies,
+            &interfaces,
         )
         .map_err(|(message, span)| {
             *diagnostic_span = span;
@@ -7743,9 +7704,20 @@ fn list_expression(
                 ]))
             }
         }
-        "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" => {
-            let mutable_borrow = matches!(operator, "borrow-mut" | "pin-borrow-mut");
-            let pin_referent = matches!(operator, "pin-borrow" | "pin-borrow-mut");
+        "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut" => {
+            let mutable_borrow = matches!(operator, "pin" | "borrow-mut" | "pin-borrow-mut");
+            let pin_referent = matches!(
+                operator,
+                "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
+            );
+            if matches!(operator, "pin" | "pin-shared") {
+                require_arity(operator, items, 2)?;
+                if !matches!(&items[1], Expr::Symbol(name) if variables.locals.contains_key(name)) {
+                    return Err(semantic_at!(ErrorSite::Argument(operator.into(), 1),
+                        "{operator} requires an initialized local variable; use a pinned reborrow for projections"
+                    ));
+                }
+            }
             if items.len() == 2 {
                 if pin_referent {
                     require_arity(operator, items, 2)?;
@@ -10543,10 +10515,10 @@ fn fits_unsigned_integer(value: u128, ty: &Type) -> bool {
 }
 
 #[cfg(test)]
-mod async_planning_tests {
+mod generation_planning_tests {
     use super::*;
 
-    fn context(body: &str) -> (Program, crate::async_interfaces::Registry) {
+    fn context(body: &str) -> (Program, crate::generation_interfaces::DeclarationInterfaces) {
         let source = format!(
             "(@async-fn (: protocol start-await : waker #u64
                 : function (#fn start () #u64 (#return 1u64)))) {body}"
@@ -10560,17 +10532,17 @@ mod async_planning_tests {
         )
         .unwrap();
         let program = crate::parse_prepared_async_declarations(&prepared).unwrap();
-        let registry = crate::async_interfaces::Registry::from_program_invocations(
+        let registry = crate::generator::async_interfaces::Registry::from_program_invocations(
             &program,
             &prepared.expressions,
         )
         .unwrap();
-        (program, registry)
+        (program, registry.interfaces().clone())
     }
 
     fn plan(body: &str) -> Result<Declarations, AnalysisError> {
-        let (program, registry) = context(body);
-        resolve_async_planning(&program, &registry, &HashSet::from(["main".into()]))
+        let (program, interfaces) = context(body);
+        resolve_generation_planning(&program, &interfaces, &HashSet::from(["main".into()]))
     }
 
     #[test]
@@ -10660,13 +10632,14 @@ mod async_planning_tests {
 
     #[test]
     fn planning_types_are_not_a_stack_lifetime_or_suspension_proof() {
-        let (program, registry) = context(
+        let (program, interfaces) = context(
             "(#fn main () (#ref #u64)
                 (#let local #u64 1u64)
                 (#return (#borrow local)))",
         );
         let selected = HashSet::from(["main".into()]);
-        let mut declarations = resolve_async_planning(&program, &registry, &selected).unwrap();
+        let mut declarations =
+            resolve_generation_planning(&program, &interfaces, &selected).unwrap();
         assert!(declarations.planning_only);
         assert!(declarations.deferred_layouts.contains_key("start-task"));
         let types = crate::linearcheck::LinearTypes::from_program(&program);

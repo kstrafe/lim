@@ -1,8 +1,10 @@
 //! Validate redundant await contracts before syntactic state-machine lowering
+//! Implementation detail of built-in code generation, not runtime semantics.
 //! can erase them. Types come only from explicit declarations, not inference.
 use std::collections::HashMap;
 
-use crate::{async_fn::AsyncTypeEnvironment, Expr, Span, SpannedExpr, Type};
+use crate::generator::async_fn::AsyncTypeEnvironment;
+use crate::{Expr, Span, SpannedExpr, Type};
 
 pub(crate) struct Error {
     pub message: String,
@@ -98,7 +100,7 @@ impl Checker<'_> {
     }
     fn bind(&self, pattern: &Expr, ty: &Type, scope: &mut HashMap<String, Type>) {
         let mut bindings = Vec::new();
-        if crate::async_fn::collect_enum_pattern_bindings(
+        if crate::generator::async_fn::collect_enum_pattern_bindings(
             pattern,
             &crate::type_source(ty),
             self.environment,
@@ -310,7 +312,7 @@ mod tests {
 
     fn check_source(source: &str) -> Option<Error> {
         let forms = crate::parse(source).unwrap();
-        let environment = crate::async_type_environment(&forms);
+        let environment = crate::generator::frontend::async_type_environment(&forms);
         check(forms.last().unwrap(), &environment)
     }
 

@@ -35,7 +35,7 @@ pub(crate) fn check(
     let mut relevant = declarations.bodies.iter().filter_map(|(name, body)| {
         let needed = body.parameter_loan_slots.iter().chain(&body.parameter_referent_loan_slots).flatten().any(|slot| slot.owned_allocation)
             || body.nodes.iter().any(|node| matches!(&node.kind, NodeKind::Form { head, callee: None, .. }
-                if matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut" | "pin-own-of" | "pin-own-borrow" | "pin-own-borrow-mut" | "pin-release")))
+                if matches!(head.as_str(), "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut" | "pin-own-of" | "pin-own-borrow" | "pin-own-borrow-mut" | "pin-release")))
             || body.nodes.iter().any(|node| matches!(node.ty, Some(crate::Type::PinOwned(_))));
         needed.then_some(name)
     }).collect::<HashSet<_>>();
@@ -289,8 +289,10 @@ fn check_stack(
             }
             FlowAction::Borrow { value, .. }
                 if matches!(&body.nodes[value.0].kind,
-                NodeKind::Form { head, .. } if matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut"))
-                    && matches!(&body.nodes[value.0].ty, Some(crate::Type::PinnedReference { target, .. }) if types.is_linear(target)) =>
+                NodeKind::Form { head, .. } if matches!(head.as_str(), "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"))
+                    && (matches!(&body.nodes[value.0].kind,
+                        NodeKind::Form { head, .. } if matches!(head.as_str(), "pin" | "pin-shared"))
+                        || matches!(&body.nodes[value.0].ty, Some(crate::Type::PinnedReference { target, .. }) if types.is_linear(target))) =>
             {
                 for origin in origins.value_before(body, flow, event, value) {
                     if let PlaceRoot::Local(binding) = origin.place.root {
@@ -325,7 +327,7 @@ fn check_stack(
         }
         let event = FlowNodeId(index);
         let violation = match &node.action {
-            FlowAction::Borrow { value, place, .. } if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut"))
+            FlowAction::Borrow { value, place, .. } if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"))
                 && matches!(&body.nodes[value.0].ty, Some(crate::Type::PinnedReference { target, .. }) if types.is_linear(target))
                 && matches!(&body.nodes[value.0].kind, NodeKind::Form { children, .. }
                     if crate::typed_place::reads_through_reference(body, children[1])

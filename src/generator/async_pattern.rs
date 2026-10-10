@@ -1,4 +1,5 @@
 //! Nonowning tests of retained, checked async patterns.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! Only Copy scalar leaves are loaded. Aggregates remain in their tagged
 //! cells until Commit; inspecting a variant never extracts its payload.

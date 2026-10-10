@@ -24,6 +24,10 @@ for s:type in ['bool', 'char', 'u8', 'u16', 'u32', 'u64', 'u128', 'usize',
 endfor
 for [s:token, s:group] in [
       \ ['#ref-mut', 'limTypeForm'], ['#slice', 'limTypeForm'],
+      \ ['#pin', 'limPin'], ['#pin-shared', 'limPin'],
+      \ ['#pin-ref', 'limTypeForm'], ['#pin-ref-mut', 'limTypeForm'],
+      \ ['#pin-own', 'limTypeForm'], ['#pin-borrow', 'limKeyword'],
+      \ ['#pin-borrow-mut', 'limKeyword'], ['#pin-custom', 'limKeyword'],
       \ ['#u64.+.wrap', 'limOperator'], ['#u128./', 'limOperator'],
       \ ['#u128.%', 'limOperator'], ['#i8.*.saturate', 'limOperator'],
       \ ['#u64.==', 'limOperator'], ['#u32.&', 'limOperator'],
@@ -54,6 +58,8 @@ for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],
 endfor
 call assert_equal('Type', synIDattr(synIDtrans(hlID('limType')), 'name'))
 call assert_equal('Operator', synIDattr(synIDtrans(hlID('limOperator')), 'name'))
+call assert_equal(synIDattr(synIDtrans(hlID('Keyword')), 'name'),
+      \ synIDattr(synIDtrans(hlID('limPin')), 'name'))
 
 if !empty(v:errors)
   for s:error in v:errors

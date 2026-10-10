@@ -356,7 +356,7 @@ pub(crate) enum StagedReferentError {
 pub(crate) struct Declarations {
     /// Planning declarations are not ownership, escape, or runtime-layout proofs.
     pub planning_only: bool,
-    pub deferred_layouts: HashMap<String, crate::async_interfaces::DeferredLayout>,
+    pub deferred_layouts: HashMap<String, crate::generation_interfaces::DeferredLayout>,
     pub bodies: HashMap<String, crate::typed_body::Body>,
     pub flows: HashMap<String, crate::typed_flow::FlowGraph>,
     pub liveness: HashMap<String, crate::typed_flow::FlowLiveness>,
@@ -368,10 +368,6 @@ pub(crate) struct Declarations {
     function_ids: HashMap<String, FunctionId>,
     external_function_ids: HashSet<FunctionId>,
     pub thread_capture_schemas: HashMap<String, ThreadCaptureSchema>,
-    /// Generated async poll/cancel bodies have a separate source-level witness
-    /// analysis; retain their identities so call-site checks can distinguish
-    /// state-machine plumbing from ordinary user functions.
-    pub(crate) async_generated_functions: HashSet<FunctionId>,
     global_names: Vec<String>,
     global_ids: HashMap<String, GlobalId>,
     aggregate_names: Vec<String>,
@@ -689,7 +685,6 @@ impl Declarations {
             function_ids,
             external_function_ids: HashSet::new(),
             thread_capture_schemas: HashMap::new(),
-            async_generated_functions: HashSet::new(),
             global_names,
             global_ids,
             aggregate_names,
@@ -703,7 +698,7 @@ impl Declarations {
 
     pub fn set_deferred_layouts(
         &mut self,
-        layouts: &HashMap<String, crate::async_interfaces::DeferredLayout>,
+        layouts: &HashMap<String, crate::generation_interfaces::DeferredLayout>,
     ) {
         self.planning_only = true;
         self.deferred_layouts = layouts.clone();
@@ -889,7 +884,7 @@ impl Declarations {
                         program,
                         &expression_spans_by_address,
                     );
-                    let mut body = crate::typed_body::Body::lower(
+                    let body = crate::typed_body::Body::lower(
                             function,
                             self,
                             types,
@@ -900,11 +895,6 @@ impl Declarations {
                             &binding_spans,
                             &parameter_spans,
                         );
-                    body.async_generated = self
-                        .function_id(&function.name)
-                        .is_some_and(|id| self.async_generated_functions.contains(&id));
-                    body.async_generated_functions =
-                        Arc::new(self.async_generated_functions.clone());
                     Some((function.name.clone(), body))
                 }
                 _ => None,
@@ -1037,7 +1027,7 @@ impl Declarations {
     /// Snapshot selection is not a successful program-validation boundary;
     /// callers must still enforce the ordinary ownership and borrowing gates.
     /// Collect only requested bodies, avoiding a new per-body storage solve
-    /// for unrelated imports or ordinary compilation without async lowering.
+    /// for unrelated imports or compilation without capture queries.
     #[cfg_attr(not(test), allow(dead_code))] // General frame emission will consume these facts.
     pub fn suspension_storage_facts(
         &mut self,

@@ -1,4 +1,5 @@
 //! Ordinary-code emission from the executable async graph.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! The dispatcher, rather than a collection of body-shape rewrites, defines
 //! execution order. Every owning storage cell has an explicit Empty/Full tag.
@@ -9,11 +10,11 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
-use crate::async_exec::{
+use crate::generator::async_exec::{
     Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Edge, Graph, LoadKind,
     PlaceDescriptor, ReleaseKind, Terminator, ValueId,
 };
-use crate::async_prepare::{Function, Planning};
+use crate::generator::async_prepare::{Function, Planning};
 use crate::source_error::SourceError;
 use crate::typed_body::{BindingId, Body};
 use crate::{DiagnosticCode, Expr, Item, Program, Span, Type};
@@ -65,11 +66,11 @@ struct Emitter<'a> {
     reserved: RefCell<HashSet<String>>,
     next: Cell<usize>,
     types: crate::linearcheck::LinearTypes,
-    render: crate::async_render::RenderContext<'a>,
-    retirement: Option<crate::async_retire::Plan>,
-    lending: Option<crate::async_lend::Plan>,
-    leases: crate::async_lease::Plan,
-    reference_cells: Option<crate::async_cells::Plan>,
+    render: crate::generator::async_render::RenderContext<'a>,
+    retirement: Option<crate::generator::async_retire::Plan>,
+    lending: Option<crate::generator::async_lend::Plan>,
+    leases: crate::generator::async_lease::Plan,
+    reference_cells: Option<crate::generator::async_cells::Plan>,
     projections: Vec<String>,
 }
 
@@ -113,7 +114,7 @@ impl<'a> Emitter<'a> {
             ));
         }
         let poll = planning.interfaces.functions.values().find(|interface|
-            interface.provenance == crate::async_interfaces::Provenance::AsyncPoll
+            interface.provenance == crate::generator::async_interfaces::Provenance::AsyncPoll
             && interface.declaration.parameters.first().is_some_and(|parameter|
                 parameter.ty == Type::Named(frame.clone())
                 || matches!(&parameter.ty, Type::PinnedReference { target, .. } if target.as_ref() == &Type::Named(frame.clone()))))
@@ -135,13 +136,13 @@ impl<'a> Emitter<'a> {
             }
         }
         let types = crate::linearcheck::LinearTypes::from_program(&planning.program);
-        let lending = crate::async_lend::Plan::new(
+        let lending = crate::generator::async_lend::Plan::new(
             body,
             &planning.declarations.flows[&function.model.body_name],
             &types,
         )
         .map_err(|error| fail(function, error.message))?;
-        let leases = crate::async_lease::Plan::new(
+        let leases = crate::generator::async_lease::Plan::new(
             &function.graph,
             lending.as_ref(),
             &types,
@@ -166,7 +167,7 @@ impl<'a> Emitter<'a> {
             reserved: RefCell::new(reserved),
             next: Cell::new(0),
             types,
-            render: crate::async_render::RenderContext::new(
+            render: crate::generator::async_render::RenderContext::new(
                 body,
                 &planning.declarations,
                 &function.graph,
@@ -213,7 +214,7 @@ impl<'a> Emitter<'a> {
                 exclusive_handles.insert(*value);
             }
         }
-        emitter.retirement = crate::async_retire::Plan::with_exclusive_handles(
+        emitter.retirement = crate::generator::async_retire::Plan::with_exclusive_handles(
             &function.graph,
             &emitter.types,
             &exclusive_handles,
@@ -223,7 +224,7 @@ impl<'a> Emitter<'a> {
             plan.validate(&function.graph)
                 .map_err(|error| fail(function, error.message))?;
         }
-        emitter.reference_cells = crate::async_cells::Plan::new(
+        emitter.reference_cells = crate::generator::async_cells::Plan::new(
             &function.graph,
             &emitter.types,
             emitter.retirement.as_ref(),
@@ -484,11 +485,20 @@ impl<'a> Emitter<'a> {
             .get(&binding)
             .map_or_else(String::new, |slot| {
                 let slot = &self.slots[*slot];
-                format!(
+                let clear = format!(
                     "(#call {} (: slot {}))",
                     slot.clear,
                     Self::slot_ref(slot, true)
-                )
+                );
+                if self.pinned && self.types.contains_reference(&slot.ty) {
+                    format!(
+                        "{clear}\n(#assert (#variant-is {} {}))",
+                        Self::slot_ref(slot, false),
+                        slot.empty
+                    )
+                } else {
+                    clear
+                }
             })
     }
 
@@ -556,8 +566,10 @@ impl<'a> Emitter<'a> {
         let slots = cells
             .iter()
             .filter_map(|cell| match cell {
-                crate::async_cells::Cell::Binding(binding) => self.bindings.get(binding).copied(),
-                crate::async_cells::Cell::Value(value) => {
+                crate::generator::async_cells::Cell::Binding(binding) => {
+                    self.bindings.get(binding).copied()
+                }
+                crate::generator::async_cells::Cell::Value(value) => {
                     // Handle retirement already makes this particular Empty write
                     // visible on Pending; do not emit it a second time.
                     if !exit
@@ -576,7 +588,10 @@ impl<'a> Emitter<'a> {
         self.clear_handle_slots(&slots)
     }
 
-    fn pattern_value(&self, pattern: &crate::async_exec::Pattern) -> Result<String, Error> {
+    fn pattern_value(
+        &self,
+        pattern: &crate::generator::async_exec::Pattern,
+    ) -> Result<String, Error> {
         let ty = &self.function.graph.values[pattern.scrutinee.0].ty;
         if !self.types.can_repeat(ty) {
             return Err(fail(
@@ -589,7 +604,7 @@ impl<'a> Emitter<'a> {
 
     fn pattern_source(
         &self,
-        pattern: &crate::async_exec::Pattern,
+        pattern: &crate::generator::async_exec::Pattern,
         names: &HashMap<BindingId, String>,
     ) -> Result<String, Error> {
         let rendered = self
@@ -604,7 +619,7 @@ impl<'a> Emitter<'a> {
 
     fn pattern_bind(
         &mut self,
-        pattern: &crate::async_exec::Pattern,
+        pattern: &crate::generator::async_exec::Pattern,
         commit: bool,
     ) -> Result<String, Error> {
         // Repetition is allowed only by the ordinary checked type. This is
@@ -870,7 +885,7 @@ impl<'a> Emitter<'a> {
         pinned: bool,
     ) -> Result<String, Error> {
         if matches!(descriptor.root, AddressRoot::Local(_)) {
-            let owner = crate::async_owner::Borrow::new(
+            let owner = crate::generator::async_owner::Borrow::new(
                 &self.function.graph,
                 descriptor,
                 &self.planning.declarations,
@@ -909,7 +924,7 @@ impl<'a> Emitter<'a> {
             }
             return Ok(self.put_value(dst, &format!("(#call {name} (: {argument} {input}))")));
         }
-        let project = crate::async_projection::Reborrow::new(
+        let project = crate::generator::async_projection::Reborrow::new(
             &self.function.graph,
             descriptor,
             &self.planning.declarations,
@@ -966,7 +981,7 @@ impl<'a> Emitter<'a> {
         descriptor: &PlaceDescriptor,
         value: ValueId,
     ) -> Result<String, Error> {
-        let write = crate::async_projection::Write::new(
+        let write = crate::generator::async_projection::Write::new(
             &self.function.graph,
             descriptor,
             &self.planning.declarations,
@@ -1021,7 +1036,8 @@ impl<'a> Emitter<'a> {
         let top = vec![true; graph.bindings.len()];
         let mut before = vec![top.clone(); graph.blocks.len()];
         let mut after = before.clone();
-        let transfer = |located: &crate::async_exec::LocatedAction, full: &mut Vec<bool>| {
+        let transfer = |located: &crate::generator::async_exec::LocatedAction,
+                        full: &mut Vec<bool>| {
             match &located.action {
                 Action::Bind { binding, .. } => full[binding.0] = true,
                 Action::Preview(pattern) | Action::Commit(pattern) => {
@@ -1058,8 +1074,10 @@ impl<'a> Emitter<'a> {
                                     // Lending keeps the owner Full. Nonmoving
                                     // access still requires a certified window
                                     // or a materialized reborrow at emission.
-                                    if !matches!(lending, Some(crate::async_lend::Access::Lend(_)))
-                                    {
+                                    if !matches!(
+                                        lending,
+                                        Some(crate::generator::async_lend::Access::Lend(_))
+                                    ) {
                                         full[binding.0] = false;
                                     }
                                 }
@@ -1139,7 +1157,10 @@ impl<'a> Emitter<'a> {
         )
     }
 
-    fn action(&mut self, located: &crate::async_exec::LocatedAction) -> Result<String, Error> {
+    fn action(
+        &mut self,
+        located: &crate::generator::async_exec::LocatedAction,
+    ) -> Result<String, Error> {
         let graph = &self.function.graph;
         let error = |message: &str| Error {
             message: message.into(),
@@ -1162,7 +1183,7 @@ impl<'a> Emitter<'a> {
                         Some(lease) => {
                             assert_eq!(
                                 lease.consumer,
-                                crate::async_lease::Consumer::Call,
+                                crate::generator::async_lease::Consumer::Call,
                                 "a leaf read lease cannot be a call operand"
                             );
                             false
@@ -1253,12 +1274,12 @@ impl<'a> Emitter<'a> {
                         self.lending.as_ref().and_then(|plan| plan.access(source))
                     });
                     match access {
-                        Some(crate::async_lend::Access::Move(place))
+                        Some(crate::generator::async_lend::Access::Move(place))
                             if place
                                 == &crate::typed_place::Place::root(
                                     crate::typed_body::PlaceRoot::Local(binding),
                                 ) => {}
-                        Some(crate::async_lend::Access::Lend(_)) => {
+                        Some(crate::generator::async_lend::Access::Lend(_)) => {
                             if self
                                 .leases
                                 .get(*dst)
@@ -1576,7 +1597,7 @@ impl<'a> Emitter<'a> {
                         .remove(0)
                         .expr;
                     let prefix = self.fresh("pattern-inspect");
-                    let test = crate::async_pattern::test(
+                    let test = crate::generator::async_pattern::test(
                         &self.planning.declarations,
                         &source,
                         &ty,
@@ -1615,7 +1636,8 @@ impl<'a> Emitter<'a> {
             .functions
             .values()
             .any(|interface| {
-                interface.provenance == crate::async_interfaces::Provenance::CancelDispatcher
+                interface.provenance
+                    == crate::generator::async_interfaces::Provenance::CancelDispatcher
                     && interface
                         .declaration
                         .parameters
@@ -1646,6 +1668,57 @@ impl<'a> Emitter<'a> {
                 .map_or_else(Vec::new, |plan| plan.entry[index].clone());
             actions.push(self.clear_values(&retired));
             for (action_index, action) in block.actions.iter().enumerate() {
+                let owner = match action.action {
+                    Action::Bind { binding, .. } => Some(binding),
+                    Action::Borrow { place, .. }
+                    | Action::Load { place, .. }
+                    | Action::Store { place, .. }
+                    | Action::Release { place, .. } => match graph.places[place.0].root {
+                        AddressRoot::Local(binding) => Some(binding),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let touches_owner = owner.is_some_and(|binding| {
+                    !matches!(
+                        graph.bindings[binding.0].ty,
+                        Type::Reference { .. } | Type::PinnedReference { .. } | Type::PinOwned(_)
+                    ) && self
+                        .bindings
+                        .get(&binding)
+                        .is_some_and(|slot| !self.slots[*slot].copy)
+                });
+                // Publish checked state facts immediately before owner access.
+                // Earlier facts may have been invalidated by an unsafe call.
+                if let Some(plan) = self
+                    .reference_cells
+                    .as_ref()
+                    .filter(|_| self.pinned && touches_owner)
+                {
+                    for cell in plan
+                        .action_empty
+                        .get(&(BlockId(index), action_index))
+                        .into_iter()
+                        .flatten()
+                    {
+                        let slot = match cell {
+                            crate::generator::async_cells::Cell::Binding(binding) => {
+                                self.bindings.get(binding)
+                            }
+                            crate::generator::async_cells::Cell::Value(value) => {
+                                self.values.get(value)
+                            }
+                        };
+                        if let Some(slot) = slot {
+                            let slot = &self.slots[*slot];
+                            actions.push(format!(
+                                "(#assert (#variant-is {} {}))",
+                                Self::slot_ref(slot, false),
+                                slot.empty
+                            ));
+                        }
+                    }
+                }
                 actions.push(self.action(action)?);
                 let retired = self.retirement.as_ref().map_or_else(Vec::new, |plan| {
                     plan.after_action[index][action_index].clone()
@@ -1867,11 +1940,12 @@ pub(crate) fn program(
     )?;
     // Full validation appends/checks original source witnesses with real
     // generated interfaces, before inspecting generated unsafe storage code.
-    program.async_functions = planning
+    let sources = planning
         .functions
         .iter()
         .map(|function| function.source.clone())
-        .collect();
+        .collect::<Vec<_>>();
+    crate::generator::async_source::attach_validation(&mut program, &sources);
     Ok(program)
 }
 
@@ -1921,7 +1995,7 @@ mod tests {
             None,
         )
         .unwrap();
-        crate::async_prepare::prepare(&syntax).unwrap()
+        crate::generator::async_prepare::prepare(&syntax).unwrap()
     }
 
     fn runtime(body: &str, main: &str, expected: i32) -> Vec<Generated> {
@@ -2472,7 +2546,7 @@ mod tests {
         );
         let planning = prepare_function(function, &main);
         for checked in &planning.functions {
-            let plan = crate::async_retire::Plan::new(
+            let plan = crate::generator::async_retire::Plan::new(
                 &checked.graph,
                 &crate::linearcheck::LinearTypes::from_program(&planning.program),
             )
@@ -2919,7 +2993,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let planning = crate::async_prepare::prepare(&syntax).unwrap();
+        let planning = crate::generator::async_prepare::prepare(&syntax).unwrap();
         let error = generate(&planning).err().unwrap();
         assert_eq!(
             error.message,
@@ -2996,22 +3070,10 @@ mod tests {
               (#case (work-pending next) (#block (#set running next) (#set retries (#u64.+.wrap retries 1u64)) ()))
               (#case (work-ready result) (#block (#set answer result) (#break) (#unreachable)))))
             (#drop running) (#forget task) (#assert (#u64.== retries 2u64)) (#return answer))";
-        // Preserve this full caller-loop witness as a fail-closed gate. Its
-        // returned parent handle must carry frame-internal loan relationships
-        // into later calls, not merely suppress the existing child-loan check.
-        let planning = prepare_generator("async-fn-pinned", function, main);
-        let generated = generate(&planning).unwrap();
-        let proposed = program(&planning, &generated).unwrap();
-        let error = crate::CheckedProgram::validate_with_span(&proposed)
-            .err()
-            .expect("named parent-handle recycling still requires internal-loan remapping");
-        assert_eq!(error.1, DiagnosticCode::Borrow, "{}", error.0);
-        assert!(error.0.contains("for call to 'work-poll'"), "{}", error.0);
-        let span = error.2.unwrap();
-        assert_eq!(
-            &proposed.source_files[span.source_id as usize].source[span.start..span.end],
-            "running"
-        );
+        // Recycled parent handles retain the identity of each internal child
+        // loan through the caller loop. The overlapping-borrow negative below
+        // remains checked independently of the generated representation.
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
 
         // Distinct consumed continuation handles already retain those loans.
         // The source async loop itself is unchanged and suspends twice.

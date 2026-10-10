@@ -1171,7 +1171,7 @@ fn check_expr(
                 }
             } else if matches!(
                 head,
-                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
             ) {
                 if items.len() == 3 {
                     let owner = simple_place_name(&items[1]);

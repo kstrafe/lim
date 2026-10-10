@@ -1,4 +1,4 @@
-//! Suspension storage facts from the existing checked ownership solution.
+//! General capture storage facts from the existing checked ownership solution.
 //!
 //! Data reads, destruction, and address/lifetime retention are separate reasons
 //! to retain storage. These are conservative facts, not permission to move a

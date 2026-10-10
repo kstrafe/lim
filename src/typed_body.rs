@@ -1230,12 +1230,6 @@ pub(crate) type OutputVariantMap<T> =
 
 #[derive(Default)]
 pub(crate) struct Body {
-    /// Generated async poll/cancel bodies have state-dependent frame contents;
-    /// ordinary lexical parent edges must not be seeded across their states.
-    pub async_generated: bool,
-    /// Resolved async-generated callees, used to keep their state-dependent
-    /// reference stores out of ordinary linear parent propagation.
-    pub async_generated_functions: Arc<std::collections::HashSet<crate::typed_ir::FunctionId>>,
     pub nodes: Vec<Node>,
     pub bindings: Vec<Binding>,
     pub instructions: Vec<Instruction>,
@@ -2471,7 +2465,12 @@ impl Builder<'_> {
                         if matches!(items.first(), Some(Expr::Symbol(_)))
                             && matches!(
                                 head.as_str(),
-                                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                                "borrow"
+                                    | "borrow-mut"
+                                    | "pin"
+                                    | "pin-shared"
+                                    | "pin-borrow"
+                                    | "pin-borrow-mut"
                             )
                         {
                             if let Some(Expr::Symbol(name)) = items.get(1) {

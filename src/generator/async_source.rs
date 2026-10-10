@@ -1,4 +1,5 @@
 //! Original async bodies analyzed through ordinary function calls.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! The synchronous driver is an analysis model, not the async runtime. It
 //! evaluates a child once and polls it in an ordinary loop until Ready. The
@@ -125,7 +126,7 @@ pub(crate) struct CheckedAwait {
 pub(crate) struct Suspension {
     pub site: CheckedAwait,
     /// None denotes an unreachable original await, never an empty live frame.
-    pub storage: Option<crate::async_storage::Snapshot>,
+    pub storage: Option<crate::generator::async_storage::Snapshot>,
 }
 
 fn head(node: &SpannedExpr) -> &str {
@@ -190,7 +191,7 @@ fn names(expr: &Expr, output: &mut HashSet<String>) {
 
 struct Builder<'a> {
     base: &'a Program,
-    interfaces: Option<&'a crate::async_interfaces::Registry>,
+    interfaces: Option<&'a crate::generator::async_interfaces::Registry>,
     aliases: HashMap<String, Type>,
     used: HashSet<String>,
     prefix: String,
@@ -262,7 +263,11 @@ impl Builder<'_> {
             *child = self.expression(child, path, statement_child)?;
             path.pop();
         }
-        if matches!(head(node), "pin-borrow" | "pin-borrow-mut") && output.children.len() == 2 {
+        if matches!(
+            head(node),
+            "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
+        ) && output.children.len() == 2
+        {
             if let Some((frame, owners)) = &self.frame {
                 fn project(node: &mut SpannedExpr, frame: &str, owners: &HashMap<String, Type>) {
                     if symbol(node).is_some_and(|name| owners.contains_key(name)) {
@@ -282,6 +287,18 @@ impl Builder<'_> {
                     }
                 }
                 project(&mut output.children[1], frame, owners);
+                if matches!(head(node), "pin" | "pin-shared") {
+                    // Local pinning has become a projection into stationary
+                    // frame storage; validate it as an ordinary pinned reborrow.
+                    output.children[0] = atom(
+                        if head(node) == "pin" {
+                            "#pin-borrow-mut"
+                        } else {
+                            "#pin-borrow"
+                        },
+                        output.children[0].span,
+                    );
+                }
             }
         }
         rebuild(&mut output);
@@ -554,7 +571,7 @@ pub(crate) fn lower_in_registry(
     source: &SpannedExpr,
     waker: Type,
     base: &Program,
-    interfaces: &crate::async_interfaces::Registry,
+    interfaces: &crate::generator::async_interfaces::Registry,
 ) -> Result<Lowered, Error> {
     lower_source(source, waker, base, None, Some(interfaces))
 }
@@ -564,7 +581,7 @@ fn lower_source(
     waker: Type,
     base: &Program,
     frame: Option<&str>,
-    interfaces: Option<&crate::async_interfaces::Registry>,
+    interfaces: Option<&crate::generator::async_interfaces::Registry>,
 ) -> Result<Lowered, Error> {
     if head(source) != "fn" || source.children.len() < 5 {
         return Err(Error {
@@ -572,7 +589,7 @@ fn lower_source(
             span: source.span,
         });
     }
-    crate::validate_async_function_shadowing(&source.expr).map_err(|message| Error {
+    crate::validate_function_shadowing(&source.expr).map_err(|message| Error {
         message,
         span: source.span,
     })?;
@@ -700,7 +717,7 @@ impl Lowered {
     /// ordinary checked-body boundary and then query its immutable facts.
     pub fn program(&self, base: &Program) -> Result<Program, crate::source_error::SourceError> {
         let mut program = base.clone();
-        program.async_functions.clear();
+        program.generator_validation = None;
         self.append(&mut program)?;
         Ok(program)
     }
@@ -712,7 +729,7 @@ impl Lowered {
     pub(crate) fn append_with_interfaces(
         &self,
         program: &mut Program,
-        interfaces: &crate::async_interfaces::Registry,
+        interfaces: &crate::generator::async_interfaces::Registry,
     ) -> Result<(), crate::source_error::SourceError> {
         self.append_in_context(program, Some(interfaces))
     }
@@ -720,7 +737,7 @@ impl Lowered {
     fn append_in_context(
         &self,
         program: &mut Program,
-        interfaces: Option<&crate::async_interfaces::Registry>,
+        interfaces: Option<&crate::generator::async_interfaces::Registry>,
     ) -> Result<(), crate::source_error::SourceError> {
         let original_count = program.items.len();
         fn add(
@@ -905,7 +922,7 @@ impl Lowered {
         let body = &declarations.bodies[&self.body_name];
         let sites = self.map(body, &facts.flow, declarations)?;
         let types = crate::linearcheck::LinearTypes::from_program(checked.program());
-        let values = crate::async_values::plan_with_types(
+        let values = crate::generator::async_values::plan_with_types(
             body,
             &facts.flow,
             &sites
@@ -921,7 +938,8 @@ impl Lowered {
                 .unwrap_or(self.function.span),
             message: error.message,
         })?;
-        let storage = crate::async_storage::Analysis::new(body, &facts, &types, declarations);
+        let storage =
+            crate::generator::async_storage::Analysis::new(body, &facts, &types, declarations);
         sites
             .into_iter()
             .map(|site| {
@@ -961,19 +979,21 @@ impl Lowered {
     }
 }
 
-/// Check original async bodies together with ordinary generated declarations.
-/// Witnesses are never emitted or exposed as imported symbols. All identities
-/// belong to the single resolved context, not independently checked programs.
-pub(crate) fn resolve(
-    program: &Program,
-) -> Result<crate::typed_ir::Declarations, crate::typecheck::AnalysisError> {
-    if program.async_functions.is_empty() {
-        return crate::typecheck::resolve_program_for_analysis(program, true);
+/// Emit ordinary validation witnesses as part of generator expansion.
+pub(crate) fn attach_validation(program: &mut Program, sources: &[Source]) {
+    if !sources.is_empty() {
+        program.generator_validation = Some(validation_program(program, sources));
     }
+}
+
+fn validation_program(
+    program: &Program,
+    sources: &[Source],
+) -> Result<std::sync::Arc<Program>, crate::typecheck::AnalysisError> {
     let mut analysis = program.clone();
-    analysis.async_functions.clear();
+    analysis.generator_validation = None;
     let runtime_item_count = analysis.items.len();
-    for source in &program.async_functions {
+    for source in sources {
         let model = lower_with_frame(
             &source.function,
             source.waker.clone(),
@@ -992,61 +1012,28 @@ pub(crate) fn resolve(
             .append(&mut analysis)
             .map_err(|error| (error.message, error.code, error.span, Vec::new()))?;
     }
-    // Check the original bodies before their emitted continuations, so a
-    // duplicated source error is diagnosed at the original operand, not at a
-    // generated file or the whole generator invocation. Declaration IDs are
-    // resolved in this same context and do not depend on item order.
-    analysis.items.rotate_left(runtime_item_count);
-    let mut declarations = crate::typecheck::resolve_program_for_analysis(&analysis, true)
-        .map_err(|mut error| {
-            // Driver diagnostics refer to synthetic analysis files. Keep the
-            // runtime diagnostic API anchored at their original await instead.
-            if let Some(span) = error.2 {
-                if span.source_id as usize >= program.source_files.len() {
-                    error.2 = analysis
-                        .generated_source_invocations
-                        .get(&span.source_id)
-                        .copied();
-                }
-            }
-            for (span, _) in &mut error.3 {
-                if span.source_id as usize >= program.source_files.len() {
-                    if let Some(origin) = analysis.generated_source_invocations.get(&span.source_id)
-                    {
-                        *span = *origin;
-                    }
-                }
-            }
-            error
-        })?;
-    for source in &program.async_functions {
-        let Some(poll) = &source.generated_poll else {
-            continue;
-        };
-        if let Some(id) = declarations.function_id(poll) {
-            declarations.async_generated_functions.insert(id);
-        }
-        if source.pinned_frame.is_some() {
-            if let Some(id) = declarations.function_id(&format!("{poll}-cancel")) {
-                declarations.async_generated_functions.insert(id);
-            }
-        }
-    }
-    let runtime_names = program
+    analysis.items.drain(..runtime_item_count);
+    let names = analysis
         .items
         .iter()
         .flat_map(crate::item_declared_names)
         .collect::<HashSet<_>>();
-    declarations
-        .bodies
-        .retain(|name, _| runtime_names.contains(name));
-    declarations
-        .flows
-        .retain(|name, _| runtime_names.contains(name));
-    declarations
-        .liveness
-        .retain(|name, _| runtime_names.contains(name));
-    Ok(declarations)
+    analysis
+        .statement_spans
+        .retain(|(name, _), _| names.contains(name));
+    analysis
+        .statement_expressions
+        .retain(|(name, _), _| names.contains(name));
+    analysis
+        .declaration_spans
+        .retain(|name, _| names.contains(name));
+    analysis
+        .declaration_expressions
+        .retain(|name, _| names.contains(name));
+    analysis
+        .declaration_occurrences
+        .retain(|name, _| names.contains(name));
+    Ok(std::sync::Arc::new(analysis))
 }
 
 #[cfg(test)]
@@ -1350,11 +1337,13 @@ mod tests {
               (#return (#await Child Pending Ready step-poll (Waiting 1u64))))))"
         );
         let program = crate::parse_program(&source).unwrap();
-        assert_eq!(program.async_functions.len(), 1);
-        assert_eq!(
-            program.async_functions[0].function.children[4].children[1].children[0].expr,
-            Expr::Symbol("#await".into())
-        );
+        let witnesses = program
+            .generator_validation
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .unwrap();
+        assert!(!witnesses.items.is_empty());
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         assert!(!checked
             .dump_typed_ir()
@@ -1375,12 +1364,15 @@ mod tests {
         );
         // Supply a valid runtime context: source checking must still reject the
         // original body, even if a future frame rewrite omits its bad binding.
-        base.async_functions.push(Source {
-            function: original,
-            waker: Type::U64,
-            pinned_frame: None,
-            generated_poll: None,
-        });
+        attach_validation(
+            &mut base,
+            &[Source {
+                function: original,
+                waker: Type::U64,
+                pinned_frame: None,
+                generated_poll: None,
+            }],
+        );
         let error = crate::CheckedProgram::validate_with_span(&base)
             .err()
             .unwrap();
@@ -1533,13 +1525,13 @@ mod tests {
 
     #[test]
     fn promoted_linear_owner_is_transferred_once_not_duplicated_on_the_stack() {
-        let source = include_str!("../examples/async_fn_local_self_reference.lim").replace(
+        let source = include_str!("../../examples/async_fn_local_self_reference.lim").replace(
             "(#struct LocalOwner ((payload LocalPayload)))",
             "(#struct LocalOwner ((payload LocalPayload))) (#linear LocalOwner)",
         );
         let program = crate::parse_program(&source).unwrap();
         let mut runtime = program.clone();
-        runtime.async_functions.clear();
+        runtime.generator_validation = None;
         crate::CheckedProgram::validate(&runtime).unwrap();
         crate::CheckedProgram::validate(&program).unwrap();
         let missing = source.replace("(#let view (#pin-ref #u64)",
@@ -1550,7 +1542,7 @@ mod tests {
 
     #[test]
     fn promoted_reference_bearing_owners_still_require_the_runtime_frame_proof() {
-        let source = include_str!("../examples/async_fn_local_self_reference.lim")
+        let source = include_str!("../../examples/async_fn_local_self_reference.lim")
             .replace("(left #u64)", "(left (#ref #u64))")
             .replace("(#pin-ref #u64)", "(#pin-ref (#ref #u64))")
             .replace("(#deref view)", "(#deref (#deref view))");

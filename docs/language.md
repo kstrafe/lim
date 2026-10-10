@@ -415,6 +415,42 @@ borrows cannot escape the scope, and cancellation/resource cleanup must be
 implemented in the destruction callback. No function pointers, lambdas,
 `#let-pin`, or `#pin-end` are needed. See `examples/stationary_pin.lim`.
 
+For an initialized local, `(#pin local)` creates an exclusive `(#pin-ref-mut T)`
+and requires a `#let-mut` binding. `(#pin-shared local)` creates a shared
+`(#pin-ref T)` and also accepts immutable locals. Neither accepts a temporary,
+projection, reference variable, top-level constant, or static: use
+`#pin-borrow`/`#pin-borrow-mut` for
+projection reborrows. Both local operations permanently freeze the original
+storage, including Copy locals. Forgetting the reference ends its loan, but
+does not allow moving or assigning the original local again. A branch that
+may pin a local also freezes it after the branch joins.
+Copy values can still be read or copied from frozen storage when normal loan
+rules permit: copying a Copy value does not move the storage itself. Whole-local
+assignment remains forbidden. Each new loop iteration initializes fresh local
+storage; explicitly end the previous iteration's local after its views end.
+
+```lisp run=42
+(#struct LocalJob (: state #u64))
+(#linear LocalJob)
+(#fn main () #u64
+  (#let-mut job LocalJob (#struct-literal LocalJob (: state 0u64)))
+  (#let view (#pin-ref-mut LocalJob) (#pin job))
+  (#pin-set-field view state 42u64)
+  (#let answer #u64 (#get view state))
+  (#forget view)
+  (#forget job)
+  (#return answer))
+```
+
+Ordinary named functions can take pinned references, so multiple local pins
+can be selected and polled in branches without callbacks or generated wrappers.
+An ordinary reference does not satisfy a pinned-reference parameter. Local
+pins cannot escape their storage scope, and overlapping mutable loans are
+rejected. After all references end, explicit `#forget owner` ends the local
+in place; it is not a destructor and performs no resource cleanup. Perform
+any required in-place cleanup first. Local pinning does not change `#pin-own`:
+that heap owner remains movable because its allocation stays stationary.
+
 Low-level pinned-reference operations remain compiler primitives for generated
 code and unsafe implementations. Ordinary `#pin-borrow` permanently prevents
 moving a linear local after its first pin, even after its last view is forgotten;
@@ -815,7 +851,7 @@ signatures stay together, short nested expressions stay inline, and closing
 parentheses follow the final expression. A `#for` keeps initialization,
 comparison, and mutation together, followed by its indented body:
 
-```lisp
+```lisp syntax
 (#for (#let-mut i #u64 0) (#u64.< (#clone i) 10) (#set i (#u64.+.wrap (#clone i) 1))
   (#assert (#u64.< (#clone i) 10)))
 ```
@@ -2042,7 +2078,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd #i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
-| `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. While any derived pin is live, safe code cannot copy, move, replace, or destroy the referent. |
+| `#pin` | `(#pin initialized-local)` | `(#let view (#pin-ref-mut Node) (#pin node))` (expression) | Exclusively pins an initialized `#let-mut` local. Permanently prevents moving or assigning that local, even after forgetting the reference; explicit cleanup and then `#forget` end its lifetime in place. Rejects temporaries, projections, and reference variables. |
+| `#pin-borrow` | `(#pin-borrow place)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (expression) | Creates a shared pinned reference to a local or projected field place. Pinning a linear local permanently prevents moving it, even after derived views end; Copy referents retain ordinary loan-duration restrictions. |
 | `#pin-borrow-mut` | `(#pin-borrow-mut place)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (expression) | Creates an exclusive pinned reference; whole-referent replacement is forbidden, and normal exclusive-borrow rules apply. |
 | `#pin-get-payload` | `(#pin-get-payload pinned-enum-reference variant index)` | `(#let payload (#pin-ref #u64) (#pin-get-payload slot Full 0))` (expression) | Borrows a selected enum payload in place as a shared pinned reference. Unlike `#get-payload`, it never extracts or moves the payload value. |
 | `#pin-get-payload-mut` | `(#pin-get-payload-mut mutable-pinned-enum-reference variant index)` | `(#let payload (#pin-ref-mut #u64) (#pin-get-payload-mut slot Full 0))` (expression) | Borrows a selected enum payload in place as an exclusive pinned reference; requires a mutable pinned reference to the enum. |
@@ -2053,10 +2090,11 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#pin-ptr-borrow` | `(#pin-ptr-borrow pinned-anchor pointer)` | `(#unsafe (#pin-ptr-borrow pinned pointer))` (expression) | Unsafe shared pointer borrow tied to a pinned-reference anchor; returns a pinned reference and preserves anchor provenance. The caller proves pointer validity and address stability for the anchor lifetime. |
 | `#pin-ptr-borrow-mut` | `(#pin-ptr-borrow-mut pinned-mut-anchor mutable-pointer)` | `(#unsafe (#pin-ptr-borrow-mut pinned pointer))` (expression) | Unsafe exclusive pointer borrow tied to a mutable pinned-reference anchor; returns a mutable pinned reference. The caller proves validity, stability, and unique access. |
 | `#pin-read` | `(#pin-read pinned-reference)` | `(#unsafe (#pin-read pinned))` (expression) | Reads a pinned referent by value. Unsafe because the caller must prevent aliasing and must not duplicate ownership of linear data. |
-| `#pin-ref` | `(#pin-ref TargetType)` | `(#let pinned (#pin-ref Node) (#pin-borrow node))` (type) | Shared pinned-reference type. It is distinct from an ordinary reference and keeps its referent immovable while the loan is live. |
+| `#pin-ref` | `(#pin-ref TargetType)` | `(#let pinned (#pin-ref Node) (#pin-shared node))` (type) | Shared reference to stationary storage, distinct from an ordinary reference. Forgetting a local pin reference does not unpin the original local. |
 | `#pin-ref-mut` | `(#pin-ref-mut TargetType)` | `(#let pinned (#pin-ref-mut Node) (#pin-borrow-mut node))` (type) | Exclusive pinned-reference type; it cannot be used to replace the complete referent. |
 | `#pin-release` | `(#pin-release owner)` | `(#let pointer (#ptr-mut #u64) (#unsafe (#pin-release owner)))` (expression) | Consumes the owning heap pin after in-place cleanup, returning its pointer for deallocation. Retained pointee views block release, including through helper calls. Unsafe: untracked pointers and address-sensitive cleanup remain the caller's responsibility. |
 | `#pin-set-field` | `(#pin-set-field pinned-reference field copy-or-shared-reference-value)` | `(#pin-set-field pinned state 2u32)` (statement) | Replaces one scalar/fieldless-enum or shared-reference struct field through a mutable pinned reference. The field loan is checked independently; it does not move or replace the pinned struct. |
+| `#pin-shared` | `(#pin-shared initialized-local)` | `(#let view (#pin-ref Node) (#pin-shared node))` (expression) | Shared-pins an initialized mutable or immutable local. Permanently prevents moving or assigning that local, including Copy locals and after forgetting the reference. Rejects temporaries, projections, and reference variables. |
 | `#pin-write` | `(#pin-write mutable-pinned-reference value)` | `(#unsafe (#pin-write pinned replacement))` (expression) | Replaces a pinned referent in place. Unsafe: the caller must prove no live derived references are invalidated and preserve ownership of the replaced value. |
 | `#platform` | `(#cfg-is #platform literal)` | `(#cfg-if (#cfg-is #platform linux) (#type Fd #i32))` (top level) | Automatically populated platform cfg key, initially the host OS; overridable with `--cfg platform=VALUE`. |
 | `#println` | `(#println (#borrow string))` | `(#assert (#i64.== (#println (#borrow message)) 0i64))` (expression) | Writes a borrowed `String`'s UTF-8 bytes and a newline; returns zero on success or negative errno on failure. It does not consume the string; a failed text write may be partial and skips the newline. Available after top-level `(#std)`. |

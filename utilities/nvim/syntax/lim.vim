@@ -29,6 +29,7 @@ syn match limConditional +#\%(if\|if-let\|match\|case\|let-else\|else\)\ze\%($\|
 syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limUnsafe +#\%(unsafe\|unsafe-fn\|unsafe-impl\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limPin +#\%(pin\|pin-shared\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limGeneratorKeyword +#gn\%(-[^[:space:]();"'`,@#]\+\)\?\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limCfg +#cfg-[^[:space:]();"'`,@#]\++
 syn match limNumber "\<\d[[:alnum:]_]*\>"
@@ -42,7 +43,7 @@ syn match limParen3 "[()]" contained
 syn match limParen4 "[()]" contained
 syn match limParen5 "[()]" contained
 syn match limParen6 "[()]" contained
-syn cluster limForms contains=limKeyword,limGenerated,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn cluster limForms contains=limKeyword,limGenerated,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
 syn region limNest2 transparent start="(" end=")" contained contains=@limForms,limNest3,limParen2
 syn region limNest3 transparent start="(" end=")" contained contains=@limForms,limNest4,limParen3
@@ -64,6 +65,7 @@ hi def link limConditional Conditional
 hi def link limRepeat Repeat
 hi def link limControl Statement
 hi def link limUnsafe Exception
+hi def link limPin Keyword
 hi def link limGeneratorKeyword PreProc
 hi def link limCfg PreProc
 hi def link limNumber Number

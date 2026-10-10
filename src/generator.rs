@@ -63,6 +63,28 @@ enum TemplateValue {
     Splice(Vec<Expr>),
 }
 
+pub(crate) mod async_cells;
+pub(crate) mod async_cfg;
+pub(crate) mod async_contract;
+pub(crate) mod async_dispatch;
+pub(crate) mod async_emit;
+pub(crate) mod async_exec;
+pub(crate) mod async_fn;
+pub(crate) mod async_interfaces;
+pub(crate) mod async_lease;
+pub(crate) mod async_lend;
+pub(crate) mod async_owner;
+pub(crate) mod async_pattern;
+pub(crate) mod async_prepare;
+pub(crate) mod async_projection;
+pub(crate) mod async_render;
+pub(crate) mod async_retire;
+pub(crate) mod async_source;
+pub(crate) mod builtins;
+pub(crate) mod frontend;
+pub(crate) use crate::capture_storage as async_storage;
+pub(crate) mod async_values;
+
 type Environment = HashMap<String, Expr>;
 type ExpandedForms = (Vec<SpannedExpr>, Vec<Expr>);
 type ExpandedFormsWithHits = (ExpandedForms, usize);

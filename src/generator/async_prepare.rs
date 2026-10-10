@@ -1,4 +1,5 @@
 //! Type/evaluation planning before an async frame has a physical layout.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! All checked identities remain in this owned context. Deferred interfaces
 //! are signatures, not fake executable definitions or empty frame layouts.
@@ -8,15 +9,15 @@
 
 use std::collections::HashSet;
 
-use crate::async_interfaces::Registry;
-use crate::async_source::{Lowered, Source};
+use crate::generator::async_interfaces::Registry;
+use crate::generator::async_source::{Lowered, Source};
 use crate::source_error::SourceError;
 use crate::{DiagnosticCode, Item, PreparedProgramSyntax, Program, SpannedExpr};
 
 pub(crate) struct Function {
     pub source: Source,
     pub model: Lowered,
-    pub graph: crate::async_exec::Graph,
+    pub graph: crate::generator::async_exec::Graph,
 }
 
 /// This is deliberately not CheckedProgram. In particular, no method exposes
@@ -113,7 +114,7 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
                     &program,
                 )
             })?;
-        let model = crate::async_source::lower_in_registry(
+        let model = crate::generator::async_source::lower_in_registry(
             &source.function,
             source.waker.clone(),
             &program,
@@ -135,8 +136,12 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
         }));
         models.push((source, model));
     }
-    let declarations = crate::typecheck::resolve_async_planning(&program, &interfaces, &selected)
-        .map_err(|(message, code, span, labels)| {
+    let declarations = crate::typecheck::resolve_generation_planning(
+        &program,
+        &interfaces.interfaces(),
+        &selected,
+    )
+    .map_err(|(message, code, span, labels)| {
         let mut error = SourceError::new(message, code);
         if let Some(span) = span {
             error = error.at(span);
@@ -174,7 +179,7 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
                 &program,
             )
         })?;
-        let graph = crate::async_exec::build(body, &sites).map_err(|error| {
+        let graph = crate::generator::async_exec::build(body, &sites).map_err(|error| {
             let span = error
                 .source
                 .and_then(|node| body.nodes.get(node.0))
@@ -202,7 +207,7 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_exec::Terminator;
+    use crate::generator::async_exec::Terminator;
     use crate::Type;
 
     const CONTEXT: &str = "

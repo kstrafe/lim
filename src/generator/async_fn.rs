@@ -1,4 +1,5 @@
 //! Syntactic lowering for concrete async functions with inferred live captures.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! This deliberately emits ordinary Lim declarations before type and borrow
 //! checking. No suspension point can hide a reference from those passes.
@@ -3446,7 +3447,7 @@ fn async_mutated_names(expression: &Expr, names: &mut HashSet<String>) {
             names.insert(name.to_owned());
         }
         if matches!(items.first(), Some(Expr::Symbol(head))
-            if matches!(head.as_str(), "#borrow-mut" | "#pin-borrow-mut"))
+            if matches!(head.as_str(), "#pin" | "#borrow-mut" | "#pin-borrow-mut"))
         {
             if let Some(name) = items.get(1).and_then(place_root) {
                 names.insert(name.to_owned());
@@ -4230,7 +4231,7 @@ fn async_while_body_child(
         }
         if let Expr::List(items) = expression {
             if matches!(items.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#borrow-mut" | "#pin-borrow-mut"))
+                if matches!(head.as_str(), "#pin" | "#borrow-mut" | "#pin-borrow-mut"))
             {
                 if let Some(name) = items.get(1).and_then(place_root) {
                     names.insert(name.to_owned());
@@ -11299,7 +11300,9 @@ fn pinned_projection_target(
                     && matches!(items.first(), Some(Expr::Symbol(head)) if head == "#pin-get-payload") =>
             {
                 let borrow = form(&items[1], "#pin-borrow")
-                    .or_else(|| form(&items[1], "#pin-borrow-mut"))?;
+                    .or_else(|| form(&items[1], "#pin-borrow-mut"))
+                    .or_else(|| form(&items[1], "#pin-shared"))
+                    .or_else(|| form(&items[1], "#pin"))?;
                 if borrow.len() != 2 {
                     return None;
                 }
@@ -11326,8 +11329,10 @@ fn pinned_projection_target(
 }
 
 fn pinned_self_reference_target(expression: &Expr) -> Option<(String, Vec<PinnedProjection>)> {
-    let target = if let Some(borrow) =
-        form(expression, "#pin-borrow").or_else(|| form(expression, "#pin-borrow-mut"))
+    let target = if let Some(borrow) = form(expression, "#pin-borrow")
+        .or_else(|| form(expression, "#pin-borrow-mut"))
+        .or_else(|| form(expression, "#pin-shared"))
+        .or_else(|| form(expression, "#pin"))
     {
         if borrow.len() != 2 {
             return None;
@@ -11789,7 +11794,7 @@ fn generated_source_with_capture_selection(
     parse_type(Some(&normalize_keywords(invocation[3].clone())))?;
     let function = form(&invocation[4], "#fn")
         .ok_or_else(|| "@async-fn last argument must be a #fn declaration".to_owned())?;
-    crate::validate_async_function_shadowing(&invocation[4])?;
+    crate::validate_function_shadowing(&invocation[4])?;
     if function.len() < 5 {
         return Err("@async-fn #fn requires a name, parameters, result type, and body".into());
     }
@@ -12164,7 +12169,7 @@ fn generated_source_with_capture_selection(
         let mut environment = type_environment.clone();
         for helper in &generated_helpers {
             let declarations = crate::parse(helper)?;
-            let metadata = crate::async_type_environment(&declarations);
+            let metadata = crate::generator::frontend::async_type_environment(&declarations);
             environment.aliases.extend(metadata.aliases);
             environment.enums.extend(metadata.enums);
             environment.struct_fields.extend(metadata.struct_fields);
@@ -13415,7 +13420,7 @@ mod async_lowering_tests {
 
     #[test]
     fn local_pattern_bindings_preserve_nested_order_aliases_and_mutability() {
-        let environment = crate::async_type_environment(
+        let environment = crate::generator::frontend::async_type_environment(
             &crate::parse("(#type Narrow #u16) (#struct Parts ((z (#array Narrow 2)) (a #u64)))")
                 .unwrap(),
         );

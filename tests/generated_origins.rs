@@ -213,7 +213,7 @@ fn async_short_await_protocol_is_preserved_in_annotated_generated_source() {
         &[absolute_origin(
             example.parent().unwrap(),
             "async_fn.lim",
-            50,
+            49,
         )],
     );
 }

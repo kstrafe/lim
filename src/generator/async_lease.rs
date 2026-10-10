@@ -1,4 +1,5 @@
 //! Storage proofs for nonmoving reference reads in the ordinary dispatcher.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! An in-place window keeps the owning handle Full. Its only consumer is a
 //! Copy leaf load or resolved call without reference-bearing results, after
@@ -12,10 +13,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::async_exec::{
+use crate::generator::async_exec::{
     Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Graph, LoadKind, ValueId,
 };
-use crate::async_lend::{Access, Plan as Accesses};
+use crate::generator::async_lend::{Access, Plan as Accesses};
 use crate::linearcheck::LinearTypes;
 use crate::typed_body::{BindingId, PlaceRoot};
 use crate::typed_place::Place;
@@ -42,7 +43,7 @@ pub(crate) struct Plan {
     snapshot_bindings: HashSet<BindingId>,
 }
 
-fn pure_path(descriptor: &crate::async_exec::PlaceDescriptor, value: ValueId) -> bool {
+fn pure_path(descriptor: &crate::generator::async_exec::PlaceDescriptor, value: ValueId) -> bool {
     descriptor.root == AddressRoot::Value(value)
         && matches!(
             descriptor.projections.first(),
@@ -63,7 +64,7 @@ impl Plan {
         accesses: Option<&Accesses>,
         types: &LinearTypes,
         aliases: &HashMap<String, Type>,
-    ) -> Result<Self, crate::async_exec::Error> {
+    ) -> Result<Self, crate::generator::async_exec::Error> {
         graph.validate()?;
         let mut leases = HashMap::new();
         let mut snapshots = HashMap::new();
@@ -82,17 +83,17 @@ impl Plan {
         for &block in &reachable {
             let body = &graph.blocks[block.0];
             for (index, located) in body.actions.iter().enumerate() {
-                let mut inputs = crate::async_retire::uses(graph, &located.action);
+                let mut inputs = crate::generator::async_retire::uses(graph, &located.action);
                 inputs.sort_unstable_by_key(|value| value.0);
                 inputs.dedup();
                 for value in inputs {
                     users[value.0].push((block, index));
                 }
             }
-            for value in crate::async_retire::control(&body.terminator) {
+            for value in crate::generator::async_retire::control(&body.terminator) {
                 escapes[value.0] = true;
             }
-            for edge in crate::async_retire::edges(&body.terminator) {
+            for edge in crate::generator::async_retire::edges(&body.terminator) {
                 for argument in &edge.arguments {
                     if let Argument::Value(value) = argument {
                         escapes[value.0] = true;
@@ -125,7 +126,7 @@ impl Plan {
                     continue;
                 }
                 let ty = crate::typed_ir::resolve_type(&graph.values[dst.0].ty, aliases).map_err(
-                    |message| crate::async_exec::Error {
+                    |message| crate::generator::async_exec::Error {
                         source: located.source,
                         message,
                     },
@@ -247,7 +248,7 @@ mod tests {
             let body = &declarations.bodies["work"];
             let types = LinearTypes::from_program(&program);
             let accesses = Accesses::new(body, &declarations.flows["work"], &types).unwrap();
-            let graph = crate::async_exec::build(body, &[]).unwrap();
+            let graph = crate::generator::async_exec::build(body, &[]).unwrap();
             graph.validate().unwrap();
             Self {
                 graph,
@@ -380,7 +381,7 @@ mod tests {
         let target = BlockId(checked.graph.blocks.len());
         let terminal = std::mem::replace(
             &mut checked.graph.blocks[lease.block.0].terminator,
-            crate::async_exec::Terminator::Goto(crate::async_exec::Edge {
+            crate::generator::async_exec::Terminator::Goto(crate::generator::async_exec::Edge {
                 target,
                 arguments: vec![],
             }),
@@ -388,11 +389,14 @@ mod tests {
         let actions = checked.graph.blocks[lease.block.0]
             .actions
             .split_off(lease.load + 1);
-        checked.graph.blocks.push(crate::async_exec::Block {
-            parameters: vec![],
-            actions,
-            terminator: terminal,
-        });
+        checked
+            .graph
+            .blocks
+            .push(crate::generator::async_exec::Block {
+                parameters: vec![],
+                actions,
+                terminator: terminal,
+            });
         checked.graph.validate().unwrap();
         let plan = checked.plan();
         assert!(plan.get(value).is_none());
@@ -423,17 +427,20 @@ mod tests {
         // The verifier must not guess its effects or permit reevaluation
         // merely because it contains no syntactic write to the owner.
         let unit = ValueId(checked.graph.values.len());
-        checked.graph.values.push(crate::async_exec::Value {
-            source: None,
-            ty: Type::Unit,
-            span: None,
-        });
+        checked
+            .graph
+            .values
+            .push(crate::generator::async_exec::Value {
+                source: None,
+                ty: Type::Unit,
+                span: None,
+            });
         checked.graph.blocks[lease.block.0].actions.insert(
             lease.load + 1,
-            crate::async_exec::LocatedAction {
+            crate::generator::async_exec::LocatedAction {
                 action: Action::Compute {
                     dst: unit,
-                    operation: crate::async_exec::Compute::Unit,
+                    operation: crate::generator::async_exec::Compute::Unit,
                 },
                 source: None,
                 span: None,
@@ -473,7 +480,7 @@ mod tests {
         let plan = checked.plan();
         let value = *plan.leases.keys().next().unwrap();
         checked.graph.blocks[checked.graph.entry.0].terminator =
-            crate::async_exec::Terminator::Return(Some(value));
+            crate::generator::async_exec::Terminator::Return(Some(value));
         checked.graph.validate().unwrap();
         assert!(
             checked.plan().get(value).is_none(),

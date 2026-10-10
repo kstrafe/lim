@@ -5,6 +5,13 @@ plugins, a linker-section registration ABI, a work-stealing scheduler, a
 general-purpose OS I/O reactor, or suspension at arbitrary points in ordinary
 functions.
 
+Async function forms are handled by the built-in Rust generator. `#await` is
+input to that generator; its emitted `.lim` declarations contain ordinary
+functions, enums, and ownership operations. The compiler checks and builds
+those declarations through the same rules as handwritten Lim. Generator
+validation witnesses are internal bookkeeping: they are not emitted and do
+not grant generated functions special borrowing or typechecking privileges.
+
 ## Frozen syntax collections
 
 ```lisp syntax

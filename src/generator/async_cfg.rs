@@ -1,4 +1,5 @@
 //! Original-source control flow for async lowering.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! Unlike the legacy nested-task rewrites, this graph keeps lexical binding
 //! identities and resolved transfer targets. Pending retries the poll operation,
@@ -13,7 +14,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::{async_fn::AsyncTypeEnvironment, Expr, Span, SpannedExpr};
+use crate::generator::async_fn::AsyncTypeEnvironment;
+use crate::{Expr, Span, SpannedExpr};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct NodeId(usize);
@@ -259,7 +261,7 @@ impl<'a> Builder<'a> {
         if let Some(ty) = &ty {
             // Layout errors belong to normal type validation; leave types unknown
             // when the source declaration environment is not yet complete.
-            let _ = crate::async_fn::collect_enum_pattern_bindings(
+            let _ = crate::generator::async_fn::collect_enum_pattern_bindings(
                 &crate::normalize_keywords(pattern.expr.clone()),
                 ty,
                 self.environment,
@@ -1175,7 +1177,7 @@ mod tests {
                 (#await #u64 Child Pending Ready poll amount))
               (#case _ (#if-let (Some (#tuple fallback _)) choice fallback 0u64)))))";
         let mut parsed = parsed(source);
-        let environment = crate::async_type_environment(&parsed);
+        let environment = crate::generator::frontend::async_type_environment(&parsed);
         // Production sees #case-normalized source children; verify both forms.
         for normalized in [false, true] {
             if normalized {
@@ -1224,7 +1226,7 @@ mod tests {
             (#return (#call combine (: second
               (#await #u64 Child Pending Ready poll 4u64) : first 3u64))))";
         let parsed = parsed(source);
-        let environment = crate::async_type_environment(&parsed);
+        let environment = crate::generator::frontend::async_type_environment(&parsed);
         let graph = build(&parsed[2], &environment).unwrap().unwrap();
         let indices = ["1u64", "2u64", "3u64", "4u64"].map(|text| {
             graph

@@ -1,22 +1,12 @@
 //! Declaration-only async planning context. No runtime bodies or frame layouts
+//! Implementation detail of built-in code generation, not runtime semantics.
 //! are manufactured here. Dense identities obtained during planning must be
 //! converted back to names before entering another declaration arena.
 use std::collections::{HashMap, HashSet};
 
 use crate::{CallingConvention, EnumVariant, Expr, Function, Item, Parameter, Program, Span, Type};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LayoutKind {
-    Enum,
-    Struct,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct DeferredLayout {
-    pub kind: LayoutKind,
-    pub span: Span,
-    pub linear: bool,
-}
+pub(crate) use crate::generation_interfaces::{DeferredLayout, LayoutKind};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Provenance {
@@ -66,6 +56,27 @@ fn signature(function: &Function) -> Function {
 }
 
 impl Registry {
+    pub(crate) fn interfaces(&self) -> crate::generation_interfaces::DeclarationInterfaces {
+        crate::generation_interfaces::DeclarationInterfaces {
+            functions: self
+                .functions
+                .iter()
+                .map(|(name, interface)| {
+                    (
+                        name.clone(),
+                        crate::generation_interfaces::FunctionInterface {
+                            declaration: interface.declaration.clone(),
+                            span: interface.span,
+                            is_generated: interface.provenance != Provenance::Ordinary,
+                        },
+                    )
+                })
+                .collect(),
+            protocols: self.protocols.clone(),
+            deferred_layouts: self.deferred_layouts.clone(),
+            generated_names: self.generated_names.clone(),
+        }
+    }
     pub fn from_program_invocations(
         program: &Program,
         invocations: &[crate::SpannedExpr],
@@ -429,17 +440,4 @@ impl Registry {
         functions.sort_by(|left, right| left.name.cmp(&right.name));
         functions.into_iter().map(Item::Function).collect()
     }
-}
-
-pub(crate) fn check_selected_unsafe(
-    program: &Program,
-    registry: &Registry,
-    selected: &HashSet<String>,
-) -> Result<(), (String, Option<Span>)> {
-    let interfaces = registry
-        .functions
-        .values()
-        .map(|interface| &interface.declaration)
-        .collect::<Vec<_>>();
-    crate::unsafecheck::check_selected_with_span(program, selected, &interfaces)
 }

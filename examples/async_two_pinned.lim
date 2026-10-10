@@ -1,0 +1,42 @@
+; Both futures have stationary storage. A branch chooses which one to poll.
+(@async-fn-pinned
+  (: protocol ReadAwait : waker #u64
+   : function (#fn read-value () #u64 (#return 42u64))))
+(@async-fn-pinned
+  (: protocol WriteAwait : waker #u64
+   : function (#fn write-value () #u64 (#return 7u64))))
+
+(#fn select (: choose-reader #bool) #u64
+  (#let-mut reader read-value-frame (#call read-value ()))
+  (#let-mut writer write-value-frame (#call write-value ()))
+  (#let reader-pin (#pin-ref-mut read-value-frame) (#pin reader))
+  (#let writer-pin (#pin-ref-mut write-value-frame) (#pin writer))
+  (#let waker #u64 0u64)
+  (#let answer #u64
+    (#if choose-reader
+      (#block
+        (#forget writer-pin)
+        (#match (#call read-value-poll (: task reader-pin : waker (#borrow waker)))
+          (#case (read-value-ready read-result) read-result)
+          (#case (read-value-pending read-pending)
+            (#block (#forget read-pending) (#unreachable)))))
+      (#block
+        (#forget reader-pin)
+        (#match (#call write-value-poll (: task writer-pin : waker (#borrow waker)))
+          (#case (write-value-ready write-result) write-result)
+          (#case (write-value-pending write-pending)
+            (#block (#forget write-pending) (#unreachable)))))))
+  ; Cancellation consumes each remaining state, including the unpolled future.
+  (#let reader-state read-value-frame-state
+    (#call read-value-poll-cancel (: task (#pin reader))))
+  (#let writer-state write-value-frame-state
+    (#call write-value-poll-cancel (: task (#pin writer))))
+  (#forget reader-state)
+  (#forget writer-state)
+  (#forget reader)
+  (#forget writer)
+  (#return answer))
+
+(#fn main () #u64
+  (#assert (#u64.== (#call select (: choose-reader false)) 7u64))
+  (#return (#call select (: choose-reader true))))

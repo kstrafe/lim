@@ -160,7 +160,7 @@ fn granted_slots(body: &Body, argument: NodeId, input: &ParameterLoanSummary) ->
     {
         if matches!(
             head.as_str(),
-            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+            "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
         ) && input.input_storage.first() == Some(&Segment::Dereference)
             && !input.input_storage[1..].contains(&Segment::Dereference)
             && !crate::typed_place::reads_through_reference(body, children[1])

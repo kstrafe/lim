@@ -113,9 +113,12 @@ boundary and cannot waive ordinary owned-exit, borrowing or unsafe validation.
 
 ### Original-body checking and evaluated operands
 
-`async_source.rs` retains original async function trees and checks them in the
-same ordinary whole-program context as the generated functions. Each await
-becomes a uniquely identified analysis-only function call. Its driver evaluates
+The built-in generator's `src/generator/async_source.rs` transforms original
+async function trees into ordinary validation witnesses. The runtime `Program`
+has no async-source objects. `generated_validation.rs` checks any generator's
+witnesses in the same ordinary whole-program context as its emitted functions;
+this interface can add validation but cannot grant special semantic privileges.
+Each await becomes a uniquely identified analysis-only function call. Its driver evaluates
 the child once, replaces it with each Pending payload, and returns the Ready
 payload. These drivers model type, move and borrow effects; they are not the
 runtime state machine and are excluded from emitted code and typed-IR dumps.
@@ -163,8 +166,8 @@ cannot replace them with unrelated return tails.
 
 ### Pre-layout interfaces and executable planning
 
-`async_prepare.rs` builds a planning context without asking the legacy async
-rewriter to accept a particular body shape. Imports, cfg selection, user
+The generator's `async_prepare.rs` builds a planning context without asking the
+legacy async rewriter to accept a particular body shape. Imports, cfg selection, user
 generators and non-async builtin declarations are expanded first.
 `async_interfaces.rs` then reserves async names and supplies explicit start,
 poll and cancellation signatures. Frame layouts remain deferred: there are no
@@ -172,6 +175,12 @@ fake extern functions, executable empty bodies or invented empty structs.
 Call normalization uses temporary signature descriptors only; those descriptors
 never become program items. Async invocations produced by generators acquire
 their own reparsed source files and retain their invocation provenance.
+
+The generator supplies general `generation_interfaces.rs` declaration
+interfaces to the ordinary type checker; no async generator names or source-file
+labels are recognized by the checker. State-dependent stored-reference rules
+are determined by enum payload paths and actual caller state, equally for
+handwritten and generated functions.
 
 The ordinary type checker resolves only attached source models and drivers in
 this context, borrowing the same AST nodes used to assign checked identities.

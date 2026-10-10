@@ -1409,6 +1409,16 @@ impl FlowLoanOrigins {
             let Some(facts) = facts else {
                 return true;
             };
+            // Parameter referents use physical places: their initial pointer
+            // boundary is implicit. Stored-loan paths include that boundary.
+            // Keep subsequent dereferences, which identify distinct pointees.
+            let storage = if matches!(root, PlaceRoot::Parameter(_)) {
+                storage
+                    .strip_prefix(&[Segment::Dereference])
+                    .unwrap_or(storage)
+            } else {
+                storage
+            };
             !storage.iter().enumerate().any(|(index, segment)| {
                 let Segment::Payload(wanted, _) = segment else {
                     return false;
@@ -2822,6 +2832,8 @@ impl FlowGraph {
                     | "index"
                     | "borrow"
                     | "borrow-mut"
+                    | "pin"
+                    | "pin-shared"
                     | "pin-borrow"
                     | "pin-borrow-mut"
                     | "pin-own-borrow"
@@ -3519,6 +3531,8 @@ impl FlowGraph {
                                         | "unsafe"
                                         | "borrow"
                                         | "borrow-mut"
+                                        | "pin"
+                                        | "pin-shared"
                                         | "pin-borrow"
                                         | "pin-borrow-mut"
                                 )
@@ -9179,6 +9193,8 @@ impl FlowGraph {
                         head.as_str(),
                         "borrow"
                             | "borrow-mut"
+                            | "pin"
+                            | "pin-shared"
                             | "pin-borrow"
                             | "pin-borrow-mut"
                             | "pin-own-borrow"
@@ -9186,7 +9202,7 @@ impl FlowGraph {
                     ) && matches!(children.len(), 2 | 3)
                         && matches!(
                             head.as_str(),
-                            "borrow-mut" | "pin-borrow-mut" | "pin-own-borrow-mut"
+                            "pin" | "borrow-mut" | "pin-borrow-mut" | "pin-own-borrow-mut"
                         ) == *mutable;
                     let pinned_payload_form =
                         matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut")
@@ -10784,14 +10800,9 @@ fn substitute_call_stores(
     state: &LoanState,
     stores: &[crate::typed_body::ParameterStoreSummary],
 ) -> Vec<LoanStore> {
-    let NodeKind::Form {
-        children, callee, ..
-    } = &body.nodes[value.0].kind
-    else {
+    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
         return Vec::new();
     };
-    let state_dependent_async_store = body.async_generated
-        || callee.is_some_and(|callee| body.async_generated_functions.contains(&callee));
     let substitute = |summary: &crate::typed_body::ParameterLoanSummary| {
         if let Some(origin) = fresh_allocation_origin(summary, value) {
             return vec![origin];
@@ -10821,7 +10832,21 @@ fn substitute_call_stores(
             // Otherwise a later local load of the child looks independent
             // from the still-live exclusive owner handle and conflicts even
             // when accessed through the validated child.
-            let owner_parent = (!state_dependent_async_store
+            let source_is_payload = source
+                .storage
+                .iter()
+                .chain(&source.input_storage)
+                .chain(&source.referent_projection)
+                .any(|segment| matches!(segment, Segment::Payload(..)));
+            let destination_is_payload = store
+                .destination
+                .storage
+                .iter()
+                .chain(&store.destination.input_storage)
+                .chain(&store.destination.referent_projection)
+                .any(|segment| matches!(segment, Segment::Payload(..)));
+            let owner_parent = (!source_is_payload
+                && !destination_is_payload
                 && source.parameter == store.destination.parameter
                 && source.global.is_none()
                 && source.fresh_allocation.is_none())
@@ -11569,7 +11594,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         NodeKind::Form { head, children, .. }
             if matches!(
                 head.as_str(),
-                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
             ) && children.len() == 2 =>
         {
             Place::from_expression(body, children[1]).map_or_else(Vec::new, |place| {
@@ -11593,8 +11618,12 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     .map(|mut origin| {
                         origin.borrowed_from = borrowed_from;
                         origin.call_reborrow = false;
-                        origin.mutable = matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut");
-                        origin.pinned |= matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut");
+                        origin.mutable =
+                            matches!(head.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut");
+                        origin.pinned |= matches!(
+                            head.as_str(),
+                            "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
+                        );
                         origin.span = node.span;
                         origin
                     })
@@ -12085,7 +12114,7 @@ fn value_loan_origins_at_events(
         }
         if matches!(
             head.as_str(),
-            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+            "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
         ) && children.len() == 2
         {
             let Some(place) = Place::from_expression(body, children[1]) else {
@@ -12110,8 +12139,12 @@ fn value_loan_origins_at_events(
                 .map(|mut origin| {
                     origin.borrowed_from = borrowed_from;
                     origin.call_reborrow = false;
-                    origin.mutable = matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut");
-                    origin.pinned |= matches!(head.as_str(), "pin-borrow" | "pin-borrow-mut");
+                    origin.mutable =
+                        matches!(head.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut");
+                    origin.pinned |= matches!(
+                        head.as_str(),
+                        "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
+                    );
                     origin.span = body.nodes[value.0].span;
                     origin
                 })
@@ -12600,6 +12633,8 @@ fn tag_preserving_evaluation(
                         | "assert"
                         | "borrow"
                         | "borrow-mut"
+                        | "pin"
+                        | "pin-shared"
                         | "pin-borrow"
                         | "pin-borrow-mut"
                         | "unsafe"
@@ -14113,6 +14148,8 @@ impl Builder<'_> {
                     head.as_str(),
                     "borrow"
                         | "borrow-mut"
+                        | "pin"
+                        | "pin-shared"
                         | "pin-borrow"
                         | "pin-borrow-mut"
                         | "pin-own-borrow"
@@ -14128,7 +14165,7 @@ impl Builder<'_> {
                         place,
                         mutable: matches!(
                             head.as_str(),
-                            "borrow-mut" | "pin-borrow-mut" | "pin-own-borrow-mut"
+                            "pin" | "borrow-mut" | "pin-borrow-mut" | "pin-own-borrow-mut"
                         ),
                     },
                 );

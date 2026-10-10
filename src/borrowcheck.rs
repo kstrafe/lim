@@ -1558,7 +1558,7 @@ fn existing_reference_value_loans(expression: &Expr, context: &Context) -> Vec<(
         }
         Expr::List(items)
             if items.len() == 2
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut")) =>
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut")) =>
         {
             Vec::new()
         }
@@ -2216,7 +2216,12 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     }
                 } else if matches!(
                     operator.as_str(),
-                    "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                    "borrow"
+                        | "borrow-mut"
+                        | "pin"
+                        | "pin-shared"
+                        | "pin-borrow"
+                        | "pin-borrow-mut"
                 ) {
                     if items.len() != 3 {
                         if items.len() == 2 {
@@ -2254,11 +2259,12 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                         return Err(failure!("{operator} place has no tracked owner"));
                     }
                     let loans = borrow_place_loans(&items[1], context);
-                    let kind = if matches!(operator.as_str(), "borrow" | "pin-borrow") {
-                        LoanKind::Shared(1)
-                    } else {
-                        LoanKind::Mutable
-                    };
+                    let kind =
+                        if matches!(operator.as_str(), "pin-shared" | "borrow" | "pin-borrow") {
+                            LoanKind::Shared(1)
+                        } else {
+                            LoanKind::Mutable
+                        };
                     let parent = context_reborrow_parent(expression, context);
                     if let Some((base, path)) = projection_path(&items[1]) {
                         if path.is_empty() {
@@ -2285,7 +2291,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                         } else {
                             context.loans.borrow(loan, kind)?;
                         }
-                        if matches!(operator.as_str(), "borrow-mut" | "pin-borrow-mut") {
+                        if matches!(operator.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut") {
                             context.scoped_mutable_owners.insert(owner.clone());
                         }
                     }
@@ -2296,7 +2302,7 @@ fn check_expression(expression: &Expr, context: &mut Context) -> Result<(), Erro
                     }
                     let result = check_expression(&items[2], context);
                     for (owner, loan) in &loans {
-                        if matches!(operator.as_str(), "borrow-mut" | "pin-borrow-mut") {
+                        if matches!(operator.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut") {
                             context.scoped_mutable_owners.remove(owner);
                         }
                         if reborrow_mutable_parent {
@@ -3009,7 +3015,7 @@ fn projection_path(expression: &Expr) -> Option<(&Expr, Vec<String>)> {
         Expr::Symbol(_) => Some((expression, Vec::new())),
         Expr::List(items)
             if items.len() == 2
-                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut")) =>
+                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut")) =>
         {
             projection_path(&items[1])
         }
@@ -3466,7 +3472,7 @@ fn borrowed_field_parent(expression: &Expr) -> Option<String> {
             _ => None,
         };
     }
-    if !matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"))
+    if !matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"))
         || (items.len() != 2 && items.len() != 3)
     {
         return None;
@@ -3691,7 +3697,7 @@ fn reference_origins(
             };
             if matches!(
                 operator.as_str(),
-                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
             ) && items.len() == 2
             {
                 return borrow_place_origins(&items[1], context);

@@ -1,4 +1,5 @@
 //! Owned transfers versus lending reads of move-only reference holders.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! Use the ordinary flow's consumption classification, not the fact that a
 //! type is non-Copy. This is storage classification, never borrow permission.
@@ -27,7 +28,7 @@ impl Plan {
         body: &Body,
         flow: &FlowGraph,
         types: &LinearTypes,
-    ) -> Result<Option<Self>, crate::async_exec::Error> {
+    ) -> Result<Option<Self>, crate::generator::async_exec::Error> {
         let candidates = flow
             .nodes
             .iter()
@@ -63,7 +64,7 @@ impl Plan {
             };
             if let Some(previous) = accesses.insert(value, access.clone()) {
                 if previous != access {
-                    return Err(crate::async_exec::Error {
+                    return Err(crate::generator::async_exec::Error {
                         source: Some(value),
                         message: "reference load has inconsistent checked transfer events".into(),
                     });

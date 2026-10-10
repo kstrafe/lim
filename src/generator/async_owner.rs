@@ -1,4 +1,5 @@
 //! Stable owner projections for the pinned executable async graph.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! Local bindings are physically initialized only when their source Bind runs.
 //! Borrowing uses their actual Full payload in the stationary frame; neither
@@ -7,7 +8,7 @@
 //! mandatory, including ownership, self-aliasing and cancellation contracts.
 #![allow(dead_code)]
 
-use crate::async_exec::{Action, AddressRoot, Graph, PlaceDescriptor};
+use crate::generator::async_exec::{Action, AddressRoot, Graph, PlaceDescriptor};
 use crate::typed_body::BindingId;
 use crate::typed_ir::{resolve_type, Declarations};
 use crate::Type;
@@ -23,7 +24,7 @@ pub(crate) struct Borrow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_exec::{AddressProjection, ValueId};
+    use crate::generator::async_exec::{AddressProjection, ValueId};
 
     fn fixture(mutable: bool, whole: bool) -> (Graph, PlaceDescriptor, Declarations) {
         let path = if whole {
@@ -41,7 +42,7 @@ mod tests {
             if mutable { "-mut" } else { "" }, if mutable { "-mut" } else { "" });
         let program = crate::parse_program(&source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
-        let graph = crate::async_exec::build(&declarations.bodies["work"], &[]).unwrap();
+        let graph = crate::generator::async_exec::build(&declarations.bodies["work"], &[]).unwrap();
         let place = graph
             .blocks
             .iter()
@@ -186,7 +187,7 @@ impl Borrow {
             return Err("stable owner projection needs its selected address snapshot".into());
         }
         let owner = resolve_type(&owner.ty, &declarations.aliases)?;
-        let (fields, target) = crate::async_projection::checked_path(
+        let (fields, target) = crate::generator::async_projection::checked_path(
             owner.clone(),
             &place.projections,
             &place.ty,

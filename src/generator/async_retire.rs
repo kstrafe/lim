@@ -1,4 +1,5 @@
 //! Retirement of evaluated reference handles in the ordinary async dispatcher.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! This verifies value-cell availability, not ownership or borrow permission.
 //! Source and generated ordinary bodies still require their original proofs.
@@ -8,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::async_exec::{
+use crate::generator::async_exec::{
     Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Edge, Graph, Terminator,
     ValueId,
 };
@@ -35,7 +36,7 @@ pub(crate) fn edges(terminal: &Terminator) -> Vec<&Edge> {
     }
 }
 
-fn recipe(place: &crate::async_exec::PlaceDescriptor) -> Vec<ValueId> {
+fn recipe(place: &crate::generator::async_exec::PlaceDescriptor) -> Vec<ValueId> {
     let mut values = Vec::new();
     if let AddressRoot::Value(value) = place.root {
         values.push(value);
@@ -276,8 +277,8 @@ impl Plan {
     /// Check all actual value-cell reads after inserting retirement. Normal
     /// edge parameter stores define their destination; Pending only restores
     /// its child. Entering a block must not invent newly initialized cells.
-    pub fn validate(&self, graph: &Graph) -> Result<(), crate::async_exec::Error> {
-        let failure = |source, message: &str| crate::async_exec::Error {
+    pub fn validate(&self, graph: &Graph) -> Result<(), crate::generator::async_exec::Error> {
+        let failure = |source, message: &str| crate::generator::async_exec::Error {
             source,
             message: message.into(),
         };
@@ -322,7 +323,8 @@ impl Plan {
                 held.remove(value);
             }
         };
-        let action = |held: &mut HashSet<ValueId>, located: &crate::async_exec::LocatedAction| {
+        let action = |held: &mut HashSet<ValueId>,
+                      located: &crate::generator::async_exec::LocatedAction| {
             if let Some(dst) =
                 definition(&located.action).filter(|dst| self.candidates.contains(dst))
             {
@@ -444,7 +446,7 @@ mod tests {
     fn prepare(source: &str) -> (Graph, LinearTypes) {
         let program = crate::parse_program(source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
-        let graph = crate::async_exec::build(&declarations.bodies["work"], &[]).unwrap();
+        let graph = crate::generator::async_exec::build(&declarations.bodies["work"], &[]).unwrap();
         graph.validate().unwrap();
         (graph, LinearTypes::from_program(&program))
     }
@@ -660,14 +662,15 @@ mod tests {
         )
         .unwrap()
         .remove(0);
-        let lowered = crate::async_source::lower(&source, crate::Type::U64, &context).unwrap();
+        let lowered =
+            crate::generator::async_source::lower(&source, crate::Type::U64, &context).unwrap();
         let program = lowered.program(&context).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
         let body = &declarations.bodies[&lowered.body_name];
         let sites = lowered
             .map(body, &declarations.flows[&lowered.body_name], &declarations)
             .unwrap();
-        let graph = crate::async_exec::build(body, &sites).unwrap();
+        let graph = crate::generator::async_exec::build(body, &sites).unwrap();
         let types = LinearTypes::from_program(&program);
         let mut plan = Plan::new(&graph, &types).unwrap();
         plan.validate(&graph).unwrap();

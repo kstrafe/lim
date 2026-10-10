@@ -10,7 +10,7 @@
 //! guards distinguish conditional initialization from overwriting a retained
 //! pointee. Owner reads, clones, and reborrows are also compared with the
 //! incoming child's capability, including nested ordinary calls. These checks
-//! authorize only the checked internal-child case. State-dependent async
+//! authorize only the checked internal-child case. State-dependent enum
 //! permissions and external child relationships remain separate obligations.
 
 use crate::typed_body::{BindingId, Body, NodeId, NodeKind, PlaceRoot};
@@ -148,7 +148,7 @@ fn observations_at(
             };
             if !matches!(
                 head.as_str(),
-                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" | "pin" | "pin-shared"
             ) || !crate::typed_place::reads_through_reference(body, children[1])
             {
                 return Vec::new();
@@ -172,12 +172,40 @@ fn observations_at(
         }
         _ => return Vec::new(),
     };
-    targets
+    observation_alternatives(targets)
         .into_iter()
         .filter(|target| {
             !target.lifetime_only && !target.owned_allocation && target.storage.is_empty()
         })
         .map(|target| (target, exclusive))
+        .collect()
+}
+
+/// A joined reference value can arrive either from an incoming child loan or
+/// from a fresh borrow on an earlier path. The fresh borrow is checked where
+/// it is created; accessing this same handle must not invent a second access
+/// through its owner. Preserve distinct incoming families and distinct input
+/// slots: equal addresses alone are not proof that two handles are the same.
+fn observation_alternatives(targets: Vec<LoanOrigin>) -> Vec<LoanOrigin> {
+    if !targets.iter().any(|target| target.entry_loan.is_some()) {
+        return targets;
+    }
+    targets
+        .iter()
+        .filter(|target| {
+            target.entry_loan.is_some()
+                || !targets.iter().any(|other| {
+                    other.entry_loan.is_some()
+                        && other.place == target.place
+                        && other.parameter_storage == target.parameter_storage
+                        && other.storage == target.storage
+                        && other.mutable == target.mutable
+                        && other.pinned == target.pinned
+                        && other.lifetime_only == target.lifetime_only
+                        && other.owned_allocation == target.owned_allocation
+                })
+        })
+        .cloned()
         .collect()
 }
 
@@ -633,7 +661,6 @@ pub(crate) fn check_calls_cached(
         }
         let origins = cache.get_or_init(|| flow.loan_origins(body));
         let event = FlowNodeId(index);
-        let async_generated_callee = declarations.async_generated_functions.contains(callee);
         let mut plan =
             Plan::for_call(body, flow, event, value, origins, declarations).map_err(|message| {
                 crate::typed_borrow::BorrowConflict {
@@ -642,22 +669,6 @@ pub(crate) fn check_calls_cached(
                     labels: vec![],
                 }
             })?;
-        // Async-generated poll functions inspect and update a state-dependent
-        // future frame. Until the caller's concrete frame state is correlated
-        // with the callee's payload accesses, this summary is too broad to
-        // grant or reject an internal-loan permission soundly. Keep such
-        // payload-bearing calls under the ordinary call-argument loan checks.
-        if async_generated_callee
-            && plan.aliases.iter().any(|alias| {
-                alias
-                    .storage
-                    .iter()
-                    .chain(&alias.projection)
-                    .any(|segment| matches!(segment, Segment::Payload(..)))
-            })
-        {
-            continue;
-        }
         // A conditional reference exists only if each payload on its storage
         // and target paths is active. Remove an alias only when a checked tag
         // proves it inactive. Unknown tags remain possible aliases; whether
@@ -1322,14 +1333,15 @@ impl Plan {
                         )
                 })
                 .collect::<Vec<_>>();
-            // Baseline pointer-slot identity identifies accesses through the
-            // owner, as opposed to legitimate writes through its child handle.
-            // The specialized solver supplies the child's actual lifetime.
-            let mut writes = baseline
-                .stores_before(body, flow, event)
-                .into_iter()
-                .map(|store| store.destination)
-                .collect::<Vec<_>>();
+            // Preserve the selected child loan's identity for writes as well
+            // as reads; a write through that child is not an owner write.
+            let mut writes = observation_alternatives(
+                origins
+                    .stores_before(body, flow, event)
+                    .into_iter()
+                    .map(|store| store.destination)
+                    .collect::<Vec<_>>(),
+            );
             let mut guarded = Vec::new();
             let mut observations = if check_observations {
                 observations_at(body, flow, &origins, event, &consumptions)
@@ -1360,8 +1372,14 @@ impl Plan {
                             })?;
                     writes.clear();
                     for effect in effects {
-                        let targets =
-                            map_write_input(body, flow, &origins, event, children, &effect.target);
+                        let targets = observation_alternatives(map_write_input(
+                            body,
+                            flow,
+                            &origins,
+                            event,
+                            children,
+                            &effect.target,
+                        ));
                         let mut guards = Vec::new();
                         for (guard, variant) in effect.guards {
                             let mapped =
@@ -1402,8 +1420,14 @@ impl Plan {
                                 guards.push((mapped[0].clone(), variant));
                             }
                         }
-                        let mapped_targets =
-                            map_write_input(body, flow, &origins, event, children, &effect.target);
+                        let mapped_targets = observation_alternatives(map_write_input(
+                            body,
+                            flow,
+                            &origins,
+                            event,
+                            children,
+                            &effect.target,
+                        ));
                         observations.extend(
                             mapped_targets
                                 .into_iter()
@@ -1427,17 +1451,30 @@ impl Plan {
                     ..
                 } if consumptions.consumes_at(event, place) => {
                     if let PlaceRoot::Local(binding) = place.root {
-                        writes.extend(baseline.projected_origins(event, binding, &place.segments));
+                        writes.extend(observation_alternatives(origins.projected_origins(
+                            event,
+                            binding,
+                            &place.segments,
+                        )));
                     }
                 }
                 FlowAction::Release { place, .. } => {
                     if let PlaceRoot::Local(binding) = place.root {
-                        writes.extend(baseline.projected_origins(event, binding, &place.segments));
+                        writes.extend(observation_alternatives(origins.projected_origins(
+                            event,
+                            binding,
+                            &place.segments,
+                        )));
                     }
                 }
                 FlowAction::Evaluate(value) if body.consuming_pin_reads.contains(value) => {
                     if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
-                        writes.extend(baseline.value_before(body, flow, event, children[1]));
+                        writes.extend(observation_alternatives(origins.value_before(
+                            body,
+                            flow,
+                            event,
+                            children[1],
+                        )));
                     }
                 }
                 _ => {}
@@ -1790,7 +1827,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_enum_tag_retains_possible_mutable_payload_aliases() {
+    fn ordinary_function_unknown_enum_tag_retains_possible_mutable_payload_aliases() {
         let source = "(#enum Value (Empty (Full #u64)))
           (#struct Link (: value Value : view (#pin-ref-mut #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
@@ -1814,6 +1851,8 @@ mod tests {
             (#call observe (: target (#pin-borrow-mut link)))
             (#forget link) (#return ()))";
         let declarations = fixture(source);
+        assert!(declarations.bodies.contains_key("install"));
+        assert!(declarations.bodies.contains_key("observe"));
         let plan = call_plan(&declarations, "driver", "observe");
         assert!(plan.aliases.iter().any(|alias| alias
             .projection
@@ -2583,6 +2622,42 @@ mod tests {
     }
 
     #[test]
+    fn checked_empty_pointer_slots_retire_only_their_stored_entry_alias() {
+        let source = "(#enum View (Empty (Full (#pin-ref-mut #u64))))
+          (#struct Link (: value #u64 : view View))
+          (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (Full view))) (#return target))
+          (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            GUARD
+            (#let fresh (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
+            (#drop fresh) (#return target))
+          (#fn driver () ()
+            (#let-mut link Link (#struct-literal Link (: value 42u64 : view Empty)))
+            (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
+            (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
+            (#drop updated) (#forget link) (#return ()))";
+        for (guard, rejected) in [
+            (
+                "(#assert (#variant-is (#pin-borrow (#get target view)) Empty))",
+                false,
+            ),
+            (
+                "(#assert (#variant-is (#pin-borrow (#get target view)) Full))",
+                true,
+            ),
+            ("", true),
+        ] {
+            let declarations = fixture(&source.replace("GUARD", guard));
+            let plan = call_plan(&declarations, "driver", "tick");
+            assert_eq!(plan.aliases.len(), 1);
+            let checked = plan
+                .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default());
+            assert_eq!(checked.is_err(), rejected, "{checked:?}\n{guard}");
+        }
+    }
+
+    #[test]
     fn initializer_entry_guards_survive_destructive_reads_but_are_not_invented_after_writes() {
         for early in [true, false] {
             let assertion = "(#assert (#variant-is slot Empty))";
@@ -3151,5 +3226,122 @@ mod tests {
         .unwrap_err();
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end], "second");
+    }
+
+    #[test]
+    fn conditional_fresh_borrow_does_not_hide_a_retained_sibling_alias() {
+        let source = "(#struct Link (: value #u64 : view (#pin-ref-mut #u64)))
+          (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view)) (#return target))
+          (#fn observe (: target (#pin-ref-mut Link) : choose #bool) ()
+            (#let sibling (#pin-ref-mut #u64) (#get target view))
+            (#if choose
+              (#block
+                (#let fresh (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
+                (#drop fresh) ()) ())
+            (#drop sibling)
+            (#return ()))
+          (#fn driver (: outside (#pin-ref-mut #u64)) ()
+            (#let-mut link Link (#struct-literal Link (: value 42u64 : view outside)))
+            (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
+            (#call observe (: target installed : choose true))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) outside))
+            (#drop installed) (#forget link) (#return ()))";
+        let declarations = fixture(source);
+        let plan = call_plan(&declarations, "driver", "observe");
+        assert_eq!(plan.aliases.len(), 1, "{:#?}", plan.aliases);
+        let error = plan
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
+            .expect_err("a conditional fresh borrow must still conflict with its retained sibling");
+        assert!(
+            error.message.contains("stored conflicting reference"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn observation_alternatives_keep_equal_address_entry_siblings() {
+        let origin = |entry_loan, parameter_storage| LoanOrigin {
+            owned_allocation: false,
+            place: Place {
+                root: PlaceRoot::Parameter(BindingId(0)),
+                segments: Vec::new(),
+            },
+            mutable: false,
+            pinned: true,
+            lifetime_only: false,
+            span: None,
+            borrowed_from: None,
+            call_reborrow: false,
+            entry_loan: Some(entry_loan),
+            storage: Vec::new(),
+            parameter_storage,
+            storage_inputs: Vec::new(),
+        };
+        let alternatives = observation_alternatives(vec![
+            origin(0, Some(Vec::new())),
+            origin(1, Some(Vec::new())),
+        ]);
+        assert_eq!(alternatives.len(), 2);
+        assert_eq!(alternatives[0].entry_loan, Some(0));
+        assert_eq!(alternatives[1].entry_loan, Some(1));
+    }
+
+    #[test]
+    fn observation_alternatives_drop_only_matching_fresh_provenance() {
+        let origin = |entry_loan| LoanOrigin {
+            owned_allocation: false,
+            place: Place {
+                root: PlaceRoot::Parameter(BindingId(0)),
+                segments: Vec::new(),
+            },
+            mutable: true,
+            pinned: true,
+            lifetime_only: false,
+            span: None,
+            borrowed_from: None,
+            call_reborrow: false,
+            entry_loan,
+            storage: Vec::new(),
+            parameter_storage: Some(Vec::new()),
+            storage_inputs: Vec::new(),
+        };
+        let alternatives =
+            observation_alternatives(vec![origin(None), origin(Some(0)), origin(Some(1))]);
+        assert_eq!(alternatives.len(), 2);
+        assert_eq!(alternatives[0].entry_loan, Some(0));
+        assert_eq!(alternatives[1].entry_loan, Some(1));
+    }
+
+    #[test]
+    fn observation_alternatives_keep_entry_aliases_from_distinct_input_slots() {
+        let origin = |entry_loan, slot| LoanOrigin {
+            owned_allocation: false,
+            place: Place {
+                root: PlaceRoot::Parameter(BindingId(0)),
+                segments: Vec::new(),
+            },
+            mutable: false,
+            pinned: true,
+            lifetime_only: false,
+            span: None,
+            borrowed_from: None,
+            call_reborrow: false,
+            entry_loan: Some(entry_loan),
+            storage: vec![Segment::Tuple(slot)],
+            parameter_storage: Some(vec![Segment::Tuple(slot)]),
+            storage_inputs: vec![Some(slot)],
+        };
+        let alternatives = observation_alternatives(vec![origin(0, 0), origin(1, 1)]);
+        assert_eq!(alternatives.len(), 2);
+        assert_eq!(
+            alternatives[0].parameter_storage,
+            Some(vec![Segment::Tuple(0)])
+        );
+        assert_eq!(
+            alternatives[1].parameter_storage,
+            Some(vec![Segment::Tuple(1)])
+        );
     }
 }

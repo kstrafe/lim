@@ -141,7 +141,7 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                 let is_temporary_reference = matches!(
                     &body.nodes[value.0].kind,
                     NodeKind::Form { head, children, .. }
-                        if matches!(head.as_str(), "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut")
+                        if matches!(head.as_str(), "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut")
                             && children.len() == 2
                 );
                 Some((value, (places, mutable, node.span, is_temporary_reference)))
@@ -2360,14 +2360,14 @@ fn direct_borrow(body: &Body, id: NodeId) -> Option<DirectBorrow> {
     }
     if !matches!(
         head.as_str(),
-        "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+        "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
     ) || children.len() != 2
     {
         return None;
     }
     Some(DirectBorrow {
         place: Place::from_expression(body, children[1])?,
-        mutable: matches!(head.as_str(), "borrow-mut" | "pin-borrow-mut"),
+        mutable: matches!(head.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut"),
         span: node.span,
         storage: Vec::new(),
     })

@@ -1,4 +1,5 @@
 //! Executable control flow lowered from an ordinary checked async witness.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! This graph is neither a frame emitter nor an ownership proof. All runtime
 //! operands are evaluated explicitly; operations refer to those values, never
@@ -10,7 +11,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::async_source::CheckedAwait;
+use crate::generator::async_source::CheckedAwait;
 use crate::typed_body::{
     Binding, BindingId, Body, Control, Instruction, Node, NodeId, NodeKind, NumericOpcode,
     NumericOperation, PlaceRoot, Projection,
@@ -2737,7 +2738,7 @@ impl Graph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::async_source::{self, Lowered};
+    use crate::generator::async_source::{self, Lowered};
     use crate::typed_ir::Declarations;
 
     const CONTEXT: &str = "

@@ -1,4 +1,5 @@
 //! Ordinary source rendering for the typed executable async graph.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! This boundary substitutes already evaluated operands. It does not choose
 //! Copy/move/reborrow access, allocate frame slots, or authorize emission. The
@@ -8,8 +9,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::async_exec::Error as NodeError;
-use crate::async_exec::{Action, Compute, Graph, Operation, Terminator, ValueId};
+use crate::generator::async_exec::Error as NodeError;
+use crate::generator::async_exec::{Action, Compute, Graph, Operation, Terminator, ValueId};
 use crate::typed_body::{BindingId, Body, Node, NodeId, NodeKind};
 use crate::typed_ir::{DeclarationId, Declarations, FieldId};
 use crate::{Expr, Span, Type};
@@ -662,7 +663,8 @@ mod tests {
     fn prepare(source: &str, function: &str) -> (Declarations, Graph) {
         let program = crate::parse_program(source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
-        let graph = crate::async_exec::build(&declarations.bodies[function], &[]).unwrap();
+        let graph =
+            crate::generator::async_exec::build(&declarations.bodies[function], &[]).unwrap();
         (declarations, graph)
     }
 

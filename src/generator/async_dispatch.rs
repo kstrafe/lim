@@ -1,4 +1,5 @@
 //! Collapse checked continuation-shaped async syntax into an ordinary poll loop.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! The tagged frame remains the state index and initialized-storage witness.
 //! This changes execution structure, not layout or cleanup permissions. Source
@@ -405,7 +406,7 @@ fn hygienize(
 /// fields, constructors and types retain their explicit public spelling.
 pub(crate) fn hygienize_source(
     source: &str,
-    environment: &crate::async_fn::AsyncTypeEnvironment,
+    environment: &crate::generator::async_fn::AsyncTypeEnvironment,
 ) -> Result<String, String> {
     let mut forms = crate::parse(source)?
         .into_iter()
@@ -803,7 +804,7 @@ fn fuse(
 /// Build dispatch loops without new unsafe operations or new frame variants.
 pub(crate) fn collapse(
     source: &str,
-    environment: &crate::async_fn::AsyncTypeEnvironment,
+    environment: &crate::generator::async_fn::AsyncTypeEnvironment,
 ) -> Result<String, String> {
     let mut forms = crate::parse(source)?
         .into_iter()

@@ -1,4 +1,5 @@
 //! Definite physical reference-cell state along the executable async graph.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! A poll's scalar program counter is not an ownership contract for ordinary
 //! callees. At Pending, make graph-proved Empty cells visibly Empty even for
@@ -9,7 +10,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use crate::async_exec::{
+use crate::generator::async_exec::{
     Action, AddressRoot, Argument, BlockId, Compute, Graph, LoadKind, Terminator, ValueId,
 };
 use crate::linearcheck::LinearTypes;
@@ -29,6 +30,7 @@ enum State {
 }
 
 pub(crate) struct Plan {
+    pub action_empty: HashMap<(BlockId, usize), Vec<Cell>>,
     pub pending_empty: HashMap<BlockId, Vec<Cell>>,
     pub exit_empty: HashMap<BlockId, Vec<Cell>>,
 }
@@ -39,8 +41,8 @@ struct Solver<'a> {
     bindings: Vec<Option<usize>>,
     values: Vec<Option<usize>>,
     copy: Vec<bool>,
-    retirement: Option<&'a crate::async_retire::Plan>,
-    lending: Option<&'a crate::async_lend::Plan>,
+    retirement: Option<&'a crate::generator::async_retire::Plan>,
+    lending: Option<&'a crate::generator::async_lend::Plan>,
     types: &'a LinearTypes,
 }
 
@@ -91,7 +93,10 @@ impl Solver<'_> {
                                 && source
                                     .and_then(|source| self.lending?.access(source))
                                     .is_some_and(|access| {
-                                        matches!(access, crate::async_lend::Access::Move(_))
+                                        matches!(
+                                            access,
+                                            crate::generator::async_lend::Access::Move(_)
+                                        )
                                     })
                             {
                                 states[index] = State::Empty;
@@ -223,8 +228,8 @@ impl Plan {
     pub(crate) fn new(
         graph: &Graph,
         types: &LinearTypes,
-        retirement: Option<&crate::async_retire::Plan>,
-        lending: Option<&crate::async_lend::Plan>,
+        retirement: Option<&crate::generator::async_retire::Plan>,
+        lending: Option<&crate::generator::async_lend::Plan>,
     ) -> Option<Self> {
         let mut solver = Solver {
             graph,
@@ -286,6 +291,30 @@ impl Plan {
                 }
             }
         }
+        let mut action_empty = HashMap::new();
+        for (index, incoming) in before.iter().enumerate() {
+            if let Some(mut states) = incoming.clone() {
+                if let Some(plan) = retirement {
+                    solver.clear(&mut states, &plan.entry[index]);
+                }
+                for (action_index, action) in graph.blocks[index].actions.iter().enumerate() {
+                    action_empty.insert(
+                        (BlockId(index), action_index),
+                        solver
+                            .cells
+                            .iter()
+                            .copied()
+                            .zip(states.iter().copied())
+                            .filter_map(|(cell, state)| (state == State::Empty).then_some(cell))
+                            .collect(),
+                    );
+                    solver.action(&mut states, &action.action, action.source);
+                    if let Some(plan) = retirement {
+                        solver.clear(&mut states, &plan.after_action[index][action_index]);
+                    }
+                }
+            }
+        }
         let mut pending_empty = HashMap::new();
         let mut exit_empty = HashMap::new();
         for (index, block) in graph.blocks.iter().enumerate() {
@@ -331,6 +360,7 @@ impl Plan {
             );
         }
         Some(Self {
+            action_empty,
             pending_empty,
             exit_empty,
         })
@@ -341,14 +371,21 @@ impl Plan {
 mod tests {
     use super::*;
 
-    fn prepare(source: &str) -> (Graph, LinearTypes, Option<crate::async_lend::Plan>) {
+    fn prepare(
+        source: &str,
+    ) -> (
+        Graph,
+        LinearTypes,
+        Option<crate::generator::async_lend::Plan>,
+    ) {
         let program = crate::parse_program(source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
         let body = &declarations.bodies["work"];
         let types = LinearTypes::from_program(&program);
         let lending =
-            crate::async_lend::Plan::new(body, &declarations.flows["work"], &types).unwrap();
-        let graph = crate::async_exec::build(body, &[]).unwrap();
+            crate::generator::async_lend::Plan::new(body, &declarations.flows["work"], &types)
+                .unwrap();
+        let graph = crate::generator::async_exec::build(body, &[]).unwrap();
         graph.validate().unwrap();
         (graph, types, lending)
     }
@@ -444,16 +481,17 @@ mod tests {
         )
         .unwrap()
         .remove(0);
-        let lowered = crate::async_source::lower(&source, crate::Type::U64, &context).unwrap();
+        let lowered =
+            crate::generator::async_source::lower(&source, crate::Type::U64, &context).unwrap();
         let program = lowered.program(&context).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
         let body = &declarations.bodies[&lowered.body_name];
         let flow = &declarations.flows[&lowered.body_name];
         let sites = lowered.map(body, flow, &declarations).unwrap();
-        let graph = crate::async_exec::build(body, &sites).unwrap();
+        let graph = crate::generator::async_exec::build(body, &sites).unwrap();
         graph.validate().unwrap();
         let types = LinearTypes::from_program(&program);
-        let lending = crate::async_lend::Plan::new(body, flow, &types).unwrap();
+        let lending = crate::generator::async_lend::Plan::new(body, flow, &types).unwrap();
         let plan = Plan::new(&graph, &types, None, lending.as_ref()).unwrap();
         let again = Plan::new(&graph, &types, None, lending.as_ref()).unwrap();
         assert_eq!(plan.pending_empty, again.pending_empty);

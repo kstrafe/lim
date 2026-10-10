@@ -1,4 +1,5 @@
 //! Evaluated values outstanding at original awaits modeled as ordinary calls.
+//! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! This is a value capture plan, not frame emission or an ownership proof. The
 //! frontier is immediately BEFORE the mapped call: it includes the enclosing

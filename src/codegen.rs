@@ -1051,7 +1051,7 @@ fn monomorphize_program<'a>(
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
         syntax_bundle_uses: program.syntax_bundle_uses.clone(),
-        async_functions: program.async_functions.clone(),
+        generator_validation: program.generator_validation.clone(),
     }))
 }
 
@@ -1231,7 +1231,7 @@ fn prepare_checked_program(
         declaration_occurrences: program.declaration_occurrences.clone(),
         generated_source_invocations: program.generated_source_invocations.clone(),
         syntax_bundle_uses: program.syntax_bundle_uses.clone(),
-        async_functions: program.async_functions.clone(),
+        generator_validation: program.generator_validation.clone(),
     };
     for item in &mut result.items {
         match item {
@@ -7473,7 +7473,12 @@ impl FunctionContext<'_> {
                 Some(Expr::Symbol(operator))
                     if matches!(
                         operator.as_str(),
-                        "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+                        "borrow"
+                            | "borrow-mut"
+                            | "pin"
+                            | "pin-shared"
+                            | "pin-borrow"
+                            | "pin-borrow-mut"
                     ) && items.len() == 2 =>
                 {
                     let target = match items.get(1)? {
@@ -7487,8 +7492,12 @@ impl FunctionContext<'_> {
                         }
                         _ => return None,
                     };
-                    let mutable = matches!(operator.as_str(), "borrow-mut" | "pin-borrow-mut");
-                    if matches!(operator.as_str(), "pin-borrow" | "pin-borrow-mut") {
+                    let mutable =
+                        matches!(operator.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut");
+                    if matches!(
+                        operator.as_str(),
+                        "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
+                    ) {
                         Some(Type::PinnedReference {
                             mutable,
                             target: Box::new(target),
@@ -10572,7 +10581,7 @@ impl FunctionContext<'_> {
                 self.comparison(operator, operand_type.as_ref(), items)
             }
             "if" => self.if_expression(items),
-            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" => {
+            "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut" => {
                 if items.len() == 3 {
                     if matches!(&items[1], Expr::List(_)) {
                         // Scoped projection borrows still evaluate dynamic
