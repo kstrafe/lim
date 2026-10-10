@@ -37,7 +37,9 @@ fn main() -> ExitCode {
             .find(|arg| !arg.starts_with("--diagnostic-format="))
             .map(String::as_str);
         let supported = matches!(command, Some("--check" | "--emit-asm"))
-            || command.is_some_and(|command| !command.starts_with('-') && command != "fmt");
+            || command.is_some_and(|command| {
+                !command.starts_with('-') && !matches!(command, "fmt" | "lsp")
+            });
         if !supported {
             eprintln!("lim: --timings is supported for compile, --check, and --emit-asm commands");
             return ExitCode::FAILURE;
@@ -67,6 +69,7 @@ fn run_main(mut arguments: Vec<String>) -> ExitCode {
     arguments.retain(|arg| arg != "--diagnostic-format=json" && arg != "--diagnostic-format=human");
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
         println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
+        println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
         return ExitCode::SUCCESS;
     }
     if matches!(
@@ -151,6 +154,39 @@ fn run_main(mut arguments: Vec<String>) -> ExitCode {
             }
             Err(error) => {
                 eprintln!("lim: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    if matches!(arguments.first().map(String::as_str), Some("lsp" | "--lsp")) {
+        let mut config = lim::CompileConfig::default();
+        let mut index = 1;
+        while index < arguments.len() {
+            let option = &arguments[index];
+            let Some(value) = arguments.get(index + 1) else {
+                eprintln!("lim: {option} requires a value");
+                return ExitCode::FAILURE;
+            };
+            match option.as_str() {
+                "--cfg" => {
+                    if let Err(error) = apply_cfg_argument(&mut config, value) {
+                        eprintln!("lim: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+                "--module-path" => config.add_module_path(value),
+                _ => {
+                    eprintln!("usage: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...");
+                    return ExitCode::FAILURE;
+                }
+            }
+            index += 2;
+        }
+        return match lim::lsp::run(&config) {
+            Ok(0) => ExitCode::SUCCESS,
+            Ok(_) => ExitCode::FAILURE,
+            Err(error) => {
+                eprintln!("lim: language server: {error}");
                 ExitCode::FAILURE
             }
         };

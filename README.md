@@ -135,3 +135,12 @@ resolution, and ELF construction; `output_write` covers publishing the
 resulting binary. Assembly builds report output writing separately. Nested
 instrumented work is included in its outer stage and is not reported as an
 overlapping event. Failed commands report stages reached before the failure.
+
+## Language server
+
+Run `lim lsp` to serve LSP over stdin/stdout. It provides live compiler
+diagnostics for unsaved buffers and imports, formatting, document symbols,
+and same-file explicit `#call` definitions. It discovers project module paths
+and accepts `--cfg KEY=VALUE` and `--module-path PATH` for session settings.
+Checks do not write source files or generator caches. See the
+[Neovim setup and feature limits](utilities/nvim/README.md#language-server).

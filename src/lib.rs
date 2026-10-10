@@ -18,6 +18,7 @@ mod call_self_loans;
 mod capture_storage;
 mod codegen;
 mod diagnostic_json;
+mod editor;
 mod elf_object;
 mod elf_writer;
 mod generated_validation;
@@ -26,6 +27,7 @@ mod generator;
 mod gensym;
 mod instruction_encoder;
 mod linearcheck;
+pub mod lsp;
 mod native_assembly;
 mod native_linker;
 mod output;
@@ -56,6 +58,7 @@ pub use cache_report::with_cache_report;
 pub use codegen::generate_assembly;
 pub use codegen::generate_assembly_for_target;
 pub use diagnostic_json::render_diagnostic_json;
+pub use editor::check_source_for_editor;
 pub use output::{reject_source_output_collision, write_output_atomic};
 pub use stack_usage::stack_usage_report;
 pub use timing::{render as render_timings, stage as timing_stage, TimingEvent, TimingSession};
@@ -4694,10 +4697,16 @@ fn load_imports_inner(
             .collect::<Vec<_>>();
         let unresolved_path = unresolved_paths
             .iter()
-            .find(|candidate| standard_library::source(candidate).is_some() || candidate.is_file())
+            .find(|candidate| {
+                standard_library::source(candidate).is_some()
+                    || candidate.is_file()
+                    || editor::source(candidate).is_some()
+            })
             .cloned()
             .unwrap_or_else(|| unresolved_paths[0].clone());
-        let path = if standard_library::source(&unresolved_path).is_some() {
+        let path = if editor::source(&unresolved_path).is_some() {
+            Ok(editor::path_key(&unresolved_path))
+        } else if standard_library::source(&unresolved_path).is_some() {
             Ok(unresolved_path.clone())
         } else {
             fs::canonicalize(&unresolved_path)
@@ -4769,7 +4778,10 @@ fn load_imports_inner(
                 source_files,
             ));
         }
-        let embedded_source = standard_library::source(&path);
+        let overlay_source = editor::source(&path);
+        let embedded_source = overlay_source
+            .as_deref()
+            .or_else(|| standard_library::source(&path));
         let source_size = if let Some(source) = embedded_source {
             source.len()
         } else {

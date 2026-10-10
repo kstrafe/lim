@@ -121,4 +121,7 @@ fn timings_are_rejected_for_non_compiler_commands() {
     let stderr = timing_stderr(&output);
     assert!(stderr.contains("--timings is supported"), "{stderr}");
     assert!(!stderr.contains("timing total"), "{stderr}");
+    let output = lim().args(["lsp", "--timings"]).output().unwrap();
+    assert!(!output.status.success());
+    assert!(timing_stderr(&output).contains("--timings is supported"));
 }

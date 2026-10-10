@@ -26,6 +26,38 @@ Colors depend on your colorscheme. Override individual groups after loading it,
 for example `highlight limType guifg=#80c0ff ctermfg=117`.
 Bare names such as `u64` are ordinary identifiers, not builtin types.
 
+## Language server
+
+Enable `filetype plugin on` and add this directory to your runtime path to load
+`ftplugin/lim.lua`. It uses Neovim's built-in LSP client (`vim.lsp.start` and
+`vim.fs.root`, Neovim 0.10 or newer) and runs `lim lsp`. Set
+`vim.g.lim_lsp_cmd = { '/absolute/path/to/lim', 'lsp' }` before opening a Lim
+buffer to select a development binary. Additional `--cfg KEY=VALUE` and
+`--module-path PATH` arguments can be included in that command list.
+Explicit cfg settings apply to the whole server session. The server also
+discovers the nearest `lim.project` for each buffer and adds its source root
+and module directories, just like the build CLI.
+
+The server checks full unsaved buffers, including open imported files that do
+not exist on disk, and publishes compiler diagnostics with UTF-16 positions.
+Checks do not save buffers or create generator cache artifacts. Saving and
+closing a document rechecks open importers; closing clears stale diagnostics.
+Formatting returns a full-document edit using the compiler formatter; apply it
+with `vim.lsp.buf.format()`. Formatter options are accepted but the compiler's
+canonical style determines the result.
+
+Document symbols cover direct top-level function, struct, enum, and global
+declarations. Goto definition resolves explicit `#call` callee symbols to a
+unique same-document top-level function declaration, and declaration names to
+their own span. Other references, locals, fields, imported symbols, quoted
+templates, ambiguous duplicate functions, and generated declarations return no
+location. Generated diagnostics point to file-backed invocation provenance;
+expansion provenance is also included as related diagnostic locations.
+No completion, rename, incremental edits, filesystem watching, or workspace
+symbol index is provided. Changes to unopened files are picked up on the next
+open-buffer change/save/close event. The server handles local absolute `file:`
+URIs and rejects remote authorities and malformed percent escapes.
+
 Run the highlighting regression tests from the repository root:
 
 ```sh
