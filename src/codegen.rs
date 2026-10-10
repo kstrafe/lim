@@ -177,6 +177,7 @@ enum GlobalValue {
 #[derive(Clone)]
 struct FunctionAbi {
     symbol_name: String,
+    assembly_symbol: String,
     parameters: Vec<Type>,
     indirect_parameters: Vec<bool>,
     return_type: Type,
@@ -248,6 +249,7 @@ fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
     let id = checked.declarations().function_id("actual").unwrap();
     let abi = FunctionAbi {
         symbol_name: "actual".into(),
+        assembly_symbol: asm_symbol("actual"),
         parameters: Vec::new(),
         indirect_parameters: Vec::new(),
         return_type: Type::U64,
@@ -256,6 +258,7 @@ fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
     };
     let wrong = FunctionAbi {
         symbol_name: "wrong".into(),
+        assembly_symbol: asm_symbol("wrong"),
         ..abi.clone()
     };
     let by_name = HashMap::from([("wrong".into(), wrong)]);
@@ -265,6 +268,12 @@ fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
             .unwrap()
             .symbol_name,
         "actual"
+    );
+    assert_eq!(
+        resolve_call_abi("wrong", Some(id), &by_name, &by_id)
+            .unwrap()
+            .assembly_symbol,
+        asm_symbol("actual")
     );
     assert_eq!(
         resolve_call_abi("wrong", None, &by_name, &by_id)
@@ -299,6 +308,7 @@ fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
     );
     let abi = FunctionAbi {
         symbol_name: "actual".into(),
+        assembly_symbol: asm_symbol("actual"),
         parameters: Vec::new(),
         indirect_parameters: Vec::new(),
         return_type: Type::Named("Large".into()),
@@ -307,6 +317,7 @@ fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
     };
     let wrong = FunctionAbi {
         symbol_name: "wrong".into(),
+        assembly_symbol: asm_symbol("wrong"),
         indirect_return: false,
         ..abi.clone()
     };
@@ -1367,6 +1378,7 @@ fn generate_checked_assembly_with_roots(
             function.name.clone(),
             FunctionAbi {
                 symbol_name: function.name.clone(),
+                assembly_symbol: asm_symbol(&function.name),
                 parameters,
                 indirect_parameters,
                 indirect_return,
@@ -1394,6 +1406,7 @@ fn generate_checked_assembly_with_roots(
                 spawn_name.clone(),
                 FunctionAbi {
                     symbol_name: spawn_name.clone(),
+                    assembly_symbol: asm_symbol(&spawn_name),
                     parameters: worker_abi.parameters.clone(),
                     indirect_parameters: worker_abi.indirect_parameters.clone(),
                     return_type: spawn_result_type,
@@ -1405,6 +1418,7 @@ fn generate_checked_assembly_with_roots(
                 join_name.clone(),
                 FunctionAbi {
                     symbol_name: join_name.clone(),
+                    assembly_symbol: asm_symbol(&join_name),
                     parameters: vec![task_type],
                     indirect_parameters: vec![false],
                     indirect_return: join_indirect_return,
@@ -7922,6 +7936,14 @@ impl FunctionContext<'_> {
                 .is_some_and(|variants| variants.iter().any(|variant| !variant.fields.is_empty()))
             {
                 if let Expr::Symbol(name) = value {
+                    if self.expression_types.get(value).is_some_and(|node| {
+                        matches!(
+                            node.declaration,
+                            Some(crate::typed_ir::DeclarationId::Variant(_))
+                        )
+                    }) {
+                        return self.expression(value);
+                    }
                     if let Some(global_name) = self.checked_global_name(value, name)? {
                         if matches!(
                             self.global_types.get(&global_name),
@@ -16213,13 +16235,18 @@ impl FunctionContext<'_> {
         if abi.parameters.iter().all(is_float_type) {
             if let Some(ty) = abi.parameters.first() {
                 if abi.parameters.iter().all(|other| other == ty) {
-                    return self.call_float(&abi.symbol_name, arguments, ty, indirect_return_slot);
+                    return self.call_float(
+                        &abi.assembly_symbol,
+                        arguments,
+                        ty,
+                        indirect_return_slot,
+                    );
                 }
             }
         }
         if abi.parameters.iter().any(is_float_type) {
             return self.call_mixed(
-                &abi.symbol_name,
+                &abi.assembly_symbol,
                 arguments,
                 &abi.parameters,
                 &abi.indirect_parameters,
@@ -16247,7 +16274,7 @@ impl FunctionContext<'_> {
             // for the ABI. Reversing argument evaluation to build the stack
             // disagrees with typed flow (and with calls that fit registers).
             return self.call_mixed(
-                &abi.symbol_name,
+                &abi.assembly_symbol,
                 arguments,
                 &abi.parameters,
                 &abi.indirect_parameters,
@@ -16271,7 +16298,7 @@ impl FunctionContext<'_> {
         }
         self.emit_indirect_return_target(indirect_return_slot);
         self.output
-            .push_str(&format!("    call {}\n", asm_symbol(&abi.symbol_name)));
+            .push_str(&format!("    call {}\n", abi.assembly_symbol));
         if needs_padding {
             self.output.push_str("    add rsp, 8\n");
         }
@@ -16280,7 +16307,7 @@ impl FunctionContext<'_> {
 
     fn call_float(
         &mut self,
-        name: &str,
+        assembly_symbol: &str,
         arguments: &[Expr],
         ty: &Type,
         indirect_return_slot: Option<usize>,
@@ -16332,7 +16359,7 @@ impl FunctionContext<'_> {
         }
         self.emit_indirect_return_target(indirect_return_slot);
         self.output
-            .push_str(&format!("    call {}\n", asm_symbol(name)));
+            .push_str(&format!("    call {assembly_symbol}\n"));
         self.output.push_str(&format!(
             "    add rsp, {}\n",
             (total_words + overflow_words) * 8
@@ -16347,7 +16374,7 @@ impl FunctionContext<'_> {
 
     fn call_mixed(
         &mut self,
-        name: &str,
+        assembly_symbol: &str,
         arguments: &[Expr],
         parameters: &[Type],
         indirect_parameters: &[bool],
@@ -16438,7 +16465,7 @@ impl FunctionContext<'_> {
         }
         self.emit_indirect_return_target(indirect_return_slot);
         self.output
-            .push_str(&format!("    call {}\n", asm_symbol(name)));
+            .push_str(&format!("    call {assembly_symbol}\n"));
         self.output.push_str(&format!(
             "    add rsp, {}\n",
             (total_words + overflow_words) * 8
