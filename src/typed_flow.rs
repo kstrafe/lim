@@ -3132,6 +3132,12 @@ impl FlowGraph {
     fn call_result_refinements(&self, body: &Body) -> Vec<Option<CallResultRefinement>> {
         let reachable = self.reachable();
         let mut predecessors = vec![Vec::new(); self.nodes.len()];
+        let mut evaluations = vec![Vec::new(); body.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            if let FlowAction::Evaluate(value) = node.action {
+                evaluations[value.0].push(FlowNodeId(index));
+            }
+        }
         for event in &reachable {
             for successor in &self.nodes[event.0].successors {
                 predecessors[successor.0].push(*event);
@@ -3145,8 +3151,16 @@ impl FlowGraph {
                     return None;
                 };
                 let variant = constructor_variant_at_storage(body, pattern, &[])?;
-                let sources =
-                    self.call_result_producers(body, value, FlowNodeId(index), &predecessors)?;
+                // All queries in this immutable refinement pass share one
+                // topology and event index. A modified graph starts a new pass.
+                let sources = self.owned_call_result_producers_with_reachable(
+                    body,
+                    value,
+                    FlowNodeId(index),
+                    &predecessors,
+                    false,
+                    &reachable,
+                )?;
                 let mut calls = Vec::new();
                 for (call, path) in sources {
                     let NodeKind::Form {
@@ -3182,15 +3196,11 @@ impl FlowGraph {
                     {
                         return None;
                     }
-                    let mut evaluations =
-                        self.nodes.iter().enumerate().filter_map(|(index, node)| {
-                            matches!(node.action, FlowAction::Evaluate(found) if found == call)
-                                .then_some(FlowNodeId(index))
-                        });
-                    let call_event = evaluations.next()?;
-                    if evaluations.next().is_some() {
+                    let call_evaluations = &evaluations[call.0];
+                    if call_evaluations.len() != 1 {
                         return None;
                     }
+                    let call_event = call_evaluations[0];
                     calls.push((call_event, call, path));
                 }
                 // Different alternatives must be mutually exclusive. A later
@@ -3270,6 +3280,7 @@ impl FlowGraph {
 
     /// Identify an actual call and the owned output storage selected from it.
     /// Nonempty paths are not interchangeable with root outcome contracts.
+    #[cfg(test)]
     fn call_result_producers(
         &self,
         body: &Body,
@@ -3292,6 +3303,25 @@ impl FlowGraph {
         replacements: bool,
     ) -> Option<Vec<(NodeId, Vec<Segment>)>> {
         let reachable = self.reachable();
+        self.owned_call_result_producers_with_reachable(
+            body,
+            value,
+            use_event,
+            predecessors,
+            replacements,
+            &reachable,
+        )
+    }
+
+    fn owned_call_result_producers_with_reachable(
+        &self,
+        body: &Body,
+        value: NodeId,
+        use_event: FlowNodeId,
+        predecessors: &[Vec<FlowNodeId>],
+        replacements: bool,
+        reachable: &HashSet<FlowNodeId>,
+    ) -> Option<Vec<(NodeId, Vec<Segment>)>> {
         let mut pending_values = vec![(value, use_event, Vec::new(), Vec::new())];
         let mut calls = Vec::new();
         while let Some((value, use_event, mut bindings, mut path)) = pending_values.pop() {
@@ -18865,6 +18895,18 @@ mod tests {
                 })
                 .unwrap();
             let result = graph.call_result_producers(body, value, event, &predecessors);
+            assert_eq!(
+                result,
+                graph.owned_call_result_producers_with_reachable(
+                    body,
+                    value,
+                    event,
+                    &predecessors,
+                    false,
+                    &graph.reachable(),
+                ),
+                "shared topology must preserve projection and replacement rules",
+            );
             for (index, node) in body.nodes.iter().enumerate() {
                 if matches!(&node.kind, NodeKind::Form { head, .. } if head == "borrow") {
                     assert!(graph
