@@ -3336,6 +3336,53 @@ mod tests {
     }
 
     #[test]
+    fn branch_and_loop_local_pinned_owners_initialize_at_their_execution_points() {
+        for selected in [false, true] {
+            let function = format!(
+                "(#fn work (: selected #bool : count (#ptr-mut #u64)) #u64
+                  (#let offset #u64 (#await Child ChildPending ChildReady child-poll (Start 1u64)))
+                  (#let-mut total #u64 0u64)
+                  (#if selected
+                    (#block
+                      (#for (#let-mut index #u64 0u64) (#u64.< index 2u64)
+                        (#set index (#u64.+.wrap index 1u64))
+                        (#let owner Source (#call make-owner (: seed (#u64.+.wrap 19u64 offset) : count count)))
+                        (#let view (#pin-ref #u64) (#pin-borrow (#get owner amount)))
+                        (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 1u64)))
+                        (#set total (#u64.+.wrap total (#u64.+.wrap (#deref view) child)))
+                        (#drop view) (#forget owner)) ())
+                    (#block (#set total 42u64) ()))
+                  (#return total))"
+            );
+            let main = format!(
+                "(#struct Source (: amount #u64)) (#linear Source)
+                  (#fn make-owner (: seed #u64 : count (#ptr-mut #u64)) Source
+                    (#unsafe (#ptr-write count (#u64.+.wrap (#ptr-read count) 1u64)))
+                    (#return (#struct-literal Source (: amount seed))))
+                  (#fn main () #u64
+                    (#let waker #u64 0u64) (#let-mut count #u64 0u64)
+                    (#let pointer (#ptr-mut #u64) (#unsafe (#asm (#ptr-mut #u64)
+                      ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
+                    (#let-mut task work-frame (#call work (: selected {selected} : count pointer)))
+                    (#assert (#u64.== count 0u64))
+                    (#let-mut running (#pin-ref-mut work-frame) (#pin-borrow-mut task))
+                    (#let-mut retries #u64 0u64) (#let-mut answer #u64 0u64)
+                    (#loop (#match (#call work-poll (: task running : waker (#borrow waker)))
+                      (#case (work-pending next) (#block (#set running next)
+                        (#set retries (#u64.+.wrap retries 1u64))
+                        (#assert (#u64.== count (#u64.-.wrap retries 1u64))) ()))
+                      (#case (work-ready result) (#block (#set answer result) (#break) (#unreachable)))))
+                    (#drop running) (#forget task)
+                    (#assert (#u64.== count {owners}u64))
+                    (#assert (#u64.== retries {polls}u64)) (#return answer))",
+                owners = if selected { 2 } else { 0 },
+                polls = if selected { 3 } else { 1 },
+            );
+            runtime_planned(prepare_generator("async-fn-pinned", &function, &main), 42);
+        }
+    }
+
+    #[test]
     fn local_owner_initialization_after_await_is_lazy_and_runs_exactly_once() {
         let function = "(#fn work (: seed #u64 : count (#ptr-mut #u64)) #u64
           (#let offset #u64 (#await Child ChildPending ChildReady child-poll (Start 5u64)))
