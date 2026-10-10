@@ -323,8 +323,9 @@ checks.
 
 Materialized generated `.lim` files begin with a `Generated from:` comment
 listing the distinct `file:line` call sites that contributed to that artifact,
-sorted for stable output. Cache hits refresh this header without rerunning
-generation.
+sorted for stable output. Cache hits append newly observed call sites without
+rerunning generation. If all current sites are already recorded, neither the
+source file nor its cache metadata is rewritten; earlier records are retained.
 
 ```lisp syntax
 (@async-fn (: protocol WorkAwait : waker LocalWaker : function (#fn work ((offset #u64)) #u64

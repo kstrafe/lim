@@ -1181,6 +1181,13 @@ pub(crate) fn cached_generated_source_with_origins(
                 && crate::parse(&source).is_ok()
             {
                 crate::cache_report::record("source", &path, key, "hit");
+                let recorded = recorded_generated_origins(&source);
+                if origins
+                    .iter()
+                    .all(|origin| recorded.contains(&origin.replace(['\r', '\n'], " ")))
+                {
+                    return Ok(source);
+                }
                 let annotated = annotate_generated_source(&source, origins);
                 if annotated != source {
                     publish_cache_file(&path, annotated.as_bytes(), "generated source")?;
@@ -1222,24 +1229,44 @@ pub(crate) fn cached_generated_source_with_origins(
     Ok(source)
 }
 
+const GENERATED_ORIGINS_HEADER: &str = "; Generated from:\n";
+
+fn recorded_generated_origins(source: &str) -> Vec<String> {
+    source
+        .strip_prefix(GENERATED_ORIGINS_HEADER)
+        .and_then(|source| source.split_once("\n\n"))
+        .map_or_else(Vec::new, |(header, _)| {
+            header
+                .lines()
+                .filter_map(|line| line.strip_prefix("; "))
+                .map(str::to_owned)
+                .collect()
+        })
+}
+
 fn annotate_generated_source(source: &str, origins: &[String]) -> String {
-    const HEADER: &str = "; Generated from:\n";
-    let body = if source.starts_with(HEADER) {
+    let body = if source.starts_with(GENERATED_ORIGINS_HEADER) {
         source.split_once("\n\n").map_or(source, |(_, body)| body)
     } else {
         source
     };
+    let mut recorded = recorded_generated_origins(source);
+    recorded.extend(
+        origins
+            .iter()
+            .map(|origin| origin.replace(['\r', '\n'], " ")),
+    );
+    let mut origins = recorded;
     if origins.is_empty() {
         return body.to_owned();
     }
-    let mut origins = origins.to_vec();
     origins.sort();
     origins.dedup();
-    let mut output = HEADER.to_owned();
+    let mut output = GENERATED_ORIGINS_HEADER.to_owned();
     for origin in origins {
         output.push_str("; ");
         // A filename cannot inject source through the provenance comment.
-        output.push_str(&origin.replace(['\r', '\n'], " "));
+        output.push_str(&origin);
         output.push('\n');
     }
     output.push('\n');
@@ -2284,8 +2311,7 @@ mod tests {
             || panic!("provenance changes must not rerun generation"),
         )
         .unwrap();
-        assert!(second.starts_with("; Generated from:\n; new.lim:12\n\n"));
-        assert!(!second.contains("z.lim:8"));
+        assert!(second.starts_with("; Generated from:\n; a.lim:3\n; new.lim:12\n; z.lim:8\n\n"));
         assert_eq!(
             crate::parse(&first)
                 .unwrap()
@@ -2306,6 +2332,41 @@ mod tests {
         )
         .unwrap();
         assert_eq!(second, third);
+        let paths = fs::read_dir(&directory)
+            .unwrap()
+            .chain(fs::read_dir(generated_source_directory(&directory)).unwrap())
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>();
+        let timestamp = std::time::UNIX_EPOCH + Duration::from_secs(12345);
+        for path in &paths {
+            fs::File::options()
+                .write(true)
+                .open(path)
+                .unwrap()
+                .set_times(fs::FileTimes::new().set_modified(timestamp))
+                .unwrap();
+        }
+        for sites in [
+            vec!["z.lim:8".into(), "new.lim:12".into(), "a.lim:3".into()],
+            vec!["a.lim:3".into()],
+            vec![],
+        ] {
+            let cached =
+                cached_generated_source_with_origins(&directory, "origins", &sites, || {
+                    panic!("covered origins must reuse generation")
+                })
+                .unwrap();
+            assert_eq!(cached, second);
+            for path in &paths {
+                assert_eq!(
+                    fs::metadata(path).unwrap().modified().unwrap(),
+                    timestamp,
+                    "covered origins must not rewrite {}",
+                    path.display()
+                );
+            }
+        }
         fs::remove_dir_all(directory).unwrap();
     }
 
