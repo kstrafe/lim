@@ -9,6 +9,5 @@
     (#set b next)
     (#set i (#u64.+.wrap (#clone i) 1)))
   (#return a))
-
 (#fn main () #u64
   (#return (#call fib (: n 10))))

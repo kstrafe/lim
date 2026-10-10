@@ -810,6 +810,20 @@ nix develop --command cargo run -- fmt examples/modules/main.lim
 `--format` retains comments in their surrounding syntax, including nested
 forms and generator templates. Formatting is idempotent.
 
+Formatting uses Lisp-style headers and two-space body indentation. Function
+signatures stay together, short nested expressions stay inline, and closing
+parentheses follow the final expression. A `#for` keeps initialization,
+comparison, and mutation together, followed by its indented body:
+
+```lisp
+(#for (#let-mut i #u64 0) (#u64.< (#clone i) 10) (#set i (#u64.+.wrap (#clone i) 1))
+  (#assert (#u64.< (#clone i) 10)))
+```
+
+Ordinary expressions exceeding a target width of 100 columns wrap between
+arguments. Form headers may exceed that width. Comments and parser shorthand
+retain their source spelling.
+
 `lim fmt INPUT` formats the file in place and follows internal `#import`s
 transitively. `#import-external` files are skipped. The read-only `--format`
 form remains available to print one formatted file or write it to a separate

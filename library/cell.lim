@@ -3,12 +3,10 @@
 ;; also safe to share across threads. Only supported atomic scalar types may
 ;; be used as T. Each instantiation names its type and operations.
 (#gn cell (value-type name create get set)
-  `((#struct ,name
-      ((storage (#atomic ,value-type))))
+  `((#struct ,name ((storage (#atomic ,value-type))))
     (#linear ,name)
     (#fn ,create ((value ,value-type)) ,name
-      (#return (#struct-literal ,name
-        ((storage (#atomic-init ,value-type value))))))
+      (#return (#struct-literal ,name ((storage (#atomic-init ,value-type value))))))
     (#fn ,get ((cell (#ref ,name))) ,value-type
       (#return (#atomic-load (#borrow (#get cell storage)) #memory-relaxed)))
     (#fn ,set ((cell (#ref ,name)) (value ,value-type)) ()

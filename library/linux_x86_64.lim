@@ -15,904 +15,1201 @@
 ; contracts, for the operation-specific obligations and safe helper boundary.
 ; Unsupported-target declarations preserve the same caller contract.
 (#import "linux_x86_64_syscall_numbers.lim")
-
 ; Lim stack aggregates are laid out toward lower addresses. Keep nanoseconds
 ; first so a pointer adjusted to the low end has the Linux C timespec order.
 (#struct LinuxTimespec ((nanoseconds #i64) (seconds #i64)))
-
-(#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
+(#cfg-if
+  (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
   (#fn linux-read-byte ((destination (#ref-mut #u8))) #i64
-    (#return (#unsafe (#asm #i64
-      ((rax LINUX-SYS-READ) (rdi 0usize) (rsi destination) (rdx 1usize))
-      "mov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
+    (#return
+      (#unsafe
+        (#asm
+          #i64
+          ((rax LINUX-SYS-READ) (rdi 0usize) (rsi destination) (rdx 1usize))
+          "mov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
   (#fn linux-read-byte-from ((fd #i64) (destination (#ref-mut #u8))) #i64
-    (#return (#unsafe (#asm #i64
-      ((rax LINUX-SYS-READ) (rdi fd) (rsi destination) (rdx 1usize))
-      "mov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
+    (#return
+      (#unsafe
+        (#asm
+          #i64
+          ((rax LINUX-SYS-READ) (rdi fd) (rsi destination) (rdx 1usize))
+          "mov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
   (#fn linux-write-byte ((source (#ref #u8))) #i64
-    (#return (#unsafe (#asm #i64
-      ((rax LINUX-SYS-WRITE) (rdi 1usize) (rsi source) (rdx 1usize))
-      "mov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
+    (#return
+      (#unsafe
+        (#asm
+          #i64
+          ((rax LINUX-SYS-WRITE) (rdi 1usize) (rsi source) (rdx 1usize))
+          "mov r8, rax\n1:\nmov rax, r8\nsyscall\ncmp rax, -4\nje 1b"))))
   (#fn linux-getpid () #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETPID)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETPID)) "syscall"))))
   (#fn linux-getuid () #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETUID)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETUID)) "syscall"))))
   (#fn linux-getgid () #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETGID)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETGID)) "syscall"))))
   (#fn linux-geteuid () #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETEUID)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETEUID)) "syscall"))))
   (#fn linux-getegid () #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETEGID)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETEGID)) "syscall"))))
   (#fn linux-getppid () #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETPPID)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETPPID)) "syscall"))))
   (#fn linux-getpgrp () #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETPGRP)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETPGRP)) "syscall"))))
   (#fn linux-getpgid ((pid #i64)) #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETPGID) (rdi pid)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETPGID) (rdi pid)) "syscall"))))
   (#fn linux-getsid ((pid #i64)) #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETSID) (rdi pid)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETSID) (rdi pid)) "syscall"))))
   (#fn linux-getpriority ((which #i64) (who #i64)) #i64
-    (#return (#unsafe (#asm #i64
-      ((rax LINUX-SYS-GETPRIORITY) (rdi which) (rsi who)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETPRIORITY) (rdi which) (rsi who)) "syscall"))))
   (#fn linux-alarm ((seconds #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-ALARM
-      (seconds)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-ALARM (seconds)))))
   (#fn linux-tkill ((thread #i32) (signal #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TKILL
-      (thread signal)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TKILL (thread signal)))))
   (#unsafe-fn linux-sigaltstack ((new-stack (#ptr-mut #u8)) (old-stack (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SIGALTSTACK
-      (new-stack old-stack)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SIGALTSTACK (new-stack old-stack)))))
   (#fn linux-timer-getoverrun ((timer-id #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIMER-GETOVERRUN
-      (timer-id)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIMER-GETOVERRUN (timer-id)))))
   (#fn linux-gettid () #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-GETTID)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-GETTID)) "syscall"))))
   ; SAFETY: control arguments can encode addresses; preserve the runtime's
   ; memory, TLS, and process invariants for the selected prctl operation.
   (#unsafe-fn linux-prctl ((option #i32) (arg2 #usize) (arg3 #usize) (arg4 #usize) (arg5 #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PRCTL
-      (option arg2 arg3 arg4 arg5)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PRCTL (option arg2 arg3 arg4 arg5)))))
   (#unsafe-fn linux-arch-prctl ((operation #i32) (argument #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-ARCH-PRCTL
-      (operation argument)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-ARCH-PRCTL (operation argument)))))
   (#unsafe-fn linux-capget ((header (#ptr-mut #u32)) (data (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CAPGET (header data)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CAPGET (header data)))))
   (#unsafe-fn linux-capset ((header (#ptr-mut #u32)) (data (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CAPSET (header data)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CAPSET (header data)))))
   (#fn linux-setpriority ((which #i32) (who #u32) (priority #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETPRIORITY
-      (which who priority)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETPRIORITY (which who priority)))))
   (#fn linux-ioprio-get ((which #i32) (who #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IOPRIO-GET (which who)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IOPRIO-GET (which who)))))
   (#fn linux-ioprio-set ((which #i32) (who #i32) (priority #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IOPRIO-SET
-      (which who priority)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IOPRIO-SET (which who priority)))))
   (#unsafe-fn linux-sched-setparam ((pid #i32) (scheduler-parameters (#ptr-mut #i32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-SETPARAM
-      (pid scheduler-parameters)))))
-  (#unsafe-fn linux-sched-setscheduler ((pid #i32) (policy #i32)
-      (scheduler-parameters (#ptr-mut #i32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-SETSCHEDULER
-      (pid policy scheduler-parameters)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-SETPARAM (pid scheduler-parameters)))))
+  (#unsafe-fn linux-sched-setscheduler ((pid #i32) (policy #i32) (scheduler-parameters (#ptr-mut #i32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-SETSCHEDULER (pid policy scheduler-parameters)))))
   (#unsafe-fn linux-sched-setattr ((pid #i32) (attributes (#ptr-mut #u64)) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-SETATTR
-      (pid attributes flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-SETATTR (pid attributes flags)))))
   (#fn linux-kill ((pid #i64) (signal #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-KILL (pid signal)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-KILL (pid signal)))))
   ; info points to native 128-byte siginfo_t; users supply code, sender and value.
   (#unsafe-fn linux-rt-sigqueueinfo ((group #i32) (signal #i32) (info (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RT-SIGQUEUEINFO
-      (group signal info)))))
-  (#unsafe-fn linux-rt-tgsigqueueinfo ((group #i32) (thread #i32) (signal #i32)
-      (info (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RT-TGSIGQUEUEINFO
-      (group thread signal info)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RT-SIGQUEUEINFO (group signal info)))))
+  (#unsafe-fn linux-rt-tgsigqueueinfo ((group #i32) (thread #i32) (signal #i32) (info (#ptr-mut #u8))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RT-TGSIGQUEUEINFO (group thread signal info)))))
   (#fn linux-tgkill ((group #i64) (thread #i64) (signal #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TGKILL
-      (group thread signal)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TGKILL (group thread signal)))))
   (#fn linux-pidfd-open ((pid #i64) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PIDFD-OPEN
-      (pid flags)))))
-  (#unsafe-fn linux-pidfd-send-signal ((pidfd #i64) (signal #i32)
-      (info (#ptr-mut #u8)) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PIDFD-SEND-SIGNAL
-      (pidfd signal info flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PIDFD-OPEN (pid flags)))))
+  (#unsafe-fn linux-pidfd-send-signal ((pidfd #i64) (signal #i32) (info (#ptr-mut #u8)) (flags #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PIDFD-SEND-SIGNAL (pidfd signal info flags)))))
   (#fn linux-pidfd-getfd ((pidfd #i64) (target-fd #i64) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PIDFD-GETFD
-      (pidfd target-fd flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PIDFD-GETFD (pidfd target-fd flags)))))
   ; Raw getcpu has an obsolete third cache pointer; Linux ignores it.
   (#unsafe-fn linux-getcpu ((cpu (#ptr-mut #u32)) (node (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETCPU
-      (cpu node (#ptr-null (#ptr-mut #u8)))))))
-  (#unsafe-fn linux-getresuid ((real (#ptr-mut #u32)) (effective (#ptr-mut #u32))
-      (saved (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETRESUID
-      (real effective saved)))))
-  (#unsafe-fn linux-getresgid ((real (#ptr-mut #u32)) (effective (#ptr-mut #u32))
-      (saved (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETRESGID
-      (real effective saved)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETCPU (cpu node (#ptr-null (#ptr-mut #u8)))))))
+  (#unsafe-fn linux-getresuid ((real (#ptr-mut #u32)) (effective (#ptr-mut #u32)) (saved (#ptr-mut #u32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETRESUID (real effective saved)))))
+  (#unsafe-fn linux-getresgid ((real (#ptr-mut #u32)) (effective (#ptr-mut #u32)) (saved (#ptr-mut #u32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETRESGID (real effective saved)))))
   ; Credential setters act on the calling kernel thread, not all process threads.
   ; setfsuid/setfsgid return the previous ID even on failure; query again to verify.
   (#fn linux-setuid ((uid #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETUID
-      (uid)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETUID (uid)))))
   (#fn linux-setgid ((gid #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETGID
-      (gid)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETGID (gid)))))
   (#fn linux-setreuid ((real #u32) (effective #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETREUID
-      (real effective)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETREUID (real effective)))))
   (#fn linux-setregid ((real #u32) (effective #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETREGID
-      (real effective)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETREGID (real effective)))))
   (#fn linux-setresuid ((real #u32) (effective #u32) (saved #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETRESUID
-      (real effective saved)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETRESUID (real effective saved)))))
   (#fn linux-setresgid ((real #u32) (effective #u32) (saved #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETRESGID
-      (real effective saved)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETRESGID (real effective saved)))))
   (#fn linux-setfsuid ((uid #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETFSUID
-      (uid)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETFSUID (uid)))))
   (#fn linux-setfsgid ((gid #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETFSGID
-      (gid)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETFSGID (gid)))))
   (#unsafe-fn linux-getgroups ((size #i32) (groups (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETGROUPS
-      (size groups)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETGROUPS (size groups)))))
   (#unsafe-fn linux-uname ((buffer (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-UNAME (buffer)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-UNAME (buffer)))))
   (#unsafe-fn linux-sysinfo ((buffer (#ptr-mut #u64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SYSINFO (buffer)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SYSINFO (buffer)))))
   ; argv/envp are null-terminated arrays of pointers to NUL-terminated strings.
   ; Success replaces the process image and never returns; failure is raw -errno.
-  (#unsafe-fn linux-execve ((path (#ptr-mut #u8))
-      (arguments (#ptr-mut (#ptr-mut #u8))) (environment (#ptr-mut (#ptr-mut #u8)))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EXECVE
-      (path arguments environment)))))
-  (#unsafe-fn linux-execveat ((directory #i64) (path (#ptr-mut #u8))
-      (arguments (#ptr-mut (#ptr-mut #u8))) (environment (#ptr-mut (#ptr-mut #u8)))
-      (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EXECVEAT
-      (directory path arguments environment flags)))))
+  (#unsafe-fn linux-execve ((path (#ptr-mut #u8)) (arguments (#ptr-mut (#ptr-mut #u8))) (environment (#ptr-mut (#ptr-mut #u8)))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-EXECVE (path arguments environment)))))
+  (#unsafe-fn linux-execveat ((directory #i64) (path (#ptr-mut #u8)) (arguments (#ptr-mut (#ptr-mut #u8))) (environment (#ptr-mut (#ptr-mut #u8))) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-EXECVEAT (directory path arguments environment flags)))))
   ; SAFETY: the child must not use inconsistent state inherited from other
   ; threads. In a multithreaded process, restrict it to async-signal-safe work
   ; until exec; this raw syscall does not run libc atfork handlers.
   (#unsafe-fn linux-fork () #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FORK ()))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FORK ()))))
   ; SAFETY: ends only this thread. No live borrower or runtime invariant may
   ; depend on its stack/state or on normal thread completion. For process
   ; termination use linux-exit-group, which remains safe.
   (#unsafe-fn linux-exit ((status #i32)) ()
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-EXIT (status)))
+    (#unsafe
+      (#linux-syscall #i64 LINUX-SYS-EXIT (status)))
     (#return (#unreachable)))
   (#fn linux-exit-group ((status #i32)) ()
-    (#unsafe (#linux-syscall #i64 LINUX-SYS-EXIT-GROUP (status)))
+    (#unsafe
+      (#linux-syscall #i64 LINUX-SYS-EXIT-GROUP (status)))
     (#return (#unreachable)))
   (#fn linux-setpgid ((pid #i32) (group #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETPGID (pid group)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETPGID (pid group)))))
   (#fn linux-setsid () #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETSID ()))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETSID ()))))
   ; Raw waitid has a fifth, optional rusage output pointer.
-  (#unsafe-fn linux-waitid ((id-type #i32) (id #u32) (info (#ptr-mut #u8))
-      (options #i32) (usage (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-WAITID
-      (id-type id info options usage)))))
-  (#unsafe-fn linux-wait4 ((pid #i64) (status (#ptr-mut #i32)) (options #usize)
-      (usage (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-WAIT4
-      (pid status options usage)))))
+  (#unsafe-fn linux-waitid ((id-type #i32) (id #u32) (info (#ptr-mut #u8)) (options #i32) (usage (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-WAITID (id-type id info options usage)))))
+  (#unsafe-fn linux-wait4 ((pid #i64) (status (#ptr-mut #i32)) (options #usize) (usage (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-WAIT4 (pid status options usage)))))
   (#fn linux-sched-yield () #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-SCHED-YIELD)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-SCHED-YIELD)) "syscall"))))
   (#unsafe-fn linux-sched-getparam ((pid #i64) (scheduler-parameters (#ptr-mut #i32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-GETPARAM
-      (pid scheduler-parameters)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-GETPARAM (pid scheduler-parameters)))))
   (#fn linux-sched-getscheduler ((pid #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-GETSCHEDULER
-      (pid)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-GETSCHEDULER (pid)))))
   (#unsafe-fn linux-sched-rr-get-interval ((pid #i64) (interval (#ptr-mut #u64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-RR-GET-INTERVAL
-      (pid interval)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-RR-GET-INTERVAL (pid interval)))))
   ; The caller supplies a C-layout sched_attr buffer of at least 48 bytes.
-  (#unsafe-fn linux-sched-getattr ((pid #i64) (attributes (#ptr-mut #u64))
-      (size #u32) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-GETATTR
-      (pid attributes size flags)))))
+  (#unsafe-fn linux-sched-getattr ((pid #i64) (attributes (#ptr-mut #u64)) (size #u32) (flags #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-GETATTR (pid attributes size flags)))))
   (#fn linux-sched-get-priority-max ((policy #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-GET-PRIORITY-MAX
-      (policy)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-GET-PRIORITY-MAX (policy)))))
   (#fn linux-sched-get-priority-min ((policy #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-GET-PRIORITY-MIN
-      (policy)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-GET-PRIORITY-MIN (policy)))))
   (#unsafe-fn linux-sched-setaffinity ((pid #i64) (size #usize) (mask (#ptr-mut #u64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-SETAFFINITY
-      (pid size mask)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-SETAFFINITY (pid size mask)))))
   (#unsafe-fn linux-sched-getaffinity ((pid #i64) (size #usize) (mask (#ptr-mut #u64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SCHED-GETAFFINITY
-      (pid size mask)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SCHED-GETAFFINITY (pid size mask)))))
   ; Request is the kernel's unsigned 32-bit command; argument is a scalar or
   ; pointer encoded as a machine word. Its layout/validity is request-specific.
   ; SAFETY: argument and any nested pointers must satisfy the selected
   ; device/request ABI, including asynchronous ownership where applicable.
   (#unsafe-fn linux-ioctl ((fd #i64) (request #u32) (argument #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IOCTL
-      (fd request argument)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IOCTL (fd request argument)))))
   (#fn linux-close ((fd #i64)) #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-CLOSE) (rdi fd)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-CLOSE) (rdi fd)) "syscall"))))
   (#fn linux-socket ((domain #i32) (socket-type #i32) (protocol #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SOCKET
-      (domain socket-type protocol)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SOCKET (domain socket-type protocol)))))
   (#unsafe-fn linux-bind ((fd #i64) (address (#ptr-mut #u8)) (address-length #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-BIND
-      (fd address address-length)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-BIND (fd address address-length)))))
   (#fn linux-listen ((fd #i64) (backlog #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LISTEN
-      (fd backlog)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LISTEN (fd backlog)))))
   (#unsafe-fn linux-connect ((fd #i64) (address (#ptr-mut #u8)) (address-length #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CONNECT
-      (fd address address-length)))))
-  (#unsafe-fn linux-accept ((fd #i64) (address (#ptr-mut #u8))
-      (address-length (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-ACCEPT
-      (fd address address-length)))))
-  (#unsafe-fn linux-accept4 ((fd #i64) (address (#ptr-mut #u8))
-      (address-length (#ptr-mut #u32)) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-ACCEPT4
-      (fd address address-length flags)))))
-  (#unsafe-fn linux-socketpair ((domain #i32) (socket-type #i32) (protocol #i32)
-      (descriptors (#ptr-mut #i32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SOCKETPAIR
-      (domain socket-type protocol descriptors)))))
-  (#unsafe-fn linux-sendto ((fd #i64) (source (#ptr-mut #u8)) (size #usize) (flags #i32)
-      (destination (#ptr-mut #u8)) (address-length #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SENDTO
-      (fd source size flags destination address-length)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CONNECT (fd address address-length)))))
+  (#unsafe-fn linux-accept ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-ACCEPT (fd address address-length)))))
+  (#unsafe-fn linux-accept4 ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32)) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-ACCEPT4 (fd address address-length flags)))))
+  (#unsafe-fn linux-socketpair ((domain #i32) (socket-type #i32) (protocol #i32) (descriptors (#ptr-mut #i32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SOCKETPAIR (domain socket-type protocol descriptors)))))
+  (#unsafe-fn linux-sendto ((fd #i64) (source (#ptr-mut #u8)) (size #usize) (flags #i32) (destination (#ptr-mut #u8)) (address-length #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SENDTO (fd source size flags destination address-length)))))
   ; message/messages point to native x86-64 msghdr/mmsghdr records.
   (#unsafe-fn linux-sendmsg ((fd #i64) (message (#ptr-mut #u8)) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SENDMSG
-      (fd message flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SENDMSG (fd message flags)))))
   (#unsafe-fn linux-recvmsg ((fd #i64) (message (#ptr-mut #u8)) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RECVMSG
-      (fd message flags)))))
-  (#unsafe-fn linux-sendmmsg ((fd #i64) (messages (#ptr-mut #u8)) (count #u32)
-      (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SENDMMSG
-      (fd messages count flags)))))
-  (#unsafe-fn linux-recvmmsg ((fd #i64) (messages (#ptr-mut #u8)) (count #u32)
-      (flags #i32) (timeout (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RECVMMSG
-      (fd messages count flags timeout)))))
-  (#unsafe-fn linux-recvfrom ((fd #i64) (destination (#ptr-mut #u8)) (size #usize)
-      (flags #i32) (source-address (#ptr-mut #u8))
-      (address-length (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RECVFROM
-      (fd destination size flags source-address address-length)))))
-  (#unsafe-fn linux-setsockopt ((fd #i64) (level #i32) (option #i32)
-      (value (#ptr-mut #u8)) (value-length #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETSOCKOPT
-      (fd level option value value-length)))))
-  (#unsafe-fn linux-getsockopt ((fd #i64) (level #i32) (option #i32)
-      (value (#ptr-mut #u8)) (value-length (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETSOCKOPT
-      (fd level option value value-length)))))
-  (#unsafe-fn linux-getsockname ((fd #i64) (address (#ptr-mut #u8))
-      (address-length (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETSOCKNAME
-      (fd address address-length)))))
-  (#unsafe-fn linux-getpeername ((fd #i64) (address (#ptr-mut #u8))
-      (address-length (#ptr-mut #u32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETPEERNAME
-      (fd address address-length)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RECVMSG (fd message flags)))))
+  (#unsafe-fn linux-sendmmsg ((fd #i64) (messages (#ptr-mut #u8)) (count #u32) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SENDMMSG (fd messages count flags)))))
+  (#unsafe-fn linux-recvmmsg ((fd #i64) (messages (#ptr-mut #u8)) (count #u32) (flags #i32) (timeout (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RECVMMSG (fd messages count flags timeout)))))
+  (#unsafe-fn linux-recvfrom ((fd #i64) (destination (#ptr-mut #u8)) (size #usize) (flags #i32) (source-address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-RECVFROM
+          (fd destination size flags source-address address-length)))))
+  (#unsafe-fn linux-setsockopt ((fd #i64) (level #i32) (option #i32) (value (#ptr-mut #u8)) (value-length #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETSOCKOPT (fd level option value value-length)))))
+  (#unsafe-fn linux-getsockopt ((fd #i64) (level #i32) (option #i32) (value (#ptr-mut #u8)) (value-length (#ptr-mut #u32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETSOCKOPT (fd level option value value-length)))))
+  (#unsafe-fn linux-getsockname ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETSOCKNAME (fd address address-length)))))
+  (#unsafe-fn linux-getpeername ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETPEERNAME (fd address address-length)))))
   (#fn linux-shutdown ((fd #i64) (how #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SHUTDOWN (fd how)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SHUTDOWN (fd how)))))
   (#fn linux-epoll-create1 ((flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EPOLL-CREATE1 (flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-EPOLL-CREATE1 (flags)))))
   (#fn linux-epoll-create ((size #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EPOLL-CREATE (size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-EPOLL-CREATE (size)))))
   (#fn linux-eventfd ((initial-value #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EVENTFD (initial-value)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-EVENTFD (initial-value)))))
   (#fn linux-eventfd2 ((initial-value #u32) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EVENTFD2
-      (initial-value flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-EVENTFD2 (initial-value flags)))))
   ; The event buffer contains packed Linux epoll_event records (12 bytes on
   ; x86-64); a raw byte pointer avoids claiming Lim struct layout is C ABI.
-  (#unsafe-fn linux-epoll-ctl ((epoll-fd #i64) (operation #i32) (fd #i64)
-      (event (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EPOLL-CTL
-      (epoll-fd operation fd event)))))
-  (#unsafe-fn linux-epoll-wait ((epoll-fd #i64) (events (#ptr-mut #u8))
-      (max-events #i32) (timeout-ms #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EPOLL-WAIT
-      (epoll-fd events max-events timeout-ms)))))
-  (#unsafe-fn linux-epoll-pwait ((epoll-fd #i64) (events (#ptr-mut #u8))
-      (max-events #i32) (timeout-ms #i32) (signal-mask (#ptr-mut #u8))
-      (signal-set-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EPOLL-PWAIT
-      (epoll-fd events max-events timeout-ms signal-mask signal-set-size)))))
-  (#unsafe-fn linux-epoll-pwait2 ((epoll-fd #i64) (events (#ptr-mut #u8))
-      (max-events #i32) (timeout (#ptr-mut #u8)) (signal-mask (#ptr-mut #u8))
-      (signal-set-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-EPOLL-PWAIT2
-      (epoll-fd events max-events timeout signal-mask signal-set-size)))))
+  (#unsafe-fn linux-epoll-ctl ((epoll-fd #i64) (operation #i32) (fd #i64) (event (#ptr-mut #u8))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-EPOLL-CTL (epoll-fd operation fd event)))))
+  (#unsafe-fn linux-epoll-wait ((epoll-fd #i64) (events (#ptr-mut #u8)) (max-events #i32) (timeout-ms #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-EPOLL-WAIT (epoll-fd events max-events timeout-ms)))))
+  (#unsafe-fn linux-epoll-pwait ((epoll-fd #i64) (events (#ptr-mut #u8)) (max-events #i32) (timeout-ms #i32) (signal-mask (#ptr-mut #u8)) (signal-set-size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-EPOLL-PWAIT
+          (epoll-fd events max-events timeout-ms signal-mask signal-set-size)))))
+  (#unsafe-fn linux-epoll-pwait2 ((epoll-fd #i64) (events (#ptr-mut #u8)) (max-events #i32) (timeout (#ptr-mut #u8)) (signal-mask (#ptr-mut #u8)) (signal-set-size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-EPOLL-PWAIT2
+          (epoll-fd events max-events timeout signal-mask signal-set-size)))))
   ; pollfd is 8 bytes (#i32 fd, #i16 events, #i16 revents); timespec is two
   ; #i64 words. Callers supply ABI-formatted buffers, not Lim aggregate values.
   (#unsafe-fn linux-poll ((pollfds (#ptr-mut #u8)) (count #usize) (timeout-ms #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-POLL
-      (pollfds count timeout-ms)))))
-  (#unsafe-fn linux-select ((count #i32) (read-set (#ptr-mut #u64))
-      (write-set (#ptr-mut #u64)) (except-set (#ptr-mut #u64))
-      (timeout (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SELECT
-      (count read-set write-set except-set timeout)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-POLL (pollfds count timeout-ms)))))
+  (#unsafe-fn linux-select ((count #i32) (read-set (#ptr-mut #u64)) (write-set (#ptr-mut #u64)) (except-set (#ptr-mut #u64)) (timeout (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SELECT (count read-set write-set except-set timeout)))))
   ; The sixth argument points to { kernel_sigset_t *mask; #usize size; }.
   ; Raw pselect6 may modify its timespec timeout, unlike libc's pselect.
-  (#unsafe-fn linux-pselect6 ((count #i32) (read-set (#ptr-mut #u64))
-      (write-set (#ptr-mut #u64)) (except-set (#ptr-mut #u64))
-      (timeout (#ptr-mut #i64)) (signal-mask-argument (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PSELECT6
-      (count read-set write-set except-set timeout signal-mask-argument)))))
-  (#unsafe-fn linux-ppoll ((pollfds (#ptr-mut #u8)) (count #usize)
-      (timeout (#ptr-mut #u8)) (signal-mask (#ptr-mut #u8))
-      (signal-set-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PPOLL
-      (pollfds count timeout signal-mask signal-set-size)))))
+  (#unsafe-fn linux-pselect6 ((count #i32) (read-set (#ptr-mut #u64)) (write-set (#ptr-mut #u64)) (except-set (#ptr-mut #u64)) (timeout (#ptr-mut #i64)) (signal-mask-argument (#ptr-mut #u8))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-PSELECT6
+          (count read-set write-set except-set timeout signal-mask-argument)))))
+  (#unsafe-fn linux-ppoll ((pollfds (#ptr-mut #u8)) (count #usize) (timeout (#ptr-mut #u8)) (signal-mask (#ptr-mut #u8)) (signal-set-size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PPOLL (pollfds count timeout signal-mask signal-set-size)))))
   ; Raw brk returns the resulting/current break, not libc's 0/-1 convention.
   ; Compare it with the requested address. Address zero queries without change.
   ; SAFETY: coordinate with the process allocator; never invalidate live heap
   ; storage, and check the returned break before accessing newly added memory.
   (#unsafe-fn linux-brk ((address #usize)) #usize
-    (#return (#unsafe (#linux-syscall #usize LINUX-SYS-BRK (address)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #usize LINUX-SYS-BRK (address)))))
   ; SAFETY: execution-domain/address-layout flags must preserve assumptions
   ; made by the runtime and any existing executable mappings.
   (#unsafe-fn linux-personality ((persona #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PERSONALITY (persona)))))
-  (#unsafe-fn linux-mmap ((address (#ptr-mut #u8)) (length #usize) (protection #u32)
-      (flags #u32) (fd #i64) (offset #i64)) (#ptr-mut #u8)
-    (#return (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
-      (address length protection flags fd offset)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PERSONALITY (persona)))))
+  (#unsafe-fn linux-mmap ((address (#ptr-mut #u8)) (length #usize) (protection #u32) (flags #u32) (fd #i64) (offset #i64)) (#ptr-mut #u8)
+    (#return
+      (#unsafe
+        (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP (address length protection flags fd offset)))))
   ; Protection keys are optional hardware/OS support. Allocation may return
   ; -ENOSPC when unavailable. Remove a key from all mappings before freeing it.
   (#fn linux-pkey-alloc ((flags #u32) (access-rights #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PKEY-ALLOC (flags access-rights)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PKEY-ALLOC (flags access-rights)))))
   ; SAFETY: remove this key from every still-live protected mapping before
   ; freeing it; freeing the key does not reset those mappings' permissions.
   (#unsafe-fn linux-pkey-free ((key #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PKEY-FREE (key)))))
-  (#unsafe-fn linux-pkey-mprotect ((address (#ptr-mut #u8)) (length #usize)
-      (protection #u32) (key #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PKEY-MPROTECT
-      (address length protection key)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PKEY-FREE (key)))))
+  (#unsafe-fn linux-pkey-mprotect ((address (#ptr-mut #u8)) (length #usize) (protection #u32) (key #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PKEY-MPROTECT (address length protection key)))))
   (#unsafe-fn linux-mprotect ((address (#ptr-mut #u8)) (length #usize) (protection #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MPROTECT
-      (address length protection)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MPROTECT (address length protection)))))
   ; Sealing is irreversible until process exit/exec; flags is unsigned long.
   (#unsafe-fn linux-mseal ((address (#ptr-mut #u8)) (length #usize) (flags #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MSEAL (address length flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MSEAL (address length flags)))))
   ; Secret memory must be sized with ftruncate and mapped MAP_SHARED.
   ; The accepted close-on-exec flag is O_CLOEXEC, not memfd_create's MFD_CLOEXEC.
   (#fn linux-memfd-secret ((flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MEMFD-SECRET (flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MEMFD-SECRET (flags)))))
   (#unsafe-fn linux-munmap ((address (#ptr-mut #u8)) (length #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (address length)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MUNMAP (address length)))))
   (#unsafe-fn linux-msync ((address (#ptr-mut #u8)) (length #usize) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MSYNC
-      (address length flags)))))
-  (#unsafe-fn linux-mincore ((address (#ptr-mut #u8)) (length #usize)
-      (residency (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MINCORE
-      (address length residency)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MSYNC (address length flags)))))
+  (#unsafe-fn linux-mincore ((address (#ptr-mut #u8)) (length #usize) (residency (#ptr-mut #u8))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MINCORE (address length residency)))))
   (#fn linux-membarrier ((command #i32) (flags #u32) (cpu-id #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MEMBARRIER
-      (command flags cpu-id)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MEMBARRIER (command flags cpu-id)))))
   (#unsafe-fn linux-madvise ((address (#ptr-mut #u8)) (length #usize) (advice #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MADVISE
-      (address length advice)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MADVISE (address length advice)))))
   (#unsafe-fn linux-mlock ((address (#ptr-mut #u8)) (length #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MLOCK
-      (address length)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MLOCK (address length)))))
   (#unsafe-fn linux-mlock2 ((address (#ptr-mut #u8)) (length #usize) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MLOCK2
-      (address length flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MLOCK2 (address length flags)))))
   (#unsafe-fn linux-munlock ((address (#ptr-mut #u8)) (length #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNLOCK
-      (address length)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MUNLOCK (address length)))))
   (#fn linux-mlockall ((flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MLOCKALL
-      (flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MLOCKALL (flags)))))
   (#fn linux-munlockall () #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNLOCKALL
-      ()))))
-  (#unsafe-fn linux-mremap ((old-address (#ptr-mut #u8)) (old-length #usize)
-      (new-length #usize) (flags #u32) (new-address (#ptr-mut #u8))) (#ptr-mut #u8)
-    (#return (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MREMAP
-      (old-address old-length new-length flags new-address)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MUNLOCKALL ()))))
+  (#unsafe-fn linux-mremap ((old-address (#ptr-mut #u8)) (old-length #usize) (new-length #usize) (flags #u32) (new-address (#ptr-mut #u8))) (#ptr-mut #u8)
+    (#return
+      (#unsafe
+        (#linux-syscall
+          (#ptr-mut #u8)
+          LINUX-SYS-MREMAP
+          (old-address old-length new-length flags new-address)))))
   (#fn linux-shmget ((key #i32) (size #usize) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SHMGET (key size flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SHMGET (key size flags)))))
   (#unsafe-fn linux-shmat ((segment #i32) (address (#ptr-mut #u8)) (flags #i32)) (#ptr-mut #u8)
-    (#return (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-SHMAT
-      (segment address flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall (#ptr-mut #u8) LINUX-SYS-SHMAT (segment address flags)))))
   (#unsafe-fn linux-shmdt ((address (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SHMDT (address)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SHMDT (address)))))
   (#unsafe-fn linux-shmctl ((segment #i32) (command #i32) (buffer (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SHMCTL
-      (segment command buffer)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SHMCTL (segment command buffer)))))
   ; Raw POSIX MQ names omit libc's leading slash. Close descriptors with
   ; linux-close. Timed calls use absolute CLOCK_REALTIME deadlines.
   (#unsafe-fn linux-mq-open ((name (#ptr-mut #u8)) (flags #i32) (mode #u32) (attributes (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MQ-OPEN
-      (name flags mode attributes)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MQ-OPEN (name flags mode attributes)))))
   (#unsafe-fn linux-mq-unlink ((name (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MQ-UNLINK
-      (name)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MQ-UNLINK (name)))))
   (#unsafe-fn linux-mq-timedsend ((queue #i64) (message (#ptr-mut #u8)) (length #usize) (priority #u32) (deadline (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MQ-TIMEDSEND
-      (queue message length priority deadline)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MQ-TIMEDSEND (queue message length priority deadline)))))
   (#unsafe-fn linux-mq-timedreceive ((queue #i64) (message (#ptr-mut #u8)) (capacity #usize) (priority (#ptr-mut #u32)) (deadline (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MQ-TIMEDRECEIVE
-      (queue message capacity priority deadline)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MQ-TIMEDRECEIVE (queue message capacity priority deadline)))))
   (#unsafe-fn linux-mq-notify ((queue #i64) (event (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MQ-NOTIFY
-      (queue event)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MQ-NOTIFY (queue event)))))
   (#unsafe-fn linux-mq-getsetattr ((queue #i64) (new-attributes (#ptr-mut #i64)) (old-attributes (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MQ-GETSETATTR
-      (queue new-attributes old-attributes)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MQ-GETSETATTR (queue new-attributes old-attributes)))))
   (#fn linux-msgget ((key #i32) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MSGGET (key flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MSGGET (key flags)))))
   ; Message buffers start with an #i64 type; size counts only payload bytes.
   (#unsafe-fn linux-msgsnd ((queue #i32) (message (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MSGSND
-      (queue message size flags)))))
-  (#unsafe-fn linux-msgrcv ((queue #i32) (message (#ptr-mut #u8)) (size #usize)
-      (message-type #i64) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MSGRCV
-      (queue message size message-type flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MSGSND (queue message size flags)))))
+  (#unsafe-fn linux-msgrcv ((queue #i32) (message (#ptr-mut #u8)) (size #usize) (message-type #i64) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MSGRCV (queue message size message-type flags)))))
   (#unsafe-fn linux-msgctl ((queue #i32) (command #i32) (buffer (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MSGCTL
-      (queue command buffer)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MSGCTL (queue command buffer)))))
   (#fn linux-semget ((key #i32) (count #i32) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SEMGET (key count flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SEMGET (key count flags)))))
   ; argument is the raw union word: an integer or an ABI buffer address.
   ; SAFETY: argument may be a semid_ds, array, or seminfo address depending on
   ; command; supply valid appropriately sized memory with compatible access.
   (#unsafe-fn linux-semctl ((set-id #i32) (number #i32) (command #i32) (argument #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SEMCTL
-      (set-id number command argument)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SEMCTL (set-id number command argument)))))
   (#unsafe-fn linux-semop ((set-id #i32) (operations (#ptr-mut #u8)) (count #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SEMOP
-      (set-id operations count)))))
-  (#unsafe-fn linux-semtimedop ((set-id #i32) (operations (#ptr-mut #u8)) (count #usize)
-      (timeout (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SEMTIMEDOP
-      (set-id operations count timeout)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SEMOP (set-id operations count)))))
+  (#unsafe-fn linux-semtimedop ((set-id #i32) (operations (#ptr-mut #u8)) (count #usize) (timeout (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SEMTIMEDOP (set-id operations count timeout)))))
   (#unsafe-fn linux-openat ((directory #i64) (path (#ptr-mut #u8)) (flags #i32) (mode #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-OPENAT
-      (directory path flags mode)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-OPENAT (directory path flags mode)))))
   (#unsafe-fn linux-open ((path (#ptr-mut #u8)) (flags #i32) (mode #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-OPEN
-      (path flags mode)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-OPEN (path flags mode)))))
   (#unsafe-fn linux-creat ((path (#ptr-mut #u8)) (mode #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CREAT
-      (path mode)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CREAT (path mode)))))
   (#unsafe-fn linux-access ((path (#ptr-mut #u8)) (mode #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-ACCESS
-      (path mode)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-ACCESS (path mode)))))
   (#unsafe-fn linux-pipe ((descriptors (#ptr-mut #i32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PIPE
-      (descriptors)))))
-  (#unsafe-fn linux-openat2 ((directory #i64) (path (#ptr-mut #u8))
-      (how (#ptr-mut #u64)) (how-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-OPENAT2
-      (directory path how how-size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PIPE (descriptors)))))
+  (#unsafe-fn linux-openat2 ((directory #i64) (path (#ptr-mut #u8)) (how (#ptr-mut #u64)) (how-size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-OPENAT2 (directory path how how-size)))))
   (#unsafe-fn linux-mkdirat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MKDIRAT
-      (directory path mode)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MKDIRAT (directory path mode)))))
   (#unsafe-fn linux-mkdir ((path (#ptr-mut #u8)) (mode #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MKDIR
-      (path mode)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MKDIR (path mode)))))
   (#unsafe-fn linux-rmdir ((path (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RMDIR (path)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RMDIR (path)))))
   (#unsafe-fn linux-link ((source (#ptr-mut #u8)) (destination (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LINK
-      (source destination)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LINK (source destination)))))
   (#unsafe-fn linux-rename ((source (#ptr-mut #u8)) (destination (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RENAME
-      (source destination)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RENAME (source destination)))))
   (#unsafe-fn linux-unlink ((path (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-UNLINK (path)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-UNLINK (path)))))
   (#unsafe-fn linux-truncate ((path (#ptr-mut #u8)) (length #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TRUNCATE
-      (path length)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TRUNCATE (path length)))))
   (#unsafe-fn linux-chmod ((path (#ptr-mut #u8)) (mode #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CHMOD
-      (path mode)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CHMOD (path mode)))))
   (#unsafe-fn linux-chown ((path (#ptr-mut #u8)) (owner #u32) (group #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CHOWN
-      (path owner group)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CHOWN (path owner group)))))
   (#unsafe-fn linux-lchown ((path (#ptr-mut #u8)) (owner #u32) (group #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LCHOWN
-      (path owner group)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LCHOWN (path owner group)))))
   ; NULL times select the current time for both access and modification.
   (#unsafe-fn linux-utime ((path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-UTIME
-      (path times)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-UTIME (path times)))))
   (#unsafe-fn linux-utimes ((path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-UTIMES
-      (path times)))))
-  (#unsafe-fn linux-futimesat ((directory #i64) (path (#ptr-mut #u8))
-      (times (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FUTIMESAT
-      (directory path times)))))
-  (#unsafe-fn linux-renameat2 ((old-directory #i64) (old-path (#ptr-mut #u8))
-      (new-directory #i64) (new-path (#ptr-mut #u8)) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RENAMEAT2
-      (old-directory old-path new-directory new-path flags)))))
-  (#unsafe-fn linux-linkat ((old-directory #i64) (old-path (#ptr-mut #u8))
-      (new-directory #i64) (new-path (#ptr-mut #u8)) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LINKAT
-      (old-directory old-path new-directory new-path flags)))))
-  (#unsafe-fn linux-renameat ((old-directory #i64) (old-path (#ptr-mut #u8))
-      (new-directory #i64) (new-path (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RENAMEAT
-      (old-directory old-path new-directory new-path)))))
-  (#unsafe-fn linux-symlinkat ((target (#ptr-mut #u8)) (directory #i64)
-      (link-path (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SYMLINKAT
-      (target directory link-path)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-UTIMES (path times)))))
+  (#unsafe-fn linux-futimesat ((directory #i64) (path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FUTIMESAT (directory path times)))))
+  (#unsafe-fn linux-renameat2 ((old-directory #i64) (old-path (#ptr-mut #u8)) (new-directory #i64) (new-path (#ptr-mut #u8)) (flags #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-RENAMEAT2
+          (old-directory old-path new-directory new-path flags)))))
+  (#unsafe-fn linux-linkat ((old-directory #i64) (old-path (#ptr-mut #u8)) (new-directory #i64) (new-path (#ptr-mut #u8)) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LINKAT (old-directory old-path new-directory new-path flags)))))
+  (#unsafe-fn linux-renameat ((old-directory #i64) (old-path (#ptr-mut #u8)) (new-directory #i64) (new-path (#ptr-mut #u8))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RENAMEAT (old-directory old-path new-directory new-path)))))
+  (#unsafe-fn linux-symlinkat ((target (#ptr-mut #u8)) (directory #i64) (link-path (#ptr-mut #u8))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SYMLINKAT (target directory link-path)))))
   ; Raw fchmodat has three arguments; libc's flags-bearing interface differs.
   (#unsafe-fn linux-fchmodat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHMODAT
-      (directory path mode)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FCHMODAT (directory path mode)))))
   (#unsafe-fn linux-fchmodat2 ((directory #i64) (path (#ptr-mut #u8)) (mode #u32) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHMODAT2
-      (directory path mode flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FCHMODAT2 (directory path mode flags)))))
   (#unsafe-fn linux-mknod ((path (#ptr-mut #u8)) (mode #u32) (device #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MKNOD
-      (path mode device)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MKNOD (path mode device)))))
   (#unsafe-fn linux-mknodat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32) (device #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MKNODAT
-      (directory path mode device)))))
-  (#unsafe-fn linux-fchownat ((directory #i64) (path (#ptr-mut #u8))
-      (owner #u32) (group #u32) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHOWNAT
-      (directory path owner group flags)))))
-  (#unsafe-fn linux-utimensat ((directory #i64) (path (#ptr-mut #u8))
-      (times (#ptr-mut #i64)) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-UTIMENSAT
-      (directory path times flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MKNODAT (directory path mode device)))))
+  (#unsafe-fn linux-fchownat ((directory #i64) (path (#ptr-mut #u8)) (owner #u32) (group #u32) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FCHOWNAT (directory path owner group flags)))))
+  (#unsafe-fn linux-utimensat ((directory #i64) (path (#ptr-mut #u8)) (times (#ptr-mut #i64)) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-UTIMENSAT (directory path times flags)))))
   (#fn linux-inotify-init1 ((flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-INOTIFY-INIT1 (flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-INOTIFY-INIT1 (flags)))))
   (#fn linux-inotify-init () #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-INOTIFY-INIT ()))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-INOTIFY-INIT ()))))
   (#unsafe-fn linux-inotify-add-watch ((fd #i64) (path (#ptr-mut #u8)) (mask #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-INOTIFY-ADD-WATCH
-      (fd path mask)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-INOTIFY-ADD-WATCH (fd path mask)))))
   (#fn linux-inotify-rm-watch ((fd #i64) (watch #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-INOTIFY-RM-WATCH
-      (fd watch)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-INOTIFY-RM-WATCH (fd watch)))))
   (#unsafe-fn linux-getcwd ((buffer (#ptr-mut #u8)) (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETCWD
-      (buffer size)))))
-  (#unsafe-fn linux-readlinkat ((directory #i64) (path (#ptr-mut #u8))
-      (destination (#ptr-mut #u8)) (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-READLINKAT
-      (directory path destination size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETCWD (buffer size)))))
+  (#unsafe-fn linux-readlinkat ((directory #i64) (path (#ptr-mut #u8)) (destination (#ptr-mut #u8)) (size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-READLINKAT (directory path destination size)))))
   (#unsafe-fn linux-symlink ((target (#ptr-mut #u8)) (link-path (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SYMLINK
-      (target link-path)))))
-  (#unsafe-fn linux-readlink ((path (#ptr-mut #u8)) (destination (#ptr-mut #u8))
-      (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-READLINK
-      (path destination size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SYMLINK (target link-path)))))
+  (#unsafe-fn linux-readlink ((path (#ptr-mut #u8)) (destination (#ptr-mut #u8)) (size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-READLINK (path destination size)))))
   ; Native legacy dirent: name at byte 18; type at record_length - 1.
   (#unsafe-fn linux-getdents ((fd #i64) (buffer (#ptr-mut #u8)) (size #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETDENTS (fd buffer size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETDENTS (fd buffer size)))))
   (#unsafe-fn linux-getdents64 ((fd #i64) (buffer (#ptr-mut #u8)) (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETDENTS64
-      (fd buffer size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETDENTS64 (fd buffer size)))))
   (#fn linux-fchdir ((fd #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHDIR (fd)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FCHDIR (fd)))))
   (#unsafe-fn linux-chdir ((path (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CHDIR (path)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CHDIR (path)))))
   (#unsafe-fn linux-getrusage ((resource #i64) (usage (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETRUSAGE
-      (resource usage)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETRUSAGE (resource usage)))))
   (#unsafe-fn linux-getitimer ((which #i64) (current-value (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETITIMER
-      (which current-value)))))
-  (#unsafe-fn linux-setitimer ((which #i64) (new-value (#ptr-mut #i64))
-      (old-value (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETITIMER
-      (which new-value old-value)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETITIMER (which current-value)))))
+  (#unsafe-fn linux-setitimer ((which #i64) (new-value (#ptr-mut #i64)) (old-value (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETITIMER (which new-value old-value)))))
   (#unsafe-fn linux-getrlimit ((resource #usize) (limits (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETRLIMIT
-      (resource limits)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETRLIMIT (resource limits)))))
   (#unsafe-fn linux-setrlimit ((resource #usize) (limits (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETRLIMIT
-      (resource limits)))))
-  (#unsafe-fn linux-prlimit64 ((pid #i64) (resource #usize)
-      (new-limits (#ptr-mut #i64)) (old-limits (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PRLIMIT64
-      (pid resource new-limits old-limits)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETRLIMIT (resource limits)))))
+  (#unsafe-fn linux-prlimit64 ((pid #i64) (resource #usize) (new-limits (#ptr-mut #i64)) (old-limits (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PRLIMIT64 (pid resource new-limits old-limits)))))
   (#fn linux-umask ((mask #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-UMASK (mask)))))
-  (#unsafe-fn linux-rt-sigaction ((signal #i64) (action (#ptr-mut #i64))
-      (old-action (#ptr-mut #i64)) (sigset-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RT-SIGACTION
-      (signal action old-action sigset-size)))))
-  (#unsafe-fn linux-rt-sigprocmask ((how #usize) (signal-set (#ptr-mut #i64))
-      (old-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RT-SIGPROCMASK
-      (how signal-set old-set sigset-size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-UMASK (mask)))))
+  (#unsafe-fn linux-rt-sigaction ((signal #i64) (action (#ptr-mut #i64)) (old-action (#ptr-mut #i64)) (sigset-size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RT-SIGACTION (signal action old-action sigset-size)))))
+  (#unsafe-fn linux-rt-sigprocmask ((how #usize) (signal-set (#ptr-mut #i64)) (old-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RT-SIGPROCMASK (how signal-set old-set sigset-size)))))
   (#unsafe-fn linux-rt-sigpending ((signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RT-SIGPENDING
-      (signal-set sigset-size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RT-SIGPENDING (signal-set sigset-size)))))
   ; SAFETY: signal-set is readable for the kernel sigset size (8 on x86-64).
   ; Temporarily unblocked handlers must be valid for asynchronous execution.
   ; A caught signal restores the prior mask and returns raw -EINTR.
   (#unsafe-fn linux-rt-sigsuspend ((signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RT-SIGSUSPEND
-      (signal-set sigset-size)))))
-  (#unsafe-fn linux-signalfd ((fd #i64) (signal-set (#ptr-mut #i64))
-      (sigset-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SIGNALFD
-      (fd signal-set sigset-size)))))
-  (#unsafe-fn linux-signalfd4 ((fd #i64) (signal-set (#ptr-mut #i64))
-      (sigset-size #usize) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SIGNALFD4
-      (fd signal-set sigset-size flags)))))
-  (#unsafe-fn linux-rt-sigtimedwait ((signal-set (#ptr-mut #i64)) (info (#ptr-mut #u8))
-      (timeout (#ptr-mut #i64)) (sigset-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-RT-SIGTIMEDWAIT
-      (signal-set info timeout sigset-size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RT-SIGSUSPEND (signal-set sigset-size)))))
+  (#unsafe-fn linux-signalfd ((fd #i64) (signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SIGNALFD (fd signal-set sigset-size)))))
+  (#unsafe-fn linux-signalfd4 ((fd #i64) (signal-set (#ptr-mut #i64)) (sigset-size #usize) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SIGNALFD4 (fd signal-set sigset-size flags)))))
+  (#unsafe-fn linux-rt-sigtimedwait ((signal-set (#ptr-mut #i64)) (info (#ptr-mut #u8)) (timeout (#ptr-mut #i64)) (sigset-size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-RT-SIGTIMEDWAIT (signal-set info timeout sigset-size)))))
   (#unsafe-fn linux-read ((fd #i64) (destination (#ptr-mut #u8)) (count #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-READ (fd destination count)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-READ (fd destination count)))))
   (#unsafe-fn linux-write ((fd #i64) (source (#ptr-mut #u8)) (count #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-WRITE (fd source count)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-WRITE (fd source count)))))
   (#unsafe-fn linux-pread64 ((fd #i64) (destination (#ptr-mut #u8)) (count #usize) (offset #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PREAD64
-      (fd destination count offset)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PREAD64 (fd destination count offset)))))
   (#unsafe-fn linux-pwrite64 ((fd #i64) (source (#ptr-mut #u8)) (count #usize) (offset #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PWRITE64
-      (fd source count offset)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PWRITE64 (fd source count offset)))))
   ; iovecs is C-layout storage: each entry is {base pointer, byte length}.
   (#unsafe-fn linux-readv ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-READV
-      (fd iovecs count)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-READV (fd iovecs count)))))
   (#unsafe-fn linux-writev ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-WRITEV
-      (fd iovecs count)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-WRITEV (fd iovecs count)))))
   ; Raw vectored positioned IO splits the 64-bit offset into two words.
-  (#unsafe-fn linux-preadv ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)
-      (offset #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PREADV
-      (fd iovecs count
-        (#u64.& (#as offset #u64) 4294967295u64)
-        (#u64.>> (#as offset #u64) 32u64))))))
-  (#unsafe-fn linux-pwritev ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)
-      (offset #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PWRITEV
-      (fd iovecs count
-        (#u64.& (#as offset #u64) 4294967295u64)
-        (#u64.>> (#as offset #u64) 32u64))))))
-  (#unsafe-fn linux-preadv2 ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)
-      (offset #i64) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PREADV2
-      (fd iovecs count
-        (#u64.& (#as offset #u64) 4294967295u64)
-        (#u64.>> (#as offset #u64) 32u64) flags)))))
-  (#unsafe-fn linux-pwritev2 ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)
-      (offset #i64) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PWRITEV2
-      (fd iovecs count
-        (#u64.& (#as offset #u64) 4294967295u64)
-        (#u64.>> (#as offset #u64) 32u64) flags)))))
+  (#unsafe-fn linux-preadv ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-PREADV
+          (fd
+            iovecs
+            count
+            (#u64.& (#as offset #u64) 4294967295u64)
+            (#u64.>> (#as offset #u64) 32u64))))))
+  (#unsafe-fn linux-pwritev ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-PWRITEV
+          (fd
+            iovecs
+            count
+            (#u64.& (#as offset #u64) 4294967295u64)
+            (#u64.>> (#as offset #u64) 32u64))))))
+  (#unsafe-fn linux-preadv2 ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-PREADV2
+          (fd
+            iovecs
+            count
+            (#u64.& (#as offset #u64) 4294967295u64)
+            (#u64.>> (#as offset #u64) 32u64)
+            flags)))))
+  (#unsafe-fn linux-pwritev2 ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-PWRITEV2
+          (fd
+            iovecs
+            count
+            (#u64.& (#as offset #u64) 4294967295u64)
+            (#u64.>> (#as offset #u64) 32u64)
+            flags)))))
   (#unsafe-fn linux-fstat ((fd #i64) (metadata (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FSTAT (fd metadata)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FSTAT (fd metadata)))))
   ; Kernel x86-64 struct stat/statfs buffers are supplied as raw word storage.
   (#unsafe-fn linux-stat ((path (#ptr-mut #u8)) (metadata (#ptr-mut #u64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-STAT
-      (path metadata)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-STAT (path metadata)))))
   (#unsafe-fn linux-lstat ((path (#ptr-mut #u8)) (metadata (#ptr-mut #u64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LSTAT
-      (path metadata)))))
-  (#unsafe-fn linux-newfstatat ((directory #i64) (path (#ptr-mut #u8))
-      (metadata (#ptr-mut #u64)) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-NEWFSTATAT
-      (directory path metadata flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LSTAT (path metadata)))))
+  (#unsafe-fn linux-newfstatat ((directory #i64) (path (#ptr-mut #u8)) (metadata (#ptr-mut #u64)) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-NEWFSTATAT (directory path metadata flags)))))
   (#unsafe-fn linux-statfs ((path (#ptr-mut #u8)) (statistics (#ptr-mut #u64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-STATFS
-      (path statistics)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-STATFS (path statistics)))))
   (#unsafe-fn linux-fstatfs ((fd #i64) (statistics (#ptr-mut #u64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FSTATFS
-      (fd statistics)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FSTATFS (fd statistics)))))
   ; Raw faccessat has no flags argument; faccessat2 does.
   (#unsafe-fn linux-faccessat ((directory #i64) (path (#ptr-mut #u8)) (mode #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FACCESSAT
-      (directory path mode)))))
-  (#unsafe-fn linux-faccessat2 ((directory #i64) (path (#ptr-mut #u8))
-      (mode #i32) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FACCESSAT2
-      (directory path mode flags)))))
-  (#unsafe-fn linux-statx ((directory #i64) (path (#ptr-mut #u8)) (flags #u32)
-      (mask #u32) (metadata (#ptr-mut #u64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-STATX
-      (directory path flags mask metadata)))))
-  (#unsafe-fn linux-setxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))
-      (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SETXATTR
-      (path name value size flags)))))
-  (#unsafe-fn linux-lsetxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))
-      (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LSETXATTR
-      (path name value size flags)))))
-  (#unsafe-fn linux-getxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))
-      (value (#ptr-mut #u8)) (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETXATTR
-      (path name value size)))))
-  (#unsafe-fn linux-lgetxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))
-      (value (#ptr-mut #u8)) (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LGETXATTR
-      (path name value size)))))
-  (#unsafe-fn linux-listxattr ((path (#ptr-mut #u8)) (list (#ptr-mut #u8))
-      (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LISTXATTR
-      (path list size)))))
-  (#unsafe-fn linux-llistxattr ((path (#ptr-mut #u8)) (list (#ptr-mut #u8))
-      (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LLISTXATTR
-      (path list size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FACCESSAT (directory path mode)))))
+  (#unsafe-fn linux-faccessat2 ((directory #i64) (path (#ptr-mut #u8)) (mode #i32) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FACCESSAT2 (directory path mode flags)))))
+  (#unsafe-fn linux-statx ((directory #i64) (path (#ptr-mut #u8)) (flags #u32) (mask #u32) (metadata (#ptr-mut #u64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-STATX (directory path flags mask metadata)))))
+  (#unsafe-fn linux-setxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SETXATTR (path name value size flags)))))
+  (#unsafe-fn linux-lsetxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LSETXATTR (path name value size flags)))))
+  (#unsafe-fn linux-getxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETXATTR (path name value size)))))
+  (#unsafe-fn linux-lgetxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LGETXATTR (path name value size)))))
+  (#unsafe-fn linux-listxattr ((path (#ptr-mut #u8)) (list (#ptr-mut #u8)) (size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LISTXATTR (path list size)))))
+  (#unsafe-fn linux-llistxattr ((path (#ptr-mut #u8)) (list (#ptr-mut #u8)) (size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LLISTXATTR (path list size)))))
   (#unsafe-fn linux-removexattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-REMOVEXATTR
-      (path name)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-REMOVEXATTR (path name)))))
   (#unsafe-fn linux-lremovexattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-LREMOVEXATTR
-      (path name)))))
-  (#unsafe-fn linux-fsetxattr ((fd #i64) (name (#ptr-mut #u8))
-      (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FSETXATTR
-      (fd name value size flags)))))
-  (#unsafe-fn linux-fgetxattr ((fd #i64) (name (#ptr-mut #u8))
-      (value (#ptr-mut #u8)) (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FGETXATTR
-      (fd name value size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-LREMOVEXATTR (path name)))))
+  (#unsafe-fn linux-fsetxattr ((fd #i64) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FSETXATTR (fd name value size flags)))))
+  (#unsafe-fn linux-fgetxattr ((fd #i64) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FGETXATTR (fd name value size)))))
   (#unsafe-fn linux-flistxattr ((fd #i64) (list (#ptr-mut #u8)) (size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FLISTXATTR
-      (fd list size)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FLISTXATTR (fd list size)))))
   (#unsafe-fn linux-fremovexattr ((fd #i64) (name (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FREMOVEXATTR
-      (fd name)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FREMOVEXATTR (fd name)))))
   ; SAFETY: command selects a scalar or pointer ABI (for example, flock).
   ; Address-bearing commands require valid memory and compatible access.
   (#unsafe-fn linux-fcntl ((fd #i64) (command #i32) (argument #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FCNTL
-      (fd command argument)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FCNTL (fd command argument)))))
   (#fn linux-fdatasync ((fd #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FDATASYNC (fd)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FDATASYNC (fd)))))
   ; Native AIO ABI, not libaio. Keep request/data buffers live until completion.
   ; io_uring uses caller-managed kernel-layout rings and persistent buffers.
   ; enter's argument is either a signal mask or a flags-selected extended arg.
   (#unsafe-fn linux-io-uring-setup ((entries #u32) (parameters (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IO-URING-SETUP
-      (entries parameters)))))
-  (#unsafe-fn linux-io-uring-enter ((ring #u32) (submit #u32) (minimum #u32) (flags #u32)
-      (argument (#ptr-mut #u8)) (argument-size #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IO-URING-ENTER
-      (ring submit minimum flags argument argument-size)))))
-  (#unsafe-fn linux-io-uring-register ((ring #u32) (operation #u32)
-      (argument (#ptr-mut #u8)) (count #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IO-URING-REGISTER
-      (ring operation argument count)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IO-URING-SETUP (entries parameters)))))
+  (#unsafe-fn linux-io-uring-enter ((ring #u32) (submit #u32) (minimum #u32) (flags #u32) (argument (#ptr-mut #u8)) (argument-size #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-IO-URING-ENTER
+          (ring submit minimum flags argument argument-size)))))
+  (#unsafe-fn linux-io-uring-register ((ring #u32) (operation #u32) (argument (#ptr-mut #u8)) (count #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IO-URING-REGISTER (ring operation argument count)))))
   ; io_setup requires a zero-initialized context output word.
   ; io_pgetevents takes a pointer to {sigset pointer, size_t byte size}, or null.
   (#unsafe-fn linux-io-setup ((capacity #u32) (context (#ptr-mut #usize))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IO-SETUP
-      (capacity context)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IO-SETUP (capacity context)))))
   ; SAFETY: own this AIO context; coordinate outstanding users and keep their
   ; submitted buffers live until cancellation/completion is established.
   (#unsafe-fn linux-io-destroy ((context #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IO-DESTROY
-      (context)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IO-DESTROY (context)))))
   (#unsafe-fn linux-io-submit ((context #usize) (count #i64) (requests (#ptr-mut (#ptr-mut #u8)))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IO-SUBMIT
-      (context count requests)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IO-SUBMIT (context count requests)))))
   ; Current Linux returns -EINPROGRESS for accepted cancellation and queues the
   ; completion; the legacy event output pointer is unused. Drain completion
   ; before releasing the request or its buffers.
   (#unsafe-fn linux-io-cancel ((context #usize) (request (#ptr-mut #u8)) (event (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IO-CANCEL
-      (context request event)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IO-CANCEL (context request event)))))
   (#unsafe-fn linux-io-getevents ((context #usize) (minimum #i64) (count #i64) (events (#ptr-mut #u8)) (timeout (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IO-GETEVENTS
-      (context minimum count events timeout)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-IO-GETEVENTS (context minimum count events timeout)))))
   (#unsafe-fn linux-io-pgetevents ((context #usize) (minimum #i64) (count #i64) (events (#ptr-mut #u8)) (timeout (#ptr-mut #i64)) (signal-mask-argument (#ptr-mut #u8))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-IO-PGETEVENTS
-      (context minimum count events timeout signal-mask-argument)))))
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-IO-PGETEVENTS
+          (context minimum count events timeout signal-mask-argument)))))
   (#unsafe-fn linux-memfd-create ((name (#ptr-mut #u8)) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-MEMFD-CREATE (name flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-MEMFD-CREATE (name flags)))))
   (#unsafe-fn linux-unlinkat ((directory #i64) (path (#ptr-mut #u8)) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-UNLINKAT
-      (directory path flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-UNLINKAT (directory path flags)))))
   (#fn linux-dup2 ((source #i64) (destination #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-DUP2
-      (source destination)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-DUP2 (source destination)))))
   (#fn linux-dup3 ((source #i64) (destination #i64) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-DUP3
-      (source destination flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-DUP3 (source destination flags)))))
   (#fn linux-close-range ((first #u32) (last #u32) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CLOSE-RANGE
-      (first last flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CLOSE-RANGE (first last flags)))))
   (#fn linux-readahead ((fd #i64) (offset #i64) (count #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-READAHEAD
-      (fd offset count)))))
-  (#fn linux-sync-file-range ((fd #i64) (offset #i64) (length #i64)
-      (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SYNC-FILE-RANGE
-      (fd offset length flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-READAHEAD (fd offset count)))))
+  (#fn linux-sync-file-range ((fd #i64) (offset #i64) (length #i64) (flags #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SYNC-FILE-RANGE (fd offset length flags)))))
   (#fn linux-syncfs ((fd #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SYNCFS (fd)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SYNCFS (fd)))))
   (#fn linux-flock ((fd #i64) (operation #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FLOCK (fd operation)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FLOCK (fd operation)))))
   (#fn linux-fchmod ((fd #i64) (mode #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHMOD (fd mode)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FCHMOD (fd mode)))))
   (#fn linux-fchown ((fd #i64) (owner #i64) (group #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FCHOWN
-      (fd owner group)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FCHOWN (fd owner group)))))
   (#fn linux-fallocate ((fd #i64) (mode #i32) (offset #i64) (length #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FALLOCATE
-      (fd mode offset length)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FALLOCATE (fd mode offset length)))))
   (#fn linux-fadvise64 ((fd #i64) (offset #i64) (length #i64) (advice #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FADVISE64
-      (fd offset length advice)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FADVISE64 (fd offset length advice)))))
   (#unsafe-fn linux-pipe2 ((descriptors (#ptr-mut #i32)) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PIPE2
-      (descriptors flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-PIPE2 (descriptors flags)))))
   (#unsafe-fn linux-sendfile ((output #i64) (input #i64) (offset (#ptr-mut #i64)) (count #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SENDFILE
-      (output input offset count)))))
-  (#unsafe-fn linux-copy-file-range ((input #i64) (input-offset (#ptr-mut #i64))
-      (output #i64) (output-offset (#ptr-mut #i64)) (count #usize) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-COPY-FILE-RANGE
-      (input input-offset output output-offset count flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SENDFILE (output input offset count)))))
+  (#unsafe-fn linux-copy-file-range ((input #i64) (input-offset (#ptr-mut #i64)) (output #i64) (output-offset (#ptr-mut #i64)) (count #usize) (flags #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-COPY-FILE-RANGE
+          (input input-offset output output-offset count flags)))))
   (#fn linux-tee ((input #i64) (output #i64) (count #usize) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TEE
-      (input output count flags)))))
-  (#unsafe-fn linux-splice ((input #i64) (input-offset (#ptr-mut #i64))
-      (output #i64) (output-offset (#ptr-mut #i64)) (count #usize) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SPLICE
-      (input input-offset output output-offset count flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TEE (input output count flags)))))
+  (#unsafe-fn linux-splice ((input #i64) (input-offset (#ptr-mut #i64)) (output #i64) (output-offset (#ptr-mut #i64)) (count #usize) (flags #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SPLICE (input input-offset output output-offset count flags)))))
   (#unsafe-fn linux-vmsplice ((fd #i64) (iovecs (#ptr-mut #u8)) (count #usize) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-VMSPLICE
-      (fd iovecs count flags)))))
-  (#unsafe-fn linux-process-vm-readv ((pid #i32) (local-vectors (#ptr-mut #u8))
-      (local-count #usize) (remote-vectors (#ptr-mut #u8)) (remote-count #usize)
-      (flags #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PROCESS-VM-READV
-      (pid local-vectors local-count remote-vectors remote-count flags)))))
-  (#unsafe-fn linux-process-vm-writev ((pid #i32) (local-vectors (#ptr-mut #u8))
-      (local-count #usize) (remote-vectors (#ptr-mut #u8)) (remote-count #usize)
-      (flags #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-PROCESS-VM-WRITEV
-      (pid local-vectors local-count remote-vectors remote-count flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-VMSPLICE (fd iovecs count flags)))))
+  (#unsafe-fn linux-process-vm-readv ((pid #i32) (local-vectors (#ptr-mut #u8)) (local-count #usize) (remote-vectors (#ptr-mut #u8)) (remote-count #usize) (flags #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-PROCESS-VM-READV
+          (pid local-vectors local-count remote-vectors remote-count flags)))))
+  (#unsafe-fn linux-process-vm-writev ((pid #i32) (local-vectors (#ptr-mut #u8)) (local-count #usize) (remote-vectors (#ptr-mut #u8)) (remote-count #usize) (flags #usize)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-PROCESS-VM-WRITEV
+          (pid local-vectors local-count remote-vectors remote-count flags)))))
   (#fn linux-dup ((fd #i64)) #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-DUP) (rdi fd)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-DUP) (rdi fd)) "syscall"))))
   (#fn linux-lseek ((fd #i64) (offset #i64) (whence #i64)) #i64
-    (#return (#unsafe (#asm #i64
-      ((rax LINUX-SYS-LSEEK) (rdi fd) (rsi offset) (rdx whence)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-LSEEK) (rdi fd) (rsi offset) (rdx whence)) "syscall"))))
   (#fn linux-fsync ((fd #i64)) #i64
-    (#return (#unsafe (#asm #i64 ((rax LINUX-SYS-FSYNC) (rdi fd)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-FSYNC) (rdi fd)) "syscall"))))
   (#fn linux-ftruncate ((fd #i64) (length #i64)) #i64
-    (#return (#unsafe (#asm #i64
-      ((rax LINUX-SYS-FTRUNCATE) (rdi fd) (rsi length)) "syscall"))))
+    (#return
+      (#unsafe
+        (#asm #i64 ((rax LINUX-SYS-FTRUNCATE) (rdi fd) (rsi length)) "syscall"))))
   (#fn linux-clock-gettime ((clock-id #i64) (time (#ref-mut LinuxTimespec))) #i64
     ; Marshal through explicit native ABI storage, not reference tag bits.
     ; Stack arrays descend: index 1 holds seconds, followed by index 0's ns.
     (#let-mut native (#array #i64 2) (#array-of (#array #i64 2) 0i64 0i64))
-    (#let pointer (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64)
-      ((rdi (#borrow-mut native))) "lea rax, [rdi-8]")))
-    (#let status #i64 (#unsafe (#linux-syscall #i64 LINUX-SYS-CLOCK-GETTIME
-      (clock-id pointer))))
+    (#let
+      pointer
+      (#ptr-mut #i64)
+      (#unsafe
+        (#asm (#ptr-mut #i64) ((rdi (#borrow-mut native))) "lea rax, [rdi-8]")))
+    (#let
+      status
+      #i64
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CLOCK-GETTIME (clock-id pointer))))
     (#if (#i64.== status 0i64)
       (#block
         (#deref-set (#borrow-mut (#get time seconds)) (#index native 1usize))
@@ -921,98 +1218,126 @@
       ())
     (#return status))
   (#unsafe-fn linux-clock-getres ((clock-id #i64) (time (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CLOCK-GETRES
-      (clock-id time)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CLOCK-GETRES (clock-id time)))))
   (#unsafe-fn linux-gettimeofday ((time (#ptr-mut #i64)) (timezone (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETTIMEOFDAY
-      (time timezone)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETTIMEOFDAY (time timezone)))))
   (#unsafe-fn linux-time ((output (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIME (output)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIME (output)))))
   (#unsafe-fn linux-times ((output (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIMES (output)))))
-  (#unsafe-fn linux-clock-nanosleep ((clock-id #i64) (flags #i32)
-      (request (#ptr-mut #i64)) (remaining (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-CLOCK-NANOSLEEP
-      (clock-id flags request remaining)))))
-  (#unsafe-fn linux-timer-create ((clock-id #i64) (event (#ptr-mut #i64))
-      (timer-id (#ptr-mut #i32))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIMER-CREATE
-      (clock-id event timer-id)))))
-  (#unsafe-fn linux-timer-settime ((timer-id #i64) (flags #i32)
-      (new-time (#ptr-mut #i64)) (old-time (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIMER-SETTIME
-      (timer-id flags new-time old-time)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIMES (output)))))
+  (#unsafe-fn linux-clock-nanosleep ((clock-id #i64) (flags #i32) (request (#ptr-mut #i64)) (remaining (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-CLOCK-NANOSLEEP (clock-id flags request remaining)))))
+  (#unsafe-fn linux-timer-create ((clock-id #i64) (event (#ptr-mut #i64)) (timer-id (#ptr-mut #i32))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIMER-CREATE (clock-id event timer-id)))))
+  (#unsafe-fn linux-timer-settime ((timer-id #i64) (flags #i32) (new-time (#ptr-mut #i64)) (old-time (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIMER-SETTIME (timer-id flags new-time old-time)))))
   (#unsafe-fn linux-timer-gettime ((timer-id #i64) (current-time (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIMER-GETTIME
-      (timer-id current-time)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIMER-GETTIME (timer-id current-time)))))
   (#fn linux-timer-delete ((timer-id #i64)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIMER-DELETE
-      (timer-id)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIMER-DELETE (timer-id)))))
   (#fn linux-timerfd-create ((clock-id #i32) (flags #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIMERFD-CREATE
-      (clock-id flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIMERFD-CREATE (clock-id flags)))))
   ; new-time and old-time point to C-layout itimerspec values (four i64s).
-  (#unsafe-fn linux-timerfd-settime ((fd #i64) (flags #i32)
-      (new-time (#ptr-mut #i64)) (old-time (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIMERFD-SETTIME
-      (fd flags new-time old-time)))))
+  (#unsafe-fn linux-timerfd-settime ((fd #i64) (flags #i32) (new-time (#ptr-mut #i64)) (old-time (#ptr-mut #i64))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIMERFD-SETTIME (fd flags new-time old-time)))))
   (#unsafe-fn linux-timerfd-gettime ((fd #i64) (current-time (#ptr-mut #i64))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-TIMERFD-GETTIME
-      (fd current-time)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-TIMERFD-GETTIME (fd current-time)))))
   ; One registration per kernel thread. Head storage must remain valid until
   ; it is replaced or the thread exits; Linux walks the list during exit/exec.
   (#unsafe-fn linux-set-robust-list ((head (#ptr-mut #u8)) (length #usize)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-SET-ROBUST-LIST
-      (head length)))))
-  (#unsafe-fn linux-get-robust-list ((thread #i32) (head (#ptr-mut (#ptr-mut #u8)))
-      (length (#ptr-mut #usize))) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GET-ROBUST-LIST
-      (thread head length)))))
-  (#unsafe-fn linux-futex ((address (#ptr-mut #u32)) (operation #i32) (value #u32)
-      (timeout (#ptr-mut #i64)) (second-address (#ptr-mut #u32)) (value3 #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FUTEX
-      (address operation value timeout second-address value3)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-SET-ROBUST-LIST (head length)))))
+  (#unsafe-fn linux-get-robust-list ((thread #i32) (head (#ptr-mut (#ptr-mut #u8))) (length (#ptr-mut #usize))) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GET-ROBUST-LIST (thread head length)))))
+  (#unsafe-fn linux-futex ((address (#ptr-mut #u32)) (operation #i32) (value #u32) (timeout (#ptr-mut #i64)) (second-address (#ptr-mut #u32)) (value3 #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-FUTEX
+          (address operation value timeout second-address value3)))))
   ; futex2 wait vectors contain val:#u64, address:#u64, flags:#u32, reserved:u32.
   ; SAFETY: all vector entries, addressed words, and timeout storage must stay
   ; valid for the wait. Coordinate concurrent word accesses atomically. Timeout
   ; is absolute; per-entry flags select size/sharing, syscall flags are zero.
-  (#unsafe-fn linux-futex-waitv ((waiters (#ptr-mut #u8)) (count #u32) (flags #u32)
-      (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FUTEX-WAITV
-      (waiters count flags timeout clock-id)))))
+  (#unsafe-fn linux-futex-waitv ((waiters (#ptr-mut #u8)) (count #u32) (flags #u32) (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FUTEX-WAITV (waiters count flags timeout clock-id)))))
   ; These masks/values are unsigned long in the native ABI, not #u32 flags.
   ; SAFETY: address and timeout must be valid; word accesses require atomic
   ; coordination. Futex2 currently supports the 32-bit size selector (2).
-  (#unsafe-fn linux-futex-wait ((address (#ptr-mut #u32)) (expected #usize)
-      (mask #usize) (flags #u32) (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FUTEX-WAIT
-      (address expected mask flags timeout clock-id)))))
-  (#unsafe-fn linux-futex-wake ((address (#ptr-mut #u32)) (mask #usize)
-      (count #i32) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FUTEX-WAKE
-      (address mask count flags)))))
+  (#unsafe-fn linux-futex-wait ((address (#ptr-mut #u32)) (expected #usize) (mask #usize) (flags #u32) (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FUTEX-WAIT (address expected mask flags timeout clock-id)))))
+  (#unsafe-fn linux-futex-wake ((address (#ptr-mut #u32)) (mask #usize) (count #i32) (flags #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FUTEX-WAKE (address mask count flags)))))
   ; SAFETY: waiters points to two valid futex_waitv records, source then
   ; destination. Keep both addressed words live through queued waits; the
   ; source value is compared before any wake/move. Syscall flags must be zero.
-  (#unsafe-fn linux-futex-requeue ((waiters (#ptr-mut #u8)) (flags #u32)
-      (wake-count #i32) (requeue-count #i32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FUTEX-REQUEUE
-      (waiters flags wake-count requeue-count)))))
+  (#unsafe-fn linux-futex-requeue ((waiters (#ptr-mut #u8)) (flags #u32) (wake-count #i32) (requeue-count #i32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-FUTEX-REQUEUE (waiters flags wake-count requeue-count)))))
   ; Unlike FUTEX_WAIT, CMP_REQUEUE takes a count in the fourth ABI slot.
-  (#unsafe-fn linux-futex-cmp-requeue ((address (#ptr-mut #u32)) (wake-count #u32)
-      (requeue-count #u32) (second-address (#ptr-mut #u32)) (expected #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-FUTEX
-      (address 4i32 wake-count requeue-count second-address expected)))))
+  (#unsafe-fn linux-futex-cmp-requeue ((address (#ptr-mut #u32)) (wake-count #u32) (requeue-count #u32) (second-address (#ptr-mut #u32)) (expected #u32)) #i64
+    (#return
+      (#unsafe
+        (#linux-syscall
+          #i64
+          LINUX-SYS-FUTEX
+          (address 4i32 wake-count requeue-count second-address expected)))))
   (#fn linux-nanosleep ((request (#ref LinuxTimespec)) (remaining (#ref-mut LinuxTimespec))) #i64
-    (#let native-request (#array #i64 2) (#array-of (#array #i64 2)
-      (#get request nanoseconds) (#get request seconds)))
+    (#let
+      native-request
+      (#array #i64 2)
+      (#array-of (#array #i64 2) (#get request nanoseconds) (#get request seconds)))
     (#let-mut native-remaining (#array #i64 2) (#array-of (#array #i64 2) 0i64 0i64))
-    (#let request-pointer (#ptr #i64) (#unsafe (#asm (#ptr #i64)
-      ((rdi (#borrow native-request))) "lea rax, [rdi-8]")))
-    (#let remaining-pointer (#ptr-mut #i64) (#unsafe (#asm (#ptr-mut #i64)
-      ((rdi (#borrow-mut native-remaining))) "lea rax, [rdi-8]")))
-    (#let status #i64 (#unsafe (#linux-syscall #i64 LINUX-SYS-NANOSLEEP
-      (request-pointer remaining-pointer))))
+    (#let
+      request-pointer
+      (#ptr #i64)
+      (#unsafe
+        (#asm (#ptr #i64) ((rdi (#borrow native-request))) "lea rax, [rdi-8]")))
+    (#let
+      remaining-pointer
+      (#ptr-mut #i64)
+      (#unsafe
+        (#asm (#ptr-mut #i64) ((rdi (#borrow-mut native-remaining))) "lea rax, [rdi-8]")))
+    (#let
+      status
+      #i64
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-NANOSLEEP (request-pointer remaining-pointer))))
     (#if (#i64.== status -4i64)
       (#block
         (#deref-set (#borrow-mut (#get remaining seconds)) (#index native-remaining 1usize))
@@ -1021,293 +1346,580 @@
       ())
     (#return status))
   (#fn linux-getrandom-byte ((destination (#ref-mut #u8))) #i64
-    (#return (#unsafe (#asm #i64
-      ((rax LINUX-SYS-GETRANDOM) (rdi destination) (rsi 1usize) (rdx 0usize))
-      "syscall"))))
+    (#return
+      (#unsafe
+        (#asm
+          #i64
+          ((rax LINUX-SYS-GETRANDOM) (rdi destination) (rsi 1usize) (rdx 0usize))
+          "syscall"))))
   (#unsafe-fn linux-getrandom ((destination (#ptr-mut #u8)) (size #usize) (flags #u32)) #i64
-    (#return (#unsafe (#linux-syscall #i64 LINUX-SYS-GETRANDOM
-      (destination size flags)))))
+    (#return
+      (#unsafe
+        (#linux-syscall #i64 LINUX-SYS-GETRANDOM (destination size flags)))))
   (#cfg-else
-    (#fn linux-read-byte ((destination (#ref-mut #u8))) #i64 (#return -38i64))
-    (#fn linux-read-byte-from ((fd #i64) (destination (#ref-mut #u8))) #i64 (#return -38i64))
-    (#fn linux-write-byte ((source (#ref #u8))) #i64 (#return -38i64))
-    (#fn linux-getpid () #i64 (#return -38i64))
-    (#fn linux-getuid () #i64 (#return -38i64))
-    (#fn linux-getgid () #i64 (#return -38i64))
-    (#fn linux-geteuid () #i64 (#return -38i64))
-    (#fn linux-getegid () #i64 (#return -38i64))
-    (#fn linux-getppid () #i64 (#return -38i64))
-    (#fn linux-getpgrp () #i64 (#return -38i64))
-    (#fn linux-getpgid ((pid #i64)) #i64 (#return -38i64))
-    (#fn linux-getsid ((pid #i64)) #i64 (#return -38i64))
-    (#fn linux-getpriority ((which #i64) (who #i64)) #i64 (#return -38i64))
-    (#fn linux-gettid () #i64 (#return -38i64))
-    (#unsafe-fn linux-set-robust-list ((head (#ptr-mut #u8)) (length #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-get-robust-list ((thread #i32) (head (#ptr-mut (#ptr-mut #u8))) (length (#ptr-mut #usize))) #i64 (#return -38i64))
-    (#fn linux-alarm ((seconds #u32)) #i64 (#return -38i64))
-    (#fn linux-tkill ((thread #i32) (signal #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-sigaltstack ((new-stack (#ptr-mut #u8)) (old-stack (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#fn linux-timer-getoverrun ((timer-id #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-prctl ((option #i32) (arg2 #usize) (arg3 #usize) (arg4 #usize) (arg5 #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-arch-prctl ((operation #i32) (argument #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-capget ((header (#ptr-mut #u32)) (data (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-capset ((header (#ptr-mut #u32)) (data (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#fn linux-setpriority ((which #i32) (who #u32) (priority #i32)) #i64 (#return -38i64))
-    (#fn linux-ioprio-get ((which #i32) (who #i32)) #i64 (#return -38i64))
-    (#fn linux-ioprio-set ((which #i32) (who #i32) (priority #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-sched-setparam ((pid #i32) (scheduler-parameters (#ptr-mut #i32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-sched-setscheduler ((pid #i32) (policy #i32) (scheduler-parameters (#ptr-mut #i32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-sched-setattr ((pid #i32) (attributes (#ptr-mut #u64)) (flags #u32)) #i64 (#return -38i64))
-    (#fn linux-kill ((pid #i64) (signal #i32)) #i64 (#return -38i64))
-    (#fn linux-tgkill ((group #i64) (thread #i64) (signal #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-rt-sigqueueinfo ((group #i32) (signal #i32) (info (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-rt-tgsigqueueinfo ((group #i32) (thread #i32) (signal #i32) (info (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#fn linux-pidfd-open ((pid #i64) (flags #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-pidfd-send-signal ((pidfd #i64) (signal #i32) (info (#ptr-mut #u8)) (flags #u32)) #i64 (#return -38i64))
-    (#fn linux-pidfd-getfd ((pidfd #i64) (target-fd #i64) (flags #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-getcpu ((cpu (#ptr-mut #u32)) (node (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-getresuid ((real (#ptr-mut #u32)) (effective (#ptr-mut #u32)) (saved (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#fn linux-setuid ((uid #u32)) #i64 (#return -38i64))
-    (#fn linux-setgid ((gid #u32)) #i64 (#return -38i64))
-    (#fn linux-setreuid ((real #u32) (effective #u32)) #i64 (#return -38i64))
-    (#fn linux-setregid ((real #u32) (effective #u32)) #i64 (#return -38i64))
-    (#fn linux-setresuid ((real #u32) (effective #u32) (saved #u32)) #i64 (#return -38i64))
-    (#fn linux-setresgid ((real #u32) (effective #u32) (saved #u32)) #i64 (#return -38i64))
-    (#fn linux-setfsuid ((uid #u32)) #i64 (#return -38i64))
-    (#fn linux-setfsgid ((gid #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-getresgid ((real (#ptr-mut #u32)) (effective (#ptr-mut #u32)) (saved (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-getgroups ((size #i32) (groups (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-uname ((buffer (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-sysinfo ((buffer (#ptr-mut #u64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-fork () #i64 (#return -38i64))
-    (#unsafe-fn linux-execve ((path (#ptr-mut #u8)) (arguments (#ptr-mut (#ptr-mut #u8))) (environment (#ptr-mut (#ptr-mut #u8)))) #i64 (#return -38i64))
-    (#unsafe-fn linux-execveat ((directory #i64) (path (#ptr-mut #u8)) (arguments (#ptr-mut (#ptr-mut #u8))) (environment (#ptr-mut (#ptr-mut #u8))) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-exit ((status #i32)) () (#return (#unreachable)))
-    (#fn linux-exit-group ((status #i32)) () (#return (#unreachable)))
-    (#fn linux-setpgid ((pid #i32) (group #i32)) #i64 (#return -38i64))
-    (#fn linux-setsid () #i64 (#return -38i64))
-    (#unsafe-fn linux-waitid ((id-type #i32) (id #u32) (info (#ptr-mut #u8)) (options #i32) (usage (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-wait4 ((pid #i64) (status (#ptr-mut #i32)) (options #usize) (usage (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#fn linux-sched-yield () #i64 (#return -38i64))
-    (#unsafe-fn linux-sched-getparam ((pid #i64) (scheduler-parameters (#ptr-mut #i32))) #i64 (#return -38i64))
-    (#fn linux-sched-getscheduler ((pid #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-sched-rr-get-interval ((pid #i64) (interval (#ptr-mut #u64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-sched-getattr ((pid #i64) (attributes (#ptr-mut #u64)) (size #u32) (flags #u32)) #i64 (#return -38i64))
-    (#fn linux-sched-get-priority-max ((policy #i64)) #i64 (#return -38i64))
-    (#fn linux-sched-get-priority-min ((policy #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-sched-setaffinity ((pid #i64) (size #usize) (mask (#ptr-mut #u64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-sched-getaffinity ((pid #i64) (size #usize) (mask (#ptr-mut #u64))) #i64 (#return -38i64))
-    (#fn linux-close ((fd #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-ioctl ((fd #i64) (request #u32) (argument #usize)) #i64 (#return -38i64))
-    (#fn linux-socket ((domain #i32) (socket-type #i32) (protocol #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-bind ((fd #i64) (address (#ptr-mut #u8)) (address-length #u32)) #i64 (#return -38i64))
-    (#fn linux-listen ((fd #i64) (backlog #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-connect ((fd #i64) (address (#ptr-mut #u8)) (address-length #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-accept ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-accept4 ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32)) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-socketpair ((domain #i32) (socket-type #i32) (protocol #i32) (descriptors (#ptr-mut #i32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-sendto ((fd #i64) (source (#ptr-mut #u8)) (size #usize) (flags #i32) (destination (#ptr-mut #u8)) (address-length #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-sendmsg ((fd #i64) (message (#ptr-mut #u8)) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-recvmsg ((fd #i64) (message (#ptr-mut #u8)) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-sendmmsg ((fd #i64) (messages (#ptr-mut #u8)) (count #u32) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-recvmmsg ((fd #i64) (messages (#ptr-mut #u8)) (count #u32) (flags #i32) (timeout (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-recvfrom ((fd #i64) (destination (#ptr-mut #u8)) (size #usize) (flags #i32) (source-address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-setsockopt ((fd #i64) (level #i32) (option #i32) (value (#ptr-mut #u8)) (value-length #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-getsockopt ((fd #i64) (level #i32) (option #i32) (value (#ptr-mut #u8)) (value-length (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-getsockname ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-getpeername ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64 (#return -38i64))
-    (#fn linux-shutdown ((fd #i64) (how #i32)) #i64 (#return -38i64))
-    (#fn linux-epoll-create1 ((flags #i32)) #i64 (#return -38i64))
-    (#fn linux-epoll-create ((size #i32)) #i64 (#return -38i64))
-    (#fn linux-eventfd ((initial-value #u32)) #i64 (#return -38i64))
-    (#fn linux-eventfd2 ((initial-value #u32) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-epoll-ctl ((epoll-fd #i64) (operation #i32) (fd #i64) (event (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-epoll-wait ((epoll-fd #i64) (events (#ptr-mut #u8)) (max-events #i32) (timeout-ms #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-epoll-pwait ((epoll-fd #i64) (events (#ptr-mut #u8)) (max-events #i32) (timeout-ms #i32) (signal-mask (#ptr-mut #u8)) (signal-set-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-epoll-pwait2 ((epoll-fd #i64) (events (#ptr-mut #u8)) (max-events #i32) (timeout (#ptr-mut #u8)) (signal-mask (#ptr-mut #u8)) (signal-set-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-poll ((pollfds (#ptr-mut #u8)) (count #usize) (timeout-ms #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-select ((count #i32) (read-set (#ptr-mut #u64)) (write-set (#ptr-mut #u64)) (except-set (#ptr-mut #u64)) (timeout (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-pselect6 ((count #i32) (read-set (#ptr-mut #u64)) (write-set (#ptr-mut #u64)) (except-set (#ptr-mut #u64)) (timeout (#ptr-mut #i64)) (signal-mask-argument (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-ppoll ((pollfds (#ptr-mut #u8)) (count #usize) (timeout (#ptr-mut #u8)) (signal-mask (#ptr-mut #u8)) (signal-set-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mmap ((address (#ptr-mut #u8)) (length #usize) (protection #u32) (flags #u32) (fd #i64) (offset #i64)) (#ptr-mut #u8) (#return (#ptr-null (#ptr-mut #u8))))
-    (#unsafe-fn linux-brk ((address #usize)) #usize (#return 0usize))
-    (#unsafe-fn linux-personality ((persona #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mprotect ((address (#ptr-mut #u8)) (length #usize) (protection #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mseal ((address (#ptr-mut #u8)) (length #usize) (flags #usize)) #i64 (#return -38i64))
-    (#fn linux-memfd-secret ((flags #u32)) #i64 (#return -38i64))
-    (#fn linux-pkey-alloc ((flags #u32) (access-rights #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-pkey-free ((key #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-pkey-mprotect ((address (#ptr-mut #u8)) (length #usize) (protection #u32) (key #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-munmap ((address (#ptr-mut #u8)) (length #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-msync ((address (#ptr-mut #u8)) (length #usize) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mincore ((address (#ptr-mut #u8)) (length #usize) (residency (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#fn linux-membarrier ((command #i32) (flags #u32) (cpu-id #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-madvise ((address (#ptr-mut #u8)) (length #usize) (advice #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mlock ((address (#ptr-mut #u8)) (length #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mlock2 ((address (#ptr-mut #u8)) (length #usize) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-munlock ((address (#ptr-mut #u8)) (length #usize)) #i64 (#return -38i64))
-    (#fn linux-mlockall ((flags #i32)) #i64 (#return -38i64))
-    (#fn linux-munlockall () #i64 (#return -38i64))
-    (#unsafe-fn linux-mremap ((old-address (#ptr-mut #u8)) (old-length #usize) (new-length #usize) (flags #u32) (new-address (#ptr-mut #u8))) (#ptr-mut #u8) (#return (#ptr-null (#ptr-mut #u8))))
-    (#fn linux-shmget ((key #i32) (size #usize) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-shmat ((segment #i32) (address (#ptr-mut #u8)) (flags #i32)) (#ptr-mut #u8) (#return (#ptr-null (#ptr-mut #u8))))
-    (#unsafe-fn linux-shmdt ((address (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-shmctl ((segment #i32) (command #i32) (buffer (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#fn linux-msgget ((key #i32) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mq-open ((name (#ptr-mut #u8)) (flags #i32) (mode #u32) (attributes (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-mq-unlink ((name (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-mq-timedsend ((queue #i64) (message (#ptr-mut #u8)) (length #usize) (priority #u32) (deadline (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-mq-timedreceive ((queue #i64) (message (#ptr-mut #u8)) (capacity #usize) (priority (#ptr-mut #u32)) (deadline (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-mq-notify ((queue #i64) (event (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-mq-getsetattr ((queue #i64) (new-attributes (#ptr-mut #i64)) (old-attributes (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-msgsnd ((queue #i32) (message (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-msgrcv ((queue #i32) (message (#ptr-mut #u8)) (size #usize) (message-type #i64) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-msgctl ((queue #i32) (command #i32) (buffer (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#fn linux-semget ((key #i32) (count #i32) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-semctl ((set-id #i32) (number #i32) (command #i32) (argument #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-semop ((set-id #i32) (operations (#ptr-mut #u8)) (count #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-semtimedop ((set-id #i32) (operations (#ptr-mut #u8)) (count #usize) (timeout (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-openat ((directory #i64) (path (#ptr-mut #u8)) (flags #i32) (mode #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-open ((path (#ptr-mut #u8)) (flags #i32) (mode #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-creat ((path (#ptr-mut #u8)) (mode #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-access ((path (#ptr-mut #u8)) (mode #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-pipe ((descriptors (#ptr-mut #i32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-openat2 ((directory #i64) (path (#ptr-mut #u8)) (how (#ptr-mut #u64)) (how-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mkdirat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mkdir ((path (#ptr-mut #u8)) (mode #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-rmdir ((path (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-link ((source (#ptr-mut #u8)) (destination (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-rename ((source (#ptr-mut #u8)) (destination (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-unlink ((path (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-truncate ((path (#ptr-mut #u8)) (length #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-chmod ((path (#ptr-mut #u8)) (mode #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-chown ((path (#ptr-mut #u8)) (owner #u32) (group #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-lchown ((path (#ptr-mut #u8)) (owner #u32) (group #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-utime ((path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-utimes ((path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-futimesat ((directory #i64) (path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-renameat2 ((old-directory #i64) (old-path (#ptr-mut #u8)) (new-directory #i64) (new-path (#ptr-mut #u8)) (flags #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-linkat ((old-directory #i64) (old-path (#ptr-mut #u8)) (new-directory #i64) (new-path (#ptr-mut #u8)) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-renameat ((old-directory #i64) (old-path (#ptr-mut #u8)) (new-directory #i64) (new-path (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-symlinkat ((target (#ptr-mut #u8)) (directory #i64) (link-path (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-fchmodat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-fchmodat2 ((directory #i64) (path (#ptr-mut #u8)) (mode #u32) (flags #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mknod ((path (#ptr-mut #u8)) (mode #u32) (device #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-mknodat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32) (device #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-fchownat ((directory #i64) (path (#ptr-mut #u8)) (owner #u32) (group #u32) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-utimensat ((directory #i64) (path (#ptr-mut #u8)) (times (#ptr-mut #i64)) (flags #i32)) #i64 (#return -38i64))
-    (#fn linux-inotify-init1 ((flags #i32)) #i64 (#return -38i64))
-    (#fn linux-inotify-init () #i64 (#return -38i64))
-    (#unsafe-fn linux-inotify-add-watch ((fd #i64) (path (#ptr-mut #u8)) (mask #u32)) #i64 (#return -38i64))
-    (#fn linux-inotify-rm-watch ((fd #i64) (watch #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-getcwd ((buffer (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-readlinkat ((directory #i64) (path (#ptr-mut #u8)) (destination (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-symlink ((target (#ptr-mut #u8)) (link-path (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-readlink ((path (#ptr-mut #u8)) (destination (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-getdents64 ((fd #i64) (buffer (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-getdents ((fd #i64) (buffer (#ptr-mut #u8)) (size #u32)) #i64 (#return -38i64))
-    (#fn linux-fchdir ((fd #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-chdir ((path (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-getrusage ((resource #i64) (usage (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-getitimer ((which #i64) (current-value (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-setitimer ((which #i64) (new-value (#ptr-mut #i64)) (old-value (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-getrlimit ((resource #usize) (limits (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-setrlimit ((resource #usize) (limits (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-prlimit64 ((pid #i64) (resource #usize) (new-limits (#ptr-mut #i64)) (old-limits (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#fn linux-umask ((mask #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-rt-sigaction ((signal #i64) (action (#ptr-mut #i64)) (old-action (#ptr-mut #i64)) (sigset-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-rt-sigprocmask ((how #usize) (signal-set (#ptr-mut #i64)) (old-set (#ptr-mut #i64)) (sigset-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-rt-sigpending ((signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-rt-sigsuspend ((signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-signalfd ((fd #i64) (signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-signalfd4 ((fd #i64) (signal-set (#ptr-mut #i64)) (sigset-size #usize) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-rt-sigtimedwait ((signal-set (#ptr-mut #i64)) (info (#ptr-mut #u8)) (timeout (#ptr-mut #i64)) (sigset-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-read ((fd #i64) (destination (#ptr-mut #u8)) (count #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-write ((fd #i64) (source (#ptr-mut #u8)) (count #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-pread64 ((fd #i64) (destination (#ptr-mut #u8)) (count #usize) (offset #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-pwrite64 ((fd #i64) (source (#ptr-mut #u8)) (count #usize) (offset #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-readv ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-writev ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-preadv ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-pwritev ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-preadv2 ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-pwritev2 ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-fstat ((fd #i64) (metadata (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-stat ((path (#ptr-mut #u8)) (metadata (#ptr-mut #u64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-lstat ((path (#ptr-mut #u8)) (metadata (#ptr-mut #u64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-newfstatat ((directory #i64) (path (#ptr-mut #u8)) (metadata (#ptr-mut #u64)) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-statfs ((path (#ptr-mut #u8)) (statistics (#ptr-mut #u64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-fstatfs ((fd #i64) (statistics (#ptr-mut #u64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-faccessat ((directory #i64) (path (#ptr-mut #u8)) (mode #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-faccessat2 ((directory #i64) (path (#ptr-mut #u8)) (mode #i32) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-statx ((directory #i64) (path (#ptr-mut #u8)) (flags #u32) (mask #u32) (metadata (#ptr-mut #u64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-setxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-lsetxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-getxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-lgetxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-listxattr ((path (#ptr-mut #u8)) (list (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-llistxattr ((path (#ptr-mut #u8)) (list (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-removexattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-lremovexattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-fsetxattr ((fd #i64) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-fgetxattr ((fd #i64) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-flistxattr ((fd #i64) (list (#ptr-mut #u8)) (size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-fremovexattr ((fd #i64) (name (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-fcntl ((fd #i64) (command #i32) (argument #usize)) #i64 (#return -38i64))
-    (#fn linux-fdatasync ((fd #i64)) #i64 (#return -38i64))
-    (#unsafe-fn linux-memfd-create ((name (#ptr-mut #u8)) (flags #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-io-setup ((capacity #u32) (context (#ptr-mut #usize))) #i64 (#return -38i64))
-    (#unsafe-fn linux-io-uring-setup ((entries #u32) (parameters (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-io-uring-enter ((ring #u32) (submit #u32) (minimum #u32) (flags #u32) (argument (#ptr-mut #u8)) (argument-size #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-io-uring-register ((ring #u32) (operation #u32) (argument (#ptr-mut #u8)) (count #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-io-destroy ((context #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-io-submit ((context #usize) (count #i64) (requests (#ptr-mut (#ptr-mut #u8)))) #i64 (#return -38i64))
-    (#unsafe-fn linux-io-cancel ((context #usize) (request (#ptr-mut #u8)) (event (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-io-getevents ((context #usize) (minimum #i64) (count #i64) (events (#ptr-mut #u8)) (timeout (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-io-pgetevents ((context #usize) (minimum #i64) (count #i64) (events (#ptr-mut #u8)) (timeout (#ptr-mut #i64)) (signal-mask-argument (#ptr-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-unlinkat ((directory #i64) (path (#ptr-mut #u8)) (flags #i32)) #i64 (#return -38i64))
-    (#fn linux-dup2 ((source #i64) (destination #i64)) #i64 (#return -38i64))
-    (#fn linux-dup3 ((source #i64) (destination #i64) (flags #i32)) #i64 (#return -38i64))
-    (#fn linux-close-range ((first #u32) (last #u32) (flags #u32)) #i64 (#return -38i64))
-    (#fn linux-readahead ((fd #i64) (offset #i64) (count #usize)) #i64 (#return -38i64))
-    (#fn linux-sync-file-range ((fd #i64) (offset #i64) (length #i64) (flags #u32)) #i64 (#return -38i64))
-    (#fn linux-syncfs ((fd #i64)) #i64 (#return -38i64))
-    (#fn linux-flock ((fd #i64) (operation #i32)) #i64 (#return -38i64))
-    (#fn linux-fchmod ((fd #i64) (mode #u32)) #i64 (#return -38i64))
-    (#fn linux-fchown ((fd #i64) (owner #i64) (group #i64)) #i64 (#return -38i64))
-    (#fn linux-fallocate ((fd #i64) (mode #i32) (offset #i64) (length #i64)) #i64 (#return -38i64))
-    (#fn linux-fadvise64 ((fd #i64) (offset #i64) (length #i64) (advice #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-pipe2 ((descriptors (#ptr-mut #i32)) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-sendfile ((output #i64) (input #i64) (offset (#ptr-mut #i64)) (count #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-copy-file-range ((input #i64) (input-offset (#ptr-mut #i64)) (output #i64) (output-offset (#ptr-mut #i64)) (count #usize) (flags #u32)) #i64 (#return -38i64))
-    (#fn linux-tee ((input #i64) (output #i64) (count #usize) (flags #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-splice ((input #i64) (input-offset (#ptr-mut #i64)) (output #i64) (output-offset (#ptr-mut #i64)) (count #usize) (flags #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-vmsplice ((fd #i64) (iovecs (#ptr-mut #u8)) (count #usize) (flags #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-process-vm-readv ((pid #i32) (local-vectors (#ptr-mut #u8)) (local-count #usize) (remote-vectors (#ptr-mut #u8)) (remote-count #usize) (flags #usize)) #i64 (#return -38i64))
-    (#unsafe-fn linux-process-vm-writev ((pid #i32) (local-vectors (#ptr-mut #u8)) (local-count #usize) (remote-vectors (#ptr-mut #u8)) (remote-count #usize) (flags #usize)) #i64 (#return -38i64))
-    (#fn linux-dup ((fd #i64)) #i64 (#return -38i64))
-    (#fn linux-lseek ((fd #i64) (offset #i64) (whence #i64)) #i64 (#return -38i64))
-    (#fn linux-fsync ((fd #i64)) #i64 (#return -38i64))
-    (#fn linux-ftruncate ((fd #i64) (length #i64)) #i64 (#return -38i64))
-    (#fn linux-clock-gettime ((clock-id #i64) (time (#ref-mut LinuxTimespec))) #i64 (#return -38i64))
-    (#unsafe-fn linux-clock-getres ((clock-id #i64) (time (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-gettimeofday ((time (#ptr-mut #i64)) (timezone (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-time ((output (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-times ((output (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-clock-nanosleep ((clock-id #i64) (flags #i32) (request (#ptr-mut #i64)) (remaining (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-timer-create ((clock-id #i64) (event (#ptr-mut #i64)) (timer-id (#ptr-mut #i32))) #i64 (#return -38i64))
-    (#unsafe-fn linux-timer-settime ((timer-id #i64) (flags #i32) (new-time (#ptr-mut #i64)) (old-time (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-timer-gettime ((timer-id #i64) (current-time (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#fn linux-timer-delete ((timer-id #i64)) #i64 (#return -38i64))
-    (#fn linux-timerfd-create ((clock-id #i32) (flags #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-timerfd-settime ((fd #i64) (flags #i32) (new-time (#ptr-mut #i64)) (old-time (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-timerfd-gettime ((fd #i64) (current-time (#ptr-mut #i64))) #i64 (#return -38i64))
-    (#unsafe-fn linux-futex ((address (#ptr-mut #u32)) (operation #i32) (value #u32) (timeout (#ptr-mut #i64)) (second-address (#ptr-mut #u32)) (value3 #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-futex-waitv ((waiters (#ptr-mut #u8)) (count #u32) (flags #u32) (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-futex-wait ((address (#ptr-mut #u32)) (expected #usize) (mask #usize) (flags #u32) (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-futex-wake ((address (#ptr-mut #u32)) (mask #usize) (count #i32) (flags #u32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-futex-requeue ((waiters (#ptr-mut #u8)) (flags #u32) (wake-count #i32) (requeue-count #i32)) #i64 (#return -38i64))
-    (#unsafe-fn linux-futex-cmp-requeue ((address (#ptr-mut #u32)) (wake-count #u32) (requeue-count #u32) (second-address (#ptr-mut #u32)) (expected #u32)) #i64 (#return -38i64))
-    (#fn linux-nanosleep ((request (#ref LinuxTimespec)) (remaining (#ref-mut LinuxTimespec))) #i64 (#return -38i64))
-    (#fn linux-getrandom-byte ((destination (#ref-mut #u8))) #i64 (#return -38i64))
-    (#unsafe-fn linux-getrandom ((destination (#ptr-mut #u8)) (size #usize) (flags #u32)) #i64 (#return -38i64))))
+    (#fn linux-read-byte ((destination (#ref-mut #u8))) #i64
+      (#return -38i64))
+    (#fn linux-read-byte-from ((fd #i64) (destination (#ref-mut #u8))) #i64
+      (#return -38i64))
+    (#fn linux-write-byte ((source (#ref #u8))) #i64
+      (#return -38i64))
+    (#fn linux-getpid () #i64
+      (#return -38i64))
+    (#fn linux-getuid () #i64
+      (#return -38i64))
+    (#fn linux-getgid () #i64
+      (#return -38i64))
+    (#fn linux-geteuid () #i64
+      (#return -38i64))
+    (#fn linux-getegid () #i64
+      (#return -38i64))
+    (#fn linux-getppid () #i64
+      (#return -38i64))
+    (#fn linux-getpgrp () #i64
+      (#return -38i64))
+    (#fn linux-getpgid ((pid #i64)) #i64
+      (#return -38i64))
+    (#fn linux-getsid ((pid #i64)) #i64
+      (#return -38i64))
+    (#fn linux-getpriority ((which #i64) (who #i64)) #i64
+      (#return -38i64))
+    (#fn linux-gettid () #i64
+      (#return -38i64))
+    (#unsafe-fn linux-set-robust-list ((head (#ptr-mut #u8)) (length #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-get-robust-list ((thread #i32) (head (#ptr-mut (#ptr-mut #u8))) (length (#ptr-mut #usize))) #i64
+      (#return -38i64))
+    (#fn linux-alarm ((seconds #u32)) #i64
+      (#return -38i64))
+    (#fn linux-tkill ((thread #i32) (signal #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sigaltstack ((new-stack (#ptr-mut #u8)) (old-stack (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#fn linux-timer-getoverrun ((timer-id #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-prctl ((option #i32) (arg2 #usize) (arg3 #usize) (arg4 #usize) (arg5 #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-arch-prctl ((operation #i32) (argument #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-capget ((header (#ptr-mut #u32)) (data (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-capset ((header (#ptr-mut #u32)) (data (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#fn linux-setpriority ((which #i32) (who #u32) (priority #i32)) #i64
+      (#return -38i64))
+    (#fn linux-ioprio-get ((which #i32) (who #i32)) #i64
+      (#return -38i64))
+    (#fn linux-ioprio-set ((which #i32) (who #i32) (priority #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sched-setparam ((pid #i32) (scheduler-parameters (#ptr-mut #i32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sched-setscheduler ((pid #i32) (policy #i32) (scheduler-parameters (#ptr-mut #i32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sched-setattr ((pid #i32) (attributes (#ptr-mut #u64)) (flags #u32)) #i64
+      (#return -38i64))
+    (#fn linux-kill ((pid #i64) (signal #i32)) #i64
+      (#return -38i64))
+    (#fn linux-tgkill ((group #i64) (thread #i64) (signal #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-rt-sigqueueinfo ((group #i32) (signal #i32) (info (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-rt-tgsigqueueinfo ((group #i32) (thread #i32) (signal #i32) (info (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#fn linux-pidfd-open ((pid #i64) (flags #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pidfd-send-signal ((pidfd #i64) (signal #i32) (info (#ptr-mut #u8)) (flags #u32)) #i64
+      (#return -38i64))
+    (#fn linux-pidfd-getfd ((pidfd #i64) (target-fd #i64) (flags #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getcpu ((cpu (#ptr-mut #u32)) (node (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getresuid ((real (#ptr-mut #u32)) (effective (#ptr-mut #u32)) (saved (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#fn linux-setuid ((uid #u32)) #i64
+      (#return -38i64))
+    (#fn linux-setgid ((gid #u32)) #i64
+      (#return -38i64))
+    (#fn linux-setreuid ((real #u32) (effective #u32)) #i64
+      (#return -38i64))
+    (#fn linux-setregid ((real #u32) (effective #u32)) #i64
+      (#return -38i64))
+    (#fn linux-setresuid ((real #u32) (effective #u32) (saved #u32)) #i64
+      (#return -38i64))
+    (#fn linux-setresgid ((real #u32) (effective #u32) (saved #u32)) #i64
+      (#return -38i64))
+    (#fn linux-setfsuid ((uid #u32)) #i64
+      (#return -38i64))
+    (#fn linux-setfsgid ((gid #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getresgid ((real (#ptr-mut #u32)) (effective (#ptr-mut #u32)) (saved (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getgroups ((size #i32) (groups (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-uname ((buffer (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sysinfo ((buffer (#ptr-mut #u64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fork () #i64
+      (#return -38i64))
+    (#unsafe-fn linux-execve ((path (#ptr-mut #u8)) (arguments (#ptr-mut (#ptr-mut #u8))) (environment (#ptr-mut (#ptr-mut #u8)))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-execveat ((directory #i64) (path (#ptr-mut #u8)) (arguments (#ptr-mut (#ptr-mut #u8))) (environment (#ptr-mut (#ptr-mut #u8))) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-exit ((status #i32)) ()
+      (#return (#unreachable)))
+    (#fn linux-exit-group ((status #i32)) ()
+      (#return (#unreachable)))
+    (#fn linux-setpgid ((pid #i32) (group #i32)) #i64
+      (#return -38i64))
+    (#fn linux-setsid () #i64
+      (#return -38i64))
+    (#unsafe-fn linux-waitid ((id-type #i32) (id #u32) (info (#ptr-mut #u8)) (options #i32) (usage (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-wait4 ((pid #i64) (status (#ptr-mut #i32)) (options #usize) (usage (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#fn linux-sched-yield () #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sched-getparam ((pid #i64) (scheduler-parameters (#ptr-mut #i32))) #i64
+      (#return -38i64))
+    (#fn linux-sched-getscheduler ((pid #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sched-rr-get-interval ((pid #i64) (interval (#ptr-mut #u64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sched-getattr ((pid #i64) (attributes (#ptr-mut #u64)) (size #u32) (flags #u32)) #i64
+      (#return -38i64))
+    (#fn linux-sched-get-priority-max ((policy #i64)) #i64
+      (#return -38i64))
+    (#fn linux-sched-get-priority-min ((policy #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sched-setaffinity ((pid #i64) (size #usize) (mask (#ptr-mut #u64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sched-getaffinity ((pid #i64) (size #usize) (mask (#ptr-mut #u64))) #i64
+      (#return -38i64))
+    (#fn linux-close ((fd #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-ioctl ((fd #i64) (request #u32) (argument #usize)) #i64
+      (#return -38i64))
+    (#fn linux-socket ((domain #i32) (socket-type #i32) (protocol #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-bind ((fd #i64) (address (#ptr-mut #u8)) (address-length #u32)) #i64
+      (#return -38i64))
+    (#fn linux-listen ((fd #i64) (backlog #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-connect ((fd #i64) (address (#ptr-mut #u8)) (address-length #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-accept ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-accept4 ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32)) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-socketpair ((domain #i32) (socket-type #i32) (protocol #i32) (descriptors (#ptr-mut #i32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sendto ((fd #i64) (source (#ptr-mut #u8)) (size #usize) (flags #i32) (destination (#ptr-mut #u8)) (address-length #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sendmsg ((fd #i64) (message (#ptr-mut #u8)) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-recvmsg ((fd #i64) (message (#ptr-mut #u8)) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sendmmsg ((fd #i64) (messages (#ptr-mut #u8)) (count #u32) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-recvmmsg ((fd #i64) (messages (#ptr-mut #u8)) (count #u32) (flags #i32) (timeout (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-recvfrom ((fd #i64) (destination (#ptr-mut #u8)) (size #usize) (flags #i32) (source-address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-setsockopt ((fd #i64) (level #i32) (option #i32) (value (#ptr-mut #u8)) (value-length #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getsockopt ((fd #i64) (level #i32) (option #i32) (value (#ptr-mut #u8)) (value-length (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getsockname ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getpeername ((fd #i64) (address (#ptr-mut #u8)) (address-length (#ptr-mut #u32))) #i64
+      (#return -38i64))
+    (#fn linux-shutdown ((fd #i64) (how #i32)) #i64
+      (#return -38i64))
+    (#fn linux-epoll-create1 ((flags #i32)) #i64
+      (#return -38i64))
+    (#fn linux-epoll-create ((size #i32)) #i64
+      (#return -38i64))
+    (#fn linux-eventfd ((initial-value #u32)) #i64
+      (#return -38i64))
+    (#fn linux-eventfd2 ((initial-value #u32) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-epoll-ctl ((epoll-fd #i64) (operation #i32) (fd #i64) (event (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-epoll-wait ((epoll-fd #i64) (events (#ptr-mut #u8)) (max-events #i32) (timeout-ms #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-epoll-pwait ((epoll-fd #i64) (events (#ptr-mut #u8)) (max-events #i32) (timeout-ms #i32) (signal-mask (#ptr-mut #u8)) (signal-set-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-epoll-pwait2 ((epoll-fd #i64) (events (#ptr-mut #u8)) (max-events #i32) (timeout (#ptr-mut #u8)) (signal-mask (#ptr-mut #u8)) (signal-set-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-poll ((pollfds (#ptr-mut #u8)) (count #usize) (timeout-ms #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-select ((count #i32) (read-set (#ptr-mut #u64)) (write-set (#ptr-mut #u64)) (except-set (#ptr-mut #u64)) (timeout (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pselect6 ((count #i32) (read-set (#ptr-mut #u64)) (write-set (#ptr-mut #u64)) (except-set (#ptr-mut #u64)) (timeout (#ptr-mut #i64)) (signal-mask-argument (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-ppoll ((pollfds (#ptr-mut #u8)) (count #usize) (timeout (#ptr-mut #u8)) (signal-mask (#ptr-mut #u8)) (signal-set-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mmap ((address (#ptr-mut #u8)) (length #usize) (protection #u32) (flags #u32) (fd #i64) (offset #i64)) (#ptr-mut #u8)
+      (#return (#ptr-null (#ptr-mut #u8))))
+    (#unsafe-fn linux-brk ((address #usize)) #usize
+      (#return 0usize))
+    (#unsafe-fn linux-personality ((persona #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mprotect ((address (#ptr-mut #u8)) (length #usize) (protection #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mseal ((address (#ptr-mut #u8)) (length #usize) (flags #usize)) #i64
+      (#return -38i64))
+    (#fn linux-memfd-secret ((flags #u32)) #i64
+      (#return -38i64))
+    (#fn linux-pkey-alloc ((flags #u32) (access-rights #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pkey-free ((key #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pkey-mprotect ((address (#ptr-mut #u8)) (length #usize) (protection #u32) (key #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-munmap ((address (#ptr-mut #u8)) (length #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-msync ((address (#ptr-mut #u8)) (length #usize) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mincore ((address (#ptr-mut #u8)) (length #usize) (residency (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#fn linux-membarrier ((command #i32) (flags #u32) (cpu-id #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-madvise ((address (#ptr-mut #u8)) (length #usize) (advice #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mlock ((address (#ptr-mut #u8)) (length #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mlock2 ((address (#ptr-mut #u8)) (length #usize) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-munlock ((address (#ptr-mut #u8)) (length #usize)) #i64
+      (#return -38i64))
+    (#fn linux-mlockall ((flags #i32)) #i64
+      (#return -38i64))
+    (#fn linux-munlockall () #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mremap ((old-address (#ptr-mut #u8)) (old-length #usize) (new-length #usize) (flags #u32) (new-address (#ptr-mut #u8))) (#ptr-mut #u8)
+      (#return (#ptr-null (#ptr-mut #u8))))
+    (#fn linux-shmget ((key #i32) (size #usize) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-shmat ((segment #i32) (address (#ptr-mut #u8)) (flags #i32)) (#ptr-mut #u8)
+      (#return (#ptr-null (#ptr-mut #u8))))
+    (#unsafe-fn linux-shmdt ((address (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-shmctl ((segment #i32) (command #i32) (buffer (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#fn linux-msgget ((key #i32) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mq-open ((name (#ptr-mut #u8)) (flags #i32) (mode #u32) (attributes (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mq-unlink ((name (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mq-timedsend ((queue #i64) (message (#ptr-mut #u8)) (length #usize) (priority #u32) (deadline (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mq-timedreceive ((queue #i64) (message (#ptr-mut #u8)) (capacity #usize) (priority (#ptr-mut #u32)) (deadline (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mq-notify ((queue #i64) (event (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mq-getsetattr ((queue #i64) (new-attributes (#ptr-mut #i64)) (old-attributes (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-msgsnd ((queue #i32) (message (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-msgrcv ((queue #i32) (message (#ptr-mut #u8)) (size #usize) (message-type #i64) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-msgctl ((queue #i32) (command #i32) (buffer (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#fn linux-semget ((key #i32) (count #i32) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-semctl ((set-id #i32) (number #i32) (command #i32) (argument #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-semop ((set-id #i32) (operations (#ptr-mut #u8)) (count #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-semtimedop ((set-id #i32) (operations (#ptr-mut #u8)) (count #usize) (timeout (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-openat ((directory #i64) (path (#ptr-mut #u8)) (flags #i32) (mode #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-open ((path (#ptr-mut #u8)) (flags #i32) (mode #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-creat ((path (#ptr-mut #u8)) (mode #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-access ((path (#ptr-mut #u8)) (mode #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pipe ((descriptors (#ptr-mut #i32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-openat2 ((directory #i64) (path (#ptr-mut #u8)) (how (#ptr-mut #u64)) (how-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mkdirat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mkdir ((path (#ptr-mut #u8)) (mode #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-rmdir ((path (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-link ((source (#ptr-mut #u8)) (destination (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-rename ((source (#ptr-mut #u8)) (destination (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-unlink ((path (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-truncate ((path (#ptr-mut #u8)) (length #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-chmod ((path (#ptr-mut #u8)) (mode #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-chown ((path (#ptr-mut #u8)) (owner #u32) (group #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-lchown ((path (#ptr-mut #u8)) (owner #u32) (group #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-utime ((path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-utimes ((path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-futimesat ((directory #i64) (path (#ptr-mut #u8)) (times (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-renameat2 ((old-directory #i64) (old-path (#ptr-mut #u8)) (new-directory #i64) (new-path (#ptr-mut #u8)) (flags #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-linkat ((old-directory #i64) (old-path (#ptr-mut #u8)) (new-directory #i64) (new-path (#ptr-mut #u8)) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-renameat ((old-directory #i64) (old-path (#ptr-mut #u8)) (new-directory #i64) (new-path (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-symlinkat ((target (#ptr-mut #u8)) (directory #i64) (link-path (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fchmodat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fchmodat2 ((directory #i64) (path (#ptr-mut #u8)) (mode #u32) (flags #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mknod ((path (#ptr-mut #u8)) (mode #u32) (device #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-mknodat ((directory #i64) (path (#ptr-mut #u8)) (mode #u32) (device #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fchownat ((directory #i64) (path (#ptr-mut #u8)) (owner #u32) (group #u32) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-utimensat ((directory #i64) (path (#ptr-mut #u8)) (times (#ptr-mut #i64)) (flags #i32)) #i64
+      (#return -38i64))
+    (#fn linux-inotify-init1 ((flags #i32)) #i64
+      (#return -38i64))
+    (#fn linux-inotify-init () #i64
+      (#return -38i64))
+    (#unsafe-fn linux-inotify-add-watch ((fd #i64) (path (#ptr-mut #u8)) (mask #u32)) #i64
+      (#return -38i64))
+    (#fn linux-inotify-rm-watch ((fd #i64) (watch #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getcwd ((buffer (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-readlinkat ((directory #i64) (path (#ptr-mut #u8)) (destination (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-symlink ((target (#ptr-mut #u8)) (link-path (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-readlink ((path (#ptr-mut #u8)) (destination (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getdents64 ((fd #i64) (buffer (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getdents ((fd #i64) (buffer (#ptr-mut #u8)) (size #u32)) #i64
+      (#return -38i64))
+    (#fn linux-fchdir ((fd #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-chdir ((path (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getrusage ((resource #i64) (usage (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getitimer ((which #i64) (current-value (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-setitimer ((which #i64) (new-value (#ptr-mut #i64)) (old-value (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getrlimit ((resource #usize) (limits (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-setrlimit ((resource #usize) (limits (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-prlimit64 ((pid #i64) (resource #usize) (new-limits (#ptr-mut #i64)) (old-limits (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#fn linux-umask ((mask #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-rt-sigaction ((signal #i64) (action (#ptr-mut #i64)) (old-action (#ptr-mut #i64)) (sigset-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-rt-sigprocmask ((how #usize) (signal-set (#ptr-mut #i64)) (old-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-rt-sigpending ((signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-rt-sigsuspend ((signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-signalfd ((fd #i64) (signal-set (#ptr-mut #i64)) (sigset-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-signalfd4 ((fd #i64) (signal-set (#ptr-mut #i64)) (sigset-size #usize) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-rt-sigtimedwait ((signal-set (#ptr-mut #i64)) (info (#ptr-mut #u8)) (timeout (#ptr-mut #i64)) (sigset-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-read ((fd #i64) (destination (#ptr-mut #u8)) (count #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-write ((fd #i64) (source (#ptr-mut #u8)) (count #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pread64 ((fd #i64) (destination (#ptr-mut #u8)) (count #usize) (offset #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pwrite64 ((fd #i64) (source (#ptr-mut #u8)) (count #usize) (offset #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-readv ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-writev ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-preadv ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pwritev ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-preadv2 ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pwritev2 ((fd #i64) (iovecs (#ptr-mut #u8)) (count #i32) (offset #i64) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fstat ((fd #i64) (metadata (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-stat ((path (#ptr-mut #u8)) (metadata (#ptr-mut #u64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-lstat ((path (#ptr-mut #u8)) (metadata (#ptr-mut #u64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-newfstatat ((directory #i64) (path (#ptr-mut #u8)) (metadata (#ptr-mut #u64)) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-statfs ((path (#ptr-mut #u8)) (statistics (#ptr-mut #u64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fstatfs ((fd #i64) (statistics (#ptr-mut #u64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-faccessat ((directory #i64) (path (#ptr-mut #u8)) (mode #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-faccessat2 ((directory #i64) (path (#ptr-mut #u8)) (mode #i32) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-statx ((directory #i64) (path (#ptr-mut #u8)) (flags #u32) (mask #u32) (metadata (#ptr-mut #u64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-setxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-lsetxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-lgetxattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-listxattr ((path (#ptr-mut #u8)) (list (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-llistxattr ((path (#ptr-mut #u8)) (list (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-removexattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-lremovexattr ((path (#ptr-mut #u8)) (name (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fsetxattr ((fd #i64) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fgetxattr ((fd #i64) (name (#ptr-mut #u8)) (value (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-flistxattr ((fd #i64) (list (#ptr-mut #u8)) (size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fremovexattr ((fd #i64) (name (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-fcntl ((fd #i64) (command #i32) (argument #usize)) #i64
+      (#return -38i64))
+    (#fn linux-fdatasync ((fd #i64)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-memfd-create ((name (#ptr-mut #u8)) (flags #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-io-setup ((capacity #u32) (context (#ptr-mut #usize))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-io-uring-setup ((entries #u32) (parameters (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-io-uring-enter ((ring #u32) (submit #u32) (minimum #u32) (flags #u32) (argument (#ptr-mut #u8)) (argument-size #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-io-uring-register ((ring #u32) (operation #u32) (argument (#ptr-mut #u8)) (count #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-io-destroy ((context #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-io-submit ((context #usize) (count #i64) (requests (#ptr-mut (#ptr-mut #u8)))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-io-cancel ((context #usize) (request (#ptr-mut #u8)) (event (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-io-getevents ((context #usize) (minimum #i64) (count #i64) (events (#ptr-mut #u8)) (timeout (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-io-pgetevents ((context #usize) (minimum #i64) (count #i64) (events (#ptr-mut #u8)) (timeout (#ptr-mut #i64)) (signal-mask-argument (#ptr-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-unlinkat ((directory #i64) (path (#ptr-mut #u8)) (flags #i32)) #i64
+      (#return -38i64))
+    (#fn linux-dup2 ((source #i64) (destination #i64)) #i64
+      (#return -38i64))
+    (#fn linux-dup3 ((source #i64) (destination #i64) (flags #i32)) #i64
+      (#return -38i64))
+    (#fn linux-close-range ((first #u32) (last #u32) (flags #u32)) #i64
+      (#return -38i64))
+    (#fn linux-readahead ((fd #i64) (offset #i64) (count #usize)) #i64
+      (#return -38i64))
+    (#fn linux-sync-file-range ((fd #i64) (offset #i64) (length #i64) (flags #u32)) #i64
+      (#return -38i64))
+    (#fn linux-syncfs ((fd #i64)) #i64
+      (#return -38i64))
+    (#fn linux-flock ((fd #i64) (operation #i32)) #i64
+      (#return -38i64))
+    (#fn linux-fchmod ((fd #i64) (mode #u32)) #i64
+      (#return -38i64))
+    (#fn linux-fchown ((fd #i64) (owner #i64) (group #i64)) #i64
+      (#return -38i64))
+    (#fn linux-fallocate ((fd #i64) (mode #i32) (offset #i64) (length #i64)) #i64
+      (#return -38i64))
+    (#fn linux-fadvise64 ((fd #i64) (offset #i64) (length #i64) (advice #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-pipe2 ((descriptors (#ptr-mut #i32)) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-sendfile ((output #i64) (input #i64) (offset (#ptr-mut #i64)) (count #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-copy-file-range ((input #i64) (input-offset (#ptr-mut #i64)) (output #i64) (output-offset (#ptr-mut #i64)) (count #usize) (flags #u32)) #i64
+      (#return -38i64))
+    (#fn linux-tee ((input #i64) (output #i64) (count #usize) (flags #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-splice ((input #i64) (input-offset (#ptr-mut #i64)) (output #i64) (output-offset (#ptr-mut #i64)) (count #usize) (flags #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-vmsplice ((fd #i64) (iovecs (#ptr-mut #u8)) (count #usize) (flags #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-process-vm-readv ((pid #i32) (local-vectors (#ptr-mut #u8)) (local-count #usize) (remote-vectors (#ptr-mut #u8)) (remote-count #usize) (flags #usize)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-process-vm-writev ((pid #i32) (local-vectors (#ptr-mut #u8)) (local-count #usize) (remote-vectors (#ptr-mut #u8)) (remote-count #usize) (flags #usize)) #i64
+      (#return -38i64))
+    (#fn linux-dup ((fd #i64)) #i64
+      (#return -38i64))
+    (#fn linux-lseek ((fd #i64) (offset #i64) (whence #i64)) #i64
+      (#return -38i64))
+    (#fn linux-fsync ((fd #i64)) #i64
+      (#return -38i64))
+    (#fn linux-ftruncate ((fd #i64) (length #i64)) #i64
+      (#return -38i64))
+    (#fn linux-clock-gettime ((clock-id #i64) (time (#ref-mut LinuxTimespec))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-clock-getres ((clock-id #i64) (time (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-gettimeofday ((time (#ptr-mut #i64)) (timezone (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-time ((output (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-times ((output (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-clock-nanosleep ((clock-id #i64) (flags #i32) (request (#ptr-mut #i64)) (remaining (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-timer-create ((clock-id #i64) (event (#ptr-mut #i64)) (timer-id (#ptr-mut #i32))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-timer-settime ((timer-id #i64) (flags #i32) (new-time (#ptr-mut #i64)) (old-time (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-timer-gettime ((timer-id #i64) (current-time (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#fn linux-timer-delete ((timer-id #i64)) #i64
+      (#return -38i64))
+    (#fn linux-timerfd-create ((clock-id #i32) (flags #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-timerfd-settime ((fd #i64) (flags #i32) (new-time (#ptr-mut #i64)) (old-time (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-timerfd-gettime ((fd #i64) (current-time (#ptr-mut #i64))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-futex ((address (#ptr-mut #u32)) (operation #i32) (value #u32) (timeout (#ptr-mut #i64)) (second-address (#ptr-mut #u32)) (value3 #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-futex-waitv ((waiters (#ptr-mut #u8)) (count #u32) (flags #u32) (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-futex-wait ((address (#ptr-mut #u32)) (expected #usize) (mask #usize) (flags #u32) (timeout (#ptr-mut #i64)) (clock-id #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-futex-wake ((address (#ptr-mut #u32)) (mask #usize) (count #i32) (flags #u32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-futex-requeue ((waiters (#ptr-mut #u8)) (flags #u32) (wake-count #i32) (requeue-count #i32)) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-futex-cmp-requeue ((address (#ptr-mut #u32)) (wake-count #u32) (requeue-count #u32) (second-address (#ptr-mut #u32)) (expected #u32)) #i64
+      (#return -38i64))
+    (#fn linux-nanosleep ((request (#ref LinuxTimespec)) (remaining (#ref-mut LinuxTimespec))) #i64
+      (#return -38i64))
+    (#fn linux-getrandom-byte ((destination (#ref-mut #u8))) #i64
+      (#return -38i64))
+    (#unsafe-fn linux-getrandom ((destination (#ptr-mut #u8)) (size #usize) (flags #u32)) #i64
+      (#return -38i64))))

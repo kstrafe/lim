@@ -1,23 +1,5 @@
-(
-  #fn
-  main
-  ()
-  #u64
+(#fn main () #u64
   (#let-mut total #u64 0)
-  (
-    #for
-    (#let-mut i #u64 0)
-    (#u64.<  (#clone i) 10)
-    (
-      #set
-      i
-      (#u64.+.wrap  (#clone i) 1)
-    )
-    (
-      #set
-      total
-      (#u64.+.wrap  total (#clone i))
-    )
-  )
-  (#return total)
-)
+  (#for (#let-mut i #u64 0) (#u64.< (#clone i) 10) (#set i (#u64.+.wrap (#clone i) 1))
+    (#set total (#u64.+.wrap total (#clone i))))
+  (#return total))

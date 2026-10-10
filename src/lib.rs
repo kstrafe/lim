@@ -1042,6 +1042,13 @@ pub fn format_source(source: &str) -> Result<String, String> {
         }
         output.push_str(&pretty_spanned_expression(expression, source, &comments, 0));
         cursor = expression.span.end;
+        // Nested comments were emitted by the expression renderer already.
+        while comments
+            .get(comment_index)
+            .is_some_and(|comment| comment.span.start < cursor)
+        {
+            comment_index += 1;
+        }
         let next_start = expressions
             .get(index + 1)
             .map_or(source.len(), |next| next.span.start);
@@ -1257,22 +1264,20 @@ fn pretty_spanned_expression(
     let has_comments = comments.iter().any(|comment| {
         comment.span.start > expression.span.start && comment.span.end < expression.span.end
     });
-    if !has_comments
-        && !expression
-            .children
-            .iter()
-            .any(|child| contains_parser_sugar_source(child, source))
-    {
-        return pretty_expression(&expression.expr, indent);
+    let flat = flat_spanned_expression(expression, source);
+    let header = expression_header_length(expression);
+    if !has_comments && !contains_body_form(expression) && indent + flat.chars().count() <= 100 {
+        return flat;
     }
     match &expression.expr {
         Expr::List(items) => {
             if items.is_empty() {
                 return "()".into();
             }
+            let header = header.unwrap_or(1).min(expression.children.len());
             let mut rendered = String::from("(");
             let mut cursor = expression.span.start + 1;
-            for child in &expression.children {
+            for (index, child) in expression.children.iter().enumerate() {
                 let gap_comments = comments
                     .iter()
                     .filter(|comment| {
@@ -1283,22 +1288,38 @@ fn pretty_spanned_expression(
                     if rendered == "(" || !rendered.ends_with('\n') {
                         rendered.push('\n');
                     }
-                    if comment.span.start > expression.span.start + 1 {
-                        rendered.push_str(&" ".repeat(indent + 2));
-                    }
+                    rendered.push_str(&" ".repeat(indent + 2));
                     rendered.push_str(&comment.text);
                     rendered.push('\n');
                 }
-                if rendered == "(" || !rendered.ends_with('\n') {
-                    rendered.push('\n');
+                if index < header && gap_is_comment_free(comments, cursor, child.span.start) {
+                    if index != 0 {
+                        rendered.push(' ');
+                    }
+                    if comments.iter().any(|comment| {
+                        comment.span.start > child.span.start && comment.span.end < child.span.end
+                    }) {
+                        rendered.push_str(&pretty_spanned_expression(
+                            child,
+                            source,
+                            comments,
+                            indent + 2,
+                        ));
+                    } else {
+                        rendered.push_str(&flat_spanned_expression(child, source));
+                    }
+                } else {
+                    if !rendered.ends_with('\n') {
+                        rendered.push('\n');
+                    }
+                    rendered.push_str(&" ".repeat(indent + 2));
+                    rendered.push_str(&pretty_spanned_expression(
+                        child,
+                        source,
+                        comments,
+                        indent + 2,
+                    ));
                 }
-                rendered.push_str(&" ".repeat(indent + 2));
-                rendered.push_str(&pretty_spanned_expression(
-                    child,
-                    source,
-                    comments,
-                    indent + 2,
-                ));
                 cursor = child.span.end;
             }
             for comment in comments.iter().filter(|comment| {
@@ -1318,7 +1339,9 @@ fn pretty_spanned_expression(
                 rendered.push_str(&comment.text);
                 rendered.push('\n');
             }
-            rendered.push_str(&" ".repeat(indent));
+            if rendered.ends_with('\n') {
+                rendered.push_str(&" ".repeat(indent));
+            }
             rendered.push(')');
             rendered
         }
@@ -1351,14 +1374,6 @@ fn is_colon_list_source(expression: &SpannedExpr, source: &str) -> bool {
             .starts_with(':')
 }
 
-fn contains_parser_sugar_source(expression: &SpannedExpr, source: &str) -> bool {
-    is_parser_sugar_source(expression, source)
-        || expression
-            .children
-            .iter()
-            .any(|child| contains_parser_sugar_source(child, source))
-}
-
 fn is_parser_sugar_source(expression: &SpannedExpr, source: &str) -> bool {
     is_colon_list_source(expression, source)
         // Dollar shorthand duplicates one source token into two AST children.
@@ -1367,20 +1382,74 @@ fn is_parser_sugar_source(expression: &SpannedExpr, source: &str) -> bool {
             && expression.children[0].span == expression.children[1].span)
 }
 
-fn pretty_expression(expression: &Expr, indent: usize) -> String {
-    let Expr::List(items) = expression else {
-        return expression_source(expression).unwrap_or_else(|_| "<?>".into());
-    };
-    if items.iter().all(|item| !matches!(item, Expr::List(_))) {
-        return expression_source(expression).unwrap_or_else(|_| "<?>".into());
-    }
-    let padding = " ".repeat(indent + 2);
-    let next = items
+fn gap_is_comment_free(comments: &[SourceComment], start: usize, end: usize) -> bool {
+    !comments
         .iter()
-        .map(|item| format!("{}{}", padding, pretty_expression(item, indent + 2)))
-        .collect::<Vec<_>>()
-        .join("\n");
-    format!("(\n{next}\n{})", " ".repeat(indent))
+        .any(|comment| comment.span.start >= start && comment.span.end <= end)
+}
+
+fn contains_body_form(expression: &SpannedExpr) -> bool {
+    expression_header_length(expression).is_some()
+        || expression.children.iter().any(contains_body_form)
+}
+
+/// Number of elements in a form's header; remaining elements are its body.
+fn expression_header_length(expression: &SpannedExpr) -> Option<usize> {
+    let Expr::List(items) = &expression.expr else {
+        return None;
+    };
+    let Expr::Symbol(head) = items.first()? else {
+        return None;
+    };
+    match head.as_str() {
+        "#fn" | "#unsafe-fn" => Some(4),
+        "#gn" | "#gn-fn" => Some(3),
+        "#for" | "#for-range" => Some(4),
+        "#while" | "#if" | "#match" | "#gn-if" => Some(2),
+        "#case" => Some(
+            if matches!(items.get(2), Some(Expr::List(guard))
+            if matches!(guard.first(), Some(Expr::Symbol(name)) if name == "#when"))
+            {
+                3
+            } else {
+                2
+            },
+        ),
+        "#gn-for-each" => Some(3),
+        "#loop" | "#block" | "#unsafe" => Some(1),
+        _ => None,
+    }
+}
+
+fn flat_spanned_expression(expression: &SpannedExpr, source: &str) -> String {
+    // Typed numeric tokens are represented as synthetic lists without children.
+    if expression.children.is_empty() || is_parser_sugar_source(expression, source) {
+        return source[expression.span.start..expression.span.end].to_owned();
+    }
+    match &expression.expr {
+        Expr::List(_) => format!(
+            "({})",
+            expression
+                .children
+                .iter()
+                .map(|child| flat_spanned_expression(child, source))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        Expr::Quote(_) | Expr::QuasiQuote(_) | Expr::Unquote(_) | Expr::UnquoteSplicing(_) => {
+            let prefix = match &expression.expr {
+                Expr::Quote(_) => "'",
+                Expr::QuasiQuote(_) => "`",
+                Expr::Unquote(_) => ",",
+                _ => ",@",
+            };
+            format!(
+                "{prefix}{}",
+                flat_spanned_expression(&expression.children[0], source)
+            )
+        }
+        _ => source[expression.span.start..expression.span.end].to_owned(),
+    }
 }
 
 /// Rust-like scalar types understood by the first typed AST pass.
@@ -10053,9 +10122,52 @@ mod tests {
     #[test]
     fn formatter_normalizes_nested_syntax() {
         let formatted = format_source("(#fn main () #u64 (#return (#u64.+.wrap 40 2)))").unwrap();
-        assert!(formatted.contains("#fn\n"));
+        assert_eq!(
+            formatted,
+            "(#fn main () #u64\n  (#return (#u64.+.wrap 40 2)))\n"
+        );
         assert!(formatted.contains("#return"));
         assert_eq!(format_source(&formatted).unwrap(), formatted);
+    }
+
+    #[test]
+    fn formatter_keeps_for_header_together_and_indents_body() {
+        let source = "(#for (#let-mut i #u64 0) (#u64.< (#clone i) 10) (#set i (#u64.+.wrap (#clone i) 1)) (#print i) (#return ()))";
+        let expected = "(#for (#let-mut i #u64 0) (#u64.< (#clone i) 10) (#set i (#u64.+.wrap (#clone i) 1))\n  (#print i)\n  (#return ()))\n";
+        assert_eq!(format_source(source).unwrap(), expected);
+        assert_eq!(format_source(expected).unwrap(), expected);
+        assert_eq!(
+            parse(source).unwrap()[0].expr,
+            parse(expected).unwrap()[0].expr
+        );
+    }
+
+    #[test]
+    fn formatter_indents_nested_control_forms_and_preserves_shorthand() {
+        let source = "(#fn run (: value #u64) () (#if true (#call print ($ value)) (#return ())) (#return ()))";
+        let formatted = format_source(source).unwrap();
+        assert_eq!(
+            formatted,
+            "(#fn run (: value #u64) ()\n  (#if true\n    (#call print ($ value))\n    (#return ()))\n  (#return ()))\n"
+        );
+        assert_eq!(format_source(&formatted).unwrap(), formatted);
+        assert_eq!(
+            parse(source).unwrap()[0].expr,
+            parse(&formatted).unwrap()[0].expr
+        );
+    }
+
+    #[test]
+    fn formatter_preserves_comments_inside_headers() {
+        let source = "(#fn run ((value ; parameter note\n #u64)) () ; body note\n (#return ()))";
+        let formatted = format_source(source).unwrap();
+        assert!(formatted.contains("; parameter note\n"), "{formatted}");
+        assert!(formatted.contains("; body note\n"), "{formatted}");
+        assert_eq!(format_source(&formatted).unwrap(), formatted);
+        assert_eq!(
+            parse(source).unwrap()[0].expr,
+            parse(&formatted).unwrap()[0].expr
+        );
     }
 
     #[test]
@@ -10111,14 +10223,18 @@ mod tests {
     fn formatter_preserves_comments_and_is_idempotent_for_generator_templates() {
         let commented = "; module note\n(#fn main () #u64\n  (#let value #u64 0u64)\n  ; return the named value\n  (#return value)) ; trailing note\n";
         let formatted = format_source(commented).unwrap();
-        assert_ne!(formatted, commented);
+        assert_eq!(formatted, commented);
         assert!(formatted.contains("; module note\n"));
         assert!(formatted.contains("; return the named value\n"));
         assert!(formatted.contains("; trailing note\n"), "{formatted}");
         let original_program = parse_program(commented).unwrap();
         let formatted_program = parse_program(&formatted).unwrap();
         assert!(check_types(&original_program).is_ok());
-        assert!(check_types(&formatted_program).is_ok());
+        assert!(
+            check_types(&formatted_program).is_ok(),
+            "{formatted}\n{:?}",
+            check_types(&formatted_program)
+        );
         assert_eq!(format_source(&formatted).unwrap(), formatted);
 
         let template = "(@generator make ((name syntax))\n  ; keep generated type readable\n  (gn-emit `(#type ,name #u64)))\n(#fn empty () () (#return ()))";
