@@ -1167,6 +1167,7 @@ pub(crate) fn write_prepared_generated_sources(
             )
         })
         .collect::<HashMap<_, _>>();
+    let mut written_builtin_keys = HashSet::new();
     for expression in expanded {
         if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
         {
@@ -1209,6 +1210,9 @@ pub(crate) fn write_prepared_generated_sources(
             async_copy_type_identity(&copy_types),
             async_type_environment_identity(&async_types),
         );
+        if !written_builtin_keys.insert(key.clone()) {
+            continue;
+        }
         generator::cached_generated_source_with_origins(
             &generated_cache,
             &key,

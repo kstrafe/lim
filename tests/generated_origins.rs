@@ -207,7 +207,97 @@ fn inspectable_user_generator_output_cannot_be_silently_discarded() {
         &lim::CompileConfig::default(),
         &cache,
     );
-    assert!(result.is_err(), "an unavailable source artifact must fail materialization");
+    assert!(
+        result.is_err(),
+        "an unavailable source artifact must fail materialization"
+    );
+}
+
+#[test]
+fn duplicate_invocations_load_once_and_publish_all_origins_once() {
+    let scratch = support::Scratch::new("generator-ram-lookup");
+    let root = scratch.path();
+    let input = root.join("main.lim");
+    let cache = root.join("cache");
+    let source = format!(
+        "(#gn child () `((#type Shared #u64)))\n(#gn parent () `((@child)))\n{}",
+        "(@parent)\n".repeat(64)
+    );
+    let run = |source: &str| {
+        lim::with_cache_report(|| {
+            lim::write_generated_sources_from_path_with_config_and_cache(
+                source,
+                &input,
+                &root.join("generated"),
+                &lim::CompileConfig::default(),
+                &cache,
+            )
+            .unwrap();
+        })
+        .1
+    };
+    let cold = run(&source);
+    assert_eq!(
+        cold.matches("\"kind\":\"syntax-publication\"").count(),
+        2,
+        "publish parent and child once, not once per caller"
+    );
+    assert_eq!(cold.matches("\"kind\":\"syntax-read\"").count(), 0);
+    let warm = run(&source);
+    assert_eq!(
+        warm.matches("\"kind\":\"syntax-read\"").count(),
+        2,
+        "read parent and child once, not once per caller"
+    );
+    assert_eq!(warm.matches("\"kind\":\"syntax-publication\"").count(), 0);
+    let expected = (3..67)
+        .map(|line| format!("{}:{line}", input.display()))
+        .collect::<Vec<_>>();
+    for entry in fs::read_dir(root.join("generated")).unwrap() {
+        assert_origins(
+            &fs::read_to_string(entry.unwrap().path()).unwrap(),
+            &expected,
+        );
+    }
+    // A separate compilation must revalidate changed source/dependencies.
+    let changed = run(&source.replace("#u64", "#u32"));
+    assert_eq!(
+        changed.matches("\"kind\":\"syntax-publication\"").count(),
+        2
+    );
+    assert_eq!(changed.matches("\"kind\":\"syntax-read\"").count(), 0);
+}
+
+#[test]
+fn repeated_builtin_materialization_uses_one_cache_lookup() {
+    let scratch = support::Scratch::new("builtin-ram-lookup");
+    let root = scratch.path();
+    let input = root.join("main.lim");
+    let source = "(@optional (: type #u64 : name Shared))\n".repeat(64);
+    let run = || {
+        lim::with_cache_report(|| {
+            lim::write_generated_sources_from_path_with_config_and_cache(
+                &source,
+                &input,
+                &root.join("generated"),
+                &lim::CompileConfig::default(),
+                &root.join("cache"),
+            )
+            .unwrap()
+        })
+        .1
+    };
+    assert_eq!(run().matches("\"kind\":\"source\"").count(), 1);
+    assert_eq!(run().matches("\"kind\":\"source\"").count(), 1);
+    let expected = (1..65)
+        .map(|line| format!("{}:{line}", input.display()))
+        .collect::<Vec<_>>();
+    for entry in fs::read_dir(root.join("generated")).unwrap() {
+        assert_origins(
+            &fs::read_to_string(entry.unwrap().path()).unwrap(),
+            &expected,
+        );
+    }
 }
 
 #[test]

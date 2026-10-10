@@ -921,3 +921,57 @@ warmups followed by 200 measured builds each, measured the 256-invocation
 fixture at 6.072 -> 6.664 ms (+9.7%). Means were 7.151 -> 7.766 ms.
 Avoiding cold-cache publication between samples reduces timing variation,
 but the extra per-invocation metadata read still has a measurable cost.
+
+## Compilation-local generator lookup and batched provenance
+
+The expansion context now holds a lookup table of already validated
+invocations and their source artifacts. An identical invocation skips
+cache-key construction, disk reads, parsing, gensym restoration, and nested
+re-expansion. Its declarations were already emitted, so it does not need
+another AST copy: a retained parent/child invocation graph propagates its
+caller location to all affected artifacts in memory. Source artifacts and
+caller sets are retained until expansion completes. Each new artifact or
+changed header is then published once; unchanged artifacts are not written.
+Directory creation is also shared across the publication batch. Builtin
+materialization uses a lookup set to avoid repeated reads for the same full
+cache key, with the complete caller list available before publication.
+
+The table is expansion-local, not process-global: a later compilation must
+read and validate its inputs again. Integrity, full-key comparisons,
+gensym ownership checks, and dependency invalidation remain in place.
+The new tests count actual source-read attempts and successful publications:
+64 calls to a parent and child read each artifact once on a warm run and
+publish each artifact once on a cold run, preserving all 64 caller lines.
+The warm run performs no provenance writes. A changed generator body in
+a subsequent compilation produces new artifacts instead of reusing RAM.
+
+Release CLI measurements compare the previous inspectable-file cache
+(`634b02c`) with this change on the same i7-13700KF. Binaries alternate
+execution order on every sample. Warm measurements exclude 20 warmups per
+binary and use 200 measured compilations (50 for async_fn); cold medians
+use 20 compilations with an absent `.lim` directory, not cold OS pages.
+No builds or tests were run concurrently with these measurements. Startup
+and native executable output are included, and runtime outputs match.
+
+| Workload | Warm before | Warm after | Cold before | Cold after |
+| --- | ---: | ---: | ---: | ---: |
+| custom_generator | 5.124 ms | 4.653 ms | 4.713 ms | 5.161 ms |
+| 256 identical generator calls | 14.905 ms | 2.201 ms | 26.045 ms | 2.202 ms |
+| 256 identical nested generator calls | 25.655 ms | 2.266 ms | 40.789 ms | 2.512 ms |
+| 256 distinct generator calls | 8.314 ms | 8.184 ms | 18.528 ms | 17.564 ms |
+| async_fn | 63.665 ms | 62.725 ms | not measured | not measured |
+
+Repeated-call fixtures use the alias generator from the preceding section.
+The repeated fixture calls `(@alias Shared)` 256 times; the distinct one
+uses `Alias0` through `Alias255`. The nested fixture additionally declares
+`(#gn parent (name) \`((@alias ,name)))` and calls `(@parent Shared)` 256
+times. All synthetic fixtures return 42 from main.
+
+Warm repeated calls improve 85.2%, and nested repeated calls improve 91.2%
+(about 6.8x and 11.3x faster). Their cold improvements are 91.5% and 93.8%.
+Distinct invocations still need one initial source/metadata read each;
+the measured warm improvement of 1.6% is small and is not a general
+speedup claim. The async change is likewise small. Absolute tiny-program
+timings vary across runs, and the custom_generator cold median worsened
+9.5% in this run; the reliable result is the eliminated repeated I/O and
+publication work, backed by read-count tests and the repeated-call timings.
