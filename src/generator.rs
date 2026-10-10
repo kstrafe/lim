@@ -168,19 +168,41 @@ fn hash_capability_definitions(capabilities: &Capabilities) -> u128 {
     stable_hash(material.join("\n").as_bytes())
 }
 
-pub(crate) fn expand_with_generated_cached_with_context(
+#[derive(Default)]
+pub(crate) struct Origins {
+    pub user: HashSet<Span>,
+    pub builtins: HashMap<String, Vec<Span>>,
+}
+
+pub(crate) fn expand_with_origins(
     expressions: Vec<SpannedExpr>,
     cache_dir: Option<&Path>,
     dependency_context: &str,
-) -> Result<(Vec<SpannedExpr>, Vec<Expr>), crate::source_error::SourceError> {
-    expand_with_generated_cached_and_hits(expressions, cache_dir, dependency_context)
+    origins: &mut Origins,
+) -> Result<ExpandedForms, crate::source_error::SourceError> {
+    expand_with_hits_and_origins(expressions, cache_dir, dependency_context, origins)
         .map(|(result, _)| result)
 }
 
+#[cfg(test)]
 fn expand_with_generated_cached_and_hits(
     expressions: Vec<SpannedExpr>,
     cache_dir: Option<&Path>,
     dependency_context: &str,
+) -> Result<ExpandedFormsWithHits, crate::source_error::SourceError> {
+    expand_with_hits_and_origins(
+        expressions,
+        cache_dir,
+        dependency_context,
+        &mut Origins::default(),
+    )
+}
+
+fn expand_with_hits_and_origins(
+    expressions: Vec<SpannedExpr>,
+    cache_dir: Option<&Path>,
+    dependency_context: &str,
+    origins: &mut Origins,
 ) -> Result<ExpandedFormsWithHits, crate::source_error::SourceError> {
     for expression in &expressions {
         if crate::gensym::contains_reserved(&expression.expr) {
@@ -391,6 +413,9 @@ fn expand_with_generated_cached_and_hits(
         gensym_scopes: Vec::new(),
         gensyms: crate::gensym::Registry::default(),
         seen_invocations: HashSet::new(),
+        origins,
+        invocation_builtins: HashMap::new(),
+        active_builtins: Vec::new(),
         budget: Budget {
             evaluation_steps: MAX_EVALUATION_STEPS,
             generated_nodes: 0,
@@ -612,6 +637,25 @@ struct ExpansionContext<'a> {
     cache_dir: Option<&'a Path>,
     dependency_context: &'a str,
     invocation_span: Option<Span>,
+    origins: &'a mut Origins,
+    invocation_builtins: HashMap<String, Vec<String>>,
+    active_builtins: Vec<Vec<String>>,
+}
+
+fn record_builtin_origin(context: &mut ExpansionContext<'_>, key: String) {
+    if let Some(span) = context.invocation_span {
+        context
+            .origins
+            .builtins
+            .entry(key.clone())
+            .or_default()
+            .push(span);
+    }
+    for outputs in &mut context.active_builtins {
+        if !outputs.contains(&key) {
+            outputs.push(key.clone());
+        }
+    }
 }
 
 fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Vec<Expr>, String> {
@@ -648,7 +692,9 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         // Built-in declarations such as @optional are handled by the Lim parser.
         let mut resolved = items[..2].to_vec();
         resolved.extend(arguments);
-        return Ok(vec![Expr::List(resolved)]);
+        let resolved = Expr::List(resolved);
+        record_builtin_origin(context, crate::expression_source(&resolved)?);
+        return Ok(vec![resolved]);
     };
     if context.active.iter().any(|entry| entry == name) {
         let mut chain = context.active.join(" -> ");
@@ -714,7 +760,18 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         ));
     }
     let invocation_key = format!("{name}:{arguments:?}");
-    if !context.seen_invocations.insert(invocation_key) {
+    if let Some(span) = context.invocation_span {
+        context.origins.user.insert(span);
+    }
+    if !context.seen_invocations.insert(invocation_key.clone()) {
+        for builtin in context
+            .invocation_builtins
+            .get(&invocation_key)
+            .cloned()
+            .unwrap_or_default()
+        {
+            record_builtin_origin(context, builtin);
+        }
         return Ok(Vec::new());
     }
     let cache_key = format!(
@@ -751,6 +808,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         context.cache_hits = context.cache_hits.saturating_add(1);
     }
     context.active.push(name.clone());
+    context.active_builtins.push(Vec::new());
     context.gensym_scopes.push(scope);
     let forms = match cached {
         Some(forms) => forms,
@@ -765,6 +823,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
                 Ok(result) => result,
                 Err(error) => {
                     context.active.pop();
+                    context.active_builtins.pop();
                     context.gensym_scopes.pop();
                     return Err(format!(
                         "{}: {error}",
@@ -779,6 +838,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             };
             let Value::Syntax(Expr::List(forms)) = result else {
                 context.active.pop();
+                context.active_builtins.pop();
                 context.gensym_scopes.pop();
                 return Err(format!("@{name} must return a list of generated forms"));
             };
@@ -794,6 +854,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
             Ok(forms) => expanded.extend(forms),
             Err(error) => {
                 context.active.pop();
+                context.active_builtins.pop();
                 context.gensym_scopes.pop();
                 return Err(format!(
                     "while expanding generated output from {}: {error}",
@@ -809,6 +870,8 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     }
     context.active.pop();
     context.gensym_scopes.pop();
+    let builtins = context.active_builtins.pop().unwrap();
+    context.invocation_builtins.insert(invocation_key, builtins);
     Ok(expanded)
 }
 
@@ -1078,9 +1141,19 @@ pub(crate) fn generated_source_directory(cache: &Path) -> PathBuf {
 /// Read or create an inspectable generated-source artifact in the shared
 /// content-addressed cache. The complete key and digest remain in the metadata
 /// directory, so a digest collision is detected instead of treated as a hit.
+#[cfg(test)]
 pub(crate) fn cached_generated_source(
     directory: &Path,
     key: &str,
+    generate: impl FnOnce() -> Result<String, String>,
+) -> Result<String, String> {
+    cached_generated_source_with_origins(directory, key, &[], generate)
+}
+
+pub(crate) fn cached_generated_source_with_origins(
+    directory: &Path,
+    key: &str,
+    origins: &[String],
     generate: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
     let formatted_key = format!("lim-generated-source-format-v1\n{key}");
@@ -1108,7 +1181,16 @@ pub(crate) fn cached_generated_source(
                 && crate::parse(&source).is_ok()
             {
                 crate::cache_report::record("source", &path, key, "hit");
-                return Ok(source);
+                let annotated = annotate_generated_source(&source, origins);
+                if annotated != source {
+                    publish_cache_file(&path, annotated.as_bytes(), "generated source")?;
+                    publish_cache_file(
+                        &digest_path,
+                        generated_source_digest(key, &annotated).as_bytes(),
+                        "generated-source cache digest",
+                    )?;
+                }
+                return Ok(annotated);
             }
         }
     }
@@ -1123,7 +1205,7 @@ pub(crate) fn cached_generated_source(
             "missing-entry"
         },
     );
-    let source = format_generated_source(&generate()?)?;
+    let source = annotate_generated_source(&format_generated_source(&generate()?)?, origins);
     fs::create_dir_all(directory)
         .map_err(|error| format!("cannot create generated-source cache: {error}"))?;
     fs::create_dir_all(&source_directory)
@@ -1138,6 +1220,31 @@ pub(crate) fn cached_generated_source(
         "generated-source cache digest",
     )?;
     Ok(source)
+}
+
+fn annotate_generated_source(source: &str, origins: &[String]) -> String {
+    const HEADER: &str = "; Generated from:\n";
+    let body = if source.starts_with(HEADER) {
+        source.split_once("\n\n").map_or(source, |(_, body)| body)
+    } else {
+        source
+    };
+    if origins.is_empty() {
+        return body.to_owned();
+    }
+    let mut origins = origins.to_vec();
+    origins.sort();
+    origins.dedup();
+    let mut output = HEADER.to_owned();
+    for origin in origins {
+        output.push_str("; ");
+        // A filename cannot inject source through the provenance comment.
+        output.push_str(&origin.replace(['\r', '\n'], " "));
+        output.push('\n');
+    }
+    output.push('\n');
+    output.push_str(body);
+    output
 }
 
 /// Keep declarations at column zero and indent their bodies structurally.
@@ -2158,6 +2265,75 @@ mod tests {
     }
 
     #[test]
+    fn generated_source_origins_refresh_without_rerunning_generation() {
+        let directory =
+            std::env::temp_dir().join(format!("lim-generated-origins-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&directory);
+        let first = cached_generated_source_with_origins(
+            &directory,
+            "origins",
+            &["z.lim:8".into(), "a.lim:3".into(), "a.lim:3".into()],
+            || Ok("(#type Cached #u64)".into()),
+        )
+        .unwrap();
+        assert!(first.starts_with("; Generated from:\n; a.lim:3\n; z.lim:8\n\n"));
+        let second = cached_generated_source_with_origins(
+            &directory,
+            "origins",
+            &["new.lim:12".into()],
+            || panic!("provenance changes must not rerun generation"),
+        )
+        .unwrap();
+        assert!(second.starts_with("; Generated from:\n; new.lim:12\n\n"));
+        assert!(!second.contains("z.lim:8"));
+        assert_eq!(
+            crate::parse(&first)
+                .unwrap()
+                .into_iter()
+                .map(|form| form.expr)
+                .collect::<Vec<_>>(),
+            crate::parse(&second)
+                .unwrap()
+                .into_iter()
+                .map(|form| form.expr)
+                .collect::<Vec<_>>()
+        );
+        let third = cached_generated_source_with_origins(
+            &directory,
+            "origins",
+            &["new.lim:12".into()],
+            || panic!("the refreshed digest must validate on subsequent cache hits"),
+        )
+        .unwrap();
+        assert_eq!(second, third);
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn nested_deduplicated_generators_keep_precise_builtin_origins() {
+        let source = "(#gn inner () `((@optional (: type #u64 : name Shared))))\n\
+            (#gn outer () `((@inner) (@optional (: type #u64 : name OuterOnly))))\n\
+            (#gn other () `((@inner)))\n\
+            (@outer)\n(@other)\n(@other)";
+        let mut origins = Origins::default();
+        expand_with_origins(crate::parse(source).unwrap(), None, "", &mut origins).unwrap();
+        let sites = |name: &str| {
+            let (_, spans) = origins
+                .builtins
+                .iter()
+                .find(|(key, _)| key.contains(name))
+                .unwrap();
+            let mut lines = spans.iter().map(|span| span.line).collect::<Vec<_>>();
+            lines.sort();
+            lines.dedup();
+            lines
+        };
+        assert_eq!(sites("Shared"), vec![4, 5, 6]);
+        assert_eq!(sites("OuterOnly"), vec![4]);
+        assert_eq!(origins.user.len(), 3);
+    }
+
+    #[test]
     fn generated_source_cache_publication_is_safe_for_concurrent_writers() {
         let directory = std::env::temp_dir().join(format!(
             "lim-concurrent-generated-cache-{}",
@@ -2393,6 +2569,9 @@ mod tests {
                 gensym_scopes: Vec::new(),
                 gensyms: crate::gensym::Registry::default(),
                 seen_invocations: HashSet::new(),
+                origins: &mut Origins::default(),
+                invocation_builtins: HashMap::new(),
+                active_builtins: Vec::new(),
                 budget: Budget {
                     evaluation_steps: MAX_EVALUATION_STEPS,
                     generated_nodes: 0,

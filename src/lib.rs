@@ -2906,6 +2906,7 @@ struct PreparedProgramSyntax {
     source_files: Vec<SourceFile>,
     dependency_context: String,
     user_generated: Vec<Expr>,
+    generator_origins: generator::Origins,
     async_copy_types: HashSet<String>,
     async_types: async_fn::AsyncTypeEnvironment,
     worker_functions: HashMap<String, Function>,
@@ -2924,10 +2925,12 @@ fn prepare_program_syntax(
     let loaded = bundles
         .expand(loaded, false)
         .map_err(|error| error.attach(&source_files))?;
-    let (expanded, user_generated) = generator::expand_with_generated_cached_with_context(
+    let mut generator_origins = generator::Origins::default();
+    let (expanded, user_generated) = generator::expand_with_origins(
         loaded,
         cache_directory,
         &dependency_context,
+        &mut generator_origins,
     )
     .map_err(|error| attach_generator_source(error, &source_files))?;
     let expressions = expand_cfg_forms(expanded, config)
@@ -2960,9 +2963,38 @@ fn prepare_program_syntax(
         }
         with_protocols.push(expression);
     }
+    // Bundle expansion rewrites invocation text, but not its call-site origins.
+    let builtin_keys = with_protocols
+        .iter()
+        .filter(|form| {
+            !matches!(&form.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#syntax"))
+        })
+        .map(|form| {
+            if matches!(&form.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At))) {
+                expression_source(&form.expr).map(Some)
+            } else {
+                Ok(None)
+            }
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     let expressions = bundles
         .expand(with_protocols, true)
         .map_err(|error| error.attach(&source_files))?;
+    for (form, key) in expressions.iter().zip(builtin_keys) {
+        if let Some(key) = key {
+            let rewritten = expression_source(&form.expr)?;
+            if rewritten != key {
+                if let Some(origins) = generator_origins.builtins.remove(&key) {
+                    generator_origins
+                        .builtins
+                        .entry(rewritten)
+                        .or_default()
+                        .extend(origins);
+                }
+            }
+        }
+    }
     // Generated declarations and cfg selection are already expanded here, so
     // detect async users after those passes rather than from the root file.
     let needs_async = expressions.iter().any(is_async_invocation);
@@ -3002,6 +3034,7 @@ fn prepare_program_syntax(
         source_files,
         dependency_context,
         user_generated,
+        generator_origins,
         async_copy_types,
         async_types,
         worker_functions,
@@ -6275,6 +6308,27 @@ fn write_prepared_generated_sources(
     let generated_cache = cache_directory
         .map(Path::to_path_buf)
         .unwrap_or_else(|| directory.join("cache"));
+    let location = |span: Span| {
+        let path = prepared
+            .source_files
+            .get(span.source_id as usize)
+            .map_or_else(
+                || "<source>".to_owned(),
+                |file| file.path.display().to_string(),
+            );
+        format!("{path}:{}", span.line)
+    };
+    let builtin_origins = prepared
+        .generator_origins
+        .builtins
+        .iter()
+        .map(|(key, spans)| {
+            (
+                key.clone(),
+                spans.iter().copied().map(&location).collect::<Vec<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
     for expression in expanded {
         if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
         {
@@ -6317,19 +6371,29 @@ fn write_prepared_generated_sources(
             async_copy_type_identity(&copy_types),
             async_type_environment_identity(&async_types),
         );
-        generator::cached_generated_source(&generated_cache, &key, || {
-            if matches!(kind, "async-fn" | "async-fn-pinned") {
-                let source = async_fn::generated_source_with_environment(
-                    &original,
-                    capture_plan,
-                    &copy_types,
-                    &async_types,
-                )?;
-                async_dispatch::collapse(&source, &async_types)
-            } else {
-                materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types)
-            }
-        })?;
+        generator::cached_generated_source_with_origins(
+            &generated_cache,
+            &key,
+            &builtin_origins[&invocation],
+            || {
+                if matches!(kind, "async-fn" | "async-fn-pinned") {
+                    let source = async_fn::generated_source_with_environment(
+                        &original,
+                        capture_plan,
+                        &copy_types,
+                        &async_types,
+                    )?;
+                    async_dispatch::collapse(&source, &async_types)
+                } else {
+                    materialize_builtin_generated_source(
+                        &kind,
+                        &forms,
+                        &worker_functions,
+                        copy_types,
+                    )
+                }
+            },
+        )?;
     }
     if !user_generated.is_empty() {
         let source = user_generated
@@ -6344,7 +6408,16 @@ fn write_prepared_generated_sources(
             std::env::consts::OS,
             dependency_context,
         );
-        generator::cached_generated_source(&generated_cache, &key, || Ok(source))?;
+        let origins = prepared
+            .generator_origins
+            .user
+            .iter()
+            .copied()
+            .map(location)
+            .collect::<Vec<_>>();
+        generator::cached_generated_source_with_origins(&generated_cache, &key, &origins, || {
+            Ok(source)
+        })?;
     }
     Ok(())
 }

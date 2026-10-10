@@ -317,8 +317,14 @@ same poll function through an opaque `@pin` handle. The low-level adapter that
 unwraps this handle requires `#unsafe`; the storage remains owned by the scope
 until in-place cleanup completes. A completed or cancelled pinned frame is
 marked Done; polling it again traps instead of restarting the body.
-The emitted Lim is cached in `.lim/cache` and undergoes normal type, borrow,
-linearity, and code generation checks:
+The emitted Lim is stored in `.lim/generated`, with cache metadata in
+`.lim/cache`, and undergoes normal type, borrow, linearity, and code generation
+checks.
+
+Materialized generated `.lim` files begin with a `Generated from:` comment
+listing the distinct `file:line` call sites that contributed to that artifact,
+sorted for stable output. Cache hits refresh this header without rerunning
+generation.
 
 ```lisp syntax
 (@async-fn (: protocol WorkAwait : waker LocalWaker : function (#fn work ((offset #u64)) #u64
