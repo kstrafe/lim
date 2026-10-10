@@ -19,7 +19,7 @@ groups by default:
 | `limUnsafe` | `#unsafe`, `#unsafe-fn` | `Exception` |
 | `limGeneratorKeyword` | `#gn`, `#gn-for-each` | `PreProc` |
 | `limCfg` | `#cfg-if`, `#cfg-is` | `PreProc` |
-| `limGenerated` | `@vec`, `@async-fn` | `Special` |
+| `limGenerated` | `@#vec`, `@#async-fn` | `Special` |
 | `limKeyword` | Other `#` builtins | `Keyword` |
 
 Colors depend on your colorscheme. Override individual groups after loading it,

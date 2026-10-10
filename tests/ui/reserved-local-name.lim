@@ -1,0 +1,3 @@
+(#fn main () ()
+  (#let #local #u64 1u64)
+  (#return ()))

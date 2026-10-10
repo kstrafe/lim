@@ -57,7 +57,7 @@ impl Source {
                 .map(|value| crate::normalize_keywords(value.clone()))
                 .as_ref(),
         )?;
-        let pinned_frame = if matches!(parts.get(1), Some(Expr::Symbol(name)) if name == "async-fn-pinned")
+        let pinned_frame = if matches!(parts.get(1), Some(Expr::Symbol(name)) if name == "#async-fn-pinned")
         {
             match parts.get(2) {
                 Some(Expr::List(names)) => names.first().and_then(|name| match name {
@@ -1333,7 +1333,7 @@ mod tests {
     fn compiled_async_retains_original_tree_without_emitting_analysis_helpers() {
         let source = format!(
             "{CONTEXT}
-          (@async-fn (: protocol work-await : waker #u64 : function (#fn work () #u64
+          (@#async-fn (: protocol work-await : waker #u64 : function (#fn work () #u64
               (#return (#await Child Pending Ready step-poll (Waiting 1u64))))))"
         );
         let program = crate::parse_program(&source).unwrap();

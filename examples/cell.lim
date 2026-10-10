@@ -1,7 +1,7 @@
 (#import "../library/cell.lim")
 
 ; The generated type and its operations are concrete, named Lim declarations.
-(@cell #u32 CellU32 CellU32-create CellU32-get CellU32-set)
+(@#cell #u32 CellU32 CellU32-create CellU32-get CellU32-set)
 
 (#fn advance ((counter (#ref CellU32))) ()
   (#let current #u32 (#call CellU32-get (: cell (#clone counter))))

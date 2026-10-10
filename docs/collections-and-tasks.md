@@ -19,7 +19,7 @@ not grant generated functions special borrowing or typechecking privileges.
 (#syntax-contribute ApplicationErrors filesystem (FileFailure #u32))
 (#syntax-contribute ApplicationErrors parser (ParseFailure #u64))
 (#import "library/collections.lim")
-(@error-enum (#syntax-distribute ApplicationErrors) ApplicationError)
+(@#error-enum (#syntax-distribute ApplicationErrors) ApplicationError)
 ```
 
 Contributions can live in different imported files. The compiler first loads
@@ -43,11 +43,11 @@ The existing broader cfg/import dependency context is also still included.
 its length. The user-defined generators in `library/collections.lim` use these
 facilities to produce ordinary inspectable declarations in `.lim`:
 
-- `(@error-enum (#syntax-distribute Collection) Type)` emits a concrete enum
+- `(@#error-enum (#syntax-distribute Collection) Type)` emits a concrete enum
   with inline payloads.
   Allocation freedom also depends on the payload types. The largest variant
   determines payload storage, with tag and alignment overhead.
-- `(@distributed-slice (#syntax-distribute Collection) StaticName ElementType)`
+- `(@#distributed-slice (#syntax-distribute Collection) StaticName ElementType)`
   emits a homogeneous static array. Its length and contents are fixed before
   type checking. Use `#slice-of` to borrow the array; access requires `#unsafe`
   like other statics.
@@ -62,7 +62,7 @@ poll-result enum. The task generator emits `#linear` for the state type, so
 even an all-numeric state cannot be implicitly copied or silently abandoned.
 
 ```lisp syntax
-(@task (Count CountPoll CountPending CountReady) #u64 ((Counting #u64)))
+(@#task (Count CountPoll CountPending CountReady) #u64 ((Counting #u64)))
 ```
 
 Write a free-standing poll function with exactly the named argument `task`:
@@ -79,7 +79,7 @@ layout or Send/Sync. Reference values themselves retain their existing rules.
 ## Fixed-capacity executors
 
 ```lisp syntax
-(@executor run-counts Counts
+(@#executor run-counts Counts
   ((first Count CountPoll CountPending CountReady count-poll #u64 first-input)
    (second Count CountPoll CountPending CountReady count-poll #u64 second-input)))
 ```
@@ -95,7 +95,7 @@ can also come from frozen syntax collections via an explicit
 The executor polls each pending job once per round using direct calls, retains
 completed results, and returns when every job is ready. Poll functions must
 return promptly for cooperative fairness. A permanently pending task keeps
-the executor running. This basic driver busy-polls; use `@wake-executor` when
+the executor running. This basic driver busy-polls; use `@#wake-executor` when
 tasks can register wake handles. Task and result storage is inline; task
 implementations can still explicitly allocate if they choose. The local name
 `lim.executor.waiting` is reserved by this generator.
@@ -103,7 +103,7 @@ implementations can still explicitly allocate if they choose. The local name
 ## Bounded ready queue foundation
 
 ```lisp syntax
-(@ready-queue ReadyQueue QueueEnqueue QueueDequeue
+(@#ready-queue ReadyQueue QueueEnqueue QueueDequeue
   queue-create queue-enqueue queue-dequeue
   QueueEnqueued QueueFull QueueItem QueueEmpty
   (worker-a worker-b worker-c))
@@ -146,8 +146,8 @@ one bit, and a retired token cannot affect a reused slot. Registration and
 retirement require a mutable queue reference; notify and take use a shared
 one. The opaque queue is local-only, not a cross-thread notifier.
 `examples/wake_ready4.lim` covers capacity, duplicates, and stale handles;
-`examples/async_registered_wake.lim` connects it to `@async-wake`. The bounded
-`@wake-executor` below composes the ready set with task polling and blocking
+`examples/async_registered_wake.lim` connects it to `@#async-wake`. The bounded
+`@#wake-executor` below composes the ready set with task polling and blocking
 readiness.
 
 ## Borrowed local wakers
@@ -156,7 +156,7 @@ Import `library/local_waker.lim` to generate a concrete, single-threaded wake
 handle with no function pointers:
 
 ```lisp syntax
-(@local-waker
+(@#local-waker
   (CounterWaker counter-waker-create counter-waker-wake
     counter-waker-wake-by-ref counter-waker-clone counter-waker-destroy)
   (WakeCounter WakeMetadata)
@@ -192,11 +192,11 @@ See `examples/local_waker.lim` for a complete runnable example.
 
 ## Wake-driven fixed task set
 
-Import `library/tasks.lim` and use `@wake-executor` when all task slots have the
+Import `library/tasks.lim` and use `@#wake-executor` when all task slots have the
 same concrete task, poll-result, output, and waker types:
 
 ```lisp syntax
-(@wake-executor run-jobs
+(@#wake-executor run-jobs
   (JobResults JobOutcome JobLifecycle JobRunning
     JobComplete JobCancelling JobStopped)
   (JobTask JobPoll JobPending JobReady #u64 job-poll LocalWaker)
@@ -246,7 +246,7 @@ a Pending state with an owned waker and an already-Ready result.
 ## Explicit async composition
 
 ```lisp syntax
-(@async (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
+(@#async (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
   ((Begin (#await Count CountPending CountReady count-poll)
      (#then Finish next-count))
    (Finish (#await Count CountPending CountReady count-poll)
@@ -261,7 +261,7 @@ unbounded chain of transitions within one parent poll. Continuations and poll
 functions are ordinary strongly checked functions.
 
 Here `#await`, `#then`, and `#return` are syntax interpreted by the user-defined
-`@async` generator. This is **not** `#async-fn` or arbitrary suspension inside
+`@#async` generator. This is **not** `#async-fn` or arbitrary suspension inside
 ordinary function bodies. State names and continuation functions are explicit.
 To carry additional data, put it in concrete child states and result types.
 No local stack reference is silently captured: generated enums and functions
@@ -275,15 +275,15 @@ after the awaited operation has registered the wake. Ready returns its value,
 and cancellation consumes the suspended state and its resources. A first
 version should reject borrows that cross suspension if they would make the
 frame self-referential; supporting those later requires immovable frame
-storage and a corresponding borrow-checker rule. The current `@async` and
-`@local-waker` do not perform this lowering.
+storage and a corresponding borrow-checker rule. The current `@#async` and
+`@#local-waker` do not perform this lowering.
 
 For explicit state composition that already needs a wake context, use
-`@async-wake` with the same stage descriptors as `@async` and one additional
+`@#async-wake` with the same stage descriptors as `@#async` and one additional
 concrete waker type:
 
 ```lisp syntax
-(@async-wake
+(@#async-wake
   (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
   ((Only (#await Step StepPending StepReady step-poll) (#return)))
   LocalWaker)
@@ -295,12 +295,12 @@ the generated code forwards the borrow without retaining it. The child can
 use `wake-by-ref` before returning Pending. The poll driver must register a
 token before polling and consult its ready bit after Pending; see
 `examples/async_registered_wake.lim` for a runnable validated cycle. The
-bare `@async-wake` expansion does not perform registration itself. See
+bare `@#async-wake` expansion does not perform registration itself. See
 `examples/async_wake_pipeline.lim` for the adapter-only cycle.
 
 ## Compiler-lowered async functions (sequential subset)
 
-`@async-fn` is a built-in inspectable code generator. It reads a `#fn` form
+`@#async-fn` is a built-in inspectable code generator. It reads a `#fn` form
 whose declared result type is the eventual value, then emits an ordinary
 linear frame enum, poll-result enum, start function (using the source function
 name), and one state-dispatching poll function per concrete future. The frame
@@ -309,7 +309,7 @@ polls the saved child, and Ready advances to the next state in the same poll
 call. Pending returns to the caller without reconstructing that child. There
 are no generated start/child/resume poll helpers in executable output. Ordinary
 source function calls and polls of separate child futures remain calls.
-`@async-fn-pinned` emits a stable `Frame`
+`@#async-fn-pinned` emits a stable `Frame`
 struct shell with a separate `Frame-state` field. Pin the returned frame in a
 mutable local, and each Pending result carries the same `#pin-ref-mut Frame`
 into the next poll. Polling moves only the state field through an explicitly
@@ -319,8 +319,8 @@ consumes the pin reference, marks the state Done, and returns the previous
 `Frame-state` so caller-defined cleanup can release captured values. This
 establishes stable storage for the supported internal-reference forms described
 below. `examples/async_single_poll.lim` constructs a frame, gives it to
-`@pin-scope` for privately owned stationary storage, and repeatedly calls the
-same poll function through an opaque `@pin` handle. The low-level adapter that
+`@#pin-scope` for privately owned stationary storage, and repeatedly calls the
+same poll function through an opaque `@#pin` handle. The low-level adapter that
 unwraps this handle requires `#unsafe`; the storage remains owned by the scope
 until in-place cleanup completes. A completed or cancelled pinned frame is
 marked Done; polling it again traps instead of restarting the body.
@@ -335,7 +335,7 @@ rerunning generation. If all current sites are already recorded, neither the
 source file nor its cache metadata is rewritten; earlier records are retained.
 
 ```lisp syntax
-(@async-fn (: protocol WorkAwait : waker LocalWaker : function (#fn work ((offset #u64)) #u64
+(@#async-fn (: protocol WorkAwait : waker LocalWaker : function (#fn work ((offset #u64)) #u64
     (#let child Step (Waiting 1u64))
     (#let value #u64
       (#await Step StepPending StepReady step-poll child))
@@ -343,9 +343,9 @@ source file nor its cache metadata is rewritten; earlier records are retained.
 ```
 
 `(#call work (: offset 1u64))` creates a `Work` frame. It does not
-execute the body. With `@async-fn`, `work-poll` takes `(task Work)` and
+execute the body. With `@#async-fn`, `work-poll` takes `(task Work)` and
 `(waker (#ref LocalWaker))`, consumes the old frame, and returns `WorkPending`
-with a new frame or `WorkReady` with the result. With `@async-fn-pinned`,
+with a new frame or `WorkReady` with the result. With `@#async-fn-pinned`,
 poll instead takes `(task (#pin-ref-mut Work))`; Pending carries that same
 pin reference, keeping the frame at its original address. The child poll must
 accept the named arguments `task` and `waker`. The first poll runs the body up to
@@ -358,10 +358,10 @@ The shorter form is `(#await Protocol child-expression)`. A protocol bundle
 includes the result type, task type, Pending/Ready variants and poll function,
 so this spelling also works in supported nested value expressions without
 repeating the result type. Declare a bundle for a handwritten task, or let
-`@async-fn` export it:
+`@#async-fn` export it:
 
 ```lisp
-(@async-fn (: protocol WorkAwait : waker LocalWaker
+(@#async-fn (: protocol WorkAwait : waker LocalWaker
   : function (#fn work (: offset #u64) #u64
     (#return (#await StepAwait (Waiting offset))))))
 ; Inside another generated async function:
@@ -430,11 +430,11 @@ condition evaluation. See `examples/async_condition_dependencies.lim` for
 three condition evaluations, an early continue, and a suspending body. These
 extensions do not complete general typed control-flow lowering.
 Sequential suspension points have no fixed language-level count limit.
-For movable `@async-fn`, references into pre-suspension stack locals cannot be
+For movable `@#async-fn`, references into pre-suspension stack locals cannot be
 retained in the frame; the ordinary borrow checker rejects them. Pinned
-`@async-fn-pinned` only supports the parameter-backed internal-reference shape
+`@#async-fn-pinned` only supports the parameter-backed internal-reference shape
 described below; references into body locals remain rejected.
-An `@async-fn-pinned` function may capture a caller-owned `#pin-ref` and use it
+An `@#async-fn-pinned` function may capture a caller-owned `#pin-ref` and use it
 after resume. The frame retains that external loan while it is alive, so its
 owner cannot be mutated in the meantime; explicitly consume or forget the
 completed frame before reusing the owner. It can also form an immutable
@@ -460,7 +460,7 @@ Cancellation is explicit. A free-standing function can match each generated
 frame state, or the optional `:cancel` mapping can generate that dispatcher.
 In either case, user handlers consume each state's captured values and call
 the relevant child cancellation function. Adding a new `#await` requires a
-handler for the new state. With `@async-fn-pinned`, first call `poll-cancel` to
+handler for the new state. With `@#async-fn-pinned`, first call `poll-cancel` to
 consume the pinned handle and recover the state to clean up. `examples/async_fn.lim`
 shows the manually written movable-frame protocol;
 `examples/async_fn_cancel_dispatch.lim` shows generated dispatch;
@@ -476,19 +476,19 @@ Ready(false).
 
 ## Cancellation and threads
 
-`(@task-cancel cancel-function Task ((State handler) ...))` generates an
+`(@#task-cancel cancel-function Task ((State handler) ...))` generates an
 exhaustive match consuming a task. Every state must have one payload; each
 handler accepts that payload as `task`, consumes its owned resources, and
 returns `()`. Cleanup occurs only when this function is explicitly called.
 There is no automatic cancellation when a task goes out of scope. `#forget`
 intentionally bypasses cleanup; it is not a cancellation operation.
 
-`@async-fn` and `@async-fn-pinned` can generate the state dispatcher for you
+`@#async-fn` and `@#async-fn-pinned` can generate the state dispatcher for you
 with an optional `:cancel` argument. Name every generated state variant and
 the handler that consumes its payload:
 
 ```lisp
-(@async-fn
+(@#async-fn
   (: protocol WorkAwait
    : waker LocalWaker
    : cancel (cancel-work
@@ -555,8 +555,8 @@ rejected. Descriptor ownership and
 executor shutdown remain open. Externally interrupting a blocking run also
 remains open.
 
-`(@threaded-executor run Result jobs Worker)` expands an executor plus
-`(@thread-spawn (: task Worker : worker run))`. Each job names both its result
+`(@#threaded-executor run Result jobs Worker)` expands an executor plus
+`(@#thread-spawn (: task Worker : worker run))`. Each job names both its result
 field/state binding and a distinct worker-input parameter, for example
 `(number NumberTask NumberPoll NumberPending NumberReady number-poll #u64 number-input)`.
 The spawn call uses that worker-input name as its named argument; the result
@@ -622,7 +622,7 @@ tuple in a struct and awaits each element in turn (exit 42).
 locals after the first await, then suspends again (exit 45). Updates write
 the existing slots; lowering must not turn them into shadowing declarations.
 
-Inside an `@async-fn` body, an awaited result may be destructured directly
+Inside an `@#async-fn` body, an awaited result may be destructured directly
 in `#let` or `#let-mut` (types and protocol from the example below):
 
 ```lisp

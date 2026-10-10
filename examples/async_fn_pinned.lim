@@ -1,4 +1,4 @@
-; @async-fn-pinned returns a movable frame value that must be pinned before
+; @#async-fn-pinned returns a movable frame value that must be pinned before
 ; polling. While a work-poll is work-pending, the returned PinRefMut keeps the frame at
 ; its storage location and is passed into the next work-poll. One generated work-poll
 ; loop dispatches on the state tag. See async_single_poll.lim for opaque pins
@@ -15,7 +15,7 @@
         (ChildReady value))))))
 (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
 
-(@async-fn-pinned ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn-pinned ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((offset #u64)) #u64
     (#let value #u64
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))

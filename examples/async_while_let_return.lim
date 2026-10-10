@@ -11,7 +11,7 @@
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choice Choice)) #u64
     (#while-let (Chosen value)
       (#await Choice ChoiceTask ChoicePending ChoiceReady choice-poll (ChoiceStart choice))

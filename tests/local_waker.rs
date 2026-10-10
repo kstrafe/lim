@@ -12,7 +12,7 @@ fn source(body: &str) -> String {
            (#return (#deref metadata)))
          (#fn destroy-metadata ((executor (#ref WakeExecutor)) (metadata #u64)) ()
            (#return ()))
-         (@local-waker
+         (@#local-waker
            (LocalWake local-wake-create local-wake local-wake-by-ref
              local-wake-clone local-wake-destroy)
            (WakeExecutor #u64)
@@ -55,7 +55,7 @@ fn generated_local_waker_is_not_send_even_for_a_sync_executor() {
         "(#fn worker ((waker LocalWake)) #u64
            (#call local-wake-destroy (: waker waker))
            (#return 0u64))
-         (@thread-spawn (: task WakeWorker : worker worker))
+         (@#thread-spawn (: task WakeWorker : worker worker))
          (#fn main () #u64 (#return 0u64))",
     );
     assert!(error.contains("does not implement Send"), "{error}");
@@ -101,6 +101,6 @@ fn generated_local_waker_is_inspectable_and_reports_shape_errors() {
     assert!(generated.contains("counter-waker-wake-by-ref"));
     assert!(generated.contains("(#ptr #u8)"));
 
-    let error = compile_error("(@local-waker (Only) (WakeExecutor #u64) (notify clone-metadata destroy-metadata)) (#fn main () #u64 (#return 0u64))");
+    let error = compile_error("(@#local-waker (Only) (WakeExecutor #u64) (notify clone-metadata destroy-metadata)) (#fn main () #u64 (#return 0u64))");
     assert!(error.contains("names must be"), "{error}");
 }

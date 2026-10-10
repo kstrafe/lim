@@ -22,13 +22,13 @@
   (#forget metadata)
   (#return ()))
 
-(@local-waker
+(@#local-waker
   (LocalWaker local-waker-create local-waker-wake
     local-waker-wake-by-ref local-waker-clone local-waker-destroy)
   (WakeExecutor WakeMetadata)
   (notify clone-metadata destroy-metadata))
 
-(@task (JobTask JobPoll JobPending JobReady) #u64
+(@#task (JobTask JobPoll JobPending JobReady) #u64
   ((First #u64) (Second #u64)))
 
 (#fn job-poll ((task JobTask) (waker (#ref LocalWaker))) JobPoll
@@ -65,7 +65,7 @@
     (#case (JobReady result) (#forget result)))
   (#return ()))
 
-(@wake-executor run-jobs
+(@#wake-executor run-jobs
   (JobResults JobOutcome JobLifecycle JobRunning
     JobComplete JobCancelling JobStopped)
   (JobTask JobPoll JobPending JobReady #u64 job-poll LocalWaker)

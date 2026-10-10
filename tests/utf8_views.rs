@@ -293,7 +293,7 @@ fn string_and_slice_views_reject_mutation_destruction_and_source_escape() {
 fn generated_views_are_cached_inspectable_and_compile_as_ordinary_lim() {
     let scratch = support::Scratch::new("utf8-inspectable");
     let path = scratch.path().join("main.lim");
-    let source = "(#std) (@utf8-view (: name BorrowedText : owner (#slice #u8))) (#fn main () #u64 (#return 42u64))";
+    let source = "(#std) (@#utf8-view (: name BorrowedText : owner (#slice #u8))) (#fn main () #u64 (#return 42u64))";
     fs::write(&path, source).unwrap();
     let first = compile(source, &path).unwrap();
     let generated_dir = scratch.path().join(".lim/generated");
@@ -325,12 +325,12 @@ fn assume_valid_requires_unsafe_and_unstable_owner_types_fail_at_the_invocation(
     let error = compile(source, &scratch.path().join("main.lim")).unwrap_err();
     assert_eq!(error.code_string(), "E4300", "{}", error.message);
     assert!(error.message.contains("unsafe"));
-    let source = "(#std) (@utf8-view (: name Unsupported : owner (#ref #u8)))";
+    let source = "(#std) (@#utf8-view (: name Unsupported : owner (#ref #u8)))";
     let error = compile(source, &scratch.path().join("main.lim")).unwrap_err();
     assert_eq!(error.code_string(), "E3000", "{}", error.message);
     assert!(error.message.contains("utf8-view owner must"));
     assert_eq!(
         &source[error.span.unwrap().start..error.span.unwrap().end],
-        "(@utf8-view (: name Unsupported : owner (#ref #u8)))"
+        "(@#utf8-view (: name Unsupported : owner (#ref #u8)))"
     );
 }

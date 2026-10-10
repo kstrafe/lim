@@ -5,10 +5,10 @@
 (#struct Pair (: left Number : right Number))
 (#linear Pair)
 
-(@pin (: type Number : name PinnedNumber : fields (: value #u64)))
-(@pin (: type Pair : name PinnedPair
+(@#pin (: type Number : name PinnedNumber : fields (: value #u64)))
+(@#pin (: type Pair : name PinnedPair
   : projections (: left PinnedNumber : right PinnedNumber)))
-(@pin-scope (: type Pair : pin PinnedPair : name with-pair
+(@#pin-scope (: type Pair : pin PinnedPair : name with-pair
   : run sum-pair : destroy destroy-pair : result #u64))
 
 (#fn sum-pair (: pin PinnedPair) #u64

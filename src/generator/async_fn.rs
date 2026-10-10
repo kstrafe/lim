@@ -378,14 +378,14 @@ fn resume_prefix(
 fn list<'a>(expr: &'a Expr, context: &str) -> Result<&'a [Expr], String> {
     match expr {
         Expr::List(items) => Ok(items),
-        _ => Err(format!("@async-fn {context} must be a list")),
+        _ => Err(format!("@#async-fn {context} must be a list")),
     }
 }
 
 fn symbol<'a>(expr: &'a Expr, context: &str) -> Result<&'a str, String> {
     match expr {
         Expr::Symbol(name) if !name.starts_with('#') && !name.starts_with('@') => Ok(name),
-        _ => Err(format!("@async-fn {context} must be a plain symbol")),
+        _ => Err(format!("@#async-fn {context} must be a plain symbol")),
     }
 }
 
@@ -472,7 +472,7 @@ fn rewrite_async_let_else_returns(expression: &mut Expr, ready: &str) -> Result<
     }
     if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#let-else") {
         let Some(else_body) = items.get_mut(4) else {
-            return Err("@async-fn #let-else requires a diverging else body".into());
+            return Err("@#async-fn #let-else requires a diverging else body".into());
         };
         return rewrite_async_diverging_returns(else_body, ready);
     }
@@ -485,7 +485,7 @@ fn rewrite_async_let_else_returns(expression: &mut Expr, ready: &str) -> Result<
 fn rewrite_async_diverging_returns(expression: &mut Expr, ready: &str) -> Result<(), String> {
     if let Some(items) = form(expression, "#return").or_else(|| form(expression, "return")) {
         if items.len() != 2 {
-            return Err("@async-fn #let-else return requires exactly one value".into());
+            return Err("@#async-fn #let-else return requires exactly one value".into());
         }
         let Expr::List(items) = expression else {
             unreachable!()
@@ -550,7 +550,7 @@ fn rewrite_async_synchronous_loop_returns(
 fn rewrite_async_non_loop_returns(expression: &mut Expr, ready: &str) -> Result<(), String> {
     if let Some(return_form) = form(expression, "#return").or_else(|| form(expression, "return")) {
         if return_form.len() != 2 {
-            return Err("@async-fn early #return requires exactly one value".into());
+            return Err("@#async-fn early #return requires exactly one value".into());
         }
         let Expr::List(items) = expression else {
             unreachable!()
@@ -637,7 +637,7 @@ fn mark_suspending_returns(expression: &mut Expr, result_type: &Expr) {
 fn rewrite_async_loop_body_statement(statement: &mut Expr, ready: &str) -> Result<(), String> {
     if let Some(return_form) = form(statement, "#return").or_else(|| form(statement, "return")) {
         if return_form.len() != 2 {
-            return Err("@async-fn early #return requires exactly one value".into());
+            return Err("@#async-fn early #return requires exactly one value".into());
         }
         let Expr::List(items) = statement else {
             unreachable!()
@@ -1083,7 +1083,7 @@ fn conditional_block_continuation(
     for statement in &block.prefix {
         if has_await(statement) || contains_loop_control(statement) || contains_return(statement) {
             return Err(
-                "@async-fn conditional await adapter prefixes cannot suspend or transfer control"
+                "@#async-fn conditional await adapter prefixes cannot suspend or transfer control"
                     .into(),
             );
         }
@@ -1106,11 +1106,11 @@ fn conditional_block_continuation(
     }
     if let Some(name) = continuation_names.iter().next() {
         return Err(format!(
-            "@async-fn conditional await continuation captures outer local '{name}'; bind it inside the branch before suspension"
+            "@#async-fn conditional await continuation captures outer local '{name}'; bind it inside the branch before suspension"
         ));
     }
     let first_await = form(&block.await_expression, "#await")
-        .ok_or_else(|| "@async-fn conditional block requires a direct #await".to_owned())?;
+        .ok_or_else(|| "@#async-fn conditional block requires a direct #await".to_owned())?;
     if first_await.len() != 7 {
         return Err(
             "nested #await requires an explicit result type: (#await Type Child Pending Ready poll task)"
@@ -1131,7 +1131,7 @@ fn conditional_block_continuation(
         let ty = crate::parse(&binding.ty)?
             .into_iter()
             .next()
-            .ok_or_else(|| "@async-fn captured binding type is empty".to_owned())?
+            .ok_or_else(|| "@#async-fn captured binding type is empty".to_owned())?
             .expr;
         parameters.push(Expr::List(if binding.mutable {
             vec![Expr::Symbol("#mut".into()), name.clone(), ty]
@@ -1181,11 +1181,11 @@ fn conditional_block_continuation(
     let waker_expression = crate::parse(waker)?
         .into_iter()
         .next()
-        .ok_or_else(|| "@async-fn waker type is empty".to_owned())?
+        .ok_or_else(|| "@#async-fn waker type is empty".to_owned())?
         .expr;
     let invocation = Expr::List(vec![
         Expr::At,
-        Expr::Symbol("async-fn".into()),
+        Expr::Symbol("#async-fn".into()),
         Expr::List(vec![
             Expr::Symbol(frame.clone()),
             Expr::Symbol(poll_result.clone()),
@@ -1561,7 +1561,7 @@ fn conditional_value_expression_task(
         return Ok(None);
     }
     let await_form = first_async_await(expression)
-        .ok_or_else(|| "@async-fn could not locate conditional branch #await".to_owned())?;
+        .ok_or_else(|| "@#async-fn could not locate conditional branch #await".to_owned())?;
     if !matches!(await_form.len(), 6 | 7) {
         return Err(
             "nested #await requires an explicit result type: (#await Type Child Pending Ready poll task)"
@@ -1613,7 +1613,7 @@ fn conditional_value_expression_task(
         let ty = crate::parse(&parameter.ty)?
             .into_iter()
             .next()
-            .ok_or_else(|| "@async-fn captured parameter type is empty".to_owned())?
+            .ok_or_else(|| "@#async-fn captured parameter type is empty".to_owned())?
             .expr;
         helper_parameters.push(Expr::List(if parameter.mutable {
             vec![Expr::Symbol("#mut".into()), name.clone(), ty]
@@ -1805,11 +1805,11 @@ fn conditional_value_expression_task(
     let waker_expression = crate::parse(waker)?
         .into_iter()
         .next()
-        .ok_or_else(|| "@async-fn waker type is empty".to_owned())?
+        .ok_or_else(|| "@#async-fn waker type is empty".to_owned())?
         .expr;
     let invocation = Expr::List(vec![
         Expr::At,
-        Expr::Symbol("async-fn".into()),
+        Expr::Symbol("#async-fn".into()),
         Expr::List(vec![
             Expr::Symbol(frame.clone()),
             Expr::Symbol(poll_result.clone()),
@@ -2125,7 +2125,7 @@ fn lower_awaited_let_else_success_continuation(
     }
     if let Some(name) = used_names.iter().next() {
         return Err(format!(
-            "@async-fn awaited #let-else success continuation captures unknown local '{name}'"
+            "@#async-fn awaited #let-else success continuation captures unknown local '{name}'"
         ));
     }
 
@@ -2145,7 +2145,7 @@ fn lower_awaited_let_else_success_continuation(
         let ty = crate::parse(&capture.ty)?
             .into_iter()
             .next()
-            .ok_or_else(|| "@async-fn captured binding type is empty".to_owned())?
+            .ok_or_else(|| "@#async-fn captured binding type is empty".to_owned())?
             .expr;
         parameters.push(Expr::List(if capture.mutable {
             vec![Expr::Symbol("#mut".into()), name.clone(), ty]
@@ -2189,11 +2189,11 @@ fn lower_awaited_let_else_success_continuation(
     let waker_expression = crate::parse(waker)?
         .into_iter()
         .next()
-        .ok_or_else(|| "@async-fn waker type is empty".to_owned())?
+        .ok_or_else(|| "@#async-fn waker type is empty".to_owned())?
         .expr;
     let invocation = Expr::List(vec![
         Expr::At,
-        Expr::Symbol("async-fn".into()),
+        Expr::Symbol("#async-fn".into()),
         Expr::List(vec![
             Expr::Symbol(frame.clone()),
             Expr::Symbol(poll_result.clone()),
@@ -2335,7 +2335,7 @@ fn lower_awaited_let_else_return(
     }
     let (branch_value, branch_prefix) = if let Some(branch_return) = form(&let_else[4], "#return") {
         if branch_return.len() != 2 {
-            return Err("@async-fn #let-else return requires exactly one value".into());
+            return Err("@#async-fn #let-else return requires exactly one value".into());
         }
         (branch_return[1].clone(), None)
     } else if let Some(block) = form(&let_else[4], "#block") {
@@ -2387,7 +2387,7 @@ fn lower_awaited_let_else_return(
                     .and_then(|await_form| await_form.get(1))
                     .cloned()
                     .ok_or_else(|| {
-                        "@async-fn #let-else awaited return has no result type".to_owned()
+                        "@#async-fn #let-else awaited return has no result type".to_owned()
                     })?,
                 branch_value.clone(),
             ]));
@@ -2744,7 +2744,7 @@ fn extract_nested_awaits(
                 || contains_return(statement)
             {
                 return Err(
-                    "@async-fn awaited block prefixes cannot suspend or transfer control".into(),
+                    "@#async-fn awaited block prefixes cannot suspend or transfer control".into(),
                 );
             }
             generated.push(statement.clone());
@@ -2815,7 +2815,7 @@ fn extract_nested_awaits(
             }
             let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
             if !async_task_capture_is_copy(&result_type) {
-                return Err("@async-fn cannot discard a non-Copy #await result in a #block; bind it to a local and consume it explicitly".into());
+                return Err("@#async-fn cannot discard a non-Copy #await result in a #block; bind it to a local and consume it explicitly".into());
             }
         }
     }
@@ -3037,11 +3037,11 @@ fn extract_nested_awaits(
                     return Ok(());
                 }
                 return Err(
-                    "@async-fn cannot lower this nested loop suspension; use a unit-valued loop expression with supported loop control".into(),
+                    "@#async-fn cannot lower this nested loop suspension; use a unit-valued loop expression with supported loop control".into(),
                 );
             }
             if head == "#block" && contains_await {
-                return Err("@async-fn awaits inside #block are not lowered yet".into());
+                return Err("@#async-fn awaits inside #block are not lowered yet".into());
             }
             match head.as_str() {
                 "#quote" | "quote" | "#quasiquote" | "quasiquote" => return Ok(()),
@@ -3056,7 +3056,7 @@ fn extract_nested_awaits(
                         Expr::Symbol(name) => name.clone(),
                         _ if has_suspending_argument => {
                             return Err(
-                                "@async-fn cannot sequence awaited arguments to a computed callee"
+                                "@#async-fn cannot sequence awaited arguments to a computed callee"
                                     .into(),
                             );
                         }
@@ -3108,7 +3108,7 @@ fn extract_nested_awaits(
                             let ty = function_parameter_type(&callee, &parameter)
                                 .or(value_type)
                                 .ok_or_else(|| {
-                                    format!("@async-fn cannot determine the type of argument '{parameter}' to '{callee}' while preserving evaluation order")
+                                    format!("@#async-fn cannot determine the type of argument '{parameter}' to '{callee}' while preserving evaluation order")
                                 })?;
                             let temporary = nested_await_name(source, next_name);
                             generated.push(Expr::List(vec![
@@ -3117,7 +3117,7 @@ fn extract_nested_awaits(
                                 crate::parse(&ty)?
                                     .into_iter()
                                     .next()
-                                    .ok_or_else(|| format!("@async-fn parameter '{parameter}' of '{callee}' has an empty type"))?
+                                    .ok_or_else(|| format!("@#async-fn parameter '{parameter}' of '{callee}' has an empty type"))?
                                     .expr,
                                 value.clone(),
                             ]));
@@ -3136,7 +3136,7 @@ fn extract_nested_awaits(
                         Expr::Symbol(name) => name.clone(),
                         _ if has_suspending_field => {
                             return Err(
-                                "@async-fn cannot sequence awaited fields of a computed struct type"
+                                "@#async-fn cannot sequence awaited fields of a computed struct type"
                                     .into(),
                             );
                         }
@@ -3188,7 +3188,7 @@ fn extract_nested_awaits(
                             let ty = struct_field_type(&structure, &field_name)
                                 .or(value_type)
                                 .ok_or_else(|| {
-                                    format!("@async-fn cannot determine the type of field '{field_name}' in '{structure}' while preserving evaluation order")
+                                    format!("@#async-fn cannot determine the type of field '{field_name}' in '{structure}' while preserving evaluation order")
                                 })?;
                             let temporary = nested_await_name(source, next_name);
                             generated.push(Expr::List(vec![
@@ -3197,7 +3197,7 @@ fn extract_nested_awaits(
                                 crate::parse(&ty)?
                                     .into_iter()
                                     .next()
-                                    .ok_or_else(|| format!("@async-fn field '{field_name}' of '{structure}' has an empty type"))?
+                                    .ok_or_else(|| format!("@#async-fn field '{field_name}' of '{structure}' has an empty type"))?
                                     .expr,
                                 value.clone(),
                             ]));
@@ -3251,7 +3251,7 @@ fn extract_nested_awaits(
                             _ => None,
                         }
                         .ok_or_else(|| {
-                            format!("@async-fn cannot determine the type of aggregate element {} while preserving evaluation order", element_index - start)
+                            format!("@#async-fn cannot determine the type of aggregate element {} while preserving evaluation order", element_index - start)
                         })?;
                         let temporary = nested_await_name(source, next_name);
                         generated.push(Expr::List(vec![
@@ -3261,7 +3261,7 @@ fn extract_nested_awaits(
                                 .into_iter()
                                 .next()
                                 .ok_or_else(|| {
-                                    "@async-fn aggregate element has an empty type".to_owned()
+                                    "@#async-fn aggregate element has an empty type".to_owned()
                                 })?
                                 .expr,
                             item.clone(),
@@ -3316,7 +3316,7 @@ fn extract_nested_awaits(
                                 .into_iter()
                                 .next()
                                 .ok_or_else(|| {
-                                    "@async-fn numeric operand has an empty type".to_owned()
+                                    "@#async-fn numeric operand has an empty type".to_owned()
                                 })?
                                 .expr,
                             operand.clone(),
@@ -3358,7 +3358,7 @@ fn extract_nested_awaits(
                             .as_ref()
                             .and_then(|fields| fields.get(payload_index - 1))
                             .ok_or_else(|| {
-                                format!("@async-fn cannot determine payload {} type for enum variant '{constructor_name}' while preserving evaluation order", payload_index - 1)
+                                format!("@#async-fn cannot determine payload {} type for enum variant '{constructor_name}' while preserving evaluation order", payload_index - 1)
                             })?;
                         let temporary = nested_await_name(source, next_name);
                         generated.push(Expr::List(vec![
@@ -3367,7 +3367,7 @@ fn extract_nested_awaits(
                             crate::parse(payload_type)?
                                 .into_iter()
                                 .next()
-                                .ok_or_else(|| format!("@async-fn payload {} of enum variant '{constructor_name}' has an empty type", payload_index - 1))?
+                                .ok_or_else(|| format!("@#async-fn payload {} of enum variant '{constructor_name}' has an empty type", payload_index - 1))?
                                 .expr,
                             item.clone(),
                         ]));
@@ -3377,7 +3377,7 @@ fn extract_nested_awaits(
             }
         }
         Expr::Block(_) | Expr::Loop(_) if contains_await => {
-            return Err("@async-fn cannot lower suspension inside #block or #loop yet".into());
+            return Err("@#async-fn cannot lower suspension inside #block or #loop yet".into());
         }
         Expr::Labeled { expression, .. } => {
             extract_nested_awaits(
@@ -3868,12 +3868,12 @@ fn extract_statement_awaits(
     }
     for await_form in discarded_awaits {
         if await_form.len() == 6 {
-            return Err("@async-fn a discarded #await result requires an explicit type so Copy can be checked".into());
+            return Err("@#async-fn a discarded #await result requires an explicit type so Copy can be checked".into());
         }
         if await_form.len() == 7 {
             let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
             if !async_task_capture_is_copy(&result_type) {
-                return Err("@async-fn cannot discard a non-Copy #await result; bind it to a local and consume it explicitly".into());
+                return Err("@#async-fn cannot discard a non-Copy #await result; bind it to a local and consume it explicitly".into());
             }
         }
     }
@@ -3883,7 +3883,7 @@ fn extract_statement_awaits(
         .or_else(|| form(statement, "let-mut"))
     {
         if items.len() != 4 {
-            return Err("@async-fn local declaration requires a pattern, type, and value".into());
+            return Err("@#async-fn local declaration requires a pattern, type, and value".into());
         }
         if let Some(await_form) = form(&items[3], "#await") {
             let has_pattern = matches!(&items[1], Expr::List(_));
@@ -3939,11 +3939,11 @@ fn extract_statement_awaits(
         )?;
     } else if let Some(items) = form(statement, "#let-else") {
         if items.len() != 5 {
-            return Err("@async-fn #let-else requires pattern, type, value, and else body".into());
+            return Err("@#async-fn #let-else requires pattern, type, value, and else body".into());
         }
         if has_await(&items[4]) {
             return Err(
-                "@async-fn cannot lower #await inside a #let-else diverging body yet".into(),
+                "@#async-fn cannot lower #await inside a #let-else diverging body yet".into(),
             );
         }
         let Expr::List(statement_items) = statement else {
@@ -3953,7 +3953,7 @@ fn extract_statement_awaits(
             let task_index = match await_form.len() {
                 6 => 5,
                 7 => 6,
-                _ => return Err("@async-fn #let-else scrutinee #await requires (#await [Type] Child Pending Ready poll task)".into()),
+                _ => return Err("@#async-fn #let-else scrutinee #await requires (#await [Type] Child Pending Ready poll task)".into()),
             };
             if has_await(&await_form[task_index]) {
                 let Expr::List(await_items) = &mut statement_items[3] else {
@@ -4003,7 +4003,7 @@ fn extract_statement_awaits(
             unreachable!()
         };
         if items.len() != 2 {
-            return Err("@async-fn #return requires exactly one value".into());
+            return Err("@#async-fn #return requires exactly one value".into());
         }
         extract_nested_awaits(
             &mut items[1],
@@ -4092,7 +4092,7 @@ fn async_while_body_child(
             } else if form(expression, "#return").is_some() {
                 Ok(expression.clone())
             } else if has_outer_loop_control(expression) {
-                Err("@async-fn composed awaited while transfers must be terminal".into())
+                Err("@#async-fn composed awaited while transfers must be terminal".into())
             } else {
                 Ok(Expr::List(vec![
                     Expr::Symbol("#block".into()),
@@ -4106,7 +4106,7 @@ fn async_while_body_child(
         {
             if control.len() != 1 {
                 return Err(
-                    "@async-fn composed awaited while body does not support labeled transfers"
+                    "@#async-fn composed awaited while body does not support labeled transfers"
                         .into(),
                 );
             }
@@ -4129,7 +4129,7 @@ fn async_while_body_child(
                 return Ok(None);
             };
             if items[..items.len() - 1].iter().any(has_outer_loop_control) {
-                return Err("@async-fn composed awaited while transfers must be terminal".into());
+                return Err("@#async-fn composed awaited while transfers must be terminal".into());
             }
             let mut block = items.to_vec();
             *block.last_mut().expect("block has a terminal expression") = status;
@@ -4144,7 +4144,7 @@ fn async_while_body_child(
             {
                 if has_outer_loop_control(&items[1]) {
                     return Err(
-                        "@async-fn composed awaited while condition cannot transfer loop control"
+                        "@#async-fn composed awaited while condition cannot transfer loop control"
                             .into(),
                     );
                 }
@@ -4164,7 +4164,7 @@ fn async_while_body_child(
             {
                 if has_outer_loop_control(&items[1]) {
                     return Err(
-                        "@async-fn composed awaited while match value cannot transfer loop control"
+                        "@#async-fn composed awaited while match value cannot transfer loop control"
                             .into(),
                     );
                 }
@@ -4172,7 +4172,7 @@ fn async_while_body_child(
                 for arm in &mut rewritten[2..] {
                     let Some(case) = form(arm, "#case") else {
                         return Err(
-                            "@async-fn composed awaited while match transfers require #case arms"
+                            "@#async-fn composed awaited while match transfers require #case arms"
                                 .into(),
                         );
                     };
@@ -4180,7 +4180,7 @@ fn async_while_body_child(
                         3 => 2,
                         4 if form(&case[2], "#when").is_some() => 3,
                         _ => return Err(
-                            "@async-fn composed awaited while match transfer has an invalid arm"
+                            "@#async-fn composed awaited while match transfer has an invalid arm"
                                 .into(),
                         ),
                     };
@@ -4270,7 +4270,7 @@ fn async_while_body_child(
         let parsed = crate::parse(&capture.ty)?;
         let ty = parsed
             .first()
-            .ok_or_else(|| "@async-fn body capture type is empty".to_owned())?;
+            .ok_or_else(|| "@#async-fn body capture type is empty".to_owned())?;
         let ty = parse_type(Some(&normalize_keywords(ty.expr.clone())))?;
         if !async_task_capture_is_copy(&ty)
             && !async_task_capture_is_mutable_reference(&ty)
@@ -4278,7 +4278,7 @@ fn async_while_body_child(
             && !(capture.mutable && mutated.contains(&capture.name))
         {
             return Err(format!(
-                "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
+                "@#async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
                 capture.name
             ));
         }
@@ -4317,7 +4317,7 @@ fn async_while_body_child(
             let await_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
             if binding_type != await_type {
                 return Err(format!(
-                    "@async-fn nested body await result type does not match binding '{}'",
+                    "@#async-fn nested body await result type does not match binding '{}'",
                     binding(statement, "awaited body local")?.name
                 ));
             }
@@ -4340,7 +4340,7 @@ fn async_while_body_child(
     }
     if child_body.iter().any(has_outer_loop_control) {
         return Err(
-            "@async-fn composed awaited while body transfers must be terminal statements".into(),
+            "@#async-fn composed awaited while body transfers must be terminal statements".into(),
         );
     }
     let body_status_type = Expr::Symbol("bool".into());
@@ -4353,7 +4353,7 @@ fn async_while_body_child(
                 crate::parse(&capture.ty)?
                     .into_iter()
                     .next()
-                    .ok_or_else(|| "@async-fn mutable body capture type is empty".to_owned())?
+                    .ok_or_else(|| "@#async-fn mutable body capture type is empty".to_owned())?
                     .expr,
             );
         }
@@ -4361,7 +4361,7 @@ fn async_while_body_child(
     };
     let body_return = if has_return {
         let return_type = return_type.ok_or_else(|| {
-            "@async-fn composed awaited while body return requires the enclosing function return type"
+            "@#async-fn composed awaited while body return requires the enclosing function return type"
                 .to_owned()
         })?;
         let outcome_type = fresh_async_name(source, next_name);
@@ -4383,12 +4383,12 @@ fn async_while_body_child(
     }
     if return_true_on_initial_let_else_mismatch {
         let Some(Expr::List(let_else)) = child_body.first_mut() else {
-            return Err("@async-fn child mismatch return requires a leading #let-else".into());
+            return Err("@#async-fn child mismatch return requires a leading #let-else".into());
         };
         if !matches!(let_else.first(), Some(Expr::Symbol(head)) if head == "#let-else")
             || let_else.len() != 5
         {
-            return Err("@async-fn child mismatch return requires a leading #let-else".into());
+            return Err("@#async-fn child mismatch return requires a leading #let-else".into());
         }
         let mut mismatch_value = if mutable_outputs.is_empty() {
             Expr::Symbol("true".into())
@@ -4418,7 +4418,7 @@ fn async_while_body_child(
         let ty = crate::parse(&capture.ty)?
             .into_iter()
             .next()
-            .ok_or_else(|| "@async-fn body capture type is empty".to_owned())?
+            .ok_or_else(|| "@#async-fn body capture type is empty".to_owned())?
             .expr;
         parameters.push(Expr::List(
             if capture.mutable && mutated.contains(&capture.name) {
@@ -4595,11 +4595,11 @@ fn async_while_body_child(
     let waker = crate::parse(waker)?
         .into_iter()
         .next()
-        .ok_or_else(|| "@async-fn waker type is empty".to_owned())?
+        .ok_or_else(|| "@#async-fn waker type is empty".to_owned())?
         .expr;
     let invocation = Expr::List(vec![
         Expr::At,
-        Expr::Symbol("async-fn".into()),
+        Expr::Symbol("#async-fn".into()),
         Expr::List(vec![
             Expr::Symbol(frame.clone()),
             Expr::Symbol(poll_result.clone()),
@@ -4667,7 +4667,7 @@ fn rewrite_async_child_returns(expression: &mut Expr, return_variant: &str) -> R
             }
             if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#return") {
                 if items.len() != 2 {
-                    return Err("@async-fn child #return requires exactly one value".into());
+                    return Err("@#async-fn child #return requires exactly one value".into());
                 }
                 items[1] = Expr::List(vec![Expr::Symbol(return_variant.into()), items[1].clone()]);
                 return Ok(());
@@ -4752,7 +4752,7 @@ fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String>
                                     let binding_type = parse_type(Some(&binding_type_expression))?;
                                     if await_type != binding_type {
                                         return Err(format!(
-                                            "@async-fn {loop_name} #await result type does not match binding '{binding_name}'"
+                                            "@#async-fn {loop_name} #await result type does not match binding '{binding_name}'"
                                         ));
                                     }
                                     await_items.remove(1);
@@ -4781,7 +4781,7 @@ fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String>
                             let bool_type = parse_type(Some(&Expr::Symbol("bool".into())))?;
                             if await_type != bool_type {
                                 return Err(
-                                    "@async-fn nested while condition await must produce #bool"
+                                    "@#async-fn nested while condition await must produce #bool"
                                         .into(),
                                 );
                             }
@@ -4805,7 +4805,7 @@ fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String>
                                     )))?;
                                     if binding_type != await_type {
                                         return Err(
-                                            "@async-fn nested loop await result type does not match its binding"
+                                            "@#async-fn nested loop await result type does not match its binding"
                                                 .into(),
                                         );
                                     }
@@ -5018,18 +5018,18 @@ fn lower_async_while_let_body_await(
 ) -> Result<Option<(Vec<Expr>, String, Vec<(String, Binding)>)>, String> {
     if items.len() < 5 {
         return Err(
-            "@async-fn awaited #while-let body suspension requires a direct binding".into(),
+            "@#async-fn awaited #while-let body suspension requires a direct binding".into(),
         );
     }
     let body = &items[3..];
     if body[1..].iter().any(has_await) {
-        return Err("@async-fn awaited #while-let supports one direct body-await binding".into());
+        return Err("@#async-fn awaited #while-let supports one direct body-await binding".into());
     }
     let body_binding = binding(&body[0], "awaited while-let body")?;
     let body_form = form(&body[0], "#let")
         .or_else(|| form(&body[0], "#let-mut"))
         .ok_or_else(|| {
-            "@async-fn awaited #while-let body suspension requires a direct binding".to_owned()
+            "@#async-fn awaited #while-let body suspension requires a direct binding".to_owned()
         })?;
     let (body_await, body_helper) = if let Some(await_form) = form(&body_form[3], "#await") {
         let awaited = if await_form.len() == 6 {
@@ -5058,13 +5058,13 @@ fn lower_async_while_let_body_await(
         )
     } else {
         return Err(
-            "@async-fn awaited #while-let body binding requires a direct or conditional #await"
+            "@#async-fn awaited #while-let body binding requires a direct or conditional #await"
                 .into(),
         );
     };
     if body_await.len() != 7 || has_await(&body_await[6]) || has_await(&condition_await[6]) {
         return Err(
-            "@async-fn awaited #while-let composition requires non-suspending child-task expressions".into(),
+            "@#async-fn awaited #while-let composition requires non-suspending child-task expressions".into(),
         );
     }
 
@@ -5079,11 +5079,11 @@ fn lower_async_while_let_body_await(
         let parsed_type = crate::parse(&capture.ty)?;
         let type_expression = parsed_type
             .first()
-            .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
+            .ok_or_else(|| "@#async-fn capture type is empty".to_owned())?;
         let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
         if !async_task_capture_is_copy(&ty) {
             return Err(format!(
-                "@async-fn composed awaited while-let body captures non-Copy local '{}'; move its task inputs into an explicit child task",
+                "@#async-fn composed awaited while-let body captures non-Copy local '{}'; move its task inputs into an explicit child task",
                 capture.name
             ));
         }
@@ -5404,7 +5404,7 @@ fn lower_async_while(
                     let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
                     if result_type != Type::Bool {
                         return Err(
-                            "@async-fn awaited #while condition #await result type must be #bool"
+                            "@#async-fn awaited #while condition #await result type must be #bool"
                                 .into(),
                         );
                     }
@@ -5412,7 +5412,7 @@ fn lower_async_while(
                 }
                 _ => {
                     return Err(
-                        "@async-fn awaited #while condition requires (#await [#bool] Child Pending Ready poll task)"
+                        "@#async-fn awaited #while condition requires (#await [#bool] Child Pending Ready poll task)"
                             .into(),
                     );
                 }
@@ -5423,7 +5423,7 @@ fn lower_async_while(
                 || has_await(await_form.last().expect("await has a task"))
             {
                 return Err(
-                    "@async-fn awaited #while body cannot return in this shape yet; early return requires a terminal condition await and a continuation without control transfers"
+                    "@#async-fn awaited #while body cannot return in this shape yet; early return requires a terminal condition await and a continuation without control transfers"
                         .into(),
                 );
             }
@@ -5446,32 +5446,33 @@ fn lower_async_while(
                 )
             };
             let result_name = fresh_async_name(source, next_name);
-            let (false_branch, consumes_return_await) =
-                if let Some(await_form) = form(return_value, "#await") {
-                    let typed_await = match await_form.len() {
-                        6 => std::iter::once(Expr::Symbol("#await".into()))
-                            .chain(std::iter::once(return_type.clone()))
-                            .chain(await_form[1..].iter().cloned())
-                            .collect(),
-                        7 => await_form.to_vec(),
-                        _ => return Err("@async-fn final #return await has an invalid form".into()),
-                    };
-                    (Expr::List(typed_await), true)
-                } else {
-                    (
-                        if following.is_empty() {
-                            return_value.clone()
-                        } else {
-                            Expr::List(
-                                std::iter::once(Expr::Symbol("#block".into()))
-                                    .chain(following.iter().cloned())
-                                    .chain(std::iter::once(return_value.clone()))
-                                    .collect(),
-                            )
-                        },
-                        false,
-                    )
+            let (false_branch, consumes_return_await) = if let Some(await_form) =
+                form(return_value, "#await")
+            {
+                let typed_await = match await_form.len() {
+                    6 => std::iter::once(Expr::Symbol("#await".into()))
+                        .chain(std::iter::once(return_type.clone()))
+                        .chain(await_form[1..].iter().cloned())
+                        .collect(),
+                    7 => await_form.to_vec(),
+                    _ => return Err("@#async-fn final #return await has an invalid form".into()),
                 };
+                (Expr::List(typed_await), true)
+            } else {
+                (
+                    if following.is_empty() {
+                        return_value.clone()
+                    } else {
+                        Expr::List(
+                            std::iter::once(Expr::Symbol("#block".into()))
+                                .chain(following.iter().cloned())
+                                .chain(std::iter::once(return_value.clone()))
+                                .collect(),
+                        )
+                    },
+                    false,
+                )
+            };
             replacement.push(Expr::List(vec![
                 Expr::Symbol("#let".into()),
                 Expr::Symbol(result_name.clone()),
@@ -5611,7 +5612,7 @@ fn lower_async_while_with_return_continue(
                     .chain(await_form[1..].iter().cloned())
                     .collect(),
                 7 => await_form.to_vec(),
-                _ => return Err("@async-fn final #return await has an invalid form".into()),
+                _ => return Err("@#async-fn final #return await has an invalid form".into()),
             };
             (Expr::List(typed_await), true)
         } else {
@@ -6042,7 +6043,7 @@ fn lower_async_while_with_transfers(
     if let Some(items) = form(statement, "#while-let") {
         if items.len() < 4 {
             return Err(
-                "@async-fn awaited #while-let requires a pattern, awaited value, and body".into(),
+                "@#async-fn awaited #while-let requires a pattern, awaited value, and body".into(),
             );
         }
         if has_suspending_await_input(&items[2]) {
@@ -6087,7 +6088,7 @@ fn lower_async_while_with_transfers(
                 waker,
             )?
             else {
-                return Err("@async-fn failed to lower while-let task dependencies".into());
+                return Err("@#async-fn failed to lower while-let task dependencies".into());
             };
             dependencies.push(helper);
             return Ok(Some((replacement, dependencies.join("\n"), renames)));
@@ -6129,12 +6130,12 @@ fn lower_async_while_with_transfers(
                 )
             } else {
                 return Err(
-                        "@async-fn #while-let requires an awaited scrutinee with an explicit result type".into(),
+                        "@#async-fn #while-let requires an awaited scrutinee with an explicit result type".into(),
                     );
             };
             if await_form.len() != 7 {
                 return Err(
-                    "@async-fn #while-let requires an explicitly typed #await value".into(),
+                    "@#async-fn #while-let requires an explicitly typed #await value".into(),
                 );
             }
             parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
@@ -6196,7 +6197,7 @@ fn lower_async_while_with_transfers(
             }
             let terminal_index = items.len() - 1;
             if items[3..terminal_index].iter().any(contains_loop_control) {
-                return Err("@async-fn #while-let transfers must be terminal statements".into());
+                return Err("@#async-fn #while-let transfers must be terminal statements".into());
             }
 
             let result_name = fresh_async_name(source, next_name);
@@ -6316,7 +6317,7 @@ fn lower_async_while_with_transfers(
             })
         })
         .ok_or_else(|| {
-            "@async-fn cannot resolve the declared type of a synchronous #while-let scrutinee"
+            "@#async-fn cannot resolve the declared type of a synchronous #while-let scrutinee"
                 .to_owned()
         })?;
         let (awaited, helper) = immediate_await(
@@ -6343,7 +6344,7 @@ fn lower_async_while_with_transfers(
             waker,
         )?
         else {
-            return Err("@async-fn failed to lower synchronous while-let scrutinee".into());
+            return Err("@#async-fn failed to lower synchronous while-let scrutinee".into());
         };
         return Ok(Some((
             replacement,
@@ -6355,7 +6356,7 @@ fn lower_async_while_with_transfers(
         return Ok(None);
     };
     if items.len() < 3 {
-        return Err("@async-fn awaited #while requires a condition and body".into());
+        return Err("@#async-fn awaited #while requires a condition and body".into());
     }
     let mut condition = items[1].clone();
     normalize_short_circuit_await(&mut condition);
@@ -6404,7 +6405,7 @@ fn lower_async_while_with_transfers(
             waker,
         )?
         else {
-            return Err("@async-fn failed to lower condition task dependencies".into());
+            return Err("@#async-fn failed to lower condition task dependencies".into());
         };
         dependencies.push(helper);
         return Ok(Some((replacement, dependencies.join("\n"), renames)));
@@ -6444,7 +6445,7 @@ fn lower_async_while_with_transfers(
             )
         } else {
             return Err(
-                "@async-fn awaited #while condition requires a direct #await or conditional #if with a direct #await branch".into(),
+                "@#async-fn awaited #while condition requires a direct #await or conditional #if with a direct #await branch".into(),
             );
         };
         match await_form.len() {
@@ -6453,7 +6454,7 @@ fn lower_async_while_with_transfers(
                 let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
                 if result_type != Type::Bool {
                     return Err(
-                        "@async-fn awaited #while condition #await result type must be #bool"
+                        "@#async-fn awaited #while condition #await result type must be #bool"
                             .into(),
                     );
                 }
@@ -6461,7 +6462,7 @@ fn lower_async_while_with_transfers(
             }
             _ => {
                 return Err(
-                    "@async-fn awaited #while condition requires (#await [#bool] Child Pending Ready poll task)"
+                    "@#async-fn awaited #while condition requires (#await [#bool] Child Pending Ready poll task)"
                         .into(),
                 );
             }
@@ -6529,7 +6530,7 @@ fn lower_async_while_with_transfers(
                 let body_form = form(&body[0], "#let")
                     .or_else(|| form(&body[0], "#let-mut"))
                     .ok_or_else(|| {
-                        "@async-fn awaited while body suspension requires a direct binding"
+                        "@#async-fn awaited while body suspension requires a direct binding"
                             .to_owned()
                     })?
                     .to_vec();
@@ -6558,7 +6559,7 @@ fn lower_async_while_with_transfers(
                     )
                 } else {
                     return Err(
-                                "@async-fn awaited while body binding requires a direct or conditional #await"
+                                "@#async-fn awaited while body binding requires a direct or conditional #await"
                                     .into(),
                             );
                 };
@@ -6583,7 +6584,7 @@ fn lower_async_while_with_transfers(
                 let parsed_type = crate::parse(&output.ty)?;
                 let type_expression = parsed_type
                     .first()
-                    .ok_or_else(|| "@async-fn mutable body output type is empty".to_owned())?;
+                    .ok_or_else(|| "@#async-fn mutable body output type is empty".to_owned())?;
                 let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
                 if !async_task_capture_is_copy(&ty) || async_task_capture_is_mutable_reference(&ty)
                 {
@@ -6603,13 +6604,13 @@ fn lower_async_while_with_transfers(
                     != parse_type(Some(&normalize_keywords(body_form[2].clone())))?
             {
                 return Err(format!(
-                    "@async-fn #await result type does not match binding '{}'",
+                    "@#async-fn #await result type does not match binding '{}'",
                     body_binding.name
                 ));
             }
             if body_await.len() != 7 || has_await(&body_await[6]) || has_await(&await_form[5]) {
                 return Err(
-                    "@async-fn awaited while condition/body composition requires direct awaits with non-suspending child-task expressions".into(),
+                    "@#async-fn awaited while condition/body composition requires direct awaits with non-suspending child-task expressions".into(),
                 );
             }
             let mut task_names = HashSet::new();
@@ -6623,7 +6624,7 @@ fn lower_async_while_with_transfers(
                 let parsed_type = crate::parse(&capture.ty)?;
                 let type_expression = parsed_type
                     .first()
-                    .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
+                    .ok_or_else(|| "@#async-fn capture type is empty".to_owned())?;
                 let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
                 if !async_task_capture_is_copy(&ty)
                     && !async_task_capture_is_mutable_reference(&ty)
@@ -6633,7 +6634,7 @@ fn lower_async_while_with_transfers(
                         .any(|output| output.name == capture.name)
                 {
                     return Err(format!(
-                        "@async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
+                        "@#async-fn composed awaited while body captures non-Copy local '{}'; move its task inputs into an explicit child task",
                         capture.name
                     ));
                 }
@@ -6673,7 +6674,7 @@ fn lower_async_while_with_transfers(
                 let parsed_type = crate::parse(&capture.ty)?;
                 let type_expression = parsed_type
                     .first()
-                    .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
+                    .ok_or_else(|| "@#async-fn capture type is empty".to_owned())?;
                 let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
                 if !async_task_capture_is_mutable_reference(&ty)
                     && !owned_captures.contains(&capture.name)
@@ -6731,7 +6732,7 @@ fn lower_async_while_with_transfers(
                 } else {
                     if body_return.is_some() {
                         return Err(
-                            "@async-fn returning multi-await loop bodies cannot transfer mutable captures yet"
+                            "@#async-fn returning multi-await loop bodies cannot transfer mutable captures yet"
                                 .into(),
                         );
                     }
@@ -6739,7 +6740,7 @@ fn lower_async_while_with_transfers(
                     let Expr::List(body_type_items) = &body_result_type_expr else {
                         return Err(
                             format!(
-                                "@async-fn reference transfer requires a tuple body result, got {body_result_type}"
+                                "@#async-fn reference transfer requires a tuple body result, got {body_result_type}"
                             ),
                         );
                     };
@@ -6747,7 +6748,7 @@ fn lower_async_while_with_transfers(
                     {
                         return Err(
                             format!(
-                                "@async-fn reference transfer requires a tuple body result, got {body_result_type}"
+                                "@#async-fn reference transfer requires a tuple body result, got {body_result_type}"
                             ),
                         );
                     }
@@ -6758,7 +6759,7 @@ fn lower_async_while_with_transfers(
                             || !transferred_indices.insert(transfer.result_index)
                         {
                             return Err(
-                                "@async-fn reference transfer has an invalid tuple field".into()
+                                "@#async-fn reference transfer has an invalid tuple field".into()
                             );
                         }
                         let field_ty = parse_type(Some(&normalize_keywords(
@@ -6769,7 +6770,7 @@ fn lower_async_while_with_transfers(
                         let transfer_ty = parse_type(Some(&transfer_type_expr))?;
                         if field_ty != transfer_ty {
                             return Err(format!(
-                                "@async-fn reference transfer '{}' does not match its result field",
+                                "@#async-fn reference transfer '{}' does not match its result field",
                                 transfer.name
                             ));
                         }
@@ -7118,7 +7119,7 @@ fn lower_async_while_with_transfers(
             .iter()
             .any(|expression| matches!(form(expression, "#return"), Some(_)))
         {
-            return Err("@async-fn awaited #while body cannot return yet".into());
+            return Err("@#async-fn awaited #while body cannot return yet".into());
         }
 
         let terminal = body
@@ -7130,12 +7131,12 @@ fn lower_async_while_with_transfers(
             body
         };
         if prefix.iter().any(contains_loop_control) {
-            return Err("@async-fn awaited #while transfers must be terminal statements".into());
+            return Err("@#async-fn awaited #while transfers must be terminal statements".into());
         }
         if let Some(terminal) = terminal {
             let mut probe = terminal.clone();
             if !rewrite_terminal_loop_control(&mut probe, "lim.async.done")? {
-                return Err("@async-fn awaited #while has unsupported loop control".into());
+                return Err("@#async-fn awaited #while has unsupported loop control".into());
             }
         }
 
@@ -7240,7 +7241,7 @@ fn lower_async_while_with_transfers(
             let await_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
             if binding_type != await_type {
                 return Err(
-                    "@async-fn generated loop body task result type does not match its binding"
+                    "@#async-fn generated loop body task result type does not match its binding"
                         .into(),
                 );
             }
@@ -7386,7 +7387,7 @@ fn lower_async_while_with_transfers(
             waker,
         )?
         else {
-            return Err("@async-fn failed to lower multi-await loop body".into());
+            return Err("@#async-fn failed to lower multi-await loop body".into());
         };
         replacement.insert(
             0,
@@ -7412,15 +7413,17 @@ fn lower_async_while_with_transfers(
             let second_binding = binding(&body[second_index], "second loop await")?;
             let first_form = form(&body[first_index], "#let")
                 .or_else(|| form(&body[first_index], "#let-mut"))
-                .ok_or_else(|| "@async-fn first loop await must be a direct binding".to_owned())?;
+                .ok_or_else(|| "@#async-fn first loop await must be a direct binding".to_owned())?;
             let second_form = form(&body[second_index], "#let")
                 .or_else(|| form(&body[second_index], "#let-mut"))
-                .ok_or_else(|| "@async-fn second loop await must be a direct binding".to_owned())?;
+                .ok_or_else(|| {
+                    "@#async-fn second loop await must be a direct binding".to_owned()
+                })?;
             let first_await = form(&first_form[3], "#await").ok_or_else(|| {
-                "@async-fn first loop binding must be initialized directly by #await".to_owned()
+                "@#async-fn first loop binding must be initialized directly by #await".to_owned()
             })?;
             let second_await = form(&second_form[3], "#await").ok_or_else(|| {
-                "@async-fn second loop binding must be initialized directly by #await".to_owned()
+                "@#async-fn second loop binding must be initialized directly by #await".to_owned()
             })?;
             if first_await.len() != 6
                 || second_await.len() != 6
@@ -7428,7 +7431,7 @@ fn lower_async_while_with_transfers(
                 || has_await(&second_await[5])
             {
                 return Err(
-                    "@async-fn sequenced loop awaits require direct bindings and non-suspending task expressions".into(),
+                    "@#async-fn sequenced loop awaits require direct bindings and non-suspending task expressions".into(),
                 );
             }
             let middle = &body[first_index + 1..second_index];
@@ -7442,7 +7445,7 @@ fn lower_async_while_with_transfers(
                     || form(expression, "#return").is_some()
                 {
                     return Err(
-                        "@async-fn statements between loop awaits must be nonbinding, noncontrol, and nonsuspending expressions".into(),
+                        "@#async-fn statements between loop awaits must be nonbinding, noncontrol, and nonsuspending expressions".into(),
                     );
                 }
             }
@@ -7453,7 +7456,7 @@ fn lower_async_while_with_transfers(
                 .find(|name| **name != first_binding.name && known.contains_key(*name))
             {
                 return Err(format!(
-                    "@async-fn second loop task uses outer local '{name}'; carry it in the first child result"
+                    "@#async-fn second loop task uses outer local '{name}'; carry it in the first child result"
                 ));
             }
             let mut middle_names = HashSet::new();
@@ -7465,7 +7468,7 @@ fn lower_async_while_with_transfers(
                 .find(|name| **name != first_binding.name && known.contains_key(*name))
             {
                 return Err(format!(
-                    "@async-fn statement between loop awaits uses outer local '{name}'; carry it in the first child result"
+                    "@#async-fn statement between loop awaits uses outer local '{name}'; carry it in the first child result"
                 ));
             }
             let prefix_bindings = body[..first_index]
@@ -7480,7 +7483,7 @@ fn lower_async_while_with_transfers(
                 .find(|binding| second_task_names.contains(&binding.name))
             {
                 return Err(format!(
-                    "@async-fn second loop task uses per-iteration local '{}'; carry it in the first child result",
+                    "@#async-fn second loop task uses per-iteration local '{}'; carry it in the first child result",
                     binding.name
                 ));
             }
@@ -7489,7 +7492,7 @@ fn lower_async_while_with_transfers(
                 .find(|binding| middle_names.contains(&binding.name))
             {
                 return Err(format!(
-                    "@async-fn statement between loop awaits uses per-iteration local '{}'; carry it in the first child result",
+                    "@#async-fn statement between loop awaits uses per-iteration local '{}'; carry it in the first child result",
                     binding.name
                 ));
             }
@@ -7673,7 +7676,7 @@ fn lower_async_while_with_transfers(
             return Ok(Some((replacement, helper, renames)));
         }
         return Err(
-            "@async-fn loop lowering currently requires exactly one await binding per iteration"
+            "@#async-fn loop lowering currently requires exactly one await binding per iteration"
                 .into(),
         );
     }
@@ -7681,7 +7684,7 @@ fn lower_async_while_with_transfers(
     let await_binding = binding(&body[await_index], "loop await")?;
     let binding_form = form(&body[await_index], "#let")
         .or_else(|| form(&body[await_index], "#let-mut"))
-        .ok_or_else(|| "@async-fn loop await must be a direct binding".to_owned())?;
+        .ok_or_else(|| "@#async-fn loop await must be a direct binding".to_owned())?;
     let (await_form, branch_helper) = if let Some(await_form) = form(&binding_form[3], "#await") {
         (await_form.to_vec(), String::new())
     } else if let Some((protocol, task, helper)) =
@@ -7700,11 +7703,11 @@ fn lower_async_while_with_transfers(
         )
     } else {
         return Err(
-            "@async-fn loop binding requires a direct #await or conditional #if/#match with a direct #await branch".into(),
+            "@#async-fn loop binding requires a direct #await or conditional #if/#match with a direct #await branch".into(),
         );
     };
     if await_form.len() != 6 || has_await(&await_form[5]) {
-        return Err("@async-fn loop #await requires one non-suspending child task".into());
+        return Err("@#async-fn loop #await requires one non-suspending child task".into());
     }
     let prefix = &body[..await_index];
     if prefix.iter().any(|expression| {
@@ -7716,7 +7719,7 @@ fn lower_async_while_with_transfers(
                         if matches!(head.as_str(), "#let-else" | "#return" | "#break" | "#continue"))
             )
     }) {
-        return Err("@async-fn loop-await prefix cannot suspend or transfer control".into());
+        return Err("@#async-fn loop-await prefix cannot suspend or transfer control".into());
     }
     let suffix = &body[await_index + 1..];
     let terminal_loop_transfer = suffix.last().and_then(|expression| {
@@ -7747,7 +7750,7 @@ fn lower_async_while_with_transfers(
                         if matches!(head.as_str(), "#return" | "#break" | "#continue"))
             )
     }) {
-        return Err("@async-fn loop-await suffix cannot suspend or transfer control".into());
+        return Err("@#async-fn loop-await suffix cannot suspend or transfer control".into());
     }
 
     let mut prefix_bindings = HashSet::new();
@@ -7756,7 +7759,7 @@ fn lower_async_while_with_transfers(
             let local = binding(expression, "loop-await prefix")?;
             if known.contains_key(&local.name) {
                 return Err(format!(
-                    "@async-fn loop-await prefix binding '{}' shadows an existing name",
+                    "@#async-fn loop-await prefix binding '{}' shadows an existing name",
                     local.name
                 ));
             }
@@ -7772,7 +7775,7 @@ fn lower_async_while_with_transfers(
         .find(|name| suffix_names.contains(name.as_str()))
     {
         return Err(format!(
-            "@async-fn loop-await local '{}' is not available after suspension; move it into the child task or a captured value",
+            "@#async-fn loop-await local '{}' is not available after suspension; move it into the child task or a captured value",
             name
         ));
     }
@@ -7795,30 +7798,30 @@ fn lower_async_while_with_transfers(
             .find(|capture| capture.name == transfer.name)
             .ok_or_else(|| {
                 format!(
-                    "@async-fn transferred reference '{}' is not a live loop capture",
+                    "@#async-fn transferred reference '{}' is not a live loop capture",
                     transfer.name
                 )
             })?;
         if capture.ty != transfer.ty || transfer_bindings.contains_key(&transfer.name) {
             return Err(format!(
-                "@async-fn has an invalid transfer descriptor for '{}'",
+                "@#async-fn has an invalid transfer descriptor for '{}'",
                 transfer.name
             ));
         }
         let parsed_type = crate::parse(&capture.ty)?;
         let type_expression = parsed_type
             .first()
-            .ok_or_else(|| "@async-fn reference transfer type is empty".to_owned())?;
+            .ok_or_else(|| "@#async-fn reference transfer type is empty".to_owned())?;
         let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
         if !transfer.owned && !async_task_capture_is_mutable_reference(&ty) {
             return Err(format!(
-                "@async-fn transfer '{}' is not a mutable reference",
+                "@#async-fn transfer '{}' is not a mutable reference",
                 transfer.name
             ));
         }
         if transfer.owned && async_task_capture_is_copy(&ty) {
             return Err(format!(
-                "@async-fn owned transfer '{}' must have a linear type",
+                "@#async-fn owned transfer '{}' must have a linear type",
                 transfer.name
             ));
         }
@@ -7867,8 +7870,9 @@ fn lower_async_while_with_transfers(
     let task_pending = format!("{base}-pending");
     let task_ready = format!("{base}-ready");
     let loop_return = if suffix_body.iter().any(contains_return) {
-        let enclosing_type = return_type
-            .ok_or_else(|| "@async-fn loop return requires its enclosing result type".to_owned())?;
+        let enclosing_type = return_type.ok_or_else(|| {
+            "@#async-fn loop return requires its enclosing result type".to_owned()
+        })?;
         let outcome = format!("{base}-exit");
         let completed = format!("{base}-completed");
         let returned = format!("{base}-returned");
@@ -8280,7 +8284,7 @@ fn lower_async_for_range(
         return Ok(None);
     };
     if items.len() < 5 {
-        return Err("@async-fn #for-range await requires a binding, bounds, and body".into());
+        return Err("@#async-fn #for-range await requires a binding, bounds, and body".into());
     }
     let bounds_suspend = has_await(&items[2]) || has_await(&items[3]);
     if bounds_suspend {
@@ -8308,7 +8312,7 @@ fn lower_async_for_range(
         )?;
         if !generated.iter().any(has_await) {
             return Err(
-                "@async-fn #for-range bounds require explicitly typed #await expressions".into(),
+                "@#async-fn #for-range bounds require explicitly typed #await expressions".into(),
             );
         }
         let mut range = statement.clone();
@@ -8350,10 +8354,10 @@ fn lower_async_for_range(
         return Ok(Some((generated, helper, renames)));
     }
     let Expr::List(range_binding) = &items[1] else {
-        return Err("@async-fn #for-range binding must have the form (name Type)".into());
+        return Err("@#async-fn #for-range binding must have the form (name Type)".into());
     };
     if range_binding.len() != 2 {
-        return Err("@async-fn #for-range binding must have the form (name Type)".into());
+        return Err("@#async-fn #for-range binding must have the form (name Type)".into());
     }
     let iteration_name = symbol(&range_binding[0], "for-range binding name")?.to_owned();
     let iteration_type = expression_source(&range_binding[1])?;
@@ -8373,7 +8377,7 @@ fn lower_async_for_range(
             | "isize"
     ) {
         return Err(format!(
-            "@async-fn #for-range await requires an integer index type, got '{iteration_type}'"
+            "@#async-fn #for-range await requires an integer index type, got '{iteration_type}'"
         ));
     }
 
@@ -8446,7 +8450,7 @@ fn lower_async_for_range(
         waker,
     )?
     else {
-        return Err("@async-fn failed to lower awaited #for-range".into());
+        return Err("@#async-fn failed to lower awaited #for-range".into());
     };
     replacement.insert(0, index_binding);
     Ok(Some((replacement, helper, renames)))
@@ -8480,7 +8484,7 @@ fn async_for_body_step_task(
                 found_return |= rewrite_async_for_return_marker(expression, transfer_name)?;
             }
             if !found_return {
-                return Err("@async-fn lost a three-phase #for return during lowering".into());
+                return Err("@#async-fn lost a three-phase #for return during lowering".into());
             }
         }
         for expression in &mut iteration_body {
@@ -8519,7 +8523,7 @@ fn async_for_body_step_task(
             let parsed_type = crate::parse(&capture.ty)?;
             let ty = parsed_type
                 .first()
-                .ok_or_else(|| "@async-fn three-phase #for capture type is empty".to_owned())?
+                .ok_or_else(|| "@#async-fn three-phase #for capture type is empty".to_owned())?
                 .expr
                 .clone();
             step_aliases.push(Expr::List(if capture.mutable {
@@ -8557,20 +8561,21 @@ fn async_for_body_step_task(
                 Expr::Symbol(name) => Some(name.clone()),
                 _ => None,
             })
-            .ok_or_else(|| "@async-fn three-phase #for lost its step assignment".to_owned())?;
+            .ok_or_else(|| "@#async-fn three-phase #for lost its step assignment".to_owned())?;
         let mut step = step;
         let step_binding = form(&step, "#let")
             .or_else(|| form(&step, "#let-mut"))
-            .ok_or_else(|| "@async-fn three-phase #for step is not a binding".to_owned())?;
+            .ok_or_else(|| "@#async-fn three-phase #for step is not a binding".to_owned())?;
         let await_expression = step_binding
             .get(3)
-            .ok_or_else(|| "@async-fn three-phase #for step binding has no value".to_owned())?
+            .ok_or_else(|| "@#async-fn three-phase #for step binding has no value".to_owned())?
             .clone();
         let await_items = form(&await_expression, "#await")
-            .ok_or_else(|| "@async-fn three-phase #for step requires a direct await".to_owned())?;
+            .ok_or_else(|| "@#async-fn three-phase #for step requires a direct await".to_owned())?;
         if await_items.len() != 7 {
             return Err(
-                "@async-fn three-phase #for step await must retain its explicit result type".into(),
+                "@#async-fn three-phase #for step await must retain its explicit result type"
+                    .into(),
             );
         }
         let choice_base = fresh_async_name(source, next_name);
@@ -8675,13 +8680,13 @@ fn async_for_body_step_task(
         .filter_map(|name| known.get(name).cloned())
         .collect::<Vec<_>>();
     if !captures.iter().any(|capture| capture.name == target.name) {
-        return Err("@async-fn three-phase #for lost its step target binding".into());
+        return Err("@#async-fn three-phase #for lost its step target binding".into());
     }
     for capture in &captures {
         let parsed_type = crate::parse(&capture.ty)?;
         let type_expression = parsed_type
             .first()
-            .ok_or_else(|| "@async-fn three-phase #for capture type is empty".to_owned())?;
+            .ok_or_else(|| "@#async-fn three-phase #for capture type is empty".to_owned())?;
         let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
         if !with_additional_named_copy_types(generated_copy_types, || {
             async_task_capture_is_copy(&ty)
@@ -8689,7 +8694,7 @@ fn async_for_body_step_task(
             && !owned_captures.contains(&capture.name)
         {
             return Err(format!(
-                "@async-fn three-phase #for captures non-Copy local '{}'; carry it in a concrete child-task result",
+                "@#async-fn three-phase #for captures non-Copy local '{}'; carry it in a concrete child-task result",
                 capture.name
             ));
         }
@@ -8700,7 +8705,7 @@ fn async_for_body_step_task(
         .cloned()
         .collect::<Vec<_>>();
     if !updated.iter().any(|capture| capture.name == target.name) {
-        return Err("@async-fn three-phase #for step target is not mutable".into());
+        return Err("@#async-fn three-phase #for step target is not mutable".into());
     }
     let mut tuple_types = vec![Expr::Symbol("#tuple".into())];
     if has_break {
@@ -8710,7 +8715,7 @@ fn async_for_body_step_task(
         let parsed_type = crate::parse(&capture.ty)?;
         let ty = parsed_type
             .first()
-            .ok_or_else(|| "@async-fn three-phase #for capture type is empty".to_owned())?
+            .ok_or_else(|| "@#async-fn three-phase #for capture type is empty".to_owned())?
             .expr
             .clone();
         tuple_types.push(ty.clone());
@@ -8750,7 +8755,7 @@ fn async_for_body_step_task(
         let parsed_type = crate::parse(&capture.ty)?;
         let ty = parsed_type
             .first()
-            .ok_or_else(|| "@async-fn three-phase #for capture type is empty".to_owned())?
+            .ok_or_else(|| "@#async-fn three-phase #for capture type is empty".to_owned())?
             .expr
             .clone();
         let name = Expr::Symbol(capture.name.clone());
@@ -8775,11 +8780,11 @@ fn async_for_body_step_task(
     let waker_expression = crate::parse(waker)?
         .into_iter()
         .next()
-        .ok_or_else(|| "@async-fn waker type is empty".to_owned())?
+        .ok_or_else(|| "@#async-fn waker type is empty".to_owned())?
         .expr;
     let invocation = Expr::List(vec![
         Expr::At,
-        Expr::Symbol("async-fn".into()),
+        Expr::Symbol("#async-fn".into()),
         Expr::List(vec![
             Expr::Symbol(frame.clone()),
             Expr::Symbol(poll_result.clone()),
@@ -8836,7 +8841,7 @@ fn lower_async_for(
         return Ok(None);
     };
     if items.len() < 5 {
-        return Err("@async-fn #for await requires init, condition, step, and body".into());
+        return Err("@#async-fn #for await requires init, condition, step, and body".into());
     }
     let direct_step_await = form(&items[3], "#await").is_some()
         || form(&items[3], "#set")
@@ -8922,7 +8927,7 @@ fn lower_async_for(
                 type_environment,
             )?
             else {
-                return Err("@async-fn failed to lower unit-await for step".into());
+                return Err("@#async-fn failed to lower unit-await for step".into());
             };
             replacement.insert(
                 0,
@@ -8967,7 +8972,7 @@ fn lower_async_for(
         if awaited_condition || awaited_step || items[4..].iter().any(has_await) {
             let pattern_bindings =
                 declared_local_bindings(&initializer_statement, type_environment)?.ok_or_else(
-                    || "@async-fn lost pattern initializer during lowering".to_owned(),
+                    || "@#async-fn lost pattern initializer during lowering".to_owned(),
                 )?;
             let mut loop_known = known.clone();
             let mut loop_order = known_order.to_vec();
@@ -8979,7 +8984,7 @@ fn lower_async_for(
                 let name = local.name;
                 if !seen.insert(name.clone()) || known.contains_key(&name) {
                     return Err(format!(
-                        "@async-fn #for initializer pattern binding '{name}' shadows an existing name"
+                        "@#async-fn #for initializer pattern binding '{name}' shadows an existing name"
                     ));
                 }
                 let generated_name = fresh_async_name(source, next_name);
@@ -9025,7 +9030,7 @@ fn lower_async_for(
             )?
             else {
                 return Err(
-                    "@async-fn failed to lower awaited #for after pattern initializer".into(),
+                    "@#async-fn failed to lower awaited #for after pattern initializer".into(),
                 );
             };
             let mut output = initializer_prefix;
@@ -9057,11 +9062,13 @@ fn lower_async_for(
         let initializer_form = form(initializer, "#let")
             .or_else(|| form(initializer, "#let-mut"))
             .ok_or_else(|| {
-                "@async-fn #for initializer suspension requires a #let or #let-mut binding"
+                "@#async-fn #for initializer suspension requires a #let or #let-mut binding"
                     .to_owned()
             })?;
         if initializer_form.len() != 4 {
-            return Err("@async-fn #for initializer requires (#let name Type (#await ...))".into());
+            return Err(
+                "@#async-fn #for initializer requires (#let name Type (#await ...))".into(),
+            );
         }
         if let Some(await_form) = form(&initializer_form[3], "#await") {
             if await_form.len() == 6 && has_await(&await_form[5]) {
@@ -9093,7 +9100,7 @@ fn lower_async_for(
             )?;
             if !initializer_prefix.iter().any(has_await) {
                 return Err(
-                    "@async-fn #for initializer requires a direct or nested typed #await".into(),
+                    "@#async-fn #for initializer requires a direct or nested typed #await".into(),
                 );
             }
             initializer_value = Some(value);
@@ -9137,7 +9144,7 @@ fn lower_async_for(
         };
         let Some((protocol, task, helper)) = condition_task else {
             return Err(
-                "@async-fn #for condition requires an explicitly typed awaited expression".into(),
+                "@#async-fn #for condition requires an explicitly typed awaited expression".into(),
             );
         };
         if !helper.is_empty() {
@@ -9158,7 +9165,7 @@ fn lower_async_for(
         let local = binding(initializer, "for initializer")?;
         if known.contains_key(&local.name) {
             return Err(format!(
-                "@async-fn #for initializer '{}' shadows an existing name",
+                "@#async-fn #for initializer '{}' shadows an existing name",
                 local.name
             ));
         }
@@ -9223,12 +9230,12 @@ fn lower_async_for(
         if let Some(set) = form(&step, "#set") {
             if set.len() != 3 {
                 return Err(
-                    "@async-fn awaited #for step assignment requires a target and value".into(),
+                    "@#async-fn awaited #for step assignment requires a target and value".into(),
                 );
             }
             let target = symbol(&set[1], "#for step assignment target")?.to_owned();
             let target_binding = loop_known.get(&target).ok_or_else(|| {
-                format!("@async-fn awaited #for step assigns unknown local '{target}'")
+                format!("@#async-fn awaited #for step assigns unknown local '{target}'")
             })?;
             let result_name = fresh_async_name(source, next_name);
             let value = if let Some(await_form) = form(&set[2], "#await") {
@@ -9241,7 +9248,7 @@ fn lower_async_for(
                     await_form.to_vec()
                 } else {
                     return Err(
-                        "@async-fn awaited #for step assignment requires (#await Child Pending Ready poll task)".into(),
+                        "@#async-fn awaited #for step assignment requires (#await Child Pending Ready poll task)".into(),
                     );
                 };
                 Expr::List(await_form)
@@ -9258,14 +9265,14 @@ fn lower_async_for(
                 )?;
                 if !step_prefix.iter().any(has_await) {
                     return Err(
-                        "@async-fn awaited #for step assignment requires a direct or nested typed #await".into(),
+                        "@#async-fn awaited #for step assignment requires a direct or nested typed #await".into(),
                     );
                 }
                 value
             };
             let value = if awaited_condition {
                 let await_items = form(&value, "#await").ok_or_else(|| {
-                    "@async-fn awaited #for step requires a direct #await".to_owned()
+                    "@#async-fn awaited #for step requires a direct #await".to_owned()
                 })?;
                 Expr::List(
                     std::iter::once(Expr::Symbol("#await".into()))
@@ -9289,7 +9296,7 @@ fn lower_async_for(
             ]));
         } else if form(&step, "#let").is_none() && form(&step, "#let-mut").is_none() {
             return Err(
-                "@async-fn awaited #for step currently requires a direct await binding or assignment".into(),
+                "@#async-fn awaited #for step currently requires a direct await binding or assignment".into(),
             );
         }
     }
@@ -9310,7 +9317,7 @@ fn lower_async_for(
                         .any(contains_return)
                     {
                         return Err(
-                            "@async-fn three-phase #for returns must be terminal body control flow"
+                            "@#async-fn three-phase #for returns must be terminal body control flow"
                                 .into(),
                         );
                     }
@@ -9337,7 +9344,7 @@ fn lower_async_for(
                     !return_type_is_copy,
                 )
                 .ok_or_else(|| {
-                    "@async-fn three-phase #for requires returns in terminal #block, #if, or #match branches"
+                    "@#async-fn three-phase #for requires returns in terminal #block, #if, or #match branches"
                         .to_owned()
                 })?;
                     loop_known.insert(
@@ -9382,7 +9389,7 @@ fn lower_async_for(
                     let parsed_type = crate::parse(&capture.ty)?;
                     let type_expression = parsed_type
                         .first()
-                        .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
+                        .ok_or_else(|| "@#async-fn capture type is empty".to_owned())?;
                     let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
                     if !async_task_capture_is_mutable_reference(&ty) {
                         continue;
@@ -9414,11 +9421,11 @@ fn lower_async_for(
                 let set_target = form(&items[3], "#set")
                     .and_then(|set| set.get(1))
                     .ok_or_else(|| {
-                        "@async-fn three-phase #for requires an awaited step assignment".to_owned()
+                        "@#async-fn three-phase #for requires an awaited step assignment".to_owned()
                     })?;
                 let target = symbol(set_target, "three-phase #for step target")?;
                 let target_binding = loop_known.get(target).ok_or_else(|| {
-                    format!("@async-fn three-phase #for assigns unknown local '{target}'")
+                    format!("@#async-fn three-phase #for assigns unknown local '{target}'")
                 })?;
                 let (protocol, task, helper, updated, has_break) = async_for_body_step_task(
                     &loop_body,
@@ -9458,7 +9465,7 @@ fn lower_async_for(
                     let parsed_type = crate::parse(&binding.ty)?;
                     let type_expression = parsed_type
                         .first()
-                        .ok_or_else(|| "@async-fn capture type is empty".to_owned())?;
+                        .ok_or_else(|| "@#async-fn capture type is empty".to_owned())?;
                     let ty = parse_type(Some(&normalize_keywords(type_expression.expr.clone())))?;
                     if async_task_capture_is_mutable_reference(&ty) {
                         body_reference_transfers.push(LoopReferenceTransfer {
@@ -9512,7 +9519,7 @@ fn lower_async_for(
                 })
             {
                 return Err(
-                    "@async-fn #for with awaited condition and step does not support body transfers yet".into(),
+                    "@#async-fn #for with awaited condition and step does not support body transfers yet".into(),
                 );
             }
             if !combined_body_step {
@@ -9520,7 +9527,7 @@ fn lower_async_for(
                     .and_then(|binding| binding.get(3))
                     .and_then(|value| form(value, "#await"))
                     .ok_or_else(|| {
-                        "@async-fn awaited #for step requires a direct #await".to_owned()
+                        "@#async-fn awaited #for step requires a direct #await".to_owned()
                     })?;
                 let mut task = await_form
                     .last()
@@ -9549,7 +9556,7 @@ fn lower_async_for(
                 .iter()
                 .any(contains_loop_control)
             {
-                return Err("@async-fn #for loop transfers must be terminal statements".into());
+                return Err("@#async-fn #for loop transfers must be terminal statements".into());
             }
             if loop_body.last().is_some_and(contains_loop_control) {
                 rewrite_for_terminal_control(loop_body.last_mut().unwrap(), &step)?;
@@ -9630,7 +9637,7 @@ fn lower_async_for(
             )
         })?
     else {
-        return Err("@async-fn failed to lower awaited #for".into());
+        return Err("@#async-fn failed to lower awaited #for".into());
     };
     let transfer_prefix_len = transferred_reference_declarations.len();
     replacement.splice(0..0, transferred_reference_declarations);
@@ -9703,7 +9710,7 @@ pub(crate) fn collect_enum_pattern_bindings(
         }
         Expr::List(items) if !items.is_empty() => {
             let Expr::Symbol(variant_name) = &items[0] else {
-                return Err("@async-fn #for initializer requires named enum patterns".into());
+                return Err("@#async-fn #for initializer requires named enum patterns".into());
             };
             // Tuple/array payloads have explicit structural declarations too.
             // Resolve aliases only to select their layout; keep the declared
@@ -9712,7 +9719,9 @@ pub(crate) fn collect_enum_pattern_bindings(
             let mut visited = HashSet::new();
             while let Some(target) = environment.aliases.get(declared) {
                 if !visited.insert(declared) {
-                    return Err(format!("@async-fn cyclic pattern type alias '{type_name}'"));
+                    return Err(format!(
+                        "@#async-fn cyclic pattern type alias '{type_name}'"
+                    ));
                 }
                 declared = target;
             }
@@ -9720,7 +9729,7 @@ pub(crate) fn collect_enum_pattern_bindings(
             let ty = parse_type(Some(&normalize_keywords(
                 parsed
                     .first()
-                    .ok_or_else(|| format!("@async-fn missing pattern type '{type_name}'"))?
+                    .ok_or_else(|| format!("@#async-fn missing pattern type '{type_name}'"))?
                     .expr
                     .clone(),
             )))?;
@@ -9732,7 +9741,9 @@ pub(crate) fn collect_enum_pattern_bindings(
                     if matches!(variant_name.as_str(), "#array" | "array") =>
                 {
                     if length != items.len() - 1 {
-                        return Err(format!("@async-fn array pattern expects {length} elements"));
+                        return Err(format!(
+                            "@#async-fn array pattern expects {length} elements"
+                        ));
                     }
                     Some(vec![crate::type_source(&element); length])
                 }
@@ -9740,7 +9751,7 @@ pub(crate) fn collect_enum_pattern_bindings(
                     if variant_name == &name && environment.struct_fields.contains_key(&name) =>
                 {
                     let order = environment.struct_field_order.get(&name).ok_or_else(|| {
-                        format!("@async-fn missing declared field order for '{name}'")
+                        format!("@#async-fn missing declared field order for '{name}'")
                     })?;
                     let fields = &environment.struct_fields[&name];
                     Some(
@@ -9748,7 +9759,7 @@ pub(crate) fn collect_enum_pattern_bindings(
                             .iter()
                             .map(|field| {
                                 fields.get(field).cloned().ok_or_else(|| {
-                                    format!("@async-fn missing declared field '{name}.{field}'")
+                                    format!("@#async-fn missing declared field '{name}.{field}'")
                                 })
                             })
                             .collect::<Result<Vec<_>, _>>()?,
@@ -9759,7 +9770,7 @@ pub(crate) fn collect_enum_pattern_bindings(
             if let Some(fields) = structural_fields {
                 if fields.len() != items.len() - 1 {
                     return Err(format!(
-                        "@async-fn aggregate pattern '{variant_name}' expects {} fields",
+                        "@#async-fn aggregate pattern '{variant_name}' expects {} fields",
                         fields.len()
                     ));
                 }
@@ -9769,7 +9780,7 @@ pub(crate) fn collect_enum_pattern_bindings(
                 return Ok(());
             }
             let enum_name = resolve_async_enum_name(type_name, environment).ok_or_else(|| {
-                format!("@async-fn cannot resolve enum payload types for '{type_name}'")
+                format!("@#async-fn cannot resolve enum payload types for '{type_name}'")
             })?;
             let fields = environment
                 .enums
@@ -9777,12 +9788,12 @@ pub(crate) fn collect_enum_pattern_bindings(
                 .and_then(|variants| variants.get(variant_name))
                 .ok_or_else(|| {
                     format!(
-                        "@async-fn cannot resolve pattern variant '{variant_name}' for '{type_name}'"
+                        "@#async-fn cannot resolve pattern variant '{variant_name}' for '{type_name}'"
                     )
                 })?;
             if fields.len() != items.len() - 1 {
                 return Err(format!(
-                    "@async-fn enum pattern '{variant_name}' has {} fields, but the declaration has {}",
+                    "@#async-fn enum pattern '{variant_name}' has {} fields, but the declaration has {}",
                     items.len() - 1,
                     fields.len()
                 ));
@@ -9792,7 +9803,7 @@ pub(crate) fn collect_enum_pattern_bindings(
             }
         }
         Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Char(_) | Expr::String(_) => {}
-        _ => return Err("@async-fn #for initializer has an unsupported pattern".into()),
+        _ => return Err("@#async-fn #for initializer has an unsupported pattern".into()),
     }
     Ok(())
 }
@@ -10019,12 +10030,12 @@ fn terminalize_async_iterations(
                 let mut rewritten = items[..2].to_vec();
                 for arm in &items[2..] {
                     let mut case = form(arm, "#case")
-                        .ok_or_else(|| "@async-fn iteration match requires #case arms".to_owned())?
+                        .ok_or_else(|| "@#async-fn iteration match requires #case arms".to_owned())?
                         .to_vec();
                     let body_index = match case.len() {
                         3 => 2,
                         4 if form(&case[2], "#when").is_some() => 3,
-                        _ => return Err("@async-fn iteration match has an invalid arm".into()),
+                        _ => return Err("@#async-fn iteration match has an invalid arm".into()),
                     };
                     let mut names = pattern_symbols(&case[1]).into_iter().collect::<Vec<_>>();
                     names.sort();
@@ -10057,7 +10068,7 @@ fn terminalize_async_iterations(
         if form(expression, "#block").is_some() {
             return scoped_branch(expression, tail, source, next);
         }
-        Err("@async-fn cannot yet terminalize a loop transfer inside this expression".into())
+        Err("@#async-fn cannot yet terminalize a loop transfer inside this expression".into())
     }
     let Expr::List(items) = expression else {
         return Ok(());
@@ -10131,7 +10142,7 @@ fn lower_labeled_async_loop(statement: &mut Expr) -> Result<(), String> {
         Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#label" | "label")) =>
         {
             if items.len() != 3 {
-                return Err("@async-fn #label requires a label and one loop statement".into());
+                return Err("@#async-fn #label requires a label and one loop statement".into());
             }
             let label = symbol(&items[1], "async loop label")?.to_owned();
             (label, items[2].clone())
@@ -10157,7 +10168,7 @@ fn lower_labeled_async_loop(statement: &mut Expr) -> Result<(), String> {
     .iter()
     .any(|keyword| form(&loop_expression, keyword).is_some())
     {
-        return Err("@async-fn #label must wrap a loop when its body awaits".into());
+        return Err("@#async-fn #label must wrap a loop when its body awaits".into());
     }
     let mut lowered = loop_expression;
     rewrite_labeled_async_transfers(&mut lowered, &label, true, false)?;
@@ -10242,7 +10253,7 @@ fn rewrite_labeled_loop_statement(
     use crate::Statement as S;
     let body = match statement {
         S::While { body, .. } | S::Loop { body } | S::For { body, .. } => body,
-        _ => return Err("@async-fn #label must wrap a loop when its body awaits".into()),
+        _ => return Err("@#async-fn #label must wrap a loop when its body awaits".into()),
     };
     for statement in body {
         rewrite_labeled_loop_body_statement(statement, label, false)?;
@@ -10260,7 +10271,7 @@ fn rewrite_labeled_loop_body_statement(
         S::BreakTo(target) if target == label => {
             if nested_loop {
                 return Err(format!(
-                    "@async-fn cannot lower transfer to outer label '{label}' from a nested loop"
+                    "@#async-fn cannot lower transfer to outer label '{label}' from a nested loop"
                 ));
             }
             *statement = S::Break;
@@ -10271,7 +10282,7 @@ fn rewrite_labeled_loop_body_statement(
         } if target == label => {
             if nested_loop {
                 return Err(format!(
-                    "@async-fn cannot lower transfer to outer label '{label}' from a nested loop"
+                    "@#async-fn cannot lower transfer to outer label '{label}' from a nested loop"
                 ));
             }
             *statement = S::BreakValue(value.clone());
@@ -10279,7 +10290,7 @@ fn rewrite_labeled_loop_body_statement(
         S::ContinueTo(target) if target == label => {
             if nested_loop {
                 return Err(format!(
-                    "@async-fn cannot lower transfer to outer label '{label}' from a nested loop"
+                    "@#async-fn cannot lower transfer to outer label '{label}' from a nested loop"
                 ));
             }
             *statement = S::Continue;
@@ -10376,12 +10387,12 @@ fn rewrite_labeled_async_transfers(
     {
         if nested_loop {
             return Err(format!(
-                "@async-fn cannot lower transfer to outer label '{label}' from a nested loop"
+                "@#async-fn cannot lower transfer to outer label '{label}' from a nested loop"
             ));
         }
         let is_break = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#break-to" | "break-to"));
         if (!is_break && items.len() != 2) || (is_break && !(2..=3).contains(&items.len())) {
-            return Err(format!("@async-fn invalid transfer to label '{label}'"));
+            return Err(format!("@#async-fn invalid transfer to label '{label}'"));
         }
         let mut replacement = vec![Expr::Symbol(
             if is_break { "#break" } else { "#continue" }.into(),
@@ -10425,7 +10436,7 @@ fn contains_return(expression: &Expr) -> bool {
 fn lower_async_terminal_return_markers(expression: &mut Expr) -> Result<(), String> {
     if let Some(items) = form(expression, "#async-terminal-return") {
         if items.len() != 3 {
-            return Err("@async-fn malformed terminal return marker".into());
+            return Err("@#async-fn malformed terminal return marker".into());
         }
         *expression = Expr::List(vec![Expr::Symbol("#return".into()), items[2].clone()]);
         return Ok(());
@@ -10507,7 +10518,7 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
     if let Some(items) = form(expression, "#break") {
         if items.len() != 1 {
             return Err(
-                "@async-fn awaited #while-let does not support value-bearing #break".into(),
+                "@#async-fn awaited #while-let does not support value-bearing #break".into(),
             );
         }
         *expression = Expr::List(vec![
@@ -10523,7 +10534,7 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
     }
     if let Some(items) = form(expression, "#continue") {
         if items.len() != 1 {
-            return Err("@async-fn awaited #while-let does not support labeled #continue".into());
+            return Err("@#async-fn awaited #while-let does not support labeled #continue".into());
         }
         *expression = Expr::List(vec![
             Expr::Symbol("#block".into()),
@@ -10538,7 +10549,7 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
     }
     if let Some(items) = form(expression, "#if") {
         if items.len() != 4 {
-            return Err("@async-fn awaited #while-let requires a complete terminal #if".into());
+            return Err("@#async-fn awaited #while-let requires a complete terminal #if".into());
         }
         let mut transferred = false;
         for branch_index in [2, 3] {
@@ -10551,21 +10562,21 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
     }
     if let Some(items) = form(expression, "#match") {
         if items.len() < 3 {
-            return Err("@async-fn awaited loop requires a match with at least one arm".into());
+            return Err("@#async-fn awaited loop requires a match with at least one arm".into());
         }
         let arm_count = items.len();
         let mut transferred = false;
         for arm_index in 2..arm_count {
             let (body_index, guard_has_control, body_has_control) = {
                 let case = form(&expression_list_mut(expression)[arm_index], "#case").ok_or_else(
-                    || "@async-fn awaited loop requires valid terminal match arms".to_owned(),
+                    || "@#async-fn awaited loop requires valid terminal match arms".to_owned(),
                 )?;
                 let body_index = match case.len() {
                     3 => 2,
                     4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
                     _ => {
                         return Err(
-                            "@async-fn awaited loop requires valid terminal match arms".into()
+                            "@#async-fn awaited loop requires valid terminal match arms".into()
                         )
                     }
                 };
@@ -10576,7 +10587,9 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
                 )
             };
             if guard_has_control {
-                return Err("@async-fn awaited loop transfers cannot occur in match guards".into());
+                return Err(
+                    "@#async-fn awaited loop transfers cannot occur in match guards".into(),
+                );
             }
             if body_has_control {
                 let Expr::List(match_items) = expression else {
@@ -10601,14 +10614,14 @@ fn rewrite_while_let_terminal(expression: &mut Expr, stopped: &str) -> Result<bo
             return Ok(false);
         }
         if items[1..items.len() - 1].iter().any(contains_loop_control) {
-            return Err("@async-fn awaited #while-let transfers must be terminal".into());
+            return Err("@#async-fn awaited #while-let transfers must be terminal".into());
         }
         let last = items.len() - 1;
         return rewrite_while_let_terminal(&mut expression_list_mut(expression)[last], stopped);
     }
     if contains_loop_control(expression) {
         return Err(
-            "@async-fn awaited loop only supports terminal #break/#continue, #if, or #match branches".into(),
+            "@#async-fn awaited loop only supports terminal #break/#continue, #if, or #match branches".into(),
         );
     }
     Ok(false)
@@ -10624,13 +10637,13 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
     }
     if let Some(items) = form(expression, "#break") {
         if items.len() != 1 {
-            return Err("@async-fn awaited #for does not support value-bearing #break".into());
+            return Err("@#async-fn awaited #for does not support value-bearing #break".into());
         }
         return Ok(true);
     }
     if let Some(items) = form(expression, "#continue") {
         if items.len() != 1 {
-            return Err("@async-fn awaited #for does not support labeled #continue".into());
+            return Err("@#async-fn awaited #for does not support labeled #continue".into());
         }
         *expression = Expr::List(vec![
             Expr::Symbol("#block".into()),
@@ -10644,14 +10657,14 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
             return Ok(false);
         }
         if items[1..items.len() - 1].iter().any(contains_loop_control) {
-            return Err("@async-fn awaited #for transfers must be terminal statements".into());
+            return Err("@#async-fn awaited #for transfers must be terminal statements".into());
         }
         let last = items.len() - 1;
         return rewrite_for_terminal_control(&mut expression_list_mut(expression)[last], step);
     }
     if let Some(items) = form(expression, "#if") {
         if items.len() != 4 {
-            return Err("@async-fn awaited #for requires a complete terminal #if".into());
+            return Err("@#async-fn awaited #for requires a complete terminal #if".into());
         }
         let mut has_transfer = false;
         for branch_index in [2, 3] {
@@ -10670,21 +10683,21 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
     }
     if let Some(items) = form(expression, "#match") {
         if items.len() < 3 {
-            return Err("@async-fn awaited #for requires a match with at least one arm".into());
+            return Err("@#async-fn awaited #for requires a match with at least one arm".into());
         }
         let arm_count = items.len();
         let mut has_transfer = false;
         for arm_index in 2..arm_count {
             let (body_index, guard_has_control, body_has_control) = {
                 let case = form(&expression_list_mut(expression)[arm_index], "#case").ok_or_else(
-                    || "@async-fn awaited #for requires valid terminal match arms".to_owned(),
+                    || "@#async-fn awaited #for requires valid terminal match arms".to_owned(),
                 )?;
                 let body_index = match case.len() {
                     3 => 2,
                     4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
                     _ => {
                         return Err(
-                            "@async-fn awaited #for requires valid terminal match arms".into()
+                            "@#async-fn awaited #for requires valid terminal match arms".into()
                         )
                     }
                 };
@@ -10695,7 +10708,9 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
                 )
             };
             if guard_has_control {
-                return Err("@async-fn awaited #for transfers cannot occur in match guards".into());
+                return Err(
+                    "@#async-fn awaited #for transfers cannot occur in match guards".into(),
+                );
             }
             let Expr::List(match_items) = expression else {
                 unreachable!()
@@ -10717,7 +10732,7 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
     }
     if contains_loop_control(expression) {
         return Err(
-            "@async-fn awaited #for only supports terminal #break/#continue, #if, or #match branches".into(),
+            "@#async-fn awaited #for only supports terminal #break/#continue, #if, or #match branches".into(),
         );
     }
     *expression = Expr::List(vec![
@@ -10734,7 +10749,7 @@ fn rewrite_for_terminal_control(expression: &mut Expr, step: &Expr) -> Result<bo
 fn rewrite_async_for_return_marker(expression: &mut Expr, stopped: &str) -> Result<bool, String> {
     if let Some(items) = form(expression, "#async-for-return") {
         if items.len() != 5 {
-            return Err("@async-fn malformed internal for-return transfer".into());
+            return Err("@#async-fn malformed internal for-return transfer".into());
         }
         let mut replacement = vec![Expr::Symbol("#block".into())];
         if matches!(items[4], Expr::Symbol(ref value) if value == "true") {
@@ -10772,7 +10787,7 @@ fn rewrite_async_for_return_marker(expression: &mut Expr, stopped: &str) -> Resu
 fn rewrite_async_for_body_transfer(expression: &mut Expr, stopped: &str) -> Result<bool, String> {
     if let Some(items) = form(expression, "#break") {
         if items.len() != 1 {
-            return Err("@async-fn awaited #for does not support value-bearing #break".into());
+            return Err("@#async-fn awaited #for does not support value-bearing #break".into());
         }
         *expression = Expr::List(vec![
             Expr::Symbol("#block".into()),
@@ -10787,7 +10802,7 @@ fn rewrite_async_for_body_transfer(expression: &mut Expr, stopped: &str) -> Resu
     }
     if let Some(items) = form(expression, "#continue") {
         if items.len() != 1 {
-            return Err("@async-fn awaited #for does not support labeled #continue".into());
+            return Err("@#async-fn awaited #for does not support labeled #continue".into());
         }
         *expression = Expr::List(Vec::new());
         return Ok(false);
@@ -10797,7 +10812,7 @@ fn rewrite_async_for_body_transfer(expression: &mut Expr, stopped: &str) -> Resu
             return Ok(false);
         }
         if items[1..items.len() - 1].iter().any(contains_loop_control) {
-            return Err("@async-fn awaited #for transfers must be terminal statements".into());
+            return Err("@#async-fn awaited #for transfers must be terminal statements".into());
         }
         let last = items.len() - 1;
         return rewrite_async_for_body_transfer(
@@ -10807,7 +10822,7 @@ fn rewrite_async_for_body_transfer(expression: &mut Expr, stopped: &str) -> Resu
     }
     if let Some(items) = form(expression, "#if").map(<[Expr]>::to_vec) {
         if items.len() != 4 {
-            return Err("@async-fn awaited #for requires a complete terminal #if".into());
+            return Err("@#async-fn awaited #for requires a complete terminal #if".into());
         }
         let mut has_break = false;
         for branch in [2, 3] {
@@ -10822,21 +10837,21 @@ fn rewrite_async_for_body_transfer(expression: &mut Expr, stopped: &str) -> Resu
     }
     if let Some(items) = form(expression, "#match").map(<[Expr]>::to_vec) {
         if items.len() < 3 {
-            return Err("@async-fn awaited #for requires a match with at least one arm".into());
+            return Err("@#async-fn awaited #for requires a match with at least one arm".into());
         }
         let arm_count = items.len();
         let mut has_break = false;
         for arm_index in 2..arm_count {
             let (body_index, guard_has_control, body_has_control) = {
                 let case = form(&expression_list_mut(expression)[arm_index], "#case").ok_or_else(
-                    || "@async-fn awaited #for requires valid terminal match arms".to_owned(),
+                    || "@#async-fn awaited #for requires valid terminal match arms".to_owned(),
                 )?;
                 let body_index = match case.len() {
                     3 => 2,
                     4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
                     _ => {
                         return Err(
-                            "@async-fn awaited #for requires valid terminal match arms".into()
+                            "@#async-fn awaited #for requires valid terminal match arms".into()
                         )
                     }
                 };
@@ -10847,7 +10862,9 @@ fn rewrite_async_for_body_transfer(expression: &mut Expr, stopped: &str) -> Resu
                 )
             };
             if guard_has_control {
-                return Err("@async-fn awaited #for transfers cannot occur in match guards".into());
+                return Err(
+                    "@#async-fn awaited #for transfers cannot occur in match guards".into(),
+                );
             }
             if body_has_control {
                 let Expr::List(match_items) = expression else {
@@ -10863,7 +10880,7 @@ fn rewrite_async_for_body_transfer(expression: &mut Expr, stopped: &str) -> Resu
     }
     if contains_loop_control(expression) {
         return Err(
-            "@async-fn awaited #for only supports terminal #break/#continue, #if, or #match branches".into(),
+            "@#async-fn awaited #for only supports terminal #break/#continue, #if, or #match branches".into(),
         );
     }
     Ok(false)
@@ -10875,7 +10892,7 @@ fn rewrite_async_for_body_transfer(expression: &mut Expr, stopped: &str) -> Resu
 fn rewrite_terminal_loop_control(expression: &mut Expr, done: &str) -> Result<bool, String> {
     if let Some(items) = form(expression, "#break") {
         if items.len() != 1 {
-            return Err("@async-fn awaited #loop does not support value-bearing #break".into());
+            return Err("@#async-fn awaited #loop does not support value-bearing #break".into());
         }
         *expression = Expr::List(vec![
             Expr::Symbol("#block".into()),
@@ -10890,7 +10907,7 @@ fn rewrite_terminal_loop_control(expression: &mut Expr, done: &str) -> Result<bo
     }
     if let Some(items) = form(expression, "#continue") {
         if items.len() != 1 {
-            return Err("@async-fn awaited #loop does not support labeled #continue".into());
+            return Err("@#async-fn awaited #loop does not support labeled #continue".into());
         }
         *expression = Expr::List(Vec::new());
         return Ok(true);
@@ -10900,14 +10917,14 @@ fn rewrite_terminal_loop_control(expression: &mut Expr, done: &str) -> Result<bo
             return Ok(false);
         }
         if items[1..items.len() - 1].iter().any(contains_loop_control) {
-            return Err("@async-fn awaited #loop transfers must be terminal statements".into());
+            return Err("@#async-fn awaited #loop transfers must be terminal statements".into());
         }
         let last = items.len() - 1;
         return rewrite_terminal_loop_control(&mut expression_list_mut(expression)[last], done);
     }
     if let Some(items) = form(expression, "#if") {
         if items.len() != 4 {
-            return Err("@async-fn awaited #loop requires a complete terminal #if".into());
+            return Err("@#async-fn awaited #loop requires a complete terminal #if".into());
         }
         let then_control =
             rewrite_terminal_loop_control(&mut expression_list_mut(expression)[2], done)?;
@@ -10917,21 +10934,21 @@ fn rewrite_terminal_loop_control(expression: &mut Expr, done: &str) -> Result<bo
     }
     if let Some(items) = form(expression, "#match") {
         if items.len() < 3 {
-            return Err("@async-fn awaited #loop requires a match with at least one arm".into());
+            return Err("@#async-fn awaited #loop requires a match with at least one arm".into());
         }
         let arm_count = items.len();
         let mut transferred = false;
         for arm_index in 2..arm_count {
             let (body_index, guard_has_control, body_has_control) = {
                 let case = form(&expression_list_mut(expression)[arm_index], "#case").ok_or_else(
-                    || "@async-fn awaited #loop requires valid terminal match arms".to_owned(),
+                    || "@#async-fn awaited #loop requires valid terminal match arms".to_owned(),
                 )?;
                 let body_index = match case.len() {
                     3 => 2,
                     4 if form(&case[2], "#when").is_some_and(|guard| guard.len() == 2) => 3,
                     _ => {
                         return Err(
-                            "@async-fn awaited #loop requires valid terminal match arms".into()
+                            "@#async-fn awaited #loop requires valid terminal match arms".into(),
                         )
                     }
                 };
@@ -10943,7 +10960,7 @@ fn rewrite_terminal_loop_control(expression: &mut Expr, done: &str) -> Result<bo
             };
             if guard_has_control {
                 return Err(
-                    "@async-fn awaited #loop transfers cannot occur in match guards".into(),
+                    "@#async-fn awaited #loop transfers cannot occur in match guards".into(),
                 );
             }
             if body_has_control {
@@ -10960,7 +10977,7 @@ fn rewrite_terminal_loop_control(expression: &mut Expr, done: &str) -> Result<bo
     }
     if contains_loop_control(expression) {
         return Err(
-            "@async-fn awaited #loop only supports terminal #break/#continue, #if, or #match branches".into(),
+            "@#async-fn awaited #loop only supports terminal #break/#continue, #if, or #match branches".into(),
         );
     }
     Ok(false)
@@ -11016,7 +11033,7 @@ fn lower_async_loop_with_transfers(
         return Ok(None);
     };
     if items.len() < 2 {
-        return Err("@async-fn awaited #loop requires a body".into());
+        return Err("@#async-fn awaited #loop requires a body".into());
     }
     // A value-bearing loop is an expression, not the unit-valued loop handled
     // by this statement-level state machine. Let the general expression
@@ -11026,7 +11043,7 @@ fn lower_async_loop_with_transfers(
         let result_type = parse_type(Some(&normalize_keywords(result_type)))?;
         if !async_task_capture_is_copy(&result_type) {
             return Err(
-                "@async-fn cannot discard a non-Copy result from an awaited #loop; bind it and consume it explicitly".into(),
+                "@#async-fn cannot discard a non-Copy result from an awaited #loop; bind it and consume it explicitly".into(),
             );
         }
         return Ok(None);
@@ -11034,14 +11051,14 @@ fn lower_async_loop_with_transfers(
     let done = fresh_async_name(source, next_name);
     let mut body = items[1..].to_vec();
     let Some(last) = body.last_mut() else {
-        return Err("@async-fn awaited #loop requires a body".into());
+        return Err("@#async-fn awaited #loop requires a body".into());
     };
     rewrite_terminal_loop_control(last, &done)?;
     if body[..body.len() - 1]
         .iter()
         .any(contains_enclosing_loop_control)
     {
-        return Err("@async-fn awaited #loop control transfers must follow the await".into());
+        return Err("@#async-fn awaited #loop control transfers must follow the await".into());
     }
     let condition = Expr::List(vec![
         Expr::Symbol("#bool.==".into()),
@@ -11076,7 +11093,7 @@ fn lower_async_loop_with_transfers(
         waker,
     )?
     else {
-        return Err("@async-fn failed to lower awaited #loop".into());
+        return Err("@#async-fn failed to lower awaited #loop".into());
     };
     replacement.insert(
         0,
@@ -11120,12 +11137,12 @@ fn binding(expr: &Expr, context: &str) -> Result<Binding, String> {
         .or_else(|| form(expr, "let-mut"))
         .ok_or_else(|| {
             format!(
-                "@async-fn {context} supports only explicit #let or #let-mut bindings: {expr:?}"
+                "@#async-fn {context} supports only explicit #let or #let-mut bindings: {expr:?}"
             )
         })?;
     if items.len() != 4 {
         return Err(format!(
-            "@async-fn {context} requires (#let name Type value)"
+            "@#async-fn {context} requires (#let name Type value)"
         ));
     }
     let name = symbol(&items[1], "binding name")?.to_owned();
@@ -11154,7 +11171,7 @@ fn declared_local_bindings(
     };
     let let_else = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let-else" | "let-else"));
     if items.len() != if let_else { 5 } else { 4 } {
-        return Err("@async-fn local declaration requires a pattern, type, and value".into());
+        return Err("@#async-fn local declaration requires a pattern, type, and value".into());
     }
     if !let_else && matches!(&items[1], Expr::Symbol(_)) {
         return binding(expression, "local declaration").map(|binding| Some(vec![binding]));
@@ -11168,7 +11185,7 @@ fn declared_local_bindings(
     let mut bindings = Vec::with_capacity(fields.len());
     for (name, ty) in fields {
         if !seen.insert(name.clone()) {
-            return Err(format!("@async-fn duplicate pattern binding '{name}'"));
+            return Err(format!("@#async-fn duplicate pattern binding '{name}'"));
         }
         bindings.push(Binding { name, ty, mutable });
     }
@@ -11237,13 +11254,13 @@ fn pinned_self_references(
             let initializer = expression_source(&owner_binding[3])?;
             if has_await(&owner_binding[3]) {
                 return Err(format!(
-                    "@async-fn-pinned self-reference owner '{}' cannot be initialized by #await",
+                    "@#async-fn-pinned self-reference owner '{}' cannot be initialized by #await",
                     local.name
                 ));
             }
             if owner_index != 0 {
                 return Err(format!(
-                    "@async-fn-pinned local self-reference owner '{}' must be the first function statement",
+                    "@#async-fn-pinned local self-reference owner '{}' must be the first function statement",
                     local.name
                 ));
             }
@@ -11251,14 +11268,14 @@ fn pinned_self_references(
         };
         if owner.mutable {
             return Err(format!(
-                "@async-fn-pinned self-reference owner '{}' must be an immutable parameter",
+                "@#async-fn-pinned self-reference owner '{}' must be an immutable parameter",
                 owner.name
             ));
         }
         let local = binding(statement, "pinned self-reference")?;
         if local.mutable {
             return Err(format!(
-                "@async-fn-pinned self-reference '{}' must use immutable #let",
+                "@#async-fn-pinned self-reference '{}' must use immutable #let",
                 local.name
             ));
         }
@@ -11493,7 +11510,7 @@ fn parameters(expr: &Expr) -> Result<Vec<Binding>, String> {
             let mutable = matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#mut" | "mut"));
             let (name_index, type_index) = if mutable { (1, 2) } else { (0, 1) };
             if items.len() != type_index + 1 {
-                return Err("@async-fn parameters require (name Type) or (#mut name Type)".into());
+                return Err("@#async-fn parameters require (name Type) or (#mut name Type)".into());
             }
             let name = symbol(&items[name_index], "parameter name")?.to_owned();
             parse_type(Some(&normalize_keywords(items[type_index].clone())))?;
@@ -11604,7 +11621,7 @@ pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
         .get(3)
         .ok_or("async function requires a result type")?
         .clone();
-    let pinned = matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn-pinned");
+    let pinned = matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn-pinned");
     let child = if pinned {
         Expr::List(vec![Expr::Symbol("#pin-ref-mut".into()), names[0].clone()])
     } else {
@@ -11648,7 +11665,7 @@ fn parse_async_cancel_config(expression: &Expr) -> Result<AsyncCancelConfig, Str
     let config = list(expression, "async cancellation configuration")?;
     if config.len() != 2 {
         return Err(
-            "@async-fn :cancel requires (cancel-function ((State-variant handler) ...))".into(),
+            "@#async-fn :cancel requires (cancel-function ((State-variant handler) ...))".into(),
         );
     }
     let function = symbol(&config[0], "cancellation function name")?.to_owned();
@@ -11742,15 +11759,15 @@ fn generated_source_with_capture_selection(
 ) -> Result<String, String> {
     let invocation = list(invocation, "invocation")?;
     let pinned =
-        matches!(&invocation.get(1), Some(Expr::Symbol(name)) if name == "async-fn-pinned");
+        matches!(&invocation.get(1), Some(Expr::Symbol(name)) if name == "#async-fn-pinned");
     let generator_name = if pinned {
-        "@async-fn-pinned"
+        "@#async-fn-pinned"
     } else {
-        "@async-fn"
+        "@#async-fn"
     };
     if !(invocation.len() == 5 || invocation.len() == 6)
         || !matches!(invocation[0], Expr::At)
-        || !matches!(&invocation[1], Expr::Symbol(name) if name == "async-fn" || name == "async-fn-pinned")
+        || !matches!(&invocation[1], Expr::Symbol(name) if name == "#async-fn" || name == "#async-fn-pinned")
     {
         return Err(format!("{generator_name} requires (@{} (: protocol Protocol : waker Waker : function (#fn name ((arg Type) ...) Result ...) : cancel (cancel-function ((State-variant handler) ...))))", generator_name.trim_start_matches('@')).into());
     }
@@ -11768,7 +11785,7 @@ fn generated_source_with_capture_selection(
         .map(|name| symbol(name, "generated name").map(str::to_owned))
         .collect::<Result<Vec<_>, _>>()?;
     if names.iter().collect::<HashSet<_>>().len() != names.len() {
-        return Err("@async-fn generated names must be distinct".into());
+        return Err("@#async-fn generated names must be distinct".into());
     }
     let [frame, public_poll_result, public_pending, public_ready, public_poll] = names.as_slice()
     else {
@@ -11793,14 +11810,14 @@ fn generated_source_with_capture_selection(
     let waker = expression_source(&invocation[3])?;
     parse_type(Some(&normalize_keywords(invocation[3].clone())))?;
     let function = form(&invocation[4], "#fn")
-        .ok_or_else(|| "@async-fn last argument must be a #fn declaration".to_owned())?;
+        .ok_or_else(|| "@#async-fn last argument must be a #fn declaration".to_owned())?;
     crate::validate_function_shadowing(&invocation[4])?;
     if function.len() < 5 {
-        return Err("@async-fn #fn requires a name, parameters, result type, and body".into());
+        return Err("@#async-fn #fn requires a name, parameters, result type, and body".into());
     }
     let start = symbol(&function[1], "function name")?;
     if start == public_poll || names.iter().any(|name| name == start) {
-        return Err("@async-fn start function must differ from generated names".into());
+        return Err("@#async-fn start function must differ from generated names".into());
     }
     let cancel = format!("{public_poll}-cancel");
     let params = parameters(&function[2])?;
@@ -11819,7 +11836,7 @@ fn generated_source_with_capture_selection(
             )
             .is_some()
         {
-            return Err(format!("@async-fn duplicate binding '{}'", parameter.name));
+            return Err(format!("@#async-fn duplicate binding '{}'", parameter.name));
         }
     }
     let mut known_order = params
@@ -11867,7 +11884,7 @@ fn generated_source_with_capture_selection(
         if self_reference_live_after_await(reference, body) {
             if body.iter().take(reference.source_index).any(has_await) {
                 return Err(format!(
-                    "@async-fn-pinned self-reference '{}' must be initialized before the first #await",
+                    "@#async-fn-pinned self-reference '{}' must be initialized before the first #await",
                     reference.binding.name
                 ));
             }
@@ -11889,9 +11906,9 @@ fn generated_source_with_capture_selection(
         self_reference_sources.push(reference.clone());
     }
     let last = form(body.last().unwrap(), "#return")
-        .ok_or_else(|| "@async-fn body must end with (#return value)".to_owned())?;
+        .ok_or_else(|| "@#async-fn body must end with (#return value)".to_owned())?;
     if last.len() != 2 {
-        return Err("@async-fn final #return requires exactly one value".into());
+        return Err("@#async-fn final #return requires exactly one value".into());
     }
     let mut return_await = form(&last[1], "#await").map(<[Expr]>::to_vec);
     let mut return_value = last[1].clone();
@@ -12262,7 +12279,7 @@ fn generated_source_with_capture_selection(
                     for local in locals {
                         let name = local.name.clone();
                         if known.insert(name.clone(), local).is_some() {
-                            return Err(format!("@async-fn duplicate binding '{name}'"));
+                            return Err(format!("@#async-fn duplicate binding '{name}'"));
                         }
                         known_order.push(name);
                     }
@@ -12279,14 +12296,14 @@ fn generated_source_with_capture_selection(
                     continue;
                 }
                 if known.insert(local.name.clone(), local.clone()).is_some() {
-                    return Err(format!("@async-fn duplicate binding '{}'", local.name));
+                    return Err(format!("@#async-fn duplicate binding '{}'", local.name));
                 }
                 known_order.push(local.name.clone());
                 prefix.push(expression_source(statement)?);
             } else if let Some(name) = mutable_assignment_target(statement) {
                 if !known.get(name).is_some_and(|binding| binding.mutable) {
                     return Err(format!(
-                        "@async-fn assignment to '{name}' requires a mutable #let or #mut parameter"
+                        "@#async-fn assignment to '{name}' requires a mutable #let or #mut parameter"
                     ));
                 }
                 prefix.push(expression_source(statement)?);
@@ -12309,7 +12326,7 @@ fn generated_source_with_capture_selection(
             .is_none()
         {
             return Err(
-                "@async-fn #await must be a top-level #let/#let-mut initializer or the direct #return value; awaits inside #if/#match/#block are not lowered yet".into(),
+                "@#async-fn #await must be a top-level #let/#let-mut initializer or the direct #return value; awaits inside #if/#match/#block are not lowered yet".into(),
             );
         }
         let local = binding(statement, "#await")?;
@@ -12319,7 +12336,7 @@ fn generated_source_with_capture_selection(
             .or_else(|| form(statement, "let-mut"))
             .expect("binding statement was validated");
         let await_form = form(&let_form[3], "#await").ok_or_else(|| {
-            "@async-fn #await must be the entire initializer of a top-level #let or #let-mut"
+            "@#async-fn #await must be the entire initializer of a top-level #let or #let-mut"
                 .to_owned()
         })?;
         let protocol_start = match await_form.len() {
@@ -12330,7 +12347,7 @@ fn generated_source_with_capture_selection(
                     crate::parse(&local.ty)?
                         .into_iter()
                         .next()
-                        .ok_or_else(|| "@async-fn binding type is empty".to_owned())?
+                        .ok_or_else(|| "@#async-fn binding type is empty".to_owned())?
                         .expr,
                 )))?;
                 if await_result != binding_result {
@@ -12351,7 +12368,7 @@ fn generated_source_with_capture_selection(
                         != crate::typed_ir::resolve_type(&binding_result, &aliases)?
                     {
                         return Err(format!(
-                            "@async-fn #await result type does not match binding '{}'",
+                            "@#async-fn #await result type does not match binding '{}'",
                             local.name
                         ));
                     }
@@ -12365,7 +12382,7 @@ fn generated_source_with_capture_selection(
             }
         };
         if known.contains_key(&local.name) {
-            return Err(format!("@async-fn duplicate binding '{}'", local.name));
+            return Err(format!("@#async-fn duplicate binding '{}'", local.name));
         }
         let child = expression_source(&await_form[protocol_start])?;
         parse_type(Some(&normalize_keywords(
@@ -12373,7 +12390,7 @@ fn generated_source_with_capture_selection(
         )))?;
         let value = expression_source(&await_form[protocol_start + 4])?;
         if has_await(&await_form[protocol_start + 4]) {
-            return Err("@async-fn nested #await is not supported".into());
+            return Err("@#async-fn nested #await is not supported".into());
         }
         stages.push(Stage {
             prefix: std::mem::take(&mut prefix),
@@ -12570,7 +12587,7 @@ fn generated_source_with_capture_selection(
         .collect::<HashSet<_>>();
     for reference in &self_references {
         if reference.owner.name == "state" {
-            return Err("@async-fn-pinned self-reference owner cannot be named 'state'".into());
+            return Err("@#async-fn-pinned self-reference owner cannot be named 'state'".into());
         }
         let mut used_elsewhere = false;
         for (index, statement) in body.iter().enumerate() {
@@ -12583,7 +12600,7 @@ fn generated_source_with_capture_selection(
         }
         if used_elsewhere {
             return Err(format!(
-                "@async-fn-pinned self-reference owner '{}' may only be used to initialize its pinned reference",
+                "@#async-fn-pinned self-reference owner '{}' may only be used to initialize its pinned reference",
                 reference.owner.name
             ));
         }
@@ -12720,7 +12737,7 @@ fn generated_source_with_capture_selection(
         || (0..self_reference_sources.len())
             .any(|index| source_names.contains(&format!("lim.async.self-ref.{index}")))
     {
-        return Err("@async-fn bindings cannot use reserved waker or lim.async.* names".into());
+        return Err("@#async-fn bindings cannot use reserved waker or lim.async.* names".into());
     }
     let start_variant = format!("{frame}-start");
     let start_helper = format!("{poll}-start");
@@ -12728,7 +12745,7 @@ fn generated_source_with_capture_selection(
         || start.starts_with(&format!("{poll}-child-"))
         || start.starts_with(&format!("{poll}-resume-"))
     {
-        return Err("@async-fn start function collides with a generated helper".into());
+        return Err("@#async-fn start function collides with a generated helper".into());
     }
     let mut variants = vec![format!("({start_variant} {})", types(&start_params))];
     let mut await_cases = Vec::new();

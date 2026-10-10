@@ -12,7 +12,7 @@
   (#deref-set counter next)
   (#return ()))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work (: run #bool : stop #bool) #u64
     (#let-mut index #u64 0u64)
     (#for () (#bool.&& run (#u64.< index 2u64))

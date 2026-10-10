@@ -49,19 +49,19 @@ fn generated_tasks_preserve_borrow_linearity_exhaustiveness_and_send_checks() {
     let scratch = support::Scratch::new("task-errors");
     let cases = [
         (
-            "(@task (Held Poll Pending Ready) #u64 ((Holding (#ref #u64))))
+            "(@#task (Held Poll Pending Ready) #u64 ((Holding (#ref #u64))))
           (#fn bad () Held (#let value #u64 42u64) (#return (Holding (#borrow value))))",
             "local",
         ),
         (
-            "(@task (Held Poll Pending Ready) #u64 ((Holding (#ref #u64))))
+            "(@#task (Held Poll Pending Ready) #u64 ((Holding (#ref #u64))))
           (#fn poll ((task Held)) Poll (#forget task) (#return (Ready 1u64)))
           (#fn main () #u64 (#let-mut value #u64 1u64) (#let task Held (Holding (#borrow value)))
             (#set value 2u64) (#forget task) (#return value))",
             "borrow",
         ),
         (
-            "(@task (Held Poll Pending Ready) #u64 ((Holding #u64)))
+            "(@#task (Held Poll Pending Ready) #u64 ((Holding #u64)))
           (#fn poll ((task Held)) Poll (#forget task) (#return (Ready 1u64)))
           (#fn main () #u64 (#let task Held (Holding 1u64))
             (#let first Poll (#call poll (: task task)))
@@ -70,15 +70,15 @@ fn generated_tasks_preserve_borrow_linearity_exhaustiveness_and_send_checks() {
             "more than once",
         ),
         (
-            "(@task (Held Poll Pending Ready) #u64 ((First #u64) (Second #u64)))
+            "(@#task (Held Poll Pending Ready) #u64 ((First #u64) (Second #u64)))
           (#fn release ((task #u64)) () (#forget task) (#return ()))
-          (@task-cancel cancel Held ((First release)))",
+          (@#task-cancel cancel Held ((First release)))",
             "exhaustive",
         ),
         (
-            "(@task (Held Poll Pending Ready) #u64 ((Holding (#ref (#ptr #u8)))))
+            "(@#task (Held Poll Pending Ready) #u64 ((Holding (#ref (#ptr #u8)))))
           (#fn poll ((task Held)) Poll (#forget task) (#return (Ready 1u64)))
-          (@threaded-executor run Results ((held Held Poll Pending Ready poll #u64 held-input)) Worker)",
+          (@#threaded-executor run Results ((held Held Poll Pending Ready poll #u64 held-input)) Worker)",
             "Send",
         ),
     ];
@@ -107,7 +107,7 @@ fn wake_executor_rejects_unsupported_capacity_and_slots() {
     let scratch = support::Scratch::new("wake-executor-shapes");
     let cases = [
         (
-            "(@wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
+            "(@#wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
               (Task Poll Pending Ready #u64 poll Waker)
               (WaitResult Ready Stopped #i64 wait (context #u64)) cancel
               ((s0 t0 w0 r0 0u32) (s1 t1 w1 r1 1u32)
@@ -115,14 +115,14 @@ fn wake_executor_rejects_unsupported_capacity_and_slots() {
             "supports at most four task jobs",
         ),
         (
-            "(@wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
+            "(@#wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
               (Task Poll Pending Ready #u64 poll Waker)
               (WaitResult Ready Stopped #i64 wait (context #u64)) cancel
               ((state task waker result 4u32)))",
             "task slot must be 0u32 through 3u32",
         ),
         (
-            "(@wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
+            "(@#wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
               (Task Poll Pending Ready #u64 poll Waker)
               (WaitResult Ready Stopped #i64 wait (context #u64)) cancel
               ((first-state first-task first-waker first-result 0u32)
@@ -163,13 +163,13 @@ fn wake_executor_runs_every_supported_fixed_capacity() {
             total = format!("(#u64.+.wrap {total} (#get results result{slot}))");
         }
         let body = format!(
-            "(@task (Task Poll Pending Ready) #u64 ((Waiting)))
+            "(@#task (Task Poll Pending Ready) #u64 ((Waiting)))
              (#struct Waker ((marker #u64)))
              (#fn poll ((task Task) (waker (#ref Waker))) Poll
                (#forget waker) (#forget task) (#return (Ready 1u64)))
              (#fn wait ((context #u32)) WaitResult (#return (WaitReady context)))
              (#fn cancel-poll ((state Poll)) () (#forget state) (#return ()))
-             (@wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
+             (@#wake-executor run (Results Outcome Lifecycle Running Complete Cancelling Stopped)
                (Task Poll Pending Ready #u64 poll Waker)
                (WaitResult WaitReady WaitStopped #i64 wait (context #u32))
                cancel-poll ({jobs}))
@@ -214,7 +214,7 @@ fn wake_executor_runs_every_supported_fixed_capacity() {
 fn wake_executor_polls_only_selected_slots_across_ready_masks() {
     let scratch = support::Scratch::new("wake-executor-fairness");
     let body = "
-      (@task (Task Poll Pending Ready) #u64 ((Run #u64 #u64)))
+      (@#task (Task Poll Pending Ready) #u64 ((Run #u64 #u64)))
       (#struct Waker ((marker #u64)))
       (#struct WaitContext ((waits #u32)))
       (#fn poll ((task Task) (waker (#ref Waker))) Poll
@@ -240,7 +240,7 @@ fn wake_executor_polls_only_selected_slots_across_ready_masks() {
               (#block (#forget target) (#forget attempts)))))
           (#case (Ready value) (#forget value)))
         (#return ()))
-      (@wake-executor run
+      (@#wake-executor run
         (Results Outcome Lifecycle Running Complete Cancelling Stopped)
         (Task Poll Pending Ready #u64 poll Waker)
         (WaitResult WaitReady WaitStopped #i64 wait (context (#ref-mut WaitContext)))
@@ -303,7 +303,7 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
         "(#import \"{}/library/timer_reactor1.lim\")\n",
         env!("CARGO_MANIFEST_DIR")
     ) + "
-      (@task (StopTask StopPoll StopPending StopReady) #u64
+      (@#task (StopTask StopPoll StopPending StopReady) #u64
         (ReadyNow (Waiting #u64 Waker TimerReactor1)))
       (#struct Waker ((marker #u64)))
       (#fn destroy-waker ((waker Waker)) ()
@@ -334,7 +334,7 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
             (#block
               (#forget value))))
         (#return ()))
-      (@wake-executor run-stop
+      (@#wake-executor run-stop
         (StopResults StopOutcome StopLifecycle StopRunning
           StopComplete StopCancelling StopStopped)
         (StopTask StopPoll StopPending StopReady #u64 stop-poll Waker)

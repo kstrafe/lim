@@ -35,7 +35,7 @@ fn bounded_ready_queue_runs_natively_and_reports_full_and_empty() {
 #[test]
 fn ready_queue_rejects_zero_capacity() {
     let source = format!(
-        "(#import \"{}/library/ready_queue.lim\")\n(@ready-queue EmptyQueue EmptyEnqueue EmptyDequeue empty-create empty-enqueue empty-dequeue EmptyEnqueued EmptyFull EmptyItem EmptyEmpty ())\n(#fn main () #u64 (#return 0u64))",
+        "(#import \"{}/library/ready_queue.lim\")\n(@#ready-queue EmptyQueue EmptyEnqueue EmptyDequeue empty-create empty-enqueue empty-dequeue EmptyEnqueued EmptyFull EmptyItem EmptyEmpty ())\n(#fn main () #u64 (#return 0u64))",
         env!("CARGO_MANIFEST_DIR")
     );
     let scratch = support::Scratch::new("ready-queue-zero");
@@ -58,8 +58,8 @@ fn ready_queue_rejects_zero_capacity() {
 fn distinct_ready_queue_instantiations_have_disjoint_generated_names() {
     let source = format!(
         "(#import \"{}/library/ready_queue.lim\")
-         (@ready-queue First FirstEnqueue FirstDequeue first-create first-enqueue first-dequeue FirstEnqueued FirstFull FirstItem FirstEmpty (a))
-         (@ready-queue Second SecondEnqueue SecondDequeue second-create second-enqueue second-dequeue SecondEnqueued SecondFull SecondItem SecondEmpty (b c))
+         (@#ready-queue First FirstEnqueue FirstDequeue first-create first-enqueue first-dequeue FirstEnqueued FirstFull FirstItem FirstEmpty (a))
+         (@#ready-queue Second SecondEnqueue SecondDequeue second-create second-enqueue second-dequeue SecondEnqueued SecondFull SecondItem SecondEmpty (b c))
          (#fn main () #u64
            (#let first First (#call first-create (:)))
            (#let second Second (#call second-create (:)))
@@ -81,7 +81,7 @@ fn distinct_ready_queue_instantiations_have_disjoint_generated_names() {
 fn ready_queue_state_cannot_be_implicitly_copied() {
     let source = format!(
         "(#import \"{}/library/ready_queue.lim\")
-         (@ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue Enqueued Full Item Empty (a))
+         (@#ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue Enqueued Full Item Empty (a))
          (#fn main () #u64
            (#let queue Queue (#call queue-create (:)))
            (#let moved Queue queue)
@@ -109,7 +109,7 @@ fn ready_queue_state_cannot_be_implicitly_copied() {
 fn queue_field_can_be_used_through_a_mutable_owner_reference() {
     let source = format!(
         "(#import \"{}/library/ready_queue.lim\")
-         (@ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue Enqueued Full Item Empty (a b))
+         (@#ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue Enqueued Full Item Empty (a b))
          (#struct Holder ((ready Queue)))
          (#linear Holder)
          (#fn push ((holder (#ref-mut Holder))) ()

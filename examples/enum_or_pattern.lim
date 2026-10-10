@@ -1,4 +1,4 @@
-(@optional (: type #u64 : name Maybe?))
+(@#optional (: type #u64 : name Maybe?))
 
 (#fn main () #u64
   (#let value Maybe? (#call Maybe?-construct (: value 42)))

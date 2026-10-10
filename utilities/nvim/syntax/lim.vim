@@ -17,7 +17,7 @@ syn match limCharacter "#\\\%(u{[[:xdigit:]]\+}\|[[:alpha:]][[:alnum:]_-]*\|.\)"
 
 " Lim forms, operators, and generator operations use a leading #.
 syn match limKeyword +#[[:alpha:]_][^[:space:]();"'`,@#]*+
-syn match limGenerated +@[[:alpha:]_][^[:space:]();"'`,@#]*+
+syn match limGenerated +@#\?[[:alpha:]_][^[:space:]();"'`,@#]*+
 
 " Match complete tokens, including the sigil. In particular, #u64 is a type
 " but #u64.+.wrap is an operator and an unprefixed u64 is a user identifier.

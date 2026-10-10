@@ -3,8 +3,8 @@
 (#import "../library/pin.lim")
 (#struct Frame (: value #u64))
 (#linear Frame)
-(@pin (: type Frame : name PinnedFrame : fields (: value #u64)))
-(@pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
+(@#pin (: type Frame : name PinnedFrame : fields (: value #u64)))
+(@#pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
   : run drive-frame : destroy destroy-frame : result #u64))
 
 (#fn drive-frame (: pin PinnedFrame) #u64

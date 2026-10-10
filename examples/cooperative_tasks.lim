@@ -1,6 +1,6 @@
 (#import "../library/tasks.lim")
 
-(@task (CountTask CountPoll CountPending CountReady) #u64
+(@#task (CountTask CountPoll CountPending CountReady) #u64
   ((Counting #u64)))
 
 (#fn count-poll ((task CountTask)) CountPoll
@@ -11,7 +11,7 @@
           (#block (#forget remaining) (CountReady 21u64))
           (CountPending (Counting (#u64.-.wrap remaining 1u64))))))))
 
-(@executor run-counts Counts
+(@#executor run-counts Counts
   ((first CountTask CountPoll CountPending CountReady count-poll #u64 first-input)
    (second CountTask CountPoll CountPending CountReady count-poll #u64 second-input)))
 

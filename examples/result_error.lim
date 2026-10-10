@@ -1,4 +1,4 @@
-(@result (: ok #u64 : error #u32 : name Result))
+(@#result (: ok #u64 : error #u32 : name Result))
 
 (#fn main () #u64
   (#return

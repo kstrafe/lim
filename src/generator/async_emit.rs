@@ -2803,7 +2803,7 @@ mod tests {
     }
 
     fn prepare_function(function: &str, main: &str) -> Planning {
-        prepare_generator("async-fn", function, main)
+        prepare_generator("#async-fn", function, main)
     }
 
     fn prepare_generator(generator: &str, function: &str, main: &str) -> Planning {
@@ -3471,7 +3471,7 @@ mod tests {
             "(#call later ())",
             "(#await Child ChildPending ChildReady child-poll (Start 2u64))",
         ] {
-            let planning = prepare_generator("async-fn-pinned",
+            let planning = prepare_generator("#async-fn-pinned",
                 &format!(
                     "(#fn work (: view (#ref-mut #u64)) #u64
               (#let before #u64 (#deref view))
@@ -3517,12 +3517,12 @@ mod tests {
                       (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
                     (#forget task) (#set value 99u64) (#return answer))"
             );
-            runtime_planned(prepare_generator("async-fn-pinned", &function, &main), 42);
+            runtime_planned(prepare_generator("#async-fn-pinned", &function, &main), 42);
             let bad = main.replace(
                 "(#let-else (work-pending next)",
                 "(#set value 99u64) (#let-else (work-pending next)",
             );
-            let planning = prepare_generator("async-fn-pinned", &function, &bad);
+            let planning = prepare_generator("#async-fn-pinned", &function, &bad);
             let generated = generate(&planning).unwrap();
             let proposed = program(&planning, &generated).unwrap();
             let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -3538,7 +3538,7 @@ mod tests {
                 "(#let child #u64",
                 "(#let invalid #u64 (#deref view)) (#let child #u64",
             );
-            let planning = prepare_generator("async-fn-pinned", &bad_function, &main);
+            let planning = prepare_generator("#async-fn-pinned", &bad_function, &main);
             let generated = generate(&planning).unwrap();
             let proposed = program(&planning, &generated).unwrap();
             let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -3576,12 +3576,12 @@ mod tests {
               (#case (work-ready result) (#block (#set answer result) (#break) (#unreachable)))))
             (#drop running) (#forget task) (#set value 99u64)
             (#assert (#u64.== retries 2u64)) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
         let invalid = function.replace(
             "(#let child #u64",
             "(#deref-set view 99u64) (#let child #u64",
         );
-        let planning = prepare_generator("async-fn-pinned", &invalid, main);
+        let planning = prepare_generator("#async-fn-pinned", &invalid, main);
         let generated = generate(&planning).unwrap();
         let proposed = program(&planning, &generated).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -3620,7 +3620,7 @@ mod tests {
             // A missing reference in an Empty input slot is not a fabricated
             // output loan. Transfer occupied linear holders to explicit user
             // cleanup, and allow the referent again only after that cleanup.
-            runtime_planned(prepare_generator("async-fn-pinned", function, &main), 42);
+            runtime_planned(prepare_generator("#async-fn-pinned", function, &main), 42);
             if expected == 41 {
                 let cleanup = "(#fn echo-state (: state work-frame-state) work-frame-state
                     (#return state))";
@@ -3628,7 +3628,7 @@ mod tests {
                     "(#forget state) (#forget task)",
                     "(#set value 99u64) (#let observed work-frame-state (#call echo-state (: state state))) (#forget observed) (#forget task)",
                 ));
-                let planning = prepare_generator("async-fn-pinned", function, &conflicting);
+                let planning = prepare_generator("#async-fn-pinned", function, &conflicting);
                 let generated = generate(&planning).unwrap();
                 let proposed = program(&planning, &generated).unwrap();
                 let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -3704,7 +3704,7 @@ mod tests {
                     (#forget owner) (#drop view) (#return answer))"
                 );
                 let planning = prepare_generator(
-                    "async-fn-pinned",
+                    "#async-fn-pinned",
                     &function,
                     &format!(
                         "{declarations}\n{}",
@@ -3732,7 +3732,7 @@ mod tests {
                     "(#deref-set view 99u64) (#let answer #u64",
                 );
                 let planning = prepare_generator(
-                    "async-fn-pinned",
+                    "#async-fn-pinned",
                     &invalid,
                     &format!("{declarations}\n{main}"),
                 );
@@ -3768,7 +3768,7 @@ mod tests {
                 (#case (work-ready answer) answer)
                 (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
               (#forget task) (#set first 99u64) (#set other 99u64) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
     }
 
     #[test]
@@ -3787,14 +3787,14 @@ mod tests {
                 (#case (work-ready answer) answer)
                 (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
               (#forget task) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
     }
 
     #[test]
     fn pinned_cancellation_transfers_only_initialized_children_to_explicit_cleanup() {
         for phase in ["initial", "pending", "ready"] {
             let planning = prepare_generator(
-                "async-fn-pinned",
+                "#async-fn-pinned",
                 "(#fn work (: view (#ref-mut #u64)) #u64
                   (#let returned (#ref-mut #u64) (#call echo (: view view)))
                   (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
@@ -3917,7 +3917,7 @@ mod tests {
               (#case (work-ready result) (#block (#set answer result) (#break) (#unreachable)))))
             (#drop running) (#forget task) (#set value 99u64)
             (#assert (#u64.== retries 2u64)) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
     }
 
     #[test]
@@ -3940,12 +3940,12 @@ mod tests {
               (#case (work-ready answer) answer)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
             (#forget task) (#set value (#struct-literal Source (: amount 99u64))) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
         let bad = main.replace(
             "(#let-else (work-pending next)",
             "(#set value (#struct-literal Source (: amount 99u64))) (#let-else (work-pending next)",
         );
-        let planning = prepare_generator("async-fn-pinned", function, &bad);
+        let planning = prepare_generator("#async-fn-pinned", function, &bad);
         let generated = generate(&planning).unwrap();
         let proposed = program(&planning, &generated).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -3984,12 +3984,12 @@ mod tests {
                   (#case (work-ready result) result)
                   (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
                 (#forget task) {write} (#drop result) (#return value))");
-            runtime_planned(prepare_generator("async-fn-pinned", &function, &main), 42);
+            runtime_planned(prepare_generator("#async-fn-pinned", &function, &main), 42);
             let bad = main.replace(
                 &format!("(#forget task) {write}"),
                 &format!("(#forget task) (#set value 99u64) {write}"),
             );
-            let planning = prepare_generator("async-fn-pinned", &function, &bad);
+            let planning = prepare_generator("#async-fn-pinned", &function, &bad);
             let generated = generate(&planning).unwrap();
             let proposed = program(&planning, &generated).unwrap();
             let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -4008,7 +4008,7 @@ mod tests {
     fn manual_pinned_cancellation_waits_for_checked_state_contracts() {
         let source = format!(
             "{CONTEXT}
-          (@async-fn-pinned (: protocol work-await : waker #u64
+          (@#async-fn-pinned (: protocol work-await : waker #u64
             : cancel (work-cancel ((work-frame-start cancel-start) (work-frame-await-0 cancel-await)))
             : function (#fn work (: seed #u64) #u64
               (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))"
@@ -4040,7 +4040,7 @@ mod tests {
           (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#drop view) (#return child))";
         let planning = prepare_generator(
-            "async-fn-pinned",
+            "#async-fn-pinned",
             function,
             "(#struct Source (: amount #u64)) (#linear Source)",
         );
@@ -4075,7 +4075,7 @@ mod tests {
             (#case (work-ready answer) answer)
             (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
           (#forget task) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
     }
 
     #[test]
@@ -4101,7 +4101,7 @@ mod tests {
         // Recycled parent handles retain the identity of each internal child
         // loan through the caller loop. The overlapping-borrow negative below
         // remains checked independently of the generated representation.
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
 
         // Distinct consumed continuation handles already retain those loans.
         // The source async loop itself is unchanged and suspends twice.
@@ -4116,12 +4116,12 @@ mod tests {
               (#case (work-ready answer) answer)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
             (#forget task) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
         let invalid = function.replace(
             "(#pin-borrow (#get owner right))",
             "(#pin-borrow (#get owner left))",
         );
-        let planning = prepare_generator("async-fn-pinned", &invalid, main);
+        let planning = prepare_generator("#async-fn-pinned", &invalid, main);
         let generated = generate(&planning).unwrap();
         let proposed = program(&planning, &generated).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -4171,7 +4171,7 @@ mod tests {
             ),
         ] {
             let planning = prepare_generator(
-                "async-fn-pinned",
+                "#async-fn-pinned",
                 function,
                 "(#struct Source (: amount #u64)) (#linear Source)",
             );
@@ -4300,7 +4300,7 @@ mod tests {
                 owners = if selected { 2 } else { 0 },
                 polls = if selected { 3 } else { 1 },
             );
-            runtime_planned(prepare_generator("async-fn-pinned", &function, &main), 42);
+            runtime_planned(prepare_generator("#async-fn-pinned", &function, &main), 42);
         }
     }
 
@@ -4332,7 +4332,7 @@ mod tests {
               (#case (work-ready answer) answer)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
             (#forget task) (#assert (#u64.== count 1u64)) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
     }
 
     #[test]
@@ -4360,7 +4360,7 @@ mod tests {
             (#assert (#u64.== (#get owner amount) 40u64))
             (#call bump-counter (: count count))
             (#forget owner) (#return ()))";
-        let planning = prepare_generator("async-fn-pinned", function, declarations);
+        let planning = prepare_generator("#async-fn-pinned", function, declarations);
         let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
         let binding = BindingId(
             emitter
@@ -4417,7 +4417,7 @@ mod tests {
                 (#call cancel-state (: state again : count (#borrow destroyed)))
                 (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {constructed}u64))
                 (#forget task) (#forget created) (#forget destroyed) (#return 42u64))");
-            let planning = prepare_generator("async-fn-pinned", function, &main);
+            let planning = prepare_generator("#async-fn-pinned", function, &main);
             let generated = generate(&planning).unwrap();
             let proposed = program(&planning, &generated).unwrap();
             if let Err((message, code, span, _)) =
@@ -4461,7 +4461,7 @@ mod tests {
               (#case (work-ready answer) answer)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
             (#forget task) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
         for action in [
             "(#forget task)",
             "(#let moved work-frame task) (#forget moved)",
@@ -4472,7 +4472,7 @@ mod tests {
                 (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
                 (#let-else (work-pending next) work-poll-result first (#unreachable)) (#drop next)
                 {action} (#return 0u64))");
-            let planning = prepare_generator("async-fn-pinned", function, &bad);
+            let planning = prepare_generator("#async-fn-pinned", function, &bad);
             let generated = generate(&planning).unwrap();
             let proposed = program(&planning, &generated).unwrap();
             let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -4522,12 +4522,12 @@ mod tests {
                   (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
                 (#forget task) (#assert (#u64.== (#get owner amount) 40u64))
                 (#assert (#u64.== (#get owner padding) 99u64)) (#forget owner) (#return answer))");
-            runtime_planned(prepare_generator("async-fn-pinned", &function, &main), 42);
+            runtime_planned(prepare_generator("#async-fn-pinned", &function, &main), 42);
             let bad = main.replace(
                 "(#let-else (work-pending next)",
                 "(#set-field owner amount 99u64) (#let-else (work-pending next)",
             );
-            let planning = prepare_generator("async-fn-pinned", &function, &bad);
+            let planning = prepare_generator("#async-fn-pinned", &function, &bad);
             let generated = generate(&planning).unwrap();
             let proposed = program(&planning, &generated).unwrap();
             let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -4567,12 +4567,12 @@ mod tests {
               (#forget state) (#forget task) (#set-field owner amount 42u64)
               (#let answer #u64 (#get owner amount)) (#forget owner) (#return answer))"
             );
-            runtime_planned(prepare_generator("async-fn-pinned", &function, &main), 42);
+            runtime_planned(prepare_generator("#async-fn-pinned", &function, &main), 42);
             let bad = main.replace(
                 "(#drop next)",
                 "(#set-field owner amount 99u64) (#drop next)",
             );
-            let planning = prepare_generator("async-fn-pinned", &function, &bad);
+            let planning = prepare_generator("#async-fn-pinned", &function, &bad);
             let generated = generate(&planning).unwrap();
             let proposed = program(&planning, &generated).unwrap();
             let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -4641,7 +4641,7 @@ mod tests {
                   (#case (work-ready answer) answer)
                   (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
                 (#forget task) (#assert (#u64.== {owner_leaf} 40u64)) (#forget owner) (#return answer))");
-                runtime_planned(prepare_generator("async-fn-pinned", &function, &main), 42);
+                runtime_planned(prepare_generator("#async-fn-pinned", &function, &main), 42);
                 let bad = main
                     .replace(
                         "(#let-else (work-pending next)",
@@ -4651,7 +4651,7 @@ mod tests {
                         &format!("(#assert (#u64.== {owner_leaf} 40u64)) (#forget owner)"),
                         "",
                     );
-                let planning = prepare_generator("async-fn-pinned", &function, &bad);
+                let planning = prepare_generator("#async-fn-pinned", &function, &bad);
                 let generated = generate(&planning).unwrap();
                 let proposed = program(&planning, &generated).unwrap();
                 let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -4664,7 +4664,7 @@ mod tests {
                     "#forget"
                 );
                 let invalid = function.replace("(#let step", "(#drop view) (#let step");
-                let planning = prepare_generator("async-fn-pinned", &invalid, &main);
+                let planning = prepare_generator("#async-fn-pinned", &invalid, &main);
                 let generated = generate(&planning).unwrap();
                 let proposed = program(&planning, &generated).unwrap();
                 let error = crate::CheckedProgram::validate_with_span(&proposed)
@@ -5302,7 +5302,7 @@ mod tests {
             (#case (work-ready answer) answer)
             (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
           (#forget task) (#return result))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
         // An invalid selection must trap before polling the RHS child. If
         // delayed until Store, this program would instead return 99 on Pending.
         let invalid = function.replace("1usize", "2usize");
@@ -5313,7 +5313,7 @@ mod tests {
           (#let-else (work-pending next) work-poll-result first (#unreachable))
           (#let state work-frame-state (#call work-poll-cancel (: task next)))
           (#forget state) (#forget task) (#return 99u64))";
-        let planning = prepare_generator("async-fn-pinned", &invalid, main);
+        let planning = prepare_generator("#async-fn-pinned", &invalid, main);
         let generated = generate(&planning).unwrap();
         runtime_generated_outcome(planning, generated, NativeOutcome::Signal(4));
     }
@@ -5339,7 +5339,7 @@ mod tests {
             (#case (work-ready result) result)
             (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
           (#forget task) (#return answer))";
-        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
         let invalid = function.replace("outer #usize 1usize", "outer #usize 2usize");
         let main = "(#fn main () #u64
           (#let waker #u64 0u64)
@@ -5348,7 +5348,7 @@ mod tests {
           (#let-else (work-pending next) work-poll-result first (#unreachable))
           (#let state work-frame-state (#call work-poll-cancel (: task next)))
           (#forget state) (#forget task) (#return 99u64))";
-        let planning = prepare_generator("async-fn-pinned", &invalid, main);
+        let planning = prepare_generator("#async-fn-pinned", &invalid, main);
         let generated = generate(&planning).unwrap();
         runtime_generated_outcome(planning, generated, NativeOutcome::Signal(4));
     }
@@ -5381,7 +5381,7 @@ mod tests {
               (#return (#u64.+.wrap answer child))",
         ] {
             let function = format!("(#fn work (: seed #u64) #u64 {body})");
-            runtime_planned(prepare_generator("async-fn-pinned", &function, main), 42);
+            runtime_planned(prepare_generator("#async-fn-pinned", &function, main), 42);
         }
     }
 

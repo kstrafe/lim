@@ -43,11 +43,11 @@ fn checked_artifact(source: &str, label: &str) -> (support::Scratch, String, Str
         .unwrap();
     assert!(artifact.starts_with("; Generated from:"));
     assert!(artifact.contains("(#syntax WorkAwait"));
-    assert!(!artifact.contains("#await") && !artifact.contains("@async-fn"));
+    assert!(!artifact.contains("#await") && !artifact.contains("@#async-fn"));
     let invocation = lim::parse(source)
         .unwrap()
         .into_iter()
-        .find(|node| source[node.span.start..node.span.end].starts_with("(@async-fn"))
+        .find(|node| source[node.span.start..node.span.end].starts_with("(@#async-fn"))
         .unwrap();
     let standalone = format!(
         "{}\n{artifact}\n{}",
@@ -94,7 +94,7 @@ fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
     ] {
         let source = format!(
             "{CONTEXT}
-          (@async-fn-pinned (: protocol WorkAwait : waker #u64
+          (@#async-fn-pinned (: protocol WorkAwait : waker #u64
             : cancel (work-cancel ((await-0 cancel-child)))
             : function (#fn work (: seed #u64) #u64
               (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))
@@ -122,7 +122,7 @@ fn movable_cleanup_consumes_the_frame_at_entry_and_pending() {
     ] {
         let source = format!(
             "{CONTEXT}
-          (@async-fn (: protocol WorkAwait : waker #u64
+          (@#async-fn (: protocol WorkAwait : waker #u64
             : cancel (work-cancel ((await-0 cancel-child)))
             : function (#fn work (: seed #u64) #u64
               (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))
@@ -140,7 +140,7 @@ fn movable_cleanup_consumes_the_frame_at_entry_and_pending() {
 #[test]
 fn guard_preview_keeps_linear_scrutinee_through_rejection_and_resumption() {
     let source = format!("{CONTEXT}
-      (@async-fn (: protocol WorkAwait : waker #u64
+      (@#async-fn (: protocol WorkAwait : waker #u64
         : function (#fn work (: seed #u64) #u64
           (#let child Child (Start seed))
           (#return (#match child
@@ -181,7 +181,7 @@ fn graph_route_rejects_missing_wrong_and_private_cleanup_contracts() {
         ),
     ] {
         let source = format!("{CONTEXT} (#fn wrong (: value #u64) () (#return ()))
-          (@async-fn-pinned (: protocol WorkAwait : waker #u64 : cancel (work-cancel {handlers})
+          (@#async-fn-pinned (: protocol WorkAwait : waker #u64 : cancel (work-cancel {handlers})
             : function (#fn work (: seed #u64) #u64 (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))");
         let error = lim::parse_program_with_config(&source, &config()).unwrap_err();
         assert!(error.contains(expected), "{error}");
@@ -190,7 +190,7 @@ fn graph_route_rejects_missing_wrong_and_private_cleanup_contracts() {
 
 #[test]
 fn unsupported_scoped_borrows_fail_before_cache_publication() {
-    let source = format!("{CONTEXT} (@async-fn-pinned (: protocol WorkAwait : waker #u64
+    let source = format!("{CONTEXT} (@#async-fn-pinned (: protocol WorkAwait : waker #u64
       : function (#fn work (: seed #u64) #u64 (#let owner #u64 seed)
         (#return (#borrow owner (#await Child ChildPending ChildReady child-poll (Start 0u64)))))))");
     let scratch = support::Scratch::new("async-graph-fail-closed");
@@ -248,7 +248,7 @@ fn delayed_owner_initialization_and_configured_destruction_are_exactly_once() {
         ),
     ] {
         let source = format!("{CONTEXT}\n{declarations}
-          (@async-fn-pinned (: protocol WorkAwait : waker #u64
+          (@#async-fn-pinned (: protocol WorkAwait : waker #u64
             : cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child) (await-1 cancel-child)))
             : function (#fn work (: created (#ref Counter) : destroyed (#ref Counter)) #u64
               (#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Start 5u64)))
@@ -298,7 +298,7 @@ fn scoped_external_tokens_survive_pending_and_release_on_exit_or_cleanup() {
                  (#assert (#u64.== answer 42u64))"
             };
             let source = format!("{CONTEXT}
-              (@async-fn-pinned (: protocol WorkAwait : waker #u64
+              (@#async-fn-pinned (: protocol WorkAwait : waker #u64
                 : cancel (work-cancel ((await-0 cancel-child)))
                 : function (#fn work (: owner {ty}) #u64
                   (#let answer #u64 ({scoped} (#get owner 0)

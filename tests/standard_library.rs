@@ -323,7 +323,7 @@ fn write_all_retries_eintr_and_short_writes_and_stops_on_zero_progress() {
 fn println_is_an_ordinary_borrow_checked_call_inside_async_functions() {
     execute(
         r#"(#std)
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work (: text (#ref String)) #u64
           (#assert (#i64.== (#println text) 0i64)) (#return 42u64))))
       (#fn main () #u64

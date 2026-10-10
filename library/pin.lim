@@ -2,7 +2,7 @@
 ;; sees the underlying pinned references. Unsafe constructors require storage
 ;; that remains valid and stationary until its in-place cleanup completes.
 ;;
-;; (@pin (: type Frame : name PinnedFrame : fields (: value #u64)))
+;; (@#pin (: type Frame : name PinnedFrame : fields (: value #u64)))
 ;; creates PinnedFrame and PinnedFrame-shared. Optional `copy true` also emits
 ;; whole-value read/write functions, with a compiler-checked Copy proof.
 ;; `projections (: child PinnedChild)` exposes a nonmoving field through
@@ -10,7 +10,7 @@
 ;; `-project`/`-project-mut` consume the parent; `-borrow`/`-borrow-mut`
 ;; reborrow a parent handle and retain the child's checked lifetime.
 ;;
-;; (@pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
+;; (@#pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
 ;;   : run drive-frame : destroy destroy-frame : result #u64))
 ;; generates a normal function taking `value Frame`. Its private stack storage
 ;; is never exposed directly. run consumes `pin PinnedFrame` and returns the
@@ -116,9 +116,9 @@
         (#gn-call pin-name (#gn-call pin-name (#gn-call pin-name shared "-") (#gn-first field)) "-borrow") false))
     ,@(#gn-if (#gn-equal copy true)
       (#gn-call pin-copy-functions element name shared)
-      (#gn-if (#gn-equal copy false) () (#gn-error "@pin copy must be true or false")))))
+      (#gn-if (#gn-equal copy false) () (#gn-error "@#pin copy must be true or false")))))
 
-(#gn pin (options)
+(#gn #pin (options)
   (#gn-call pin-build
     (#gn-get options type) (#gn-get options name)
     (#gn-call pin-name (#gn-get options name) "-shared")
@@ -139,7 +139,7 @@
     (#forget storage)
     (#return output))))
 
-(#gn pin-scope (options)
+(#gn #pin-scope (options)
   (#gn-call pin-scope-build (#gn-get options type) (#gn-get options pin)
     (#gn-get options name) (#gn-get options run) (#gn-get options destroy)
     (#gn-get options result)

@@ -10,9 +10,13 @@ static ELF writer; supported programs can be tested with `qemu-aarch64` in the
 Nix shell. See [AArch64 coverage and testing](docs/aarch64-testing.md).
 
 Lim uses concrete generated code instead of user-facing generic types. A
-generator invocation such as `(@optional (: type #u64 : name MaybeU64))` emits a concrete type
+generator invocation such as `(@#optional (: type #u64 : name MaybeU64))` emits a concrete type
 and its functions. Generators are pure, interpreted at compile time, and use
 the restricted `#gn-*` operation set.
+
+Language and standard-library generators use reserved names (`@#optional`,
+`@#cell`); user generators use ordinary names (`@make-record`). The entire
+`#`-prefixed name space is reserved against user declarations.
 
 Builtin type keywords require `#`, such as `#u8`, `#u64`, and `#bool`.
 Numeric literal suffixes remain unchanged (`42u64`), as do explicitly typed

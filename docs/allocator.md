@@ -61,7 +61,7 @@ Collections store an immutable reference to that value:
 
 ```lisp library
 (#import "../library/cell.lim")
-(@cell #usize CellUsize CellUsize-create CellUsize-get CellUsize-set)
+(@#cell #usize CellUsize CellUsize-create CellUsize-get CellUsize-set)
 (#struct AllocatorU64 ((cursor CellUsize)))
 (#struct VecU64 ((allocator (#ref AllocatorU64))
                  (pointer (#ptr-mut #u64))
@@ -70,12 +70,12 @@ Collections store an immutable reference to that value:
 ```
 
 The reference is immutable at the type level. Allocator implementations use
-explicit interior-mutable state such as the generated `@cell` type to track
+explicit interior-mutable state such as the generated `@#cell` type to track
 their allocation state. The allocator type is part of the
 collection's concrete generated type, so two allocator instances cannot be
 accidentally mixed.
 
-`@vec` must therefore generate a distinct concrete type for each allocator
+`@#vec` must therefore generate a distinct concrete type for each allocator
 type and element type. A generated collection retains the allocator borrow for
 its entire lifetime. Moving or returning the collection also moves that borrow;
 the collection cannot outlive the allocator. `@vec-ref-alloc` and similar
@@ -85,7 +85,7 @@ ownership rule.
 The concrete representation is declared first:
 
 ```lisp syntax
-(@vec (: element ElementType : allocator AllocatorType : name ConcreteVecType))
+(@#vec (: element ElementType : allocator AllocatorType : name ConcreteVecType))
 ```
 
 It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
@@ -93,7 +93,7 @@ It emits `ConcreteVecType` with `allocator`, `pointer`, `length`, and
 `-capacity`. The allocator-backed API is then generated separately:
 
 ```lisp syntax
-(@vec-alloc (: element ElementType : allocator AllocatorType : vector ConcreteVecType : alloc-result AllocResult : alloc-error AllocError : alloc alloc-name : grow grow-name : dealloc dealloc-name : destroy destroy-name))
+(@#vec-alloc (: element ElementType : allocator AllocatorType : vector ConcreteVecType : alloc-result AllocResult : alloc-error AllocError : alloc alloc-name : grow grow-name : dealloc dealloc-name : destroy destroy-name))
 ```
 
 The allocation result must contain `(#ptr-mut ElementType)` on success and
@@ -119,7 +119,7 @@ Sorting is generated separately and takes a comparator name as a literal
 input:
 
 ```lisp syntax
-(@vec-sort (: element ElementType : vector ConcreteVecType : comparator comparator-name))
+(@#vec-sort (: element ElementType : vector ConcreteVecType : comparator comparator-name))
 ```
 
 The comparator must have the concrete signature
@@ -137,7 +137,7 @@ whose names are supplied as literal generator arguments:
 
 ```lisp syntax
 (#enum AllocError (OutOfMemory))
-(@result (: ok (#ptr-mut #u8) : error AllocError : name AllocResult))
+(@#result (: ok (#ptr-mut #u8) : error AllocError : name AllocResult))
 
 (#fn allocator-alloc
   ((allocator (#ref AllocatorU64)) (layout #usize) (alignment #usize))

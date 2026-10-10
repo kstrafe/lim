@@ -2,7 +2,7 @@
 (#import "../library/local_waker.lim")
 (#import "../library/cell.lim")
 (#import "../library/linux_x86_64.lim")
-(@ cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(@ #cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
 (#fn print-text ((text (#slice #char))) ()
   (#for-range (offset #usize) 0usize (#slice-len text)
     (#let byte #u8 (#as (#deref (#slice-idx text offset)) #u8))
@@ -24,7 +24,7 @@
   (#forget metadata)
   (#return ()))
 (@
-  local-waker
+  #local-waker
   (LocalWaker
     local-waker-create
     local-waker-wake
@@ -33,7 +33,7 @@
     local-waker-destroy)
   (Executor WakeMetadata)
   (notify clone-metadata destroy-metadata))
-(@ task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
+(@ #task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
 (#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
   (#return
     (#match task
@@ -47,7 +47,7 @@
             (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
 (#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
 (@
-  async-fn
+  #async-fn
   (: protocol WorkAwait : waker LocalWaker : function (#fn work ((offset #u64)) #u64
     (#let started-text (#array #char 14) "work: started\n")
     (#call print-text (: text (#borrow-slice started-text)))

@@ -4,7 +4,7 @@
 (#linear Child)
 (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
   (#return (#match task (#case (Waiting value) (ChildReady value)))))
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((input Maybe)) #u64
     (#let-else (Some value) Maybe input
       (#return (#u64.+.wrap 1u64

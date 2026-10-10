@@ -1,12 +1,12 @@
 ;; A concrete, allocator-owned stable allocation for one pinned value.
 ;;
 ;; Types: (Element Allocator Box CreateResult AllocError AllocResult Pin).
-;; Pin is the concrete opaque handle from @pin; its shared handle is Pin-shared.
+;; Pin is the concrete opaque handle from @#pin; its shared handle is Pin-shared.
 ;; Names: (Created AllocationFailed create borrow borrow-mut destroy
 ;;         AllocOk AllocError allocate deallocate destroy-element).
 ;;
 ;; allocate: ((allocator (#ref Allocator)) (layout #usize) (alignment #usize))
-;;           -> AllocResult, where `(@result (: ok (#ptr-mut Element) :
+;;           -> AllocResult, where `(@#result (: ok (#ptr-mut Element) :
 ;;           error AllocError : name AllocResult))` supplies the variants.
 ;; deallocate: ((allocator (#ref Allocator)) (pointer (#ptr-mut Element))
 ;;              (layout #usize) (alignment #usize)) -> ()
@@ -26,7 +26,7 @@
 (#gn-fn pin-box-tenth (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values)))))))))))
 (#gn-fn pin-box-eleventh (values) (#gn-first (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest (#gn-rest values))))))))))))
 
-(#gn pin-box (types names)
+(#gn #pin-box (types names)
   `((#enum ,(#gn-call pin-box-fourth types)
           ((,(#gn-first names) ,(#gn-call pin-box-third types))
            (,(#gn-call pin-box-second names) (#tuple ,(#gn-call pin-box-fifth types) ,(#gn-first types)))))

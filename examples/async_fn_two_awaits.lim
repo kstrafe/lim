@@ -2,7 +2,7 @@
 (#import "../library/linux_x86_64.lim")
 (#import "../library/cell.lim")
 
-(@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
 
 (#fn print-text ((text (#slice #char))) ()
   (#for-range (offset #usize) 0usize (#slice-len text)
@@ -14,7 +14,7 @@
 ; A small wake context: the child records each time it asks to be polled again.
 (#struct Wake ((notifications CellU64)))
 
-(@task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
+(@#task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
 
 (#fn step-poll ((task Step) (waker (#ref Wake))) StepPoll
   (#return (#match task
@@ -27,9 +27,9 @@
               1u64)))
           (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
 
-; @async-fn generates two-steps-task, two-steps-poll-result, and the start/poll functions.
+; @#async-fn generates two-steps-task, two-steps-poll-result, and the start/poll functions.
 ; #async-fn infers which locals must live across each suspension point.
-(@async-fn ( : protocol TwoStepsAwait : waker Wake : function (#fn two-steps ((extra #u64)) #u64
+(@#async-fn ( : protocol TwoStepsAwait : waker Wake : function (#fn two-steps ((extra #u64)) #u64
     (#let first Step (Waiting 1u64))
     (#let left #u64
       (#await Step StepPending StepReady step-poll first))

@@ -9,7 +9,7 @@
     (#case (Waiting value) (StepPending (Resuming value)))
     (#case (Resuming value) (StepReady value)))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choose #bool)) Token
     (#return (#if choose
       (#block

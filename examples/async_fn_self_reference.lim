@@ -13,7 +13,7 @@
 (#struct Payload ((left #u64) (right #u64)))
 (#struct Owner ((payload Payload)))
 
-(@async-fn-pinned ( : protocol ReadAfterAwaitAwait : waker #u64 : function
+(@#async-fn-pinned ( : protocol ReadAfterAwaitAwait : waker #u64 : function
   (#fn read-after-await ((owner Owner)) #u64
     (#let view (#pin-ref #u64)
       (#pin-borrow (#get (#get owner payload) left)))

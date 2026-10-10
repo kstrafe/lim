@@ -7,7 +7,7 @@
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((values Values)) #u64
     (#let first #u64
       (#await #u64 Step StepPending StepReady step-poll (Start 9u64)))

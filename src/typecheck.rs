@@ -10600,7 +10600,7 @@ mod generation_planning_tests {
 
     fn context(body: &str) -> (Program, crate::generation_interfaces::DeclarationInterfaces) {
         let source = format!(
-            "(@async-fn (: protocol start-await : waker #u64
+            "(@#async-fn (: protocol start-await : waker #u64
                 : function (#fn start () #u64 (#return 1u64)))) {body}"
         );
         let prepared = crate::prepare_program_syntax(
@@ -20697,7 +20697,7 @@ mod typed_ownership_tests {
                 "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn worker ((other (#ref Resource)) (target (#ref-mut Resource))) ()
                 {operation} (#return ()))
-              (@thread-spawn (: task Task : worker worker))"
+              (@#thread-spawn (: task Task : worker worker))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -20805,7 +20805,7 @@ mod typed_ownership_tests {
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
                        {restored_output})
                      {consumed_output})))
-                 (@thread-spawn (: task Task : worker worker))
+                 (@#thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                    (#return (#match (#call Task-spawn (: target target : choose choose))
                      (#case (Task-spawn-ok task)
@@ -20914,7 +20914,7 @@ mod typed_ownership_tests {
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
                        (#let first (#tuple Outcome Outcome) (#tuple (Restored) (Consumed))) first)
                      (#block (#let second (#tuple Outcome Outcome) (#tuple (Consumed) (Restored))) second))))
-                 (@thread-spawn (: task Task : worker worker))
+                 (@#thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                    (#return (#match (#call Task-spawn (: target target : choose choose))
                      (#case (Task-spawn-ok task)
@@ -20952,7 +20952,7 @@ mod typed_ownership_tests {
               (#forget (#deref target))
               (#let-mut output (#tuple Outcome Outcome) (#tuple (Restored) (Consumed)))
               (#set output (#tuple (Consumed) (Restored))) (#return output))
-            (@thread-spawn (: task Task : worker worker))
+            (@#thread-spawn (: task Task : worker worker))
             (#fn caller ((target (#ref-mut Resource))) ()
               (#return (#match (#call Task-spawn (: target target))
                 (#case (Task-spawn-ok task)
@@ -21335,7 +21335,7 @@ mod typed_ownership_tests {
                  (#fn worker ((target (#ref-mut Resource)) (choose #bool) (fallback Outcome)) {output_type}
                    (#forget (#deref target))
                    (#return {constructor}))
-                 (@thread-spawn (: task Task : worker worker))
+                 (@#thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource)) (choose #bool) (fallback Outcome)) ()
                    (#return (#match (#call Task-spawn (: target target : choose choose : fallback fallback))
                      (#case (Task-spawn-ok task)
@@ -21414,7 +21414,7 @@ mod typed_ownership_tests {
               (#return (#if choose
                 (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
                   (#tuple (Restored) (Consumed))) fallback)))
-            (@thread-spawn (: task Task : worker worker))
+            (@#thread-spawn (: task Task : worker worker))
             (#fn caller ((target (#ref-mut Resource)) (choose #bool) (fallback (#tuple Outcome Outcome))) ()
               (#return (#match (#call Task-spawn (: target target : choose choose : fallback fallback))
                 (#case (Task-spawn-ok task)
@@ -21474,7 +21474,7 @@ mod typed_ownership_tests {
                    (#return (#if choose
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Restored))
                      (Consumed))))
-                 (@thread-spawn (: task Task : worker worker))
+                 (@#thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                    (#return (#match (#call Task-spawn (: target target : choose choose))
                      (#case (Task-spawn-ok task)
@@ -21592,7 +21592,7 @@ mod typed_ownership_tests {
                (#return (#if choose
                  (#block (#deref-set target (#struct-literal Holder (: value first))) {first_output})
                  (#block (#deref-set target (#struct-literal Holder (: value second))) {second_output}))))
-             (@thread-spawn (: task Task : worker worker))
+             (@#thread-spawn (: task Task : worker worker))
              (#fn caller ((target (#ref-mut Holder)) (first (#ref #u64)) (second (#ref #u64)) (choose #bool)) ()
                (#return (#match (#call Task-spawn (: target target : first first : second second : choose choose))
                  (#case (Task-spawn-ok task)
@@ -21668,7 +21668,7 @@ mod typed_ownership_tests {
                 "(#struct Resource ((number #u64))) (#linear Resource)
                  (#fn worker ((target (#ref-mut Resource))) ()
                    (#forget (#deref target)) {restore} (#return ()))
-                 (@thread-spawn (: task Task : worker worker))
+                 (@#thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource))) ()
                    (#return (#match (#call Task-spawn (: target target))
                      (#case (Task-spawn-ok task)
@@ -21714,7 +21714,7 @@ mod typed_ownership_tests {
                    (#forget (#deref target))
                    (#deref-set target (#struct-literal Resource ((number 42u64))))
                    (#return ()))
-                 (@thread-spawn (: task Task : worker worker))
+                 (@#thread-spawn (: task Task : worker worker))
                  (#fn caller ((target (#ref-mut Resource))) ()
                    (#return (#match (#call Task-spawn (: target target))
                      (#case (Task-spawn-ok task)
@@ -21755,7 +21755,7 @@ mod typed_ownership_tests {
         let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn worker ((target (#ref-mut Resource))) ()
             (#deref-set target (#struct-literal Resource ((number 42u64)))) (#return ()))
-          (@thread-spawn (: task Task : worker worker))
+          (@#thread-spawn (: task Task : worker worker))
           (#fn caller ((target (#ref-mut Resource))) ()
             (#return (#match (#call Task-spawn (: target target))
               (#case (Task-spawn-ok task)
@@ -21835,7 +21835,7 @@ mod typed_ownership_tests {
             let at = |selected| if phase == selected { access } else { "" };
             let source = format!(
                 "(#fn worker ((target ({reference} #u64))) () (#return ()))
-                 (@thread-spawn (: task Task : worker worker))
+                 (@#thread-spawn (: task Task : worker worker))
                  (#fn caller () ()
                    (#let-mut owner #u64 42u64)
                    (#let outcome Task-spawn-result (#call Task-spawn (: target ({borrow} owner))))
@@ -21887,7 +21887,7 @@ mod typed_ownership_tests {
                 "(#fn worker ((target (#ref-mut #u64))) () (#return ()))
                  (#fn read ((input (#ref-mut #u64))) #u64 (#return (#deref input)))
                  (#fn write ((input (#ref-mut #u64))) () (#deref-set input 7u64) (#return ()))
-                 (@thread-spawn (: task Task : worker worker))
+                 (@#thread-spawn (: task Task : worker worker))
                  (#fn caller () ()
                    (#let-mut owner #u64 42u64)
                    (#let alias (#ref-mut #u64) (#borrow-mut owner))
@@ -21934,7 +21934,7 @@ mod typed_ownership_tests {
           (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64))) ()
             (#forget (#deref target))
             (#deref-set target (#struct-literal Holder ((value source)))) (#return ()))
-          (@thread-spawn (: task Task : worker worker))
+          (@#thread-spawn (: task Task : worker worker))
           (#fn caller ((target (#ref-mut Holder)) (source (#ref #u64))) ()
             (#return (#match (#call Task-spawn (: target target : source source))
               (#case (Task-spawn-ok task)
@@ -21989,7 +21989,7 @@ mod typed_ownership_tests {
                  (#block (#forget (#deref target))
                    (#deref-set target (#struct-literal Holder ((value source))))) ())
                (#return ()))
-             (@thread-spawn (: task Task : worker worker))
+             (@#thread-spawn (: task Task : worker worker))
              (#fn caller ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)) ()
                (#return (#match (#call Task-spawn (: target target : source source : choose choose))
                  (#case (Task-spawn-ok task)
@@ -22039,7 +22039,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_capture_storage_selectors_preserve_output_positions() {
-        let program = crate::parse_program("(#fn worker ((value (#ref #u64))) () (#return ())) (@thread-spawn (: task Task : worker worker))").unwrap();
+        let program = crate::parse_program("(#fn worker ((value (#ref #u64))) () (#return ())) (@#thread-spawn (: task Task : worker worker))").unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let owner = declarations
             .aggregate_id(&Type::Named("Task".into()))
@@ -22099,7 +22099,7 @@ mod typed_ownership_tests {
           {declarations_source}
           (#fn worker ((target (#ref-mut {target_type}))) ()
             (#forget (#deref target)) {write} (#return ()))
-          (@thread-spawn (: task Task : worker worker))
+          (@#thread-spawn (: task Task : worker worker))
           (#fn caller ((target (#ref-mut {target_type}))) ()
             (#return (#match (#call Task-spawn (: target target))
               (#case (Task-spawn-ok task)
@@ -22144,7 +22144,7 @@ mod typed_ownership_tests {
           (#fn factory () Packet
             (#return (#struct-literal Packet (: first (Ready) : second (Failed)))))
           (#fn worker () Packet (#return (#call factory ())))
-          (@thread-spawn (: task Task : worker worker))
+          (@#thread-spawn (: task Task : worker worker))
           (#fn caller () ()
             (#return (#match (#call Task-spawn ())
               (#case (Task-spawn-ok task)
@@ -22234,7 +22234,7 @@ mod typed_ownership_tests {
             let source = format!(
                 "(#enum Decision ((Ready) (Failed))) (#linear Decision)
                  (#fn worker {parameters} Decision (#return {returned}))
-                 (@thread-spawn (: task Task : worker worker))
+                 (@#thread-spawn (: task Task : worker worker))
                  (#fn caller {caller_parameters} ()
                    (#return (#match (#call Task-spawn ({arguments}))
                      (#case (Task-spawn-ok task)
@@ -22285,7 +22285,7 @@ mod typed_ownership_tests {
         let source = "(#enum Holder ((Empty) (Filled (#ref #u64)))) (#linear Holder)
             (#static Snapshot Holder (Empty))
             (#fn worker () () (#unsafe (#forget Snapshot)) (#return ()))
-            (@thread-spawn (: task Task : worker worker))
+            (@#thread-spawn (: task Task : worker worker))
             (#fn caller () ()
               (#return (#match (#call Task-spawn ())
                 (#case (Task-spawn-ok task)
@@ -22341,7 +22341,7 @@ mod typed_ownership_tests {
                 "(#enum Holder ((Filled (#ref #u64)) (Empty))) (#linear Holder)
                  (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)) ()
                    {writes} (#return ()))
-                 (@thread-spawn (: task Task : worker worker))"
+                 (@#thread-spawn (: task Task : worker worker))"
             ))
             .unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22390,7 +22390,7 @@ mod typed_ownership_tests {
             let source = format!(
                 "(#struct Resource ((number #u64))) (#linear Resource)
                  (#fn worker ((target (#ref-mut Resource))) () {operation} {exit})
-                 (@thread-spawn (: task Task : worker worker))"
+                 (@#thread-spawn (: task Task : worker worker))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22439,7 +22439,7 @@ mod typed_ownership_tests {
         let program = crate::parse_program(
             "(#static Global #u64 7u64)
              (#fn worker ((target (#ref-mut #u64))) () (#return ()))
-             (@thread-spawn (: task Task : worker worker))",
+             (@#thread-spawn (: task Task : worker worker))",
         )
         .unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22547,7 +22547,7 @@ mod typed_ownership_tests {
         let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn z-worker ((owner (#ref-mut Resource))) #u64
             (#forget (#deref owner)) (#return (#get owner number)))
-          (@thread-spawn (: task Task : worker z-worker))
+          (@#thread-spawn (: task Task : worker z-worker))
           (#fn a-caller ((owner (#ref-mut Resource))) #u64
             (#return (#match (#call Task-spawn (: owner owner))
               (#case (Task-spawn-ok task)
@@ -22681,7 +22681,7 @@ mod typed_ownership_tests {
         let source = "(#fn worker ((values (#array (#ref #u64) 2))) #u64
             (#let result #u64 (#u64.+.wrap (#deref (#index values 0usize)) (#deref (#index values 1usize))))
             (#forget values) (#return result))
-          (@thread-spawn (: task Task : worker worker))
+          (@#thread-spawn (: task Task : worker worker))
           (#fn main () #u64
             (#let left #u64 20u64) (#let right #u64 22u64)
             (#let values (#array (#ref #u64) 2)
@@ -22744,8 +22744,8 @@ mod typed_ownership_tests {
                        (array (#array (#ref #u64) 2)) (pinned (#pin-ref #u64))
                        (number #u64)) #u64
             (#forget bundle) (#forget view) (#forget array) (#return number))
-          (@thread-spawn (: task Task : worker worker))
-          (@thread-spawn (: task OtherTask : worker worker))
+          (@#thread-spawn (: task Task : worker worker))
+          (@#thread-spawn (: task OtherTask : worker worker))
           (#fn main () #u64 (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();

@@ -1,5 +1,5 @@
 (#import "../library/cell.lim")
-(@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
 (#struct Resource ((owned #u64)))
 (#linear Resource)
 (#struct Bundle ((left Resource) (right Resource)))

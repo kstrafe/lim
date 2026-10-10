@@ -1,7 +1,7 @@
 (#import "../library/tasks.lim")
 (#import "../library/local_waker.lim")
 (#import "../library/cell.lim")
-(@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
 
 (#struct WakeExecutor ((notifications CellU64)))
 (#struct WakeMetadata ((amount #u64)))
@@ -21,13 +21,13 @@
   (#forget metadata)
   (#return ()))
 
-(@local-waker
+(@#local-waker
   (LocalWaker local-waker-create local-waker-wake
     local-waker-wake-by-ref local-waker-clone local-waker-destroy)
   (WakeExecutor WakeMetadata)
   (notify clone-metadata destroy-metadata))
 
-(@task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
+(@#task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
 
 (#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
   (#return (#match task
@@ -38,7 +38,7 @@
           (#call local-waker-wake-by-ref (: waker waker))
           (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
 
-(@async-wake
+(@#async-wake
   (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
   ((Only (#await Step StepPending StepReady step-poll) (#return)))
   LocalWaker)

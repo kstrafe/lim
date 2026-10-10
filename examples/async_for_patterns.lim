@@ -7,7 +7,7 @@
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((bounds Bounds)) #u64
     (#let-mut total #u64 1u64)
     (#for (#let-mut (Bounds (#tuple iteration limit) bias) Bounds bounds)

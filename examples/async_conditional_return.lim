@@ -7,7 +7,7 @@
     (#case (Waiting value) (ChildPending (Resume value)))
     (#case (Resume value) (ChildReady value)))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((early #bool)) #u64
     (#if early
       (#block

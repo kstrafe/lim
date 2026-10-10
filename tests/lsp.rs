@@ -471,7 +471,7 @@ fn generated_function_definition_publishes_an_exact_source_snapshot() {
     std::fs::create_dir_all(&base).unwrap();
     let path = base.join("main.lim");
     let uri = format!("file://{}", path.display());
-    let source = "(@optional (: type #u64 : name Maybe))\n(#fn main () () (#let value Maybe (#call Maybe-construct (: value 42u64))) (#forget value) (#return ()))";
+    let source = "(@#optional (: type #u64 : name Maybe))\n(#fn main () () (#let value Maybe (#call Maybe-construct (: value 42u64))) (#forget value) (#return ()))";
     let character = source
         .lines()
         .nth(1)
@@ -602,7 +602,7 @@ fn compilation_context_resolves_entry_symbols_from_an_unsaved_external_module() 
     std::fs::create_dir_all(&external).unwrap();
     let entry = base.join("main.lim");
     let child = external.join("child.lim");
-    std::fs::write(&entry, format!("(#type Number #u64)\n(#fn target () Number (#return 42u64))\n(#import {})\n(@optional (: type #u64 : name Maybe))\n(#fn main () Number (#return (#call child ())))", diagnostic_json::quoted(child.to_str().unwrap()))).unwrap();
+    std::fs::write(&entry, format!("(#type Number #u64)\n(#fn target () Number (#return 42u64))\n(#import {})\n(@#optional (: type #u64 : name Maybe))\n(#fn main () Number (#return (#call child ())))", diagnostic_json::quoted(child.to_str().unwrap()))).unwrap();
     lim::lsp_context::LspContext {
         entry: entry.clone(),
         target: lim::TargetDescription::X86_64_SYSTEM_V,

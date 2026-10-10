@@ -6,9 +6,9 @@ fn prefix() -> String {
         r#"(#import "{}/library/pin.lim")
       (#struct Inner (: value #u64)) (#linear Inner)
       (#struct Outer (: left Inner : right Inner)) (#linear Outer)
-      (@pin (: type Inner : name PinnedInner : fields (: value #u64)))
-      (@pin (: type Outer : name PinnedOuter : projections (: left PinnedInner : right PinnedInner)))
-      (@pin-scope (: type Outer : pin PinnedOuter : name with-outer
+      (@#pin (: type Inner : name PinnedInner : fields (: value #u64)))
+      (@#pin (: type Outer : name PinnedOuter : projections (: left PinnedInner : right PinnedInner)))
+      (@#pin-scope (: type Outer : pin PinnedOuter : name with-outer
         : run drive : destroy destroy : result #u64))
       (#fn destroy (: pin PinnedOuter) () (#forget pin) (#return ()))
       (#fn main () #u64 (#return (#call with-outer
@@ -185,7 +185,7 @@ fn void_helpers_cannot_touch_a_retained_exclusive_child() {
 #[test]
 fn heap_child_views_prevent_release_and_disjoint_borrows_still_work() {
     let prefix = prefix();
-    let declarations = prefix.split("(@pin-scope").next().unwrap();
+    let declarations = prefix.split("(@#pin-scope").next().unwrap();
     let source = format!(
         r#"{declarations}
       (#fn destroy-heap (: owner (#pin-own Outer)) ()

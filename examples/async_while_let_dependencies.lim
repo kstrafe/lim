@@ -23,7 +23,7 @@
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((#mut choice Choice)) #u64
     (#let-mut total #u64 0u64)
     (#while-let (Chosen value)

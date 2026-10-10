@@ -13,7 +13,7 @@ fn run(body: &str, label: &str) {
             (#case (Start value) (ChildPending (Resume value)))
             (#case (Resume value) (ChildReady value)))))
         (#struct Owner (: values (#array #u64 2)))
-        (@async-fn-pinned (: protocol work-await : waker #u64
+        (@#async-fn-pinned (: protocol work-await : waker #u64
           : function (#fn work (: seed #u64) #u64 {body})))
         (#fn main () #u64
           (#let waker #u64 0u64)

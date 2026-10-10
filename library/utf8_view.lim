@@ -16,7 +16,7 @@
 
 ; Only these immutable, borrow-checked sources are supported. Arbitrary reader
 ; callbacks could mutate interior storage after validation, breaking invariants.
-(#gn utf8-view (config)
+(#gn #utf8-view (config)
   (#gn-if (#gn-equal (#gn-get config owner) (#ref String))
     (#gn-call utf8-view-emit (#gn-get config name) (#ref String)
       Utf8Source-string-len Utf8Source-string-byte)
@@ -137,8 +137,8 @@
       (#deref-set (#borrow-mut (#get iterator cursor)) (#usize.+.wrap index (#get decoded 1)))
       (#return (,(#gn-symbol-append name "Char") (#get decoded 0))))))
 
-(@utf8-view (: name StringView : owner (#ref String)))
-(@utf8-view (: name Utf8Slice : owner (#slice #u8)))
+(@#utf8-view (: name StringView : owner (#ref String)))
+(@#utf8-view (: name Utf8Slice : owner (#slice #u8)))
 ; String already guarantees UTF-8, so borrowing its complete contents is O(1).
 (#fn String-view (: string (#ref String)) StringView
   (#return (#unsafe (#call StringView-assume-valid (: owner string)))))

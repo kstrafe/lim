@@ -21,7 +21,7 @@
       (#assert (#i64.== (#call linux-write-byte (: source (#borrow newline))) 1i64))))
   (#return 42u64))
 
-(@thread-spawn (: task KernelWorker : worker kernel-worker))
+(@#thread-spawn (: task KernelWorker : worker kernel-worker))
 
 (#fn wait-ready ((gate (#ref (#atomic #u64)))) ()
   (#while (#u64.!= (#atomic-load gate #memory-acquire) 1u64)

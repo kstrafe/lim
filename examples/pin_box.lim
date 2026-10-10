@@ -4,9 +4,9 @@
 
 (#struct Arena ((identity #u64) (fail #bool)))
 (#enum ArenaError (OutOfMemory))
-(@result (: ok (#ptr-mut #u64) : error ArenaError : name ArenaAllocResult))
-(@pin (: type #u64 : name PinnedU64 : copy true))
-(@pin-box
+(@#result (: ok (#ptr-mut #u64) : error ArenaError : name ArenaAllocResult))
+(@#pin (: type #u64 : name PinnedU64 : copy true))
+(@#pin-box
   (#u64 Arena PinU64Box PinU64CreateResult ArenaError ArenaAllocResult PinnedU64)
   (PinU64Created PinU64AllocationFailed pin-u64-create pin-u64-borrow
     pin-u64-borrow-mut pin-u64-destroy ArenaAllocResult-ok-value

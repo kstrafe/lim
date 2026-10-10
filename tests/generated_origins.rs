@@ -53,8 +53,8 @@ fn absolute_origin(root: &Path, file: &str, line: usize) -> String {
 fn identical_builtin_invocations_from_imports_share_an_artifact_and_keep_both_origins() {
     let scratch = support::Scratch::new("generated-origins-builtin");
     let root = scratch.path();
-    write_module(root, "a.lim", "(@optional (: type #u64 : name Shared?))\n");
-    write_module(root, "b.lim", "(@optional (: type #u64 : name Shared?))\n");
+    write_module(root, "a.lim", "(@#optional (: type #u64 : name Shared?))\n");
+    write_module(root, "b.lim", "(@#optional (: type #u64 : name Shared?))\n");
     write_module(
         root,
         "main.lim",
@@ -273,7 +273,7 @@ fn repeated_builtin_materialization_uses_one_cache_lookup() {
     let scratch = support::Scratch::new("builtin-ram-lookup");
     let root = scratch.path();
     let input = root.join("main.lim");
-    let source = "(@optional (: type #u64 : name Shared))\n".repeat(64);
+    let source = "(@#optional (: type #u64 : name Shared))\n".repeat(64);
     let run = || {
         lim::with_cache_report(|| {
             lim::write_generated_sources_from_path_with_config_and_cache(
@@ -307,7 +307,7 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
     write_module(
         root,
         "defs.lim",
-        "(#gn wrap-shared () `((@optional (: type #u64 : name Nested?))))\n",
+        "(#gn wrap-shared () `((@#optional (: type #u64 : name Nested?))))\n",
     );
     write_module(root, "a.lim", "(#import \"defs.lim\")\n(@wrap-shared)\n");
     write_module(root, "b.lim", "(#import \"defs.lim\")\n(@wrap-shared)\n");
@@ -336,7 +336,7 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
     assert_origins(artifact, &origins);
     let invocation = warm
         .iter()
-        .find(|source| source.contains("(@ optional") && !source.contains("Nested?-construct"))
+        .find(|source| source.contains("(@ #optional") && !source.contains("Nested?-construct"))
         .expect("nested user-generator invocation was materialized");
     assert_origins(invocation, &origins);
 }
@@ -345,8 +345,8 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
 fn warm_generation_retains_one_artifact_and_its_deduplicated_origins() {
     let scratch = support::Scratch::new("generated-origins-warm");
     let root = scratch.path();
-    write_module(root, "a.lim", "(@optional (: type #u64 : name Warm?))\n");
-    write_module(root, "b.lim", "(@optional (: type #u64 : name Warm?))\n");
+    write_module(root, "a.lim", "(@#optional (: type #u64 : name Warm?))\n");
+    write_module(root, "b.lim", "(@#optional (: type #u64 : name Warm?))\n");
     write_module(
         root,
         "main.lim",

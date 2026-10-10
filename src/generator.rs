@@ -196,6 +196,7 @@ pub(crate) struct Origins {
     pub user: HashSet<Span>,
     pub builtins: HashMap<String, Vec<Span>>,
     pub source_paths: Vec<PathBuf>,
+    pub standard_declarations: HashSet<Span>,
 }
 
 pub(crate) fn expand_with_origins(
@@ -229,6 +230,28 @@ fn expand_with_hits_and_origins(
     origins: &mut Origins,
 ) -> Result<ExpandedFormsWithHits, crate::source_error::SourceError> {
     for expression in &expressions {
+        crate::validate_reserved_declarations(&expression.expr).map_err(|error| {
+            let span =
+                crate::reserved_declaration_span(expression, &error).unwrap_or(expression.span);
+            at_span(error, span, "declaration")
+        })?;
+        if let Expr::List(items) = &expression.expr {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#gn" || head == "#gn-fn")
+            {
+                if let Some(Expr::Symbol(name)) = items.get(1) {
+                    if name.starts_with('#')
+                        && !origins.standard_declarations.contains(&expression.span)
+                        && !crate::standard_library::is_generator_declaration(&expression.expr)
+                    {
+                        return Err(at_span(
+                            format!("identifier '{name}' is reserved for the language and standard library"),
+                            expression.children.get(1).map_or(expression.span, |name| name.span),
+                            "generator name",
+                        ));
+                    }
+                }
+            }
+        }
         if crate::gensym::contains_reserved(&expression.expr) {
             return Err(at_span(
                 "identifiers beginning with 'lim.gensym.' are reserved for compiler-generated symbols",
@@ -788,7 +811,10 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         })
         .collect::<Result<Vec<_>, String>>()?;
     let Some(generator) = context.generators.get(name).cloned() else {
-        // Built-in declarations such as @optional are handled by the Lim parser.
+        if builtins::named_builtin_keys(name).is_none() {
+            return Err(format!("unknown generator '@{name}'"));
+        }
+        // Built-in declarations such as @#optional are handled by the Lim parser.
         let mut resolved = items[..2].to_vec();
         resolved.extend(arguments);
         let resolved = Expr::List(resolved);
@@ -1965,6 +1991,11 @@ fn evaluate(
         "#gn-for-each" => {
             arity(operator, items, 4)?;
             let variable = symbol(items.get(1), "#gn-for-each binding")?.to_owned();
+            if variable.starts_with('#') {
+                return Err(format!(
+                    "identifier '{variable}' is reserved for the language and standard library"
+                ));
+            }
             if environment.contains_key(&variable) {
                 return Err(format!(
                     "#gn-for-each binding '{variable}' shadows an existing generator binding; shadowing is not allowed"
@@ -2125,7 +2156,10 @@ fn arity(operation: &str, items: &[Expr], expected: usize) -> Result<(), String>
 
 fn symbol<'a>(expression: Option<&'a Expr>, context: &str) -> Result<&'a str, String> {
     match expression {
-        Some(Expr::Symbol(value)) => Ok(value.strip_prefix('#').unwrap_or(value)),
+        Some(Expr::Symbol(value)) if context == "capability type" => {
+            Ok(value.strip_prefix('#').unwrap_or(value))
+        }
+        Some(Expr::Symbol(value)) => Ok(value),
         _ => Err(format!("expected symbol for {context}")),
     }
 }
@@ -2623,8 +2657,8 @@ mod tests {
 
     #[test]
     fn nested_deduplicated_generators_keep_precise_builtin_origins() {
-        let source = "(#gn inner () `((@optional (: type #u64 : name Shared))))\n\
-            (#gn outer () `((@inner) (@optional (: type #u64 : name OuterOnly))))\n\
+        let source = "(#gn inner () `((@#optional (: type #u64 : name Shared))))\n\
+            (#gn outer () `((@inner) (@#optional (: type #u64 : name OuterOnly))))\n\
             (#gn other () `((@inner)))\n\
             (@outer)\n(@other)\n(@other)";
         let mut origins = Origins::default();

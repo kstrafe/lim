@@ -21,7 +21,7 @@
   (#deref-set counter (#u64.+.wrap (#deref counter) 1u64))
   (#return 1u64))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut index #u64 0u64)
     (#let-mut touches #u64 0u64)

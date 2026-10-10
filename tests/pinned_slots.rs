@@ -13,7 +13,7 @@ fn resolve_pin_slot_import(source: &str) -> String {
 #[test]
 fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
       (#struct Frame ((value #u64) (view (#pin-ref #u64)) (payload StableU64)))
       (#linear Frame)
       (#fn main () #u64
@@ -91,7 +91,7 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
 #[test]
 fn generated_pin_slot_take_rejects_a_live_borrow_of_the_slot() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
       (#struct Frame ((payload StableU64)))
       (#linear Frame)
       (#fn main () ()
@@ -117,7 +117,7 @@ fn generated_pin_slot_take_rejects_a_live_borrow_of_the_slot() {
 #[test]
 fn generated_pin_slot_try_insert_refills_in_place_and_returns_occupied_input() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
       (#fn main () #u64
         (#let-mut slot StableU64 (#call stable-u64-empty (:)))
         (#let pinned (#pin-ref-mut StableU64) (#pin-borrow-mut slot))
@@ -176,7 +176,7 @@ fn generated_pin_slot_try_insert_refills_in_place_and_returns_occupied_input() {
 #[test]
 fn a_pinned_slot_payload_can_be_borrowed_and_referenced_in_its_frame() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
       (#struct Frame ((payload StableU64) (view (#pin-ref #u64))))
       (#linear Frame)
       (#fn main () #u64
@@ -220,7 +220,7 @@ fn a_pinned_slot_payload_can_be_borrowed_and_referenced_in_its_frame() {
 #[test]
 fn a_pinned_slot_payload_loan_prevents_moving_out_the_slot() {
     let source = "(#import \"../library/pin_slot.lim\")
-      (@pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
+      (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
       (#struct Frame ((payload StableU64)))
       (#linear Frame)
       (#fn main () ()

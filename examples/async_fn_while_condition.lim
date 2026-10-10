@@ -11,7 +11,7 @@
           (ConditionReady true)
           (ConditionReady false)))))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut iteration #u64 0u64)
     (#while (#await ConditionTask ConditionPending ConditionReady

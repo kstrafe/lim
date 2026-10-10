@@ -351,7 +351,7 @@ exit 2 tuple_match.lim - -
 exit 42 tuple_mut.lim - -
 exit 42 tuple.lim - -
 exit 42 two_large_arguments.lim - -
-exit 42 type_name_shadowing.lim - -
+exit 42 type_keywords.lim - -
 exit 42 typed_float_literals.lim - -
 exit 42 typed_literals.lim - -
 exit 42 typed_match_patterns.lim - -

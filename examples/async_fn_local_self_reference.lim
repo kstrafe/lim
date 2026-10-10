@@ -11,7 +11,7 @@
 (#struct LocalPayload ((left #u64) (right #u64)))
 (#struct LocalOwner ((payload LocalPayload)))
 
-(@async-fn-pinned ( : protocol LocalSelfRefAwait : waker #u64 : function
+(@#async-fn-pinned ( : protocol LocalSelfRefAwait : waker #u64 : function
   (#fn local-self-ref ((seed #u64)) #u64
     (#let owner LocalOwner
       (#struct-literal LocalOwner

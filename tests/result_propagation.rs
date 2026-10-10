@@ -48,8 +48,8 @@ fn run(source: &str, expected: i32) {
     assert!(stderr.is_empty());
 }
 
-const RESULTS: &str = "(@result (: ok #u64 : error #u32 : name Input))
-    (@result (: ok #bool : error #u32 : name Output))
+const RESULTS: &str = "(@#result (: ok #u64 : error #u32 : name Input))
+    (@#result (: ok #bool : error #u32 : name Output))
     (#fn convert (: value Input) Output
       (#let-else (Input-ok-value number) Input value
         (#else (Input-err-value error)
@@ -214,8 +214,8 @@ fn cannot_discard_an_indivisible_linear_error_enum() {
 #[test]
 fn linear_error_is_consumed_once() {
     let source = "(#struct Token (: value #u64)) (#linear Token)
-      (@result (: ok #u64 : error Token : name Input))
-      (@result (: ok #bool : error Token : name Output))
+      (@#result (: ok #u64 : error Token : name Input))
+      (@#result (: ok #bool : error Token : name Output))
       (#fn convert (: value Input) Output
         (#let-else (Input-ok-value number) Input value
           (#else (Input-err-value error)
@@ -264,8 +264,8 @@ fn linear_error_is_consumed_once() {
 #[test]
 fn generated_linear_error_enum_propagates_on_both_edges() {
     let declarations = "(#enum Error (Broken)) (#linear Error)
-      (@result (: ok #u64 : error Error : name Input))
-      (@result (: ok #bool : error Error : name Output))
+      (@#result (: ok #u64 : error Error : name Input))
+      (@#result (: ok #bool : error Error : name Output))
       (#fn convert (: value Input) Output
         (#let-else (Input-ok-value number) Input value
           (#else (Input-err-value error)
@@ -296,7 +296,7 @@ fn generated_linear_error_enum_propagates_on_both_edges() {
     );
     run(
         "(#struct Token (: value #u64)) (#linear Token)
-      (@optional (: type Token : name Maybe))
+      (@#optional (: type Token : name Maybe))
       (#fn main () #u64
         (#let value Maybe (#call Maybe-construct (: value (#struct-literal Token (: value 42u64)))))
         (#return (#match value
@@ -311,8 +311,8 @@ fn generated_linear_error_enum_propagates_on_both_edges() {
 fn builtin_helper_policy_matches_materialization_and_cache_context() {
     let scratch = support::Scratch::new("result-helper-context");
     let source = "(#enum Error (Broken))
-      (@result (: ok #u64 : error Error : name Result))
-      (@optional (: type Error : name Maybe))";
+      (@#result (: ok #u64 : error Error : name Result))
+      (@#optional (: type Error : name Maybe))";
     let generated = || {
         std::fs::read_dir(scratch.path().join("generated"))
             .unwrap()
@@ -406,8 +406,8 @@ fn builtin_copy_policy_handles_aliases_exclusive_refs_and_explicit_linearity() {
     ] {
         let source = format!(
             "{declarations}
-          (@result (: ok #bool : error {payload} : name Result))
-          (@optional (: type {payload} : name Maybe)) {}",
+          (@#result (: ok #bool : error {payload} : name Result))
+          (@#optional (: type {payload} : name Maybe)) {}",
             if generated_linear {
                 "(#linear Result) (#linear Maybe)"
             } else {
@@ -461,7 +461,7 @@ fn builtin_copy_policy_handles_aliases_exclusive_refs_and_explicit_linearity() {
         }
     }
     run(
-        "(@optional (: type (#ref-mut #u64) : name Maybe))
+        "(@#optional (: type (#ref-mut #u64) : name Maybe))
       (#fn main () #u64
         (#let-mut number #u64 42u64)
         (#let value Maybe (#call Maybe-construct (: value (#borrow-mut number))))
@@ -474,8 +474,8 @@ fn builtin_copy_policy_handles_aliases_exclusive_refs_and_explicit_linearity() {
 #[test]
 fn user_generator_emitted_builtins_keep_copy_dependent_helpers() {
     let generator = "(#gn emit (payload)
-      `((@optional (: type ,payload : name Maybe))
-        (@result (: ok #bool : error ,payload : name Result))))";
+      `((@#optional (: type ,payload : name Maybe))
+        (@#result (: ok #bool : error ,payload : name Result))))";
     run(
         &format!(
             "{generator} (#type Payload #u64) (@emit Payload)
@@ -601,8 +601,8 @@ fn failure_diagnostics_point_inside_else() {
 #[test]
 fn reference_error_retains_provenance() {
     let source = "(#struct Error (: view (#ref #u64)))
-      (@result (: ok #u64 : error Error : name Input))
-      (@result (: ok #bool : error Error : name Output))
+      (@#result (: ok #u64 : error Error : name Input))
+      (@#result (: ok #bool : error Error : name Output))
       (#fn convert (: value Input) Output
         (#let-else (Input-ok-value number) Input value
           (#else (Input-err-value error)
@@ -653,7 +653,7 @@ fn preserves_failure_pattern_after_async_suspension() {
           (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
             (#return (#match task (#case (Waiting remaining)
               (#if (#u64.== remaining 0u64) (StepReady 0u64) (StepPending (Waiting 0u64)))))))
-          (@async-fn (: protocol convert-await : waker #u64 : function
+          (@#async-fn (: protocol convert-await : waker #u64 : function
             (#fn convert (: value Input) Output
               (#let waited #u64 (#await Step StepPending StepReady step-poll (Waiting 1u64)))
               (#forget waited)

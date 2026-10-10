@@ -8,7 +8,7 @@
     (#case Start (StepPending Resume))
     (#case Resume (StepReady ())))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut keep-going #bool true)
     (#for () keep-going

@@ -24,7 +24,7 @@
     (#case (Start value) (BodyPending (Resume value)))
     (#case (Resume value) (BodyReady value)))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut index #u64 0u64)
     (#let-mut total #u64 0u64)

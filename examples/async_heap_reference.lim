@@ -28,7 +28,7 @@
         (StepReady 0u64)
         (StepPending (Waiting (#u64.-.wrap count 1u64))))))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work (: pointer (#ptr-mut Holder) : source (#ref #u64)) #u64
     (#let first-step #u64 (#await Step StepPending StepReady step-poll (Waiting 1u64)))
     (#let owner (#pin-own Holder)

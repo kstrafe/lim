@@ -674,7 +674,7 @@ fn context_flag_entry_and_invalid_config_changes_retarget_navigation_and_recover
 #[test]
 fn imported_user_and_builtin_generated_definitions_are_safe_stable_snapshots() {
     let fixture = Fixture::new("generated");
-    let imported = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n(@emit Number)\n(@optional (: type Number : name Maybe))\n";
+    let imported = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64)))\n(@emit Number)\n(@#optional (: type Number : name Maybe))\n";
     let types = fixture.write("types.lim", imported);
     let root_text = "(#import \"types.lim\")\n(#fn main () Number (#return 42u64))\n(#fn wrap () Maybe (#return (#call Maybe-construct (: value 42u64))))";
     let root = fixture.write("main.lim", root_text);

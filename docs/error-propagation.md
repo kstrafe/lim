@@ -3,8 +3,8 @@
 `#let-else` can bind the failure payload of its original value:
 
 ```lim
-(@result (: ok #u64 : error #u32 : name Input))
-(@result (: ok #bool : error #u32 : name Output))
+(@#result (: ok #u64 : error #u32 : name Input))
+(@#result (: ok #bool : error #u32 : name Output))
 
 (#fn convert (: value Input) Output
   (#let-else (Input-ok-value number) Input value
@@ -37,7 +37,7 @@ their borrowing provenance through destructuring and rewrapping. There is no
 inferred propagation, conversion, or implicit destruction: explicitly construct
 the destination Result's error variant with a payload of the same error type.
 
-Built-in `@result` and `@optional` always generate their enum and constructors,
+Built-in `@#result` and `@#optional` always generate their enum and constructors,
 including for linear payloads. Their by-value predicates (`is-ok`, `is-some`)
 and fallback unwrap helpers are generated only when the enum and all payloads
 are Copy. These helpers discard payloads or fallbacks on some paths, so they

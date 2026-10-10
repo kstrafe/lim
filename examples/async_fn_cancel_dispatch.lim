@@ -19,7 +19,7 @@
   (#call child-cancel (: task child))
   (#return ()))
 
-(@async-fn
+(@#async-fn
   ( : protocol WorkAwait
    : waker #u64
    : cancel (cancel-work

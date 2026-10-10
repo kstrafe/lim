@@ -29,7 +29,7 @@ fn generated_standalone(
         .find(|artifact| artifact.contains(&format!("(#fn {poll} ")))
         .unwrap_or_else(|| panic!("no generated artifact contains poll function {poll}"))
         .replace("lim.async.", "ordinary.frame.");
-    assert!(!artifact.contains("@async-fn"), "{artifact}");
+    assert!(!artifact.contains("@#async-fn"), "{artifact}");
     assert!(!artifact.contains("#await"), "{artifact}");
     assert!(!artifact.contains("lim.async."), "{artifact}");
     assert!(!artifact.contains("generator_validation"), "{artifact}");
@@ -48,7 +48,7 @@ fn generated_standalone(
         artifact,
         &source[form.span.end..]
     );
-    assert!(!standalone.contains("@async-fn"), "{standalone}");
+    assert!(!standalone.contains("@#async-fn"), "{standalone}");
     assert!(!standalone.contains("#await"), "{standalone}");
     assert!(!standalone.contains("lim.async."), "{standalone}");
     (scratch, standalone)
@@ -85,7 +85,7 @@ fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting amount) (ChildReady amount)))))
-      (@async-fn (: protocol WorkAwait : waker #u64 : function
+      (@#async-fn (: protocol WorkAwait : waker #u64 : function
         (#fn work ((seed #u64)) #u64
           (#let answer #u64 (#await ChildAwait (Waiting seed)))
           (#return (#u64.+.wrap answer 2u64)))))
@@ -96,8 +96,12 @@ fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
         (#return (#match result
           (#case (work-ready value) value)
           (#case (work-pending pending) (#block (#forget pending) (#unreachable))))))";
-    let (scratch, standalone) =
-        generated_standalone(source, "(@async-fn", "work-poll", "async-generator-movable");
+    let (scratch, standalone) = generated_standalone(
+        source,
+        "(@#async-fn",
+        "work-poll",
+        "async-generator-movable",
+    );
     check_build_and_run(&scratch, &standalone, 42);
 
     let misuse = format!(
@@ -119,7 +123,7 @@ fn pinned_local_self_reference_artifact_is_checked_and_run_as_ordinary_lim() {
     let source = include_str!("../examples/async_fn_local_self_reference.lim");
     let (scratch, standalone) = generated_standalone(
         source,
-        "(@async-fn-pinned",
+        "(@#async-fn-pinned",
         "local-self-ref-poll",
         "async-generator-pinned",
     );
@@ -137,7 +141,7 @@ fn mutable_self_reference_artifact_uses_ordinary_loan_identities_and_local_pins(
         .replace("(#pin-borrow-mut frame)", "(#pin frame)");
     let (scratch, standalone) = generated_standalone(
         &source,
-        "(@async-fn-pinned",
+        "(@#async-fn-pinned",
         "local-self-ref-poll",
         "async-generator-mutable-pin",
     );

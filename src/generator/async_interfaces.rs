@@ -251,7 +251,7 @@ impl Registry {
         Ok(registry)
     }
 
-    /// Register the canonical (@ async-fn[-pinned] names waker function [cancel])
+    /// Register the canonical (@ #async-fn[-pinned] names waker function [cancel])
     /// invocation. The function body is neither parsed nor analyzed here.
     pub fn register(&mut self, invocation: &Expr, span: Span) -> Result<(), Error> {
         let fail = |message: String| Error {
@@ -261,10 +261,10 @@ impl Registry {
         let Expr::List(parts) = invocation else {
             return Err(fail("async interface requires an invocation".into()));
         };
-        let pinned = matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn-pinned");
+        let pinned = matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn-pinned");
         if !matches!(parts.len(), 5 | 6)
             || !matches!(parts.first(), Some(Expr::At))
-            || !matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned")
+            || !matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn" || kind == "#async-fn-pinned")
         {
             return Err(fail("invalid normalized async invocation".into()));
         }

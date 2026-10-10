@@ -1,5 +1,5 @@
 (#import "../library/cell.lim")
-(@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
 (#struct Point ((x #u64) (y #u64)))
 (#struct CellState ((prefix #u64) (counter CellU64)))
 (#static Origin Point (#struct-literal Point ((x 19) (y 23))))

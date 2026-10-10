@@ -50,7 +50,7 @@ the cancellation boundaries and emitted tag assertions.
 Graph cancellation configuration uses these source slots:
 
 ```lim
-(@async-fn-pinned (: protocol WorkAwait : waker Wake
+(@#async-fn-pinned (: protocol WorkAwait : waker Wake
   : cancel (work-cancel
     ((owner destroy-owner) (await-0 cancel-child)))
   : function (#fn work (...) #u64 ...)))

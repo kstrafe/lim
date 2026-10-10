@@ -43,11 +43,11 @@ fn async_protocols_compose_with_forward_references_and_derived_names() {
         (#return (#match task
           (#case (TickStart amount) (TickPending (TickResume amount)))
           (#case (TickResume amount) (TickReady amount)))))
-      (@async-fn (: protocol ParentAwait : waker #u64 : function
+      (@#async-fn (: protocol ParentAwait : waker #u64 : function
         (#fn parent (: amount #u64) #u64
           (#let answer #u64 (#await ChildAwait (#call child (($ amount)))))
           (#return (#u64.+.wrap answer 2u64)))))
-      (@async-fn (: protocol ChildAwait : waker #u64 : function
+      (@#async-fn (: protocol ChildAwait : waker #u64 : function
         (#fn child (: amount #u64) #u64
           (#return (#await TickAwait (TickStart amount))))))
       (#fn main () #u64
@@ -80,11 +80,11 @@ fn pinned_async_protocols_lend_the_frame_instead_of_moving_it() {
       (#fn tick-poll (: task Tick : waker (#ref #u64)) TickPoll
         (#return (#match task (#case (Waiting count)
           (#if (#u64.== count 0u64) (TickPending (Waiting 1u64)) (TickReady count))))))
-      (@async-fn-pinned (: protocol ChildAwait : waker #u64 : function
+      (@#async-fn-pinned (: protocol ChildAwait : waker #u64 : function
         (#fn child (: amount #u64) #u64
           (#let ignored #u64 (#await TickAwait (Waiting 0u64)))
           (#forget ignored) (#return amount))))
-      (@async-fn (: protocol ParentAwait : waker #u64 : function
+      (@#async-fn (: protocol ParentAwait : waker #u64 : function
         (#fn parent (: task (#pin-ref-mut child-frame)) #u64
           (#return (#await ChildAwait task)))))
       (#fn main () #u64
@@ -110,12 +110,12 @@ fn async_protocols_cross_internal_and_external_imports() {
         fs::write(
             scratch.path().join("child.lim"),
             "(#type Amount #u64)
-             (@async-fn (: protocol ChildAwait : waker #u64 : function
+             (@#async-fn (: protocol ChildAwait : waker #u64 : function
               (#fn child (: amount Amount) Amount (#return amount))))",
         )
         .unwrap();
         let source = format!("({import} \"child.lim\" {prefix})
-          (@async-fn (: protocol ParentAwait : waker #u64 : function
+          (@#async-fn (: protocol ParentAwait : waker #u64 : function
             (#fn parent () #u64
               (#return (#await {prefix}ChildAwait (#call {prefix}child (: {prefix}amount 42u64)))))))
           (#fn main () #u64
@@ -135,15 +135,15 @@ fn async_protocols_keep_unknown_name_and_result_mismatch_spans() {
     let scratch = support::Scratch::new("async-protocol-errors");
     for (source, message, offending) in [
         (
-            "(@async-fn (: protocol WorkAwait : waker #u64 : function
+            "(@#async-fn (: protocol WorkAwait : waker #u64 : function
             (#fn work () #u64 (#return (#await Missing task)))))",
             "unknown syntax bundle 'Missing'",
             "Missing",
         ),
         (
-            "(@async-fn (: protocol ChildAwait : waker #u64 : function
+            "(@#async-fn (: protocol ChildAwait : waker #u64 : function
             (#fn child () #u64 (#return 42u64))))
-          (@async-fn (: protocol ParentAwait : waker #u64 : function
+          (@#async-fn (: protocol ParentAwait : waker #u64 : function
             (#fn parent () #u64
               (#let value #u32 (#await ChildAwait (#call child (:))))
               (#return (#as value #u64)))))",
@@ -168,19 +168,19 @@ fn async_protocols_keep_unknown_name_and_result_mismatch_spans() {
 #[test]
 fn async_protocols_reject_invalid_declarations_and_name_collisions() {
     for (source, message) in [
-        ("(@async-fn (: waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+        ("(@#async-fn (: waker #u64 : function (#fn work () #u64 (#return 42u64))))",
             "missing argument 'protocol'"),
-        ("(@async-fn (: protocol #u64 : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+        ("(@#async-fn (: protocol #u64 : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
             "protocol names must be user-defined"),
-        ("(@async-fn (: protocol A : protocol B : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+        ("(@#async-fn (: protocol A : protocol B : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
             "repeats argument 'protocol'"),
         ("(#syntax WorkAwait ())
-          (@async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+          (@#async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
             "duplicate syntax bundle"),
         ("(#struct WorkAwait ())
-          (@async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+          (@#async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
             "conflicts with a syntax bundle"),
-        ("(@async-fn (: protocol work-task : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+        ("(@#async-fn (: protocol work-task : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
             "conflicts with a syntax bundle"),
     ] {
         let error = lim::parse_program(source).unwrap_err();
@@ -190,7 +190,7 @@ fn async_protocols_reject_invalid_declarations_and_name_collisions() {
 
 #[test]
 fn async_protocols_reject_names_as_an_unknown_argument() {
-    for generator in ["async-fn", "async-fn-pinned"] {
+    for generator in ["#async-fn", "#async-fn-pinned"] {
         let source = format!(
             "(@{generator} (: protocol WorkAwait
           : names (Frame Poll Pending Ready poll) : waker #u64
@@ -207,10 +207,10 @@ fn async_protocols_reject_names_as_an_unknown_argument() {
 #[test]
 fn async_protocols_are_exported_by_generator_produced_functions() {
     let source = "(#gn emit ()
-        `((@async-fn (: protocol ChildAwait : waker #u64 : function
+        `((@#async-fn (: protocol ChildAwait : waker #u64 : function
            (#fn child () #u64 (#return 42u64))))))
       (@emit)
-      (@async-fn (: protocol ParentAwait : waker #u64 : function
+      (@#async-fn (: protocol ParentAwait : waker #u64 : function
         (#fn parent () #u64 (#return (#await ChildAwait (#call child (:)))))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -240,7 +240,7 @@ fn async_task_named_capture_survives_pending_without_shadowing_the_poll_paramete
 
 #[test]
 fn async_task_named_capture_without_await_keeps_explicit_public_argument_key() {
-    let source = "(@async-fn (: protocol work-await : waker #u64 : function
+    let source = "(@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work (: task #u64) #u64 (#return task))))
       (#fn main () #u64
         (#let waker #u64 0u64)
@@ -266,7 +266,7 @@ fn async_task_named_reference_capture_retains_its_referent_across_pending() {
             (#return (#match task (#case (Waiting remaining)
               (#if (#u64.== remaining 0u64) (StepReady 0u64)
                 (StepPending (Waiting 0u64)))))))
-          (@async-fn (: protocol work-await : waker #u64 : function
+          (@#async-fn (: protocol work-await : waker #u64 : function
             (#fn work (: task ({ty} #u64)) #u64
               (#let step-result #u64 (#await Step StepPending StepReady step-poll (Waiting 1u64)))
               (#return (#u64.+.wrap (#deref task) step-result)))))
@@ -364,7 +364,7 @@ fn many_ready_awaits_advance_within_one_poll_without_stage_calls() {
       (#enum StepPoll (: StepPending Step : StepReady #u64))
       (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
         (#return (#match task (#case (Waiting value) (StepReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64 {awaits} (#return value-15))))
       (#fn main () #u64 (#let waker #u64 0u64)
         (#let outcome work-poll-result (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
@@ -392,7 +392,7 @@ fn generator_produced_async_declaration_keeps_its_checked_source_body() {
       (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Waiting value) (ChildReady value)))))
       (#gn produce ()
-        `((@async-fn (: protocol work-await : waker #u64
+        `((@#async-fn (: protocol work-await : waker #u64
           : function (#fn work ((seed #u64)) #u64
             (#return (#await Child ChildPending ChildReady step-poll (Waiting seed))))))))
       (@produce)
@@ -640,7 +640,7 @@ fn async_generated_code_does_not_allow_shadowing_in_nested_branches() {
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (ChildReady 0u64)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((value #u64)) #u64
           (#let result #u64
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
@@ -675,7 +675,7 @@ fn async_function_early_returns_from_synchronous_loops_produce_ready() {
       (#linear Child)
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((finish-early #bool) (range-early #bool) (for-early #bool)) #u64
           (#while finish-early
             (#return 41u64))
@@ -865,7 +865,7 @@ fn async_function_returns_ready_from_an_ordinary_if_branch() {
         (#return (#match task
           (#case Waiting (ChildPending Resume))
           (#case Resume (ChildReady 42u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((early #bool)) #u64
           (#if early (#block (#return 7u64)) ())
           (#let result #u64
@@ -900,7 +900,7 @@ fn async_function_returns_ready_from_an_ordinary_match_branch() {
         (#return (#match task
           (#case Waiting (ChildPending Resume))
           (#case Resume (ChildReady 42u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((action Action)) #u64
           (#match action
             (#case ReturnNow (#block (#return 7u64)))
@@ -934,7 +934,7 @@ fn async_function_early_return_from_synchronous_loop_produces_ready() {
       (#linear Child)
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#loop (#return 41u64))
           (#let value #u64
@@ -959,7 +959,7 @@ fn async_lowering_errors_highlight_the_later_nested_await() {
       (#enum StepPoll ((StepPending Step) (StepReady #u64)))
       (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
         (#return (#match task (#case (Waiting value) (StepReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let first #u64
             (#await Step StepPending StepReady step-poll (Waiting 1u64)))
@@ -1015,7 +1015,7 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
               (ChildPending (Waiting 1u64))
               (ChildReady value))))))
       (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
-      (@async-fn-pinned (: protocol work-await : waker #u64 : function
+      (@#async-fn-pinned (: protocol work-await : waker #u64 : function
         (#fn work ((offset #u64)) #u64
           (#let value #u64
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64))
@@ -1137,7 +1137,7 @@ fn pinned_async_frames_reject_stack_pins_captured_across_suspension() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
-      (@async-fn-pinned (: protocol work-await : waker #u64 : function
+      (@#async-fn-pinned (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut value #u64 41u64)
           (#let view (#pin-ref #u64) (#pin-borrow value))
@@ -1408,8 +1408,8 @@ fn async_function_can_complete_without_suspension() {
 fn async_function_without_await_runs_its_body_on_first_poll() {
     let source = format!(
         "(#import \"{}/library/cell.lim\")
-         (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
-         (@async-fn (: protocol work-await : waker #u64 : function
+         (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (@#async-fn (: protocol work-await : waker #u64 : function
            (#fn work ((cell (#ref CellU64))) #u64
              (#call CellU64-set (: cell cell : value 1u64))
              (#return (#u64.+.wrap (#call CellU64-get (: cell cell)) 41u64)))))
@@ -1445,8 +1445,8 @@ fn async_function_without_await_runs_its_body_on_first_poll() {
 fn pinned_async_function_without_await_runs_on_first_poll() {
     let source = format!(
         "(#import \"{}/library/cell.lim\")
-         (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
-         (@async-fn-pinned (: protocol work-await : waker #u64 : function
+         (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (@#async-fn-pinned (: protocol work-await : waker #u64 : function
            (#fn work ((cell (#ref CellU64))) #u64
              (#call CellU64-set (: cell cell : value 1u64))
              (#return (#u64.+.wrap (#call CellU64-get (: cell cell)) 41u64)))))
@@ -1488,7 +1488,7 @@ fn async_function_infers_only_live_across_await_values() {
         (#return (#match task
           (#case (Waiting value) (#block (#forget value) (ChildReady 1u64))))))
       (#fn echo ((value #u64)) #u64 (#return value))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
       (#fn work ((first #u64)) #u64
           (#let value #u64 5u64)
           (#let box Box (#struct-literal Box ((value 7u64))))
@@ -1521,7 +1521,7 @@ fn async_function_requires_unused_linear_values_to_be_consumed_before_await() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (#block (#forget value) (ChildReady 1u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let token Token (#struct-literal Token ((value 1u64))))
           (#let child Child (Waiting 0u64))
@@ -1545,7 +1545,7 @@ fn async_function_rejects_reference_to_pre_suspension_local() {
         (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
         (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
           (#return (ChildPending task)))
-        (@async-fn (: protocol make-await : waker Waker : function (#fn make () #u64
+        (@#async-fn (: protocol make-await : waker Waker : function (#fn make () #u64
             (#let owner #u64 1u64)
             (#let view (#ref #u64) (#borrow owner))
             (#let child Child (Waiting 1u64))
@@ -1570,7 +1570,7 @@ fn async_function_accepts_no_arguments_or_captures() {
       (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
         (#forget task)
         (#return (ChildReady 7u64)))
-      (@async-fn (: protocol work-await : waker Waker : function (#fn work () #u64
+      (@#async-fn (: protocol work-await : waker Waker : function (#fn work () #u64
           (#let value #u64
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
           (#return value))))
@@ -1624,7 +1624,7 @@ fn async_function_has_no_fixed_suspension_count_limit() {
          (#enum StepPoll ((StepPending Step) (StepReady #u64)))
          (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
            (#return (#match task (#case (Waiting value) (StepReady value)))))
-         (@async-fn (: protocol work-await : waker #u64 : function
+         (@#async-fn (: protocol work-await : waker #u64 : function
            (#fn work () #u64 {body})))
          (#fn main () #u64
            (#let waker #u64 0u64)
@@ -1655,7 +1655,7 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
       (#fn inner-poll ((task InnerTask) (waker (#ref #u64))) InnerPoll
         (#return (#match task
           (#case MakeOuter (InnerReady (Waiting 42u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#await OuterTask OuterPending OuterReady outer-poll
@@ -1725,7 +1725,7 @@ fn async_function_awaits_directly_in_explicit_return() {
             (#if (#u64.== count 0u64)
               (StepPending (Waiting 1u64))
               (StepReady count))))))
-      (@async-fn (: protocol work-await : waker Waker : function
+      (@#async-fn (: protocol work-await : waker Waker : function
         (#fn work ((initial #u64)) #u64
           (#return (#await Step StepPending StepReady step-poll (Waiting initial))))))
       (#fn main () #u64
@@ -1762,7 +1762,7 @@ fn async_function_extracts_typed_awaits_from_value_expressions() {
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
       (#fn sum ((a #u64) (b #u64)) #u64 (#return (#u64.+.wrap a b)))
-      (@async-fn (: protocol work-await : waker Waker : function
+      (@#async-fn (: protocol work-await : waker Waker : function
         (#fn work () #u64
           (#let result #u64 (#call sum (:
             b (#await #u64 Child ChildPending ChildReady child-poll (Waiting 20u64))
@@ -1802,7 +1802,7 @@ fn async_call_arguments_are_evaluated_in_source_order_before_suspension() {
         (#return 3u64))
       (#fn sum ((first #u64) (second #u64)) #u64
         (#return (#u64.+.wrap first second)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((counter (#ref-mut #u64))) #u64
           (#let result #u64
             (#call sum (:
@@ -1833,7 +1833,7 @@ fn async_numeric_operands_are_evaluated_in_source_order_before_suspension() {
       (#fn mark ((counter (#ref-mut #u64))) #u64
         (#deref-set counter 1u64)
         (#return 3u64))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((counter (#ref-mut #u64))) #u64
           (#return (#u64.+.wrap
             (#call mark (: counter counter))
@@ -1862,7 +1862,7 @@ fn async_enum_payloads_are_evaluated_in_source_order_before_awaits() {
       (#fn mark ((counter (#ref-mut #u64))) #u64
         (#deref-set counter 1u64)
         (#return 3u64))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((counter (#ref-mut #u64))) #u64
           (#let value Data
             (Pair
@@ -1893,7 +1893,7 @@ fn async_nested_block_bindings_survive_suspension_inside_an_initializer() {
       (#fn mark ((counter (#ref-mut #u64))) #u64
         (#deref-set counter 1u64)
         (#return 3u64))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((counter (#ref-mut #u64))) #u64
           (#let result #u64
             (#block
@@ -1928,7 +1928,7 @@ fn async_nested_block_assignments_resume_after_awaited_rhs_values() {
         (#return (#match task
           (#case Waiting (ChildPending Resume))
           (#case Resume (ChildReady 42u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#block
@@ -1962,7 +1962,7 @@ fn async_nested_block_effect_statements_can_await() {
         (#return (#match task
           (#case Waiting (ChildPending Resume))
           (#case Resume (ChildReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#block
@@ -1996,7 +1996,7 @@ fn async_struct_fields_are_evaluated_in_source_order_before_suspension() {
       (#fn mark ((counter (#ref-mut #u64))) #u64
         (#deref-set counter 1u64)
         (#return 3u64))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((counter (#ref-mut #u64))) #u64
           (#let pair Pair
             (#struct-literal Pair (
@@ -2027,14 +2027,14 @@ fn async_tuple_and_array_elements_are_evaluated_before_later_awaits() {
       (#fn mark ((counter (#ref-mut #u64))) #u64
         (#deref-set counter 1u64)
         (#return 3u64))
-      (@async-fn (: protocol work-tuple-await : waker #u64 : function
+      (@#async-fn (: protocol work-tuple-await : waker #u64 : function
         (#fn work-tuple ((counter (#ref-mut #u64))) #u64
           (#let pair (#tuple #u64 #u64)
             (#tuple (#tuple #u64 #u64)
               (#call mark (: counter counter))
               (#await #u64 Child ChildPending ChildReady child-poll Waiting)))
           (#return 0u64))))
-      (@async-fn (: protocol work-array-await : waker #u64 : function
+      (@#async-fn (: protocol work-array-await : waker #u64 : function
         (#fn work-array ((counter (#ref-mut #u64))) #u64
           (#let values (#array #u64 2)
             (#array-of (#array #u64 2)
@@ -2070,7 +2070,7 @@ fn async_function_extracts_typed_await_from_another_await_task() {
       (#fn child-poll ((task ChildTask) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#await #u64 ChildTask ChildPending ChildReady child-poll
@@ -2116,7 +2116,7 @@ fn async_function_suspends_in_a_value_block_with_conditional_await() {
         (#return (#match task
           (#case (Waiting value) (StepPending (Resuming value)))
           (#case (Resuming value) (StepReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((choose #bool)) #u64
           (#let value #u64
             (#block
@@ -2155,7 +2155,7 @@ fn async_function_suspends_inside_mutable_assignment_rhs() {
             (#if (#u64.== remaining 0u64)
               (ChildReady 42u64)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker Waker : function
+      (@#async-fn (: protocol work-await : waker Waker : function
         (#fn work () #u64
           (#let-mut total #u64 10u64)
           (#set total
@@ -2189,7 +2189,7 @@ fn async_loop_expression_can_be_suspended_as_a_nested_value() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let ignored ()
             (#loop
@@ -2219,7 +2219,7 @@ fn async_while_expression_can_be_suspended_as_a_nested_value() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let ignored ()
             (#block
@@ -2251,7 +2251,7 @@ fn async_loop_expression_can_be_suspended_in_a_selected_branch() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((choose #bool)) #u64
           (#let ignored ()
             (#if choose
@@ -2291,7 +2291,7 @@ fn async_suspension_inside_nested_value_block_preserves_block_scope() {
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
       (#fn identity ((value #u64)) #u64 (#return value))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#call identity (: value
@@ -2417,7 +2417,7 @@ fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
       (#fn identity ((value #u64)) #u64 (#return value))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#call identity (: value
@@ -2522,7 +2522,7 @@ fn async_value_loop_break_moves_linear_payload_across_pending() {
         (#let value #u64 (#get token value))
         (#forget token)
         (#return value))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#call consume-token (: token
@@ -2569,7 +2569,7 @@ fn async_value_loop_statement_can_discard_a_copy_break_result() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#loop
             (#let value #u64
@@ -2605,7 +2605,7 @@ fn async_value_loop_statement_cannot_discard_a_linear_break_result() {
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value)
             (ChildReady (#struct-literal Token ((value value))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#loop
             (#let value Token
@@ -2630,7 +2630,7 @@ fn async_unit_loop_expression_can_be_suspended_in_a_call_argument() {
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
       (#fn consume-unit ((value ())) #u64 (#return 42u64))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#call consume-unit (: value
@@ -2668,7 +2668,7 @@ fn async_unit_while_expression_can_be_suspended_in_a_call_argument() {
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
       (#fn consume-unit ((value ())) #u64 (#return 43u64))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#call consume-unit (: value
@@ -2706,7 +2706,7 @@ fn async_for_range_expression_can_be_suspended_in_a_call_argument() {
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
       (#fn consume-unit ((value ())) #u64 (#return 44u64))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#call consume-unit (: value
@@ -2744,7 +2744,7 @@ fn async_for_expression_can_be_suspended_in_a_call_argument() {
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
       (#fn consume-unit ((value ())) #u64 (#return 45u64))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#call consume-unit (: value
@@ -2784,7 +2784,7 @@ fn async_while_let_expression_can_be_suspended_in_a_call_argument() {
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady None)))))
       (#fn consume-unit ((value ())) #u64 (#return 46u64))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#call consume-unit (: value
@@ -2822,7 +2822,7 @@ fn async_function_suspends_inside_projected_assignment_rhs() {
             (#if (#u64.== remaining 0u64)
               (ChildReady 42u64)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut values (#array #u64 1) (#array-of (#array #u64 1) 0u64))
           (#set-index values 0usize
@@ -2861,7 +2861,7 @@ fn async_function_awaits_before_selecting_an_if_branch() {
             (#if (#u64.== remaining 0u64)
               (ChildReady true)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#if (#await #bool Child ChildPending ChildReady child-poll (Waiting 1u64))
@@ -2902,7 +2902,7 @@ fn async_function_awaits_before_selecting_a_match_arm() {
             (#if (#u64.== remaining 0u64)
               (ChildReady (Continue 42u64))
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#return (#match (#await Decision Child ChildPending ChildReady child-poll (Waiting 1u64))
             (#case (Continue value) value)
@@ -2941,7 +2941,7 @@ fn async_function_resumes_inside_a_value_producing_block() {
             (#if (#u64.== remaining 0u64)
               (ChildReady true)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result DecisionResult
             (#block
@@ -2993,7 +2993,7 @@ fn async_function_assigns_conditional_await_result_inside_a_block() {
             (#if (#u64.== remaining 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady 42u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((choose #bool)) #u64
           (#return (#block
             (#let-mut result #u64 0u64)
@@ -3027,7 +3027,7 @@ fn async_function_resumes_multiple_awaits_inside_one_block() {
             (#if (#u64.== remaining 0u64)
               (ChildReady true)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#block
@@ -3079,7 +3079,7 @@ fn async_function_assigns_a_block_local_after_await_resumes() {
             (#if (#u64.== remaining 0u64)
               (ChildReady 42u64)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut total (#array #u64 1)
             (#array-of (#array #u64 1) 1u64))
@@ -3122,7 +3122,7 @@ fn async_function_preserves_mutability_of_block_await_bindings() {
             (#if (#u64.== remaining 0u64)
               (ChildReady 41u64)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#block
@@ -3160,7 +3160,7 @@ fn async_function_runs_block_prefix_side_effect_once_before_await() {
             (#if (#u64.== remaining 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady 42u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut count #u64 0u64)
           (#let result #u64
@@ -3193,7 +3193,7 @@ fn async_function_suspends_on_a_discarded_copy_await_in_a_block() {
         (#return (#match task
           (#case Start (Pending Resume))
           (#case Resume (Ready ())))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#block
@@ -3229,7 +3229,7 @@ fn async_function_rejects_discarding_a_linear_await_result_in_a_block() {
         (#return (#match task
           (#case Start (Pending Resume))
           (#case Resume (Ready (#struct-literal Resource ((value 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let result #u64
             (#block
@@ -3313,7 +3313,7 @@ fn async_function_let_else_returns_ready_before_and_after_suspension() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe) (after Maybe)) #u64
           (#let-else (Some payload) Maybe input (#return 7u64))
           (#let value #u64
@@ -3349,7 +3349,7 @@ fn async_function_can_await_let_else_scrutinee() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let-else (Some value) Maybe
             (#await Child ChildPending ChildReady child-poll (Waiting input))
@@ -3384,7 +3384,7 @@ fn async_function_awaits_inside_let_else_return_expression() {
             (#if (#u64.== remaining 0u64)
               (ChildReady 7u64)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let-else (Some value) Maybe input
             (#return (#u64.+.wrap 1u64
@@ -3424,7 +3424,7 @@ fn async_let_else_can_await_before_an_unreachable_failure() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let-else (Some payload) Maybe input
             (#block
@@ -3456,7 +3456,7 @@ fn async_let_else_can_await_before_a_diverging_panic() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let-else (Some payload) Maybe input
             (#block
@@ -3488,7 +3488,7 @@ fn async_let_else_can_suspend_in_one_panic_only_branch() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe) (wait #bool)) #u64
           (#let-else (Some payload) Maybe input
             (#if wait
@@ -3522,7 +3522,7 @@ fn async_let_else_can_suspend_in_one_panic_only_match_arm() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe) (wait #bool)) #u64
           (#let-else (Some payload) Maybe input
             (#match wait
@@ -3556,7 +3556,7 @@ fn async_let_else_awaits_inside_an_assertion_before_unreachable() {
       (#fn child-poll ((task ChildTask) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case Waiting (ChildReady 42u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let-else (Some value) Maybe input
             (#block
@@ -3589,7 +3589,7 @@ fn async_let_else_accepts_conditional_awaited_return_arms() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe) (choose #bool)) #u64
           (#let-else (Some payload) Maybe input
             (#block
@@ -3632,7 +3632,7 @@ fn async_let_else_diverging_branch_can_return_after_multiple_awaits() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let-else (Some matched) Maybe input
             (#block
@@ -3673,7 +3673,7 @@ fn async_function_requires_explicit_type_for_nested_let_else_await() {
       (#linear Child)
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let-else (Some value) Maybe input
             (#return (#u64.+.wrap 1u64
@@ -3698,7 +3698,7 @@ fn async_function_only_polls_awaited_let_else_mismatch_arm() {
             (#if (#u64.== remaining 0u64)
               (ChildReady 7u64)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let-else (Some value) Maybe input
             (#block
@@ -3751,7 +3751,7 @@ fn async_function_resumes_suspension_after_awaited_let_else_success() {
               (ChildReady value)
               (ChildPending
                 (SuccessWaiting (#u64.-.wrap remaining 1u64) value)))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#let base #u64 1u64)
           (#let-else (Some value) Maybe input
@@ -3797,7 +3797,7 @@ fn async_function_releases_let_else_success_borrow_after_ready() {
               (#block (#deref-set owner 42u64) (ChildReady 42u64))
               (ChildPending
                 (WriteAfterResume owner (#u64.-.wrap remaining 1u64))))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe) (owner (#ref-mut #u64))) #u64
           (#let-else (Some value) Maybe input
             (#return (#await #u64 Child ChildPending ChildReady child-poll
@@ -3837,7 +3837,7 @@ fn async_function_requires_types_for_nested_awaits() {
     let source = "(#enum Child ((Waiting #u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll (#return (ChildReady 1u64)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#return (#u64.+.wrap
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64))
@@ -3859,7 +3859,7 @@ fn async_function_extracts_awaits_from_keyed_struct_literals() {
       (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker Waker : function
+      (@#async-fn (: protocol work-await : waker Waker : function
         (#fn work () Pair
           (#let result Pair (#struct-literal Pair
             ((right (#await #u64 Child ChildPending ChildReady child-poll (Waiting 20u64)))
@@ -3889,12 +3889,12 @@ fn async_function_awaits_after_conditional_task_selection() {
       (#fn child-poll ((task Child) (waker (#ref Waker))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol choose-if-await : waker Waker : function
+      (@#async-fn (: protocol choose-if-await : waker Waker : function
         (#fn choose-if ((large #bool)) #u64
           (#return (#if large
             (#await #u64 Child ChildPending ChildReady child-poll (Waiting 20u64))
             (#await #u64 Child ChildPending ChildReady child-poll (Waiting 10u64)))))))
-      (@async-fn (: protocol choose-match-await : waker Waker : function
+      (@#async-fn (: protocol choose-match-await : waker Waker : function
         (#fn choose-match ((choice Choice)) #u64
           (#return (#match choice
             (#case Small (#await #u64 Child ChildPending ChildReady child-poll (Waiting 10u64)))
@@ -3933,7 +3933,7 @@ fn async_conditional_await_joins_with_an_immediate_value() {
             (#if (#u64.== value 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady value))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((choose #bool)) #u64
           (#let result #u64
             (#if choose
@@ -3948,7 +3948,7 @@ fn async_conditional_await_joins_with_an_immediate_value() {
               41u64))
           (#return result))))
       (#enum Choice (Await Immediate))
-      (@async-fn (: protocol work-match-await : waker #u64 : function
+      (@#async-fn (: protocol work-match-await : waker #u64 : function
         (#fn work-match ((choice Choice)) #u64
           (#let result #u64
             (#match choice
@@ -4023,7 +4023,7 @@ fn async_conditional_branch_value_expressions_can_suspend() {
               (ChildReady 41u64))))))
       (#fn add-one ((value #u64)) #u64
         (#return (#u64.+.wrap value 1u64)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((choose #bool)) #u64
           (#return (#call add-one (: value
             (#block
@@ -4033,7 +4033,7 @@ fn async_conditional_branch_value_expressions_can_suspend() {
                   1u64)
                 0u64))))))))
       (#enum Choice (Await Immediate))
-      (@async-fn (: protocol work-match-await : waker #u64 : function
+      (@#async-fn (: protocol work-match-await : waker #u64 : function
         (#fn work-match ((choice Choice)) #u64
           (#return (#call add-one (: value
             (#match choice
@@ -4090,7 +4090,7 @@ fn async_conditional_value_await_captures_typed_function_parameters() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((offset #u64)) #u64
           (#return (#if true
             (#u64.+.wrap
@@ -4119,7 +4119,7 @@ fn async_conditional_value_await_captures_typed_local_bindings() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let offset #u64 40u64)
           (#return (#if true
@@ -4150,7 +4150,7 @@ fn async_conditional_continuations_can_change_result_type() {
         (#return (#match task
           (#case (Waiting value) (StepPending (Resuming value)))
           (#case (Resuming value) (StepReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((choose #bool)) #bool
           (#return (#if choose
             (#block
@@ -4296,7 +4296,7 @@ fn async_conditional_block_continuation_captures_typed_locals() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((offset #u64)) #u64
           (#return (#if true
             (#block
@@ -4329,7 +4329,7 @@ fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
             (#if (#u64.== value 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady value))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((choose #bool) (view (#ref #u64))) #u64
           (#let result #u64
             (#if choose
@@ -4379,7 +4379,7 @@ fn async_function_rejects_conditional_awaits_with_different_result_types() {
         (#return (#match task (#case (Waiting value) (ChildReady value)))))
       (#fn child-poll-alt ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (ChildAlternateReady 2u64)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#return (#if true
             (#await #u64 Child ChildPending ChildReady child-poll (Waiting 1u64))
@@ -4410,13 +4410,13 @@ fn async_conditional_awaits_support_distinct_child_poll_protocols() {
       (#enum RightPoll ((RightPending RightChild) (RightReady #u64)))
       (#fn right-poll ((task RightChild) (waker (#ref #u64))) RightPoll
         (#return (#match task (#case (RightWaiting value) (RightReady (#u64.+.wrap value 1u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((choose-left #bool)) #u64
           (#return (#if choose-left
             (#await #u64 LeftChild LeftPending LeftReady left-poll (LeftWaiting 0u64))
             (#await #u64 RightChild RightPending RightReady right-poll (RightWaiting 2u64)))))))
       (#enum Choice (Left Right))
-      (@async-fn (: protocol work-match-await : waker #u64 : function
+      (@#async-fn (: protocol work-match-await : waker #u64 : function
         (#fn work-match ((choice Choice)) #u64
           (#return (#match choice
             (#case Left
@@ -4469,7 +4469,7 @@ fn async_function_retains_external_borrows_across_pending() {
             (#if (#u64.== count 0u64)
               (StepPending (Waiting 1u64))
               (StepReady count))))))
-      (@async-fn (: protocol read-after-await-await : waker Waker : function
+      (@#async-fn (: protocol read-after-await-await : waker Waker : function
         (#fn read-after-await ((view (#ref #u64))) #u64
           (#let result #u64
             (#await Step StepPending StepReady step-poll (Waiting 0u64)))
@@ -4527,7 +4527,7 @@ fn async_function_retains_mutable_external_borrows_across_pending() {
             (#if (#u64.== count 0u64)
               (StepPending (Waiting 1u64))
               (StepReady count))))))
-      (@async-fn (: protocol write-after-await-await : waker Waker : function
+      (@#async-fn (: protocol write-after-await-await : waker Waker : function
         (#fn write-after-await ((view (#ref-mut #u64))) #u64
           (#let result #u64
             (#await Step StepPending StepReady step-poll (Waiting 0u64)))
@@ -4570,7 +4570,7 @@ fn pinned_async_frame_retains_an_external_pinned_borrow_across_pending() {
             (#if (#u64.== count 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady count))))))
-      (@async-fn-pinned (: protocol read-after-await-await : waker #u64 : function
+      (@#async-fn-pinned (: protocol read-after-await-await : waker #u64 : function
         (#fn read-after-await ((view (#pin-ref #u64))) #u64
           (#let result #u64
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
@@ -4620,7 +4620,7 @@ fn cancelling_a_pending_async_frame_releases_its_external_mutable_borrow() {
       (#fn step-poll ((task Step) (waker (#ref Waker))) StepPoll
         (#return (#match task
           (#case (Waiting count) (StepPending (Waiting count))))))
-      (@async-fn (: protocol work-await : waker Waker : function
+      (@#async-fn (: protocol work-await : waker Waker : function
         (#fn work ((view (#ref-mut #u64))) #u64
           (#let result #u64
             (#await Step StepPending StepReady step-poll (Waiting 0u64)))
@@ -4671,7 +4671,7 @@ fn async_function_carries_mutable_locals_across_pending_resume() {
             (#if (#u64.== count 0u64)
               (StepPending (Waiting 1u64))
               (StepReady count))))))
-      (@async-fn (: protocol work-await : waker Waker : function
+      (@#async-fn (: protocol work-await : waker Waker : function
         (#fn work ((#mut initial #u64)) #u64
           (#let-mut total #u64 initial)
           (#let-mut result #u64
@@ -4703,7 +4703,7 @@ fn async_function_rejects_assignment_to_immutable_capture() {
     let source = "(#enum Child ((Waiting #u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll (#return (ChildReady 1u64)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let total #u64 2u64)
           (#let result #u64
@@ -4723,7 +4723,7 @@ fn async_function_lowers_await_in_terminal_binding_block() {
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Waiting value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#return (#if true
             (#block
@@ -4763,7 +4763,7 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
             (#if (#u64.== value 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady value))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#while (#u64.< iteration 2u64)
@@ -4792,7 +4792,7 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
 fn async_while_body_suspends_inside_a_call_argument() {
     let source = format!(
         "(#import \"{}/library/cell.lim\")
-         (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
          (#enum ChildTask ((Waiting #u64)))
          (#linear ChildTask)
          (#enum ChildPoll ((ChildPending ChildTask) (ChildReady #u64)))
@@ -4802,7 +4802,7 @@ fn async_while_body_suspends_inside_a_call_argument() {
                (#if (#u64.== remaining 0u64)
                  (ChildPending (Waiting 1u64))
                  (ChildReady 42u64))))))
-         (@async-fn (: protocol work-await : waker #u64 : function
+         (@#async-fn (: protocol work-await : waker #u64 : function
            (#fn work ((cell (#ref CellU64))) #u64
              (#let-mut iteration #u64 0u64)
              (#while (#u64.< iteration 1u64)
@@ -4837,7 +4837,7 @@ fn async_while_body_suspends_inside_a_call_argument() {
 fn async_for_body_suspends_inside_a_call_argument() {
     let source = format!(
         "(#import \"{}/library/cell.lim\")
-         (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
          (#enum ChildTask ((Waiting #u64)))
          (#linear ChildTask)
          (#enum ChildPoll ((ChildPending ChildTask) (ChildReady #u64)))
@@ -4847,7 +4847,7 @@ fn async_for_body_suspends_inside_a_call_argument() {
                (#if (#u64.== remaining 0u64)
                  (ChildPending (Waiting 1u64))
                  (ChildReady 42u64))))))
-         (@async-fn (: protocol work-await : waker #u64 : function
+         (@#async-fn (: protocol work-await : waker #u64 : function
            (#fn work ((cell (#ref CellU64))) #u64
              (#for (#let-mut iteration #u64 0u64)
                    (#u64.< iteration 1u64)
@@ -4964,7 +4964,7 @@ fn async_labeled_while_continues_to_its_label_after_body_await() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut index #u64 0u64)
           (#label outer
@@ -5000,7 +5000,7 @@ fn async_while_condition_sequences_short_circuit_awaits() {
         (#return (#match task
           (#case (Waiting value) (BoolPending (Resuming value)))
           (#case (Resuming value) (BoolReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iterations #u64 0u64)
           (#while (#bool.&&
@@ -5035,7 +5035,7 @@ fn async_while_condition_keeps_global_names_out_of_frame_captures() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#while
             (#if (#bool.&&
@@ -5087,7 +5087,7 @@ fn awaited_while_condition_preserves_terminal_break_and_continue() {
             (#if (#u64.== value 0u64)
               (ConditionPending (Waiting 1u64))
               (ConditionReady true))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#while (#await ConditionTask ConditionPending ConditionReady
@@ -5126,7 +5126,7 @@ fn awaited_while_condition_and_body_resume_in_source_order() {
         (#return (#match task
           (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
           (#case (BodyResuming value) (BodyReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input #u64)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll ConditionWaiting)
@@ -5184,7 +5184,7 @@ fn awaited_false_while_condition_does_not_poll_the_body_task() {
       (#enum BodyPoll ((BodyPending BodyTask) (BodyReady #u64)))
       (#fn body-poll ((task BodyTask) (waker (#ref #u64))) BodyPoll
         (#return (#unreachable)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll ConditionStart)
@@ -5233,7 +5233,7 @@ fn awaited_while_body_reports_noncopy_task_captures() {
       (#fn body-poll ((task BodyTask) (waker (#ref #u64))) BodyPoll
         (#return (#match task
           (#case (BodyWaiting resource) (BodyPending (BodyWaiting resource))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((resource Resource)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll ConditionWaiting)
@@ -5267,7 +5267,7 @@ fn async_while_body_can_return_after_awaited_condition() {
         (#return (#match task
           (#case (Waiting decision) (ChildPending (Resuming decision)))
           (#case (Resuming decision) (ChildReady decision)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#while (#await Child ChildPending ChildReady child-poll (Waiting decision))
             (#return 7u64))
@@ -5321,7 +5321,7 @@ fn async_while_body_returns_after_a_composed_awaited_condition() {
         (#return (#match task
           (#case (TailWaiting value) (TailPending (TailResuming value)))
           (#case (TailResuming value) (TailReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#while (#if decision
                     (#await #bool Child ChildPending ChildReady child-poll (Waiting true))
@@ -5356,7 +5356,7 @@ fn async_while_conditional_return_can_fall_through_to_another_iteration() {
         (#return (#match task
           (#case (Waiting decision) (ChildPending (Resuming decision)))
           (#case (Resuming decision) (ChildReady decision)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#let-mut first #bool true)
           (#while (#if decision
@@ -5400,7 +5400,7 @@ fn async_while_conditional_return_can_skip_a_direct_awaited_tail() {
         (#return (#match task
           (#case (TailWaiting value) (TailPending (TailResuming value)))
           (#case (TailResuming value) (TailReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#let-mut first #bool true)
           (#while (#if decision
@@ -5446,7 +5446,7 @@ fn async_while_conditional_return_can_suspend_post_loop_continuation() {
         (#return (#match task
           (#case (TailWaiting value) (TailPending (TailResuming value)))
           (#case (TailResuming value) (TailReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#let-mut first #bool true)
           (#while (#if decision
@@ -5493,7 +5493,7 @@ fn async_while_early_return_can_skip_a_nested_awaited_tail() {
         (#return (#match task
           (#case (TailWaiting value) (TailPending (TailResuming value)))
           (#case (TailResuming value) (TailReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (Waiting decision))
@@ -5536,7 +5536,7 @@ fn async_while_early_return_can_skip_a_direct_awaited_tail() {
         (#return (#match task
           (#case (TailWaiting value) (TailPending (TailResuming value)))
           (#case (TailResuming value) (TailReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (Waiting decision))
@@ -5579,7 +5579,7 @@ fn async_while_body_can_return_after_body_await() {
         (#return (#match task
           (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
           (#case (BodyResuming value) (BodyReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (ConditionWaiting decision))
@@ -5659,7 +5659,7 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
         (#return (#match task
           (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
           (#case (BodyResuming value) (BodyReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((#mut decision #bool)) Payload
           (#let-mut payload Payload
             (#struct-literal Payload ((value 1u64))))
@@ -5685,7 +5685,7 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
       (#fn cancel-body-await-1 ((task (#tuple #bool Payload BodyTask))) ()
         (#let (#tuple decision payload child) (#tuple #bool Payload BodyTask) task)
         (#forget payload) (#forget child) (#return ()))
-      (@task-cancel cancel-body lim.async.work.choice-0-body-frame
+      (@#task-cancel cancel-body lim.async.work.choice-0-body-frame
         ((lim.async.work.choice-0-body-frame-start cancel-body-start ((decision #bool) (payload Payload)))
          (lim.async.work.choice-0-body-frame-await-0 cancel-body-await-0 ((decision #bool) (payload Payload) (child BodyTask)))
          (lim.async.work.choice-0-body-frame-await-1 cancel-body-await-1 ((decision #bool) (payload Payload) (child BodyTask)))))
@@ -5695,7 +5695,7 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
       (#fn cancel-body-wait ((task (#tuple lim.async.work.choice-0-body-frame))) ()
         (#let (#tuple child) (#tuple lim.async.work.choice-0-body-frame) task)
         (#call cancel-body (: task child)) (#return ()))
-      (@task-cancel cancel-condition-body lim.async.work.choice-2-condition-body-task
+      (@#task-cancel cancel-condition-body lim.async.work.choice-2-condition-body-task
         ((lim.async.work.choice-2-wait-condition cancel-condition-wait ((child ConditionTask) (decision #bool) (payload Payload)))
          (lim.async.work.choice-2-wait-body cancel-body-wait ((child lim.async.work.choice-0-body-frame)))))
       (#fn cancel-run-start ((task (#tuple #bool Payload #bool))) ()
@@ -5704,7 +5704,7 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
       (#fn cancel-run-wait ((task (#tuple #bool #bool lim.async.work.choice-2-condition-body-task))) ()
         (#let (#tuple decision stopped child) (#tuple #bool #bool lim.async.work.choice-2-condition-body-task) task)
         (#call cancel-condition-body (: task child)) (#return ()))
-      (@task-cancel cancel-run lim.async.work.choice-13-task
+      (@#task-cancel cancel-run lim.async.work.choice-13-task
         ((lim.async.work.choice-13-start cancel-run-start ((decision #bool) (payload Payload) (stopped #bool)))
          (lim.async.work.choice-13-wait cancel-run-wait ((decision #bool) (stopped #bool) (child lim.async.work.choice-2-condition-body-task)))))
       (#fn cancel-frame-start ((task (#tuple #bool))) ()
@@ -5712,7 +5712,7 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
       (#fn cancel-frame-await ((task (#tuple lim.async.work.choice-13-task))) ()
         (#let (#tuple child) (#tuple lim.async.work.choice-13-task) task)
         (#call cancel-run (: task child)) (#return ()))
-      (@task-cancel cancel-frame work-task
+      (@#task-cancel cancel-frame work-task
         ((work-task-start cancel-frame-start ((decision #bool)))
          (work-task-await-0 cancel-frame-await ((child lim.async.work.choice-13-task)))))
       (#fn main () #u64
@@ -5781,7 +5781,7 @@ fn async_suspending_while_body_can_return_after_setup() {
         (#return (#match task
           (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
           (#case (BodyResuming value) (BodyReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (ConditionWaiting decision))
@@ -5828,7 +5828,7 @@ fn async_suspending_while_body_can_return_after_multiple_awaits() {
         (#return (#match task
           (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
           (#case (BodyResuming value) (BodyReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (ConditionWaiting decision))
@@ -5884,7 +5884,7 @@ fn async_suspending_while_body_return_reaches_enclosing_function() {
         (#return (#match task
           (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
           (#case (BodyResuming value) (BodyReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (ConditionWaiting decision))
@@ -5930,7 +5930,7 @@ fn async_awaited_while_body_returns_from_both_if_branches() {
           (#case (ConditionWaiting decision)
             (ConditionPending (ConditionResuming decision)))
           (#case (ConditionResuming decision) (ConditionReady decision)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool) (pick #bool)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (ConditionWaiting decision))
@@ -5968,7 +5968,7 @@ fn async_awaited_while_body_returns_from_match_arms() {
           (#case (ConditionWaiting decision)
             (ConditionPending (ConditionResuming decision)))
           (#case (ConditionResuming decision) (ConditionReady decision)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool) (pick #bool)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (ConditionWaiting decision))
@@ -6010,7 +6010,7 @@ fn async_awaited_while_return_branch_and_break_branch_diverge_correctly() {
           (#case (ConditionWaiting decision)
             (ConditionPending (ConditionResuming decision)))
           (#case (ConditionResuming decision) (ConditionReady decision)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((decision #bool) (leave-body #bool)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady
                     condition-poll (ConditionWaiting decision))
@@ -6049,7 +6049,7 @@ fn async_awaited_while_return_branch_and_continue_branch_resume_correctly() {
           (#case (Waiting iteration) (ConditionPending (Resuming iteration)))
           (#case (Resuming iteration)
             (ConditionReady (#u64.== iteration 0u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((should-return #bool)) #u64
           (#let-mut iteration #u64 0u64)
           (#while (#await ConditionTask ConditionPending ConditionReady
@@ -6127,7 +6127,7 @@ fn async_while_let_awaits_each_scrutinee_until_the_pattern_stops_matching() {
               (#if (#u64.== stage 1u64)
                 (ChildReady (Some 10u64))
                 (ChildReady None)))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#while-let (Some payload)
@@ -6176,7 +6176,7 @@ fn async_while_let_can_suspend_only_in_its_body() {
         (#return (#match task
           (#case (Start value) (BodyPending (Resume value)))
           (#case (Resume value) (BodyReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut counter #u64 0u64)
           (#let-mut total #u64 0u64)
@@ -6229,7 +6229,7 @@ fn async_while_let_synchronous_reference_payload_survives_body_suspension() {
         (#return (#match task
           (#case Start (BodyPending Resume))
           (#case Resume (BodyReady ())))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((owner (#ref #u64))) #u64
           (#let current Value (Some owner))
           (#let-mut result #u64 0u64)
@@ -6295,7 +6295,7 @@ fn async_while_let_sequences_awaits_in_its_scrutinee_expression() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#while-let true
             (#bool.&&
@@ -6328,7 +6328,7 @@ fn async_for_condition_sequences_awaits_in_a_value_expression() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#for (#let-mut index #u64 0u64)
             (#bool.&&
@@ -6374,7 +6374,7 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
         (#return (#match task
           (#case BodyWaiting (BodyPending BodyResuming))
           (#case BodyResuming (BodyReady 7u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#while-let (Some payload)
             (#await Maybe ConditionTask ConditionPending ConditionReady
@@ -6436,7 +6436,7 @@ fn async_while_let_suspends_in_a_nested_body_statement() {
         (#return (#match task
           (#case BodyWaiting (BodyPending BodyResuming))
           (#case BodyResuming (BodyReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#while-let (Some payload)
             (#await Maybe ConditionTask ConditionPending ConditionReady
@@ -6469,7 +6469,7 @@ fn async_while_let_does_not_poll_the_unselected_scrutinee_branch() {
         (#forget task)
         (#assert false)
         (#return (ChildReady None)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#while-let Some
             (#if false
@@ -6508,7 +6508,7 @@ fn async_while_let_does_not_poll_the_unselected_scrutinee_branch() {
 fn async_await_preserves_boolean_short_circuiting() {
     let source = format!(
         "(#import \"{}/library/cell.lim\")
-         (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
          (#enum ChildTask ((Waiting (#ref CellU64))))
          (#enum ChildPoll ((ChildPending ChildTask) (ChildReady #bool)))
          (#fn child-poll ((task ChildTask) (waker (#ref #u64))) ChildPoll
@@ -6518,7 +6518,7 @@ fn async_await_preserves_boolean_short_circuiting() {
                  (#call CellU64-set (: cell cell : value
                    (#u64.+.wrap (#call CellU64-get (: cell cell)) 1u64)))
                  (ChildReady true))))))
-         (@async-fn (: protocol work-await : waker #u64 : function
+         (@#async-fn (: protocol work-await : waker #u64 : function
            (#fn work ((cell (#ref CellU64))) #u64
              (#let ignored #bool
                (#bool.&& false
@@ -6546,7 +6546,7 @@ fn async_await_preserves_boolean_short_circuiting() {
 fn async_await_preserves_match_guard_selection() {
     let source = format!(
         "(#import \"{}/library/cell.lim\")
-         (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
          (#enum ChildTask ((Waiting (#ref CellU64))))
          (#enum ChildPoll ((ChildPending ChildTask) (ChildReady #bool)))
          (#fn child-poll ((task ChildTask) (waker (#ref #u64))) ChildPoll
@@ -6556,7 +6556,7 @@ fn async_await_preserves_match_guard_selection() {
                  (#call CellU64-set (: cell cell : value
                    (#u64.+.wrap (#call CellU64-get (: cell cell)) 1u64)))
                  (ChildReady true))))))
-         (@async-fn (: protocol work-await : waker #u64 : function
+         (@#async-fn (: protocol work-await : waker #u64 : function
            (#fn work ((cell (#ref CellU64))) #u64
              (#let ignored #bool
                (#match true
@@ -6586,7 +6586,7 @@ fn async_await_preserves_match_guard_selection() {
 fn async_await_preserves_if_let_branch_selection() {
     let source = format!(
         "(#import \"{}/library/cell.lim\")
-         (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+         (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
          (#enum Maybe ((Some #u64) None))
          (#enum ChildTask ((Waiting (#ref CellU64))))
          (#enum ChildPoll ((ChildPending ChildTask) (ChildReady #bool)))
@@ -6597,7 +6597,7 @@ fn async_await_preserves_if_let_branch_selection() {
                  (#call CellU64-set (: cell cell : value
                    (#u64.+.wrap (#call CellU64-get (: cell cell)) 1u64)))
                  (ChildReady true))))))
-         (@async-fn (: protocol work-await : waker #u64 : function
+         (@#async-fn (: protocol work-await : waker #u64 : function
            (#fn work ((maybe Maybe) (cell (#ref CellU64))) #u64
              (#let ignored #bool
                (#if-let (Some payload) maybe
@@ -6633,7 +6633,7 @@ fn async_function_returns_linear_state_after_a_loop() {
         (#return (#if (#u64.== task 0u64)
           (ChildPending 1u64)
           (ChildReady task))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut state State (#struct-literal State ((value 0u64))))
           (#let token Token (#struct-literal Token ((limit 3u64))))
@@ -6683,7 +6683,7 @@ fn async_function_resumes_child_await_inside_a_for_range_loop() {
             (#if (#u64.== value 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady value))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#for-range (iteration #u64) 0u64 2u64
             (#let result #u64
@@ -6714,7 +6714,7 @@ fn async_for_range_suspends_in_a_non_binding_body_statement() {
         (#return (#match task
           (#case Waiting (BodyPending Resuming))
           (#case Resuming (BodyReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#for-range (iteration #u64) 0u64 2u64
             (#assert (#await #bool BodyTask BodyPending BodyReady body-poll Waiting))
@@ -6748,7 +6748,7 @@ fn async_for_range_awaits_bounds_in_source_order_before_iterating() {
         (#return (#match task
           (#case (Waiting value) (ChildPending (Resuming value)))
           (#case (Resuming value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#for-range (iteration #u64)
             (#await #u64 Child ChildPending ChildReady child-poll (Waiting 0u64))
@@ -6786,7 +6786,7 @@ fn async_for_range_composes_awaited_bounds_with_awaited_body() {
           (#case (BoundWaiting value) (ChildPending (BoundResuming value)))
           (#case (BoundResuming value) (ChildReady value))
           (#case (Body value) (ChildReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#for-range (iteration #u64)
             (#await #u64 Child ChildPending ChildReady child-poll (BoundWaiting 0u64))
@@ -6826,7 +6826,7 @@ fn async_function_resumes_child_await_inside_for_with_existing_counter() {
             (#if (#u64.== value 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady value))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#for (#set iteration 0u64)
@@ -6861,7 +6861,7 @@ fn async_for_condition_can_await_and_step_only_after_ready_true() {
             (#if (#u64.== value 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady (#u64.< value 2u64)))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#for (#set iteration 0u64)
@@ -6911,7 +6911,7 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#case (StepResuming iteration body-ran)
             (#block (#assert body-ran)
               (StepReady (#u64.+.wrap iteration 1u64)))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#for (#set iteration 0u64)
@@ -7198,7 +7198,7 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
           (#case (StepResuming iteration)
             (#block (#assert (#u64.== iteration 0u64))
               (StepReady (#u64.+.wrap iteration 1u64)))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#for (#set iteration 0u64)
@@ -7328,7 +7328,7 @@ fn async_for_condition_awaits_only_the_selected_branch_each_iteration() {
         (#return (#match task
           (#case Waiting (ChildPending Resuming))
           (#case Resuming (ChildReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut should-await #bool true)
           (#for ()
@@ -7369,7 +7369,7 @@ fn async_loop_short_circuit_conditions_do_not_poll_unselected_awaits() {
         (#forget task)
         (#assert false)
         (#return (ChildReady true)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#while
             (#bool.&& false
@@ -7411,7 +7411,7 @@ fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
         (#return (#match task
           (#case BodyWaiting (BodyPending BodyResuming))
           (#case BodyResuming (BodyReady 7u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#while-let (Some payload)
             (#await Maybe ConditionTask ConditionPending ConditionReady condition-poll ConditionWaiting)
@@ -7492,7 +7492,7 @@ fn async_while_let_carries_named_copy_aggregate_to_body_task() {
           (#case (BodyResuming captures)
             (BodyReady (#u64.+.wrap
               (#get captures left) (#get captures right)))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((captures Captures)) #u64
           (#let-mut total #u64 0u64)
           (#while-let (Some payload)
@@ -7562,7 +7562,7 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
               (#block
                 (#call counter-clear (: counter counter))
                 (ConditionReady true)))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((counter (#ref Counter)) (captures Captures) (view (#ref #u64)) (#mut total #u64)) #u64
           (#while (#await ConditionTask ConditionPending ConditionReady condition-poll
                     (ConditionWaiting counter))
@@ -7675,7 +7675,7 @@ fn async_while_condition_awaits_only_the_selected_branch_each_iteration() {
         (#return (#match task
           (#case Waiting (ChildPending Resuming))
           (#case Resuming (ChildReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut should-await #bool true)
           (#while
@@ -7710,7 +7710,7 @@ fn async_while_body_binding_awaits_only_the_selected_branch() {
         (#return (#match task
           (#case Waiting (ChildPending Resuming))
           (#case Resuming (ChildReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut keep-going #bool true)
           (#while keep-going
@@ -7755,7 +7755,7 @@ fn async_loop_sequences_two_awaits_in_one_iteration() {
         (#return (#match task
           (#case FirstWaiting (FirstPending FirstResuming))
           (#case FirstResuming (FirstReady 40u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut keep-going #bool true)
           (#while keep-going
@@ -7813,7 +7813,7 @@ fn async_loop_sequences_three_adjacent_awaits_in_one_iteration() {
         (#return (#match task
           (#case FirstWaiting (FirstPending FirstResuming))
           (#case FirstResuming (FirstReady SecondWaiting)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut keep-going #bool true)
           (#while keep-going
@@ -7861,7 +7861,7 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
             (InitPending (Resuming count)))
           (#case (Resuming count)
             (InitReady (#u64.+.wrap count 2u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut total #u64 0u64)
           (#for (#let-mut iteration #u64
@@ -7936,8 +7936,8 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
 
     let initializer_then_condition_await = source
         .replace(
-            "      (@async-fn",
-            "      (#enum ConditionTask ((ConditionStart #u64) (ConditionResume #u64)))\n      (#linear ConditionTask)\n      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady #bool)))\n      (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll\n        (#return (#match task\n          (#case (ConditionStart iteration) (ConditionPending (ConditionResume iteration)))\n          (#case (ConditionResume iteration)\n            (ConditionReady (#u64.< iteration 3u64))))))\n      (@async-fn",
+            "      (@#async-fn",
+            "      (#enum ConditionTask ((ConditionStart #u64) (ConditionResume #u64)))\n      (#linear ConditionTask)\n      (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady #bool)))\n      (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll\n        (#return (#match task\n          (#case (ConditionStart iteration) (ConditionPending (ConditionResume iteration)))\n          (#case (ConditionResume iteration)\n            (ConditionReady (#u64.< iteration 3u64))))))\n      (@#async-fn",
         )
         .replace(
             "                (#u64.< iteration 3u64)\n                (#set iteration",
@@ -7982,7 +7982,7 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
       (#fn inner-poll ((task InnerTask) (waker (#ref #u64))) InnerPoll
         (#return (#match task
           (#case MakeOuter (InnerReady (Waiting 42u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#for (#let-mut initial #u64
                   (#await OuterTask OuterPending OuterReady outer-poll
@@ -8019,7 +8019,7 @@ fn async_for_let_else_initializer_suspends_before_entering_the_loop() {
         (#return (#match task
           (#case Waiting (InitPending Resuming))
           (#case Resuming (InitReady (Some 0u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#for (#let-else (Some index) Maybe
                   (#await InitTask InitPending InitReady init-poll Waiting)
@@ -8077,7 +8077,7 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         (#return (#match task
           (#case SecondBodyWaiting (SecondBodyPending SecondBodyResuming))
           (#case SecondBodyResuming (SecondBodyReady 9u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut done #bool false)
           (#for (#let-else (Some index) MaybeAlias
@@ -8121,7 +8121,7 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
           (#case (lim.async.work.choice-4-start done index) ())
           (#case (lim.async.work.choice-4-wait done index child)
             (#call cancel-sequence-task (: task child))))))
-      (@task-cancel cancel-frame work-task
+      (@#task-cancel cancel-frame work-task
         ((work-task-start cancel-empty ())
          (work-task-await-0 cancel-initializer-state ((done #bool) (child InitTask)))
          (work-task-await-1 cancel-loop-task)))
@@ -8177,7 +8177,7 @@ fn async_for_let_else_initializer_composes_with_an_awaited_step() {
         (#return (#match task
           (#case StepWaiting (StepPending StepResuming))
           (#case StepResuming (StepReady true)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut done #bool false)
           (#for (#let-else (Some index) MaybeAlias
@@ -8216,7 +8216,7 @@ fn async_for_let_else_initializer_returns_ready_on_mismatch() {
         (#return (#match task
           (#case (Waiting value) (InitPending (Resuming value)))
           (#case (Resuming value) (InitReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe)) #u64
           (#for (#let-else (Some index) Maybe
                   (#await InitTask InitPending InitReady init-poll (Waiting input))
@@ -8265,7 +8265,7 @@ fn async_for_let_else_initializer_can_suspend_in_condition() {
         (#return (#match task
           (#case (ConditionWaiting value) (ConditionPending (ConditionResuming value)))
           (#case (ConditionResuming value) (ConditionReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((input Maybe) (condition #bool)) #u64
           (#let-mut body-ran #bool false)
           (#for (#let-else (Some index) Maybe
@@ -8332,7 +8332,7 @@ fn async_for_condition_and_step_await_preserve_body_continue_and_break() {
             (StepPending (StepResuming iteration)))
           (#case (StepResuming iteration)
             (StepReady (#u64.+.wrap iteration 1u64))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#for ()
@@ -8407,7 +8407,7 @@ fn async_for_step_can_suspend_after_the_loop_body() {
             (#block
               (#assert (#u64.== (#u64.%.wrap iteration 2u64) 1u64))
               (StepReady (#u64.+.wrap iteration 1u64)))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#for (#set iteration 0u64)
@@ -8451,7 +8451,7 @@ fn async_for_step_can_suspend_after_a_suspending_body() {
         (#return (#match task
           (#case Start (StepPending Resume))
           (#case Resume (StepReady 1u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#for (#set iteration 0u64)
@@ -8491,7 +8491,7 @@ fn async_for_step_can_suspend_inside_assignment_expression() {
         (#return (#match task
           (#case Waiting (StepPending Resuming))
           (#case Resuming (StepReady 1u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#for ()
@@ -9420,7 +9420,7 @@ fn async_mutating_branches_restore_their_outputs() {
         (#return (#match task
           (#case (Start value) (StepPending (Resume value)))
           (#case (Resume value) (StepReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((selected #bool)) #u64
           (#let-mut total #u64 0u64)
           (#let value #u64 (#if selected
@@ -9512,7 +9512,7 @@ fn async_restoring_a_local_does_not_destroy_its_previous_owner() {
         (#return (#match task
           (#case (Start value) (StepPending (Resume value)))
           (#case (Resume value) (StepReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut total Counter (#struct-literal Counter ((value 0u64))))
           (#forget total)
@@ -9555,7 +9555,7 @@ fn async_task_construction_precedes_capture_snapshots() {
         (#return (#match task
           (#case (Start value) (StepPending (Resume value)))
           (#case (Resume value) (StepReady value)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut total #u64 0u64)
           (#let left #u64 (#await #u64 Step StepPending StepReady step-poll
@@ -9809,12 +9809,12 @@ fn async_for_effect_step_consumes_linear_operands_and_results() {
 #[test]
 fn async_for_effect_step_keeps_external_loans_until_ready_or_cancel() {
     let definitions = include_str!("../examples/async_for_effect_step.lim")
-        .split("(@async-fn")
+        .split("(@#async-fn")
         .next()
         .unwrap();
     let source = format!(
         r#"{definitions}
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work (: counter (#ref-mut #u64)) #u64
           (#for () (#u64.< (#deref counter) 2u64)
             (#call advance (: next (#await #u64 StepTask StepPending StepReady step-poll
@@ -9927,7 +9927,7 @@ fn async_loop_body_restores_values_mutated_through_borrowed_places() {
           (#fn touch ((value (#ref-mut #u64))) ()
             (#deref-set value (#u64.+.wrap (#deref value) 1u64))
             (#return ()))
-          (@async-fn (: protocol work-await : waker #u64 : function
+          (@#async-fn (: protocol work-await : waker #u64 : function
             (#fn work () #u64
               (#let-mut counter {ty} {initial})
               (#let-mut keep #bool true)
@@ -9966,7 +9966,7 @@ fn async_for_void_await_step_respects_continue_break_and_false_condition() {
         (#return (#match task
           (#case Start (StepPending Resume))
           (#case Resume (StepReady ())))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((run #bool) (stop #bool)) #u64
           (#let-mut keep #bool run)
           (#for ()
@@ -10012,7 +10012,7 @@ fn awaited_for_condition_runs_step_after_continue_but_not_break() {
             (#if (#u64.== value 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady (#u64.< value 3u64)))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#for (#set iteration 0u64)
@@ -10274,7 +10274,7 @@ fn async_function_resumes_child_await_inside_for_with_local_initializer() {
         (#return (#if (#u64.== value 0u64)
           (ChildPending (#struct-literal Child ((iteration 1u64))))
           (ChildReady value))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#for (#let-mut iteration #u64 0u64)
                 (#u64.< iteration 2u64)
@@ -10307,7 +10307,7 @@ fn async_function_rejects_for_initializer_shadowing() {
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (ChildReady 1u64)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 5u64)
           (#for (#let-mut iteration #u64 0u64)
@@ -10340,7 +10340,7 @@ fn async_function_resumes_child_await_inside_loop_until_terminal_break() {
         (#return (#if (#u64.== task 0u64)
           (ChildPending 1u64)
           (ChildReady task))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#loop
@@ -10378,7 +10378,7 @@ fn async_function_does_not_hoist_awaits_out_of_loop_forms() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting value) (ChildPending (Waiting value))))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#loop
             (#let result #u64
@@ -10407,7 +10407,7 @@ fn async_loop_body_supports_more_than_two_suspensions() {
         (#return (#match task
           (#case Waiting (ChildPending Resuming))
           (#case Resuming (ChildReady 2u64)))))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut total #u64 0u64)
           (#loop
@@ -10453,7 +10453,7 @@ fn async_function_preserves_loop_locals_used_after_suspension() {
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (ChildReady 1u64)))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut iteration #u64 0u64)
           (#while (#u64.< iteration 1u64)
@@ -10558,7 +10558,7 @@ fn generated_async_frames_support_exhaustive_task_cancellation() {
               (ChildReady 42u64)
               (ChildPending (Waiting (#u64.-.wrap remaining 1u64))))))))
       (#fn child-cancel ((task Child)) () (#forget task) (#return ()))
-      (@async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64 : function
         (#fn work ((offset #u64)) #u64
           (#let value #u64
             (#await Child ChildPending ChildReady child-poll (Waiting 2u64)))
@@ -10569,7 +10569,7 @@ fn generated_async_frames_support_exhaustive_task_cancellation() {
         (#call cancel-offset (: task offset))
         (#call child-cancel (: task child))
         (#return ()))
-      (@task-cancel cancel-frame work-task
+      (@#task-cancel cancel-frame work-task
         ((work-task-start cancel-offset)
          (work-task-await-0 cancel-await-state ((offset #u64) (child Child)))))
       (#fn main () #u64
@@ -10601,7 +10601,7 @@ fn async_fn_cancel_mapping_must_cover_each_generated_state() {
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (ChildReady 1u64)))
       (#fn cancel-start ((task #u64)) () (#forget task) (#return ()))
-      (@async-fn (: protocol work-await
+      (@#async-fn (: protocol work-await
                   : waker #u64
                   : cancel (cancel-frame ((work-task-start cancel-start)))
                   : function
@@ -10645,7 +10645,7 @@ fn pinned_async_fn_dispatches_cleanup_after_state_extraction() {
         (#call destroy-token (: task token))
         (#call child-cancel (: task child))
         (#return ()))
-      (@async-fn-pinned (: protocol work-await
+      (@#async-fn-pinned (: protocol work-await
                   : waker #u64
                   : cancel (cancel-frame
                     ((work-frame-start cancel-start) (work-frame-await-0 cancel-await)))

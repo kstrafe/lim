@@ -20,7 +20,7 @@ const PREFIX: &str = r#"
       (#case (Waiting count)
         (#if (#u64.== count 0u64) (StepReady 0u64)
           (StepPending (Waiting (#u64.-.wrap count 1u64))))))))
-  (@async-fn (: protocol work-await : waker #u64 : function
+  (@#async-fn (: protocol work-await : waker #u64 : function
     (#fn work (: pointer (#ptr-mut Holder) : source (#ref #u64)) #u64
       (#let ignored #u64 (#await Step StepPending StepReady step-poll (Waiting 1u64)))
       (#let owner (#pin-own Holder) (#call make (: pointer pointer : source source)))

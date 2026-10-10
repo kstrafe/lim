@@ -14,7 +14,7 @@
 (#enum Choice ((Number NumberPayload) (Other #u64)))
 (#struct Owner ((choice Choice)))
 
-(@async-fn-pinned ( : protocol ReadAfterAwaitAwait
+(@#async-fn-pinned ( : protocol ReadAfterAwaitAwait
                    : waker #u64
                    : function
   (#fn read-after-await ((owner Owner)) #u64

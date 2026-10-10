@@ -11,6 +11,18 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "reserved-generator-name",
+            diagnostic_code: "E3000",
+            offending_line: "(#gn #future-generator () ())",
+            line_number: 1,
+        },
+        Case {
+            name: "reserved-local-name",
+            diagnostic_code: "E3000",
+            offending_line: "  (#let #local #u64 1u64)",
+            line_number: 2,
+        },
+        Case {
             name: "slice-borrow-bound-type",
             diagnostic_code: "E4000",
             offending_line: "  (#let view (#slice #u64) (#borrow-slice values 0u32 2usize))",
@@ -1159,6 +1171,8 @@ fn compilation_errors_render_the_offending_source_line() {
             );
             }
             let precise_fragment = match case.name {
+            "reserved-generator-name" => Some("#future-generator"),
+            "reserved-local-name" => Some("#local"),
             "println-missing-std" | "println-arity" => Some("#println"),
             "println-type" => Some("1u64"),
             "std-body" => Some("#std"),
@@ -1591,7 +1605,7 @@ fn builtin_generator_errors_show_generated_declaration_and_invocation() {
     let input = directory.join("input.lim");
     let output = directory.join("output.s");
     let source =
-        "(@optional (: type #u64 : name Maybe?))\n(@optional (: type #u64 : name Maybe?))\n";
+        "(@#optional (: type #u64 : name Maybe?))\n(@#optional (: type #u64 : name Maybe?))\n";
     std::fs::write(&input, source).unwrap();
     for _ in 0..2 {
         let result = Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -1612,7 +1626,7 @@ fn builtin_generator_errors_show_generated_declaration_and_invocation() {
         );
         let invocation_row = stderr
             .lines()
-            .find(|line| line.contains("(@optional (: type #u64 : name Maybe?))"))
+            .find(|line| line.contains("(@#optional (: type #u64 : name Maybe?))"))
             .unwrap();
         let invocation_underline = stderr
             .lines()
@@ -1623,7 +1637,7 @@ fn builtin_generator_errors_show_generated_declaration_and_invocation() {
                 .split_once("| ")
                 .unwrap()
                 .1
-                .find("(@optional (: type #u64 : name Maybe?))"),
+                .find("(@#optional (: type #u64 : name Maybe?))"),
             invocation_underline
                 .split_once("| ")
                 .unwrap()

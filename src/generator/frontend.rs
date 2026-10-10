@@ -30,7 +30,7 @@ pub(crate) fn async_lowering_statement_index(error: &str) -> Option<usize> {
 pub(crate) fn is_async_invocation(expression: &SpannedExpr) -> bool {
     matches!(&expression.expr, Expr::List(items)
         if matches!(items.first(), Some(Expr::At))
-        && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "async-fn" | "async-fn-pinned")))
+        && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#async-fn" | "#async-fn-pinned")))
 }
 
 pub(crate) type ExpansionPlans = HashMap<(u32, usize, usize), HashMap<usize, HashSet<String>>>;
@@ -186,7 +186,7 @@ pub(crate) fn copy_type_names(expressions: &[SpannedExpr]) -> HashSet<String> {
                 if matches!(head.as_str(), "#type" | "#struct" | "#enum" | "#linear")))
             || matches!(&expression.expr, Expr::List(items)
                 if matches!(items.first(), Some(Expr::At))
-                && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "optional" | "result")))
+                && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#optional" | "#result")))
         })
         .filter_map(|expression| {
             let invocation = normalize_builtin_generator_invocation(&expression.expr).ok()?;
@@ -304,8 +304,8 @@ fn async_capture_invocations(program: &Program) -> Vec<AsyncCaptureInvocation> {
         let Some(Expr::Symbol(kind)) = items.get(1) else {
             continue;
         };
-        let pinned = kind == "async-fn-pinned";
-        if kind != "async-fn" && !pinned {
+        let pinned = kind == "#async-fn-pinned";
+        if kind != "#async-fn" && !pinned {
             continue;
         }
         let Some(Expr::List(names)) = items.get(2) else {
@@ -786,6 +786,28 @@ pub(crate) fn prepare_program_syntax(
         .map_err(|error| error.attach(&source_files))?;
     let mut generator_origins = generator::Origins::default();
     generator_origins.source_paths = source_files.iter().map(|file| file.path.clone()).collect();
+    // Imports may prefix the bodies of library generators. Authorize only the
+    // original shipped declaration, never a path or a transformed name alone.
+    for expression in &loaded {
+        if !matches!(&expression.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#gn")
+            && matches!(items.get(1), Some(Expr::Symbol(name)) if name.starts_with('#')))
+        {
+            continue;
+        }
+        if let Some(source) = source_files
+            .get(expression.span.source_id as usize)
+            .and_then(|file| file.source.get(expression.span.start..expression.span.end))
+        {
+            if let Ok(forms) = parse(source) {
+                if forms.len() == 1 && standard_library::is_generator_declaration(&forms[0].expr) {
+                    generator_origins
+                        .standard_declarations
+                        .insert(expression.span);
+                }
+            }
+        }
+    }
     let (expanded, _) = generator::expand_with_origins(
         loaded,
         cache_directory,
@@ -861,7 +883,7 @@ pub(crate) fn prepare_program_syntax(
     let needs_copy_types = needs_async || expressions.iter().any(|expression| {
         matches!(&expression.expr, Expr::List(items)
             if matches!(items.first(), Some(Expr::At))
-            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "optional" | "result")))
+            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#optional" | "#result")))
     });
     let async_copy_types = if needs_copy_types {
         copy_type_names(&expressions)
@@ -960,7 +982,8 @@ pub(crate) fn parse_prepared_program_items(
             attach_span_to_source_error_kind(message, span, &source_files, "parse error: ")
         })?;
         validate_prefixed_forms(&expression.expr).map_err(|error| {
-            attach_span_to_source_error_kind(error, expression.span, &source_files, "parse error: ")
+            let span = reserved_declaration_span(&expression, &error).unwrap_or(expression.span);
+            attach_span_to_source_error_kind(error, span, &source_files, "parse error: ")
         })?;
         normalize_match_case_forms(&mut expression).map_err(|(error, span)| {
             attach_span_to_source_error_kind(error, span, &source_files, "parse error: ")
@@ -1034,17 +1057,17 @@ pub(crate) fn parse_prepared_program_items(
                 if matches!(
                     kind,
                     Some(
-                        "thread-spawn"
-                            | "optional"
-                            | "result"
-                            | "vec"
-                            | "vec-alloc"
-                            | "vec-sort"
-                            | "async-fn"
-                            | "async-fn-pinned"
+                        "#thread-spawn"
+                            | "#optional"
+                            | "#result"
+                            | "#vec"
+                            | "#vec-alloc"
+                            | "#vec-sort"
+                            | "#async-fn"
+                            | "#async-fn-pinned"
                     )
                 ) {
-                    let generated_text = if matches!(kind, Some("async-fn" | "async-fn-pinned")) {
+                    let generated_text = if matches!(kind, Some("#async-fn" | "#async-fn-pinned")) {
                         async_generated_source(
                             &normalized_invocation,
                             form_span,
@@ -1106,7 +1129,7 @@ pub(crate) fn parse_prepared_program_items(
         }
         let parsed_items = if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
-                let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned")
+                let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn" || kind == "#async-fn-pinned")
                 {
                     if let Some(error) = async_contract::check(&source_expression, &async_types) {
                         return Err(attach_span_to_source_error_kind(
@@ -1136,7 +1159,7 @@ pub(crate) fn parse_prepared_program_items(
                     parse_generated_items_with_copy_types(forms, &async_copy_types)
                 };
                 generated.map_err(|error| {
-                    let is_async_fn = matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned");
+                    let is_async_fn = matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn" || kind == "#async-fn-pinned");
                     let escaped_name = error.split_once("unknown value '")
                         .and_then(|(_, rest)| rest.split_once("' outside").map(|(name, _)| name));
                     let error_span = if is_async_fn && escaped_name.is_some() {
@@ -1322,7 +1345,7 @@ pub(crate) fn write_generated_sources_in_directory(
         prepare_program_syntax(source, base, source_path, config, Some(&generated_cache))?;
     let has_async = prepared.expressions.iter().any(|expression| matches!(&expression.expr,
         Expr::List(items) if matches!(items.first(), Some(Expr::At))
-            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "async-fn" | "async-fn-pinned"))));
+            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#async-fn" | "#async-fn-pinned"))));
     let plans = if has_async {
         expand_prepared_program(&prepared)?.1
     } else {
@@ -1435,14 +1458,14 @@ fn write_prepared_generated_sources_with_route(
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
         if !matches!(
             kind,
-            "thread-spawn"
-                | "vec"
-                | "vec-alloc"
-                | "vec-sort"
-                | "optional"
-                | "result"
-                | "async-fn"
-                | "async-fn-pinned"
+            "#thread-spawn"
+                | "#vec"
+                | "#vec-alloc"
+                | "#vec-sort"
+                | "#optional"
+                | "#result"
+                | "#async-fn"
+                | "#async-fn-pinned"
         ) {
             continue;
         }
@@ -1463,7 +1486,7 @@ fn write_prepared_generated_sources_with_route(
             &key,
             &builtin_origins[&invocation],
             || {
-                if matches!(kind, "async-fn" | "async-fn-pinned") {
+                if matches!(kind, "#async-fn" | "#async-fn-pinned") {
                     let source = async_fn::generated_source_with_environment(
                         &original,
                         capture_plan,
@@ -1501,7 +1524,7 @@ mod async_migration_tests {
     fn source(body: &str) -> String {
         format!(
             "{CONTEXT}
-          (@async-fn (: protocol WorkAwait : waker #u64 : function
+          (@#async-fn (: protocol WorkAwait : waker #u64 : function
             (#fn work (: seed #u64) #u64 {body})))"
         )
     }
@@ -1604,7 +1627,7 @@ mod async_migration_tests {
           (#fn make (: amount #u64) Source (#return (#struct-literal Source (: amount amount))))
           (#fn consume (: owner Source : amount #u64) #u64
             (#let result #u64 (#u64.+.wrap (#get owner amount) amount)) (#forget owner) (#return result))
-          (@async-fn-pinned (: protocol WorkAwait : waker #u64 : function
+          (@#async-fn-pinned (: protocol WorkAwait : waker #u64 : function
             (#fn work (: seed #u64) #u64 (#return (#call consume
               (: owner (#call make (: amount seed))
                  : amount (#await Child ChildPending ChildReady child-poll (Start 2u64))))))))");
@@ -1723,7 +1746,7 @@ mod async_migration_tests {
     fn graph_route_accepts_checked_source_named_cancellation_dispatcher() {
         let text =
             source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))")
-                .replace("@async-fn", "@async-fn-pinned")
+                .replace("@#async-fn", "@#async-fn-pinned")
                 .replace(
                     ": function",
                     ": cancel (work-cancel ((await-0 cancel-child))) : function",
@@ -1795,11 +1818,11 @@ mod async_migration_tests {
     fn graph_route_handles_generator_produced_async_forms_and_multiple_outputs() {
         let text = format!(
             "{CONTEXT}
-          (#gn produce () `((@async-fn (: protocol WorkAwait : waker #u64 : function
+          (#gn produce () `((@#async-fn (: protocol WorkAwait : waker #u64 : function
             (#fn work (: seed #u64) #u64
               (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))))
           (@produce)
-          (@async-fn (: protocol SecondAwait : waker #u64 : function
+          (@#async-fn (: protocol SecondAwait : waker #u64 : function
             (#fn second (: seed #u64) #u64
               (#return (#await work-task work-pending work-ready work-poll
                 (#call work (: seed seed)))))))"
@@ -1864,7 +1887,7 @@ mod async_migration_tests {
                 "(#let answer #u64 (#await Child ChildPending ChildReady child-poll (Start seed)))
               (#return (#u64.+.wrap answer seed))"
             )
-            .replace("@async-fn", "@async-fn-pinned")
+            .replace("@#async-fn", "@#async-fn-pinned")
         );
         let prepared = syntax(&text, None);
         let (legacy, _) = expand_prepared_program(&prepared).unwrap();

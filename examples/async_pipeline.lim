@@ -1,6 +1,6 @@
 (#import "../library/tasks.lim")
 
-(@task (Count CountPoll CountPending CountReady) #u64 ((Counting #u64)))
+(@#task (Count CountPoll CountPending CountReady) #u64 ((Counting #u64)))
 
 (#fn count-poll ((task Count)) CountPoll
   (#return (#match task
@@ -12,7 +12,7 @@
 (#fn next-count ((value #u64)) Count
   (#return (Counting value)))
 
-(@async (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
+(@#async (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
   ((Begin (#await Count CountPending CountReady count-poll)
      (#then Finish next-count))
    (Finish (#await Count CountPending CountReady count-poll)
@@ -22,10 +22,10 @@
   (#match task (#case (Counting remaining) (#forget remaining)))
   (#return ()))
 
-(@task-cancel cancel-pipeline Pipeline
+(@#task-cancel cancel-pipeline Pipeline
   ((Begin cancel-count) (Finish cancel-count)))
 
-(@executor run-pipeline Results
+(@#executor run-pipeline Results
   ((pipeline Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll #u64 pipeline-input)
    (counter Count CountPoll CountPending CountReady count-poll #u64 counter-input)))
 

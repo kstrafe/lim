@@ -1,0 +1,6 @@
+(#fn main () #u64
+  (#let number #u64 40)
+  (#return
+    (#u64.+.wrap
+      (#get (#tuple (#tuple #u64 #u64) number 2) 0)
+      2)))

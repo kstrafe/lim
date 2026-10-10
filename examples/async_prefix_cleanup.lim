@@ -14,7 +14,7 @@
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choose #bool) (values Values)) #u64
     (#let result #u64 (#if choose
       (#block

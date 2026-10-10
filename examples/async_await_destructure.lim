@@ -13,7 +13,7 @@
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
 
-(@async-fn ( : protocol WorkAwait : waker #u64 : function
+(@#async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((values Values)) #u64
     (#let (Values (#tuple left right) bias) Values
       (#await Values InputTask InputPending InputReady input-poll (InputStart values)))

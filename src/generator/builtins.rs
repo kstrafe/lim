@@ -3,11 +3,11 @@ use crate::*;
 
 pub(crate) fn named_builtin_keys(kind: &str) -> Option<&'static [&'static str]> {
     Some(match kind {
-        "optional" => &["type", "name"],
-        "result" => &["ok", "error", "name"],
-        "thread-spawn" => &["task", "worker"],
-        "vec" => &["element", "allocator", "name"],
-        "vec-alloc" => &[
+        "#optional" => &["type", "name"],
+        "#result" => &["ok", "error", "name"],
+        "#thread-spawn" => &["task", "worker"],
+        "#vec" => &["element", "allocator", "name"],
+        "#vec-alloc" => &[
             "element",
             "allocator",
             "vector",
@@ -18,8 +18,8 @@ pub(crate) fn named_builtin_keys(kind: &str) -> Option<&'static [&'static str]> 
             "dealloc",
             "destroy",
         ],
-        "vec-sort" => &["element", "vector", "comparator"],
-        "async-fn" | "async-fn-pinned" => &["protocol", "waker", "function", "cancel"],
+        "#vec-sort" => &["element", "vector", "comparator"],
+        "#async-fn" | "#async-fn-pinned" => &["protocol", "waker", "function", "cancel"],
         _ => return None,
     })
 }
@@ -56,12 +56,24 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
         if !keys.contains(&key.as_str()) {
             return Err(format!("@{kind} has no argument '{key}'"));
         }
+        if matches!(
+            key.as_str(),
+            "name" | "task" | "vector" | "alloc-result" | "alloc-error"
+        ) {
+            if let Expr::Symbol(name) = value {
+                if name.starts_with('#') {
+                    return Err(format!(
+                        "identifier '{name}' is reserved for the language and standard library"
+                    ));
+                }
+            }
+        }
         if values.insert(key.as_str(), value.clone()).is_some() {
             return Err(format!("@{kind} repeats argument '{key}'"));
         }
     }
     let mut normalized = vec![Expr::At, Expr::Symbol(kind.clone())];
-    if matches!(kind.as_str(), "async-fn" | "async-fn-pinned") {
+    if matches!(kind.as_str(), "#async-fn" | "#async-fn-pinned") {
         let protocol = values
             .remove("protocol")
             .ok_or_else(|| format!("@{kind} is missing argument 'protocol'"))?;
@@ -74,7 +86,7 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
             .ok_or_else(|| format!("@{kind} is missing argument 'function'"))?;
         let declaration = expect_list(&function, "async function")?;
         let start = expect_symbol(declaration.get(1), "async function name")?;
-        let frame_suffix = if kind == "async-fn-pinned" {
+        let frame_suffix = if kind == "#async-fn-pinned" {
             "frame"
         } else {
             "task"

@@ -165,7 +165,7 @@ fn whole_value_copy_access_rejects_exclusive_reference_fields() {
     let source = format!(
         "{}
       (#struct Held (: reference (#ref-mut #u64)))
-      (@pin (: type Held : name PinnedHeld : copy true))",
+      (@#pin (: type Held : name PinnedHeld : copy true))",
         source()
     );
     assert!(
@@ -179,9 +179,9 @@ fn projection_source() -> String {
         "(#import \"{}/library/pin.lim\")
       (#struct Inner (: value #u64)) (#linear Inner)
       (#struct Outer (: child Inner)) (#linear Outer)
-      (@pin (: type Inner : name PinnedInner : fields (: value #u64)))
-      (@pin (: type Outer : name PinnedOuter : projections (: child PinnedInner)))
-      (@pin-scope (: type Outer : pin PinnedOuter : name with-outer
+      (@#pin (: type Inner : name PinnedInner : fields (: value #u64)))
+      (@#pin (: type Outer : name PinnedOuter : projections (: child PinnedInner)))
+      (@#pin-scope (: type Outer : pin PinnedOuter : name with-outer
         : run drive-outer : destroy destroy-outer : result #u64))
       (#fn drive-outer (: pin PinnedOuter) #u64
         (#let-mut handle PinnedOuter pin)

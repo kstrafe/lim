@@ -1,5 +1,5 @@
-(@result (: ok #u64 : error #u32 : name Input))
-(@result (: ok #bool : error #u32 : name Output))
+(@#result (: ok #u64 : error #u32 : name Input))
+(@#result (: ok #bool : error #u32 : name Output))
 
 (#fn convert (: value Input) Output
   (#let-else (Input-ok-value number) Input value
