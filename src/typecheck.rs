@@ -12463,6 +12463,39 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn computed_forget_consumes_linear_producers_without_consuming_their_referents() {
+        for expression in [
+            "(#match owner (#case (Wrapped held) held))",
+            "(#block (#match owner (#case (Wrapped held) held)))",
+            "(#if selected (#match owner (#case (Wrapped held) held))
+              (#match owner (#case (Wrapped other) other)))",
+        ] {
+            let source = format!(
+                "(#struct Resource (: value #u64)) (#linear Resource)
+                  (#struct Holder (: view (#ref-mut Resource))) (#linear Holder)
+                  (#enum Envelope ((Wrapped Holder))) (#linear Envelope)
+                  (#fn release (: owner Envelope : selected #bool) ()
+                    (#forget {expression}) (#return ()))
+                  (#fn main () #u64
+                    (#let-mut resource Resource (#struct-literal Resource (: value 42u64)))
+                    (#call release (: owner (Wrapped (#struct-literal Holder (: view (#borrow-mut resource)))) : selected true))
+                    (#let answer #u64 (#get resource value))
+                    (#forget resource) (#return answer))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            crate::CheckedProgram::validate(&program)
+                .unwrap_or_else(|error| panic!("{error}\n{source}"));
+            let invalid = source.replace("(#forget resource)", "");
+            let program = crate::parse_program(&invalid).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&program)
+                .err()
+                .unwrap();
+            assert_eq!(error.1, crate::DiagnosticCode::Linear, "{}", error.0);
+            assert!(error.0.contains("resource"), "{}", error.0);
+        }
+    }
+
+    #[test]
     fn staged_reader_call_checks_share_inherited_entry_and_restoration() {
         let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()

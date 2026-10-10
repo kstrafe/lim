@@ -6283,6 +6283,13 @@ impl FlowGraph {
                         Some(Type::Reference { .. } | Type::PinnedReference { .. })
                     )
                 }));
+            } else if node.ty.is_some() && matches!(head.as_str(), "forget" | "drop") {
+                // Release of a computed value consumes its selected producers,
+                // including match/block tails. A direct-place Release event
+                // alone cannot describe those producers. Do not consume any
+                // referent behind a released reference handle.
+                transfer_roots.extend(children.iter().skip(1).copied());
+                affine_roots.extend(children.iter().skip(1).copied());
             } else if node.ty.is_some() && matches!(head.as_str(), "tuple" | "array" | "array-of") {
                 let start = if head == "array-of" {
                     2

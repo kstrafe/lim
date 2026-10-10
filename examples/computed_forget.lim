@@ -1,0 +1,22 @@
+; Explicitly consuming a computed holder releases its reference, not its owner.
+(#struct Resource (: value #u64))
+(#linear Resource)
+(#struct Holder (: view (#ref-mut Resource)))
+(#linear Holder)
+(#enum Envelope ((Wrapped Holder)))
+(#linear Envelope)
+
+(#fn release (: owner Envelope) ()
+  (#forget
+    (#block
+      (#match owner
+        (#case (Wrapped held) held))))
+  (#return ()))
+
+(#fn main () #u64
+  (#let-mut resource Resource (#struct-literal Resource (: value 42u64)))
+  (#call release
+    (: owner (Wrapped (#struct-literal Holder (: view (#borrow-mut resource))))))
+  (#let answer #u64 (#get resource value))
+  (#forget resource)
+  (#return answer))
