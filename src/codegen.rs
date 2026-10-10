@@ -7569,6 +7569,15 @@ impl FunctionContext<'_> {
                         _ => None,
                     }
                 }
+                Some(Expr::Symbol(operator)) if operator == "ref-ptr" && items.len() == 2 => {
+                    match self.expression_type(&items[1])? {
+                        Type::Reference { mutable, target }
+                        | Type::PinnedReference { mutable, target } => {
+                            Some(Type::RawPointer { mutable, target })
+                        }
+                        _ => None,
+                    }
+                }
                 Some(Expr::Symbol(operator)) if operator == "ptr-offset" && items.len() == 3 => {
                     match self.expression_type(&items[1])? {
                         Type::RawPointer { mutable, target } => {
@@ -10853,6 +10862,20 @@ impl FunctionContext<'_> {
                 self.output.push_str("    xor eax, eax\n");
                 Ok(())
             }
+            "ref-ptr" => {
+                if items.len() != 2
+                    || !matches!(
+                        self.expression_type(&items[1]),
+                        Some(Type::Reference { .. } | Type::PinnedReference { .. })
+                    )
+                {
+                    return Err("ref-ptr requires an ordinary or pinned reference".into());
+                }
+                self.expression(&items[1])?;
+                // Reference-only layout metadata is not part of the raw address.
+                self.output.push_str("    btr rax, 63\n    btr rax, 62\n");
+                Ok(())
+            }
             "ptr-address" | "ptr-is-null" => {
                 if items.len() != 2
                     || !matches!(
@@ -10884,6 +10907,26 @@ impl FunctionContext<'_> {
                     _ => false,
                 }) {
                     self.output.push_str("    bts rax, 62\n");
+                }
+                // An exact-address roundtrip through an anchor of the same
+                // pointee type recovers its native layout (descending aggregate
+                // or word-backed narrow scalar). Unrelated pointers retain the
+                // existing ascending/packed raw-memory representation.
+                let anchor_target = self.expression_type(&items[1]).and_then(|ty| match ty {
+                    Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                        Some(target)
+                    }
+                    _ => None,
+                });
+                let pointer_target = self.expression_type(&items[2]).and_then(|ty| match ty {
+                    Type::RawPointer { target, .. } => Some(target),
+                    _ => None,
+                });
+                if anchor_target == pointer_target {
+                    let done = self.label("pointer_borrow_layout_done");
+                    self.output.push_str(&format!(
+                        "    mov rcx, QWORD PTR [rsp]\n    mov rdx, rcx\n    btr rdx, 63\n    btr rdx, 62\n    mov r11, rax\n    btr r11, 62\n    cmp r11, rdx\n    jne {done}\n    mov rax, rcx\n{done}:\n"
+                    ));
                 }
                 self.output.push_str("    add rsp, 8\n");
                 self.stack_depth -= 1;

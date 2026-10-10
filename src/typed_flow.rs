@@ -5119,9 +5119,10 @@ impl FlowGraph {
             if let FlowAction::Evaluate(value) = node.action {
                 if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if matches!(head.as_str(), "pin-read" | "#variant-is"))
                 {
-                    let places = dereferenced_value_places(body, self, event, value, &origins)
-                        .unwrap_or_default();
-                    if places.is_empty() {
+                    let (places, initialized) =
+                        initialized_dereferenced_read_places(body, self, event, value, &origins);
+                    let places = places.unwrap_or_default();
+                    if places.is_empty() && !initialized {
                         unresolved.push(event);
                     }
                     for place in places {
@@ -5149,24 +5150,20 @@ impl FlowGraph {
             if !reads_through_reference(body, *value) {
                 continue;
             }
-            let places = dereferenced_value_places(body, self, event, *value, &origins)
-                .unwrap_or_else(|| match &place.root {
-                    PlaceRoot::Local(binding)
-                        if !origins
-                            .before(event, *binding)
-                            .iter()
-                            .any(|origin| origin.lifetime_only) =>
-                    {
-                        origins.projected_referents_with_slots(
-                            event,
-                            *binding,
-                            &place.segments,
-                            true,
-                        )
-                    }
-                    _ => Vec::new(),
-                });
-            if places.is_empty() {
+            let (places, initialized) =
+                initialized_dereferenced_read_places(body, self, event, *value, &origins);
+            let places = places.unwrap_or_else(|| match &place.root {
+                PlaceRoot::Local(binding)
+                    if !origins
+                        .before(event, *binding)
+                        .iter()
+                        .any(|origin| origin.lifetime_only) =>
+                {
+                    origins.projected_referents_with_slots(event, *binding, &place.segments, true)
+                }
+                _ => Vec::new(),
+            });
+            if places.is_empty() && !initialized {
                 unresolved.push(event);
             }
             for place in places {
@@ -6665,6 +6662,7 @@ impl FlowGraph {
                         | "addr-of-mut"
                         | "ptr-read"
                         | "ptr-is-null"
+                        | "ref-ptr"
                         | "#variant-is"
                         | "ptr-borrow"
                         | "ptr-borrow-mut"
@@ -10704,6 +10702,62 @@ fn released_reference_destinations(
     Vec::new()
 }
 
+/// Unsafe pointer borrowing promises an initialized referent, while its
+/// provenance identifies only a lifetime anchor. A direct value read can use
+/// that promise just like an initialized call read. It cannot establish a
+/// consumption, restoration, or identity for references inside the referent.
+fn initialized_dereferenced_read_places(
+    body: &Body,
+    flow: &FlowGraph,
+    event: FlowNodeId,
+    value: NodeId,
+    origins: &FlowLoanOrigins,
+) -> (Option<Vec<Place>>, bool) {
+    let NodeKind::Form {
+        head,
+        children,
+        callee: None,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return (None, false);
+    };
+    let projection = if matches!(head.as_str(), "get" | "get-payload" | "index")
+        && children.get(1).is_some_and(|source| {
+            matches!(
+                body.nodes[source.0].ty,
+                Some(Type::Reference { .. } | Type::PinnedReference { .. })
+            )
+        }) {
+        let Some(projection) = value_projection(body, value) else {
+            return (None, false);
+        };
+        Some(projection)
+    } else if (matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2)
+        || (head == "#variant-is" && children.len() == 3)
+    {
+        None
+    } else {
+        return (None, false);
+    };
+    let loans = origins.value_before(body, flow, event, children[1]);
+    if loans.iter().any(|loan| !loan.storage.is_empty()) {
+        return (Some(Vec::new()), false);
+    }
+    let initialized = loans.iter().any(|loan| loan.lifetime_only);
+    let mut places = Vec::new();
+    for loan in loans.into_iter().filter(|loan| !loan.lifetime_only) {
+        let mut place = loan.referent_place();
+        if let Some(projection) = &projection {
+            place.segments.push(projection.clone());
+        }
+        if !places.contains(&place) {
+            places.push(place);
+        }
+    }
+    (Some(places), initialized)
+}
+
 fn dereferenced_value_places(
     body: &Body,
     flow: &FlowGraph,
@@ -13143,6 +13197,7 @@ fn tag_preserving_evaluation(
                         | "#variant-is"
                         | "slice-idx"
                         | "deref"
+                        | "ref-ptr"
                         | "get"
                         | "get-payload"
                         | "pin-get-payload"

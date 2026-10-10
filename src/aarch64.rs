@@ -89,7 +89,9 @@ fn scalar(ty: &Type) -> Option<(usize, bool)> {
         Type::I32 => (32, true),
         Type::I64 | Type::Isize => (64, true),
         Type::U64 | Type::Usize => (64, false),
-        Type::Reference { .. } => (64, false),
+        Type::Reference { .. } | Type::PinnedReference { .. } | Type::RawPointer { .. } => {
+            (64, false)
+        }
         _ => return None,
     })
 }
@@ -705,7 +707,7 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
             NodeKind::Form { head, children, .. } if head == "get" || head == "index" => {
                 let owner_ty = self.ty(children[1])?;
                 let target = match owner_ty.clone() {
-                    Type::Reference { target, .. } => {
+                    Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
                         self.expression(children[1])?;
                         self.load(10, self.nodes[children[1].0]);
                         *target
@@ -985,7 +987,7 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
             "drop" | "forget" => {
                 self.expression(children[1])?;
             }
-            "borrow" | "borrow-mut" => {
+            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" => {
                 self.address(children[1])?;
                 if children.len() == 3 {
                     self.expression(children[2])?;
@@ -993,6 +995,17 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                 } else {
                     self.store(10, destination);
                 }
+            }
+            "ref-ptr" | "ptr-address" | "ptr-borrow" | "ptr-borrow-mut" | "pin-ptr-borrow"
+            | "pin-ptr-borrow-mut" => {
+                self.expression(children[1])?;
+                let value = if children.len() == 3 {
+                    self.expression(children[2])?;
+                    children[2]
+                } else {
+                    children[1]
+                };
+                self.copy(self.nodes[value.0], destination, words);
             }
             "deref" => {
                 self.expression(children[1])?;
@@ -1009,7 +1022,9 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                 // Value projections may also target aggregate expressions.
                 self.expression(children[1])?;
                 let owner_ty = self.ty(children[1])?;
-                let target = if let Type::Reference { target, .. } = owner_ty {
+                let target = if let Type::Reference { target, .. }
+                | Type::PinnedReference { target, .. } = owner_ty
+                {
                     self.load(10, self.nodes[children[1].0]);
                     *target
                 } else {
@@ -1025,7 +1040,10 @@ impl<'a, 'b> FunctionEmitter<'a, 'b> {
                     self.add_offset(10, offset);
                 } else {
                     self.expression(children[2])?;
-                    if matches!(self.ty(children[1])?, Type::Reference { .. }) {
+                    if matches!(
+                        self.ty(children[1])?,
+                        Type::Reference { .. } | Type::PinnedReference { .. }
+                    ) {
                         self.load(10, self.nodes[children[1].0]);
                     } else {
                         self.address_slot(10, self.nodes[children[1].0]);

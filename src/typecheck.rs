@@ -8163,6 +8163,17 @@ fn list_expression(
                 _ => Err("ptr-null requires an explicit raw-pointer type".into()),
             }
         }
+        "ref-ptr" => {
+            require_arity(operator, items, 2)?;
+            match expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )? {
+                Type::Reference { mutable, target } | Type::PinnedReference { mutable, target } => {
+                    Ok(Type::RawPointer { mutable, target })
+                }
+                _ => Err("ref-ptr requires an ordinary or pinned reference".into()),
+            }
+        }
         "ptr-address" | "ptr-is-null" => {
             require_arity(operator, items, 2)?;
             match expression(
@@ -22934,6 +22945,110 @@ mod typed_ownership_tests {
             .labels
             .iter()
             .any(|(span, _)| &source[span.start..span.end] == "(#forget (#deref target))"));
+    }
+
+    #[test]
+    fn staged_direct_unsafe_pointer_borrow_reads_use_initialized_boundary() {
+        for (reference, borrow, anchor) in [
+            ("#ref", "#ptr-borrow", "#ref"),
+            ("#pin-ref", "#pin-ptr-borrow", "#pin-ref"),
+        ] {
+            let source = format!(
+                "(#fn inspect (: anchor ({anchor} #u64) : address (#ptr #u64)) #u64
+              (#let view ({reference} #u64) (#unsafe ({borrow} anchor address)))
+              (#return (#deref view)))
+              (#fn forward (: anchor ({anchor} #u64) : address (#ptr #u64)) #u64
+                (#return (#call inspect (: anchor anchor : address address))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            let summaries = declarations
+                .staged_contents_referent_entry_contracts(&types)
+                .unwrap();
+            let summary = &summaries[&declarations.function_id("inspect").unwrap()];
+            assert!(summary.unresolved_reads.is_empty());
+            assert!(
+                summary.entry_reads.is_empty(),
+                "the lifetime anchor is not the physical referent"
+            );
+            // Without an actual anchor loan, the read must remain unresolved.
+            declarations
+                .bodies
+                .get_mut("inspect")
+                .unwrap()
+                .parameter_loan_slots[0]
+                .clear();
+            assert!(declarations
+                .staged_referent_entry_contracts(&types)
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn staged_direct_mixed_pointer_borrow_reads_keep_physical_inputs() {
+        let source = "(#fn inspect (: anchor (#ref #u64) : other (#ref #u64)
+                    : address (#ptr #u64) : choose #bool) #u64
+              (#let view (#ref #u64) (#if choose (#unsafe (#ptr-borrow anchor address)) other))
+              (#return (#deref view)))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("inspect").unwrap()];
+        assert!(summary.unresolved_reads.is_empty());
+        assert!(summary.reads.iter().any(|read| read.place.root
+            == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(1))));
+        assert!(!summary.reads.iter().any(|read| read.place.root
+            == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))));
+    }
+
+    #[test]
+    fn staged_direct_pointer_borrow_field_reads_use_initialized_boundary() {
+        let source = "(#struct Resource (: value #u64)) (#linear Resource)
+          (#fn inspect (: anchor (#ref Resource) : address (#ptr Resource)) #u64
+            (#let view (#ref Resource) (#unsafe (#ptr-borrow anchor address)))
+            (#return (#get view value)))
+          (#fn forward (: anchor (#ref Resource) : address (#ptr Resource)) #u64
+            (#return (#call inspect (: anchor anchor : address address))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("inspect").unwrap()];
+        assert!(summary.unresolved_reads.is_empty());
+        assert!(summary.entry_reads.is_empty());
+    }
+
+    #[test]
+    fn staged_direct_pointer_borrow_reads_do_not_prove_consumption_or_restoration() {
+        for operation in [
+            "(#forget (#deref view))",
+            "(#deref-set view (#struct-literal Resource (: value 42u64)))",
+        ] {
+            let source = format!(
+                "(#struct Resource (: value #u64)) (#linear Resource)
+              (#fn inspect (: anchor (#ref-mut Resource) : address (#ptr-mut Resource)) ()
+                (#let view (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor address)))
+                {operation} (#drop view) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+            let types = crate::linearcheck::LinearTypes::from_program(&program);
+            assert!(
+                declarations
+                    .staged_contents_referent_entry_contracts(&types)
+                    .is_err(),
+                "an unsafe initialization promise cannot identify owned storage: {operation}"
+            );
+        }
     }
 
     #[test]

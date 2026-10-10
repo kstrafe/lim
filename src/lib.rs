@@ -4464,6 +4464,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "pin-set-field"
             | "ref"
             | "ref-mut"
+            | "ref-ptr"
             | "pin-ref"
             | "pin-ref-mut"
             | "pin-ptr-borrow"
