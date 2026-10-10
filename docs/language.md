@@ -1016,6 +1016,15 @@ Duplicate bundles and declaration collisions are rejected. The bundle appears
 in the same inspectable, hash-cached generated file as the function's code.
 This shorthand supplies types explicitly; it adds neither type inference nor
 implicit pinning, allocation or cancellation.
+
+An opt-in graph route is selected with `--cfg async-lowering=graph`. It uses the
+same await protocol names, independently checked ordinary generated code, and
+a source-named cleanup record instead of the legacy per-state cancellation
+interface. Warm hash hits skip emission. Unsupported graph cases fail closed;
+the existing route remains the default until the remaining migration gates
+are complete. See [graph async lowering](async-graph-production.md) for the
+cleanup contract, supported guards/scoped borrows, and current limitations.
+
 Bundles can also supply function parameters or named call arguments. Definitions
 are top-level, may refer forward to other bundles, and may contain nested
 splices. Names must be unique across declarations; cycles, unknown names,

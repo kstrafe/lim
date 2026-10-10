@@ -14,6 +14,7 @@ pub(crate) enum Provenance {
     AsyncStart,
     AsyncPoll,
     PinnedCancel,
+    GraphCleanup,
     CancelDispatcher,
 }
 
@@ -56,6 +57,72 @@ fn signature(function: &Function) -> Function {
 }
 
 impl Registry {
+    /// The graph route has a source-named cleanup record, independent of the
+    /// legacy per-state enum and the emitter's private PC/cell representation.
+    pub(crate) fn graph_cleanup_interfaces(&mut self) -> Result<(), Error> {
+        let polls = self
+            .functions
+            .values()
+            .filter(|interface| interface.provenance == Provenance::AsyncPoll)
+            .map(|interface| (interface.declaration.clone(), interface.span))
+            .collect::<Vec<_>>();
+        for (poll, span) in polls {
+            let task = poll.parameters[0].ty.clone();
+            let (frame, state) = match &task {
+                Type::PinnedReference { target, .. } => {
+                    let Type::Named(frame) = target.as_ref() else {
+                        continue;
+                    };
+                    (frame.clone(), format!("{frame}-state"))
+                }
+                Type::Named(frame) => (frame.clone(), frame.clone()),
+                _ => continue,
+            };
+            let cleanup = format!("{frame}-cleanup");
+            let name = format!("{}-cleanup", poll.name);
+            for generated in [&cleanup, &name] {
+                if self.reserved.contains_key(generated) {
+                    return Err(Error { message: format!("async generated name '{generated}' conflicts with an existing declaration"), span });
+                }
+                self.reserved.insert(generated.clone(), span);
+                if let Some(span) = span {
+                    self.generated_names.insert(generated.clone(), span);
+                }
+            }
+            let origin = span.ok_or_else(|| Error {
+                message: "async poll interface lost its source span".into(),
+                span,
+            })?;
+            self.deferred_layouts.insert(
+                cleanup.clone(),
+                DeferredLayout {
+                    kind: LayoutKind::Struct,
+                    span: origin,
+                    linear: true,
+                },
+            );
+            let mut declaration = poll.clone();
+            declaration.name = name.clone();
+            declaration.parameters.truncate(1);
+            declaration.return_type = Type::Named(cleanup.clone());
+            self.functions.insert(
+                name,
+                FunctionInterface {
+                    declaration,
+                    span,
+                    provenance: Provenance::GraphCleanup,
+                },
+            );
+            for interface in self.functions.values_mut() {
+                if interface.provenance == Provenance::CancelDispatcher
+                    && interface.declaration.parameters[0].ty == Type::Named(state.clone())
+                {
+                    interface.declaration.parameters[0].ty = Type::Named(cleanup.clone());
+                }
+            }
+        }
+        Ok(())
+    }
     pub(crate) fn interfaces(&self) -> crate::generation_interfaces::DeclarationInterfaces {
         crate::generation_interfaces::DeclarationInterfaces {
             functions: self

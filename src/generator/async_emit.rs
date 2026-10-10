@@ -63,6 +63,7 @@ struct Emitter<'a> {
     slots: Vec<Slot>,
     bindings: HashMap<BindingId, usize>,
     values: HashMap<ValueId, usize>,
+    scopes: HashMap<crate::typed_body::NodeId, usize>,
     reserved: RefCell<HashSet<String>>,
     next: Cell<usize>,
     types: crate::linearcheck::LinearTypes,
@@ -166,6 +167,7 @@ impl<'a> Emitter<'a> {
             slots: Vec::new(),
             bindings: HashMap::new(),
             values: HashMap::new(),
+            scopes: HashMap::new(),
             reserved: RefCell::new(reserved),
             next: Cell::new(0),
             types,
@@ -203,6 +205,33 @@ impl<'a> Emitter<'a> {
             }
             let slot = emitter.add_slot(format!("value.{index}"), value.ty.clone());
             emitter.values.insert(ValueId(index), slot);
+        }
+        for located in function
+            .graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+        {
+            if let Action::Borrow {
+                scope: Some(scope),
+                place,
+                mutable,
+                pinned,
+                ..
+            } = located.action
+            {
+                if emitter.scopes.contains_key(&scope) {
+                    continue;
+                }
+                let target = Box::new(function.graph.places[place.0].ty.clone());
+                let ty = if pinned {
+                    Type::PinnedReference { mutable, target }
+                } else {
+                    Type::Reference { mutable, target }
+                };
+                let slot = emitter.add_slot(format!("scope.{}", scope.0), ty);
+                emitter.scopes.insert(scope, slot);
+            }
         }
         // Checked selections and their descendants are actual addresses, not
         // recipes to evaluate again after effects or a suspension.
@@ -687,6 +716,9 @@ impl<'a> Emitter<'a> {
                         self.values.get(value).copied()
                     }
                 }
+                crate::generator::async_cells::Cell::Scope(scope) => {
+                    self.scopes.get(scope).copied()
+                }
             })
             .collect::<Vec<_>>();
         // These cells were proved Empty by the physical graph solver. Expose
@@ -748,7 +780,65 @@ impl<'a> Emitter<'a> {
         // deliberately not an alias representation for exclusive handles or
         // linear payloads. Those must remain stationary until Commit.
         if !commit {
-            self.pattern_value(pattern)?;
+            let ty = &self.function.graph.values[pattern.scrutinee.0].ty;
+            if !self.types.can_repeat(ty) {
+                let mut names = HashMap::new();
+                let mut bindings = HashMap::new();
+                for &binding in &pattern.bindings {
+                    let ty = &self.function.graph.bindings[binding.0].ty;
+                    if !self.types.can_repeat(ty) || self.types.contains_reference(ty) {
+                        return Err(fail(self.function, "move-only or reference-bearing guard bindings require stationary storage aliases"));
+                    }
+                    let name = self.fresh("guard-preview");
+                    bindings.insert(name.clone(), ty.clone());
+                    names.insert(binding, name);
+                }
+                let source = crate::parse(&self.pattern_source(pattern, &names)?)
+                    .map_err(|error| fail(self.function, error.to_string()))?
+                    .remove(0)
+                    .expr;
+                let slot = &self.slots[*self.values.get(&pattern.scrutinee).ok_or_else(|| {
+                    fail(
+                        self.function,
+                        "stationary guard scrutinee has no owning cell",
+                    )
+                })?];
+                let reference = crate::parse(&format!(
+                    "(#pin-get-payload {} {} 0)",
+                    Self::slot_ref(slot, false),
+                    slot.full
+                ))
+                .map_err(|error| fail(self.function, error.to_string()))?
+                .remove(0)
+                .expr;
+                let preview = crate::generator::async_pattern::preview(
+                    &self.planning.declarations,
+                    &source,
+                    ty,
+                    reference,
+                    &bindings,
+                )
+                .map_err(|message| fail(self.function, message))?;
+                let mut stores = Vec::new();
+                for (name, value) in preview {
+                    let binding = names
+                        .iter()
+                        .find_map(|(binding, actual)| (actual == &name).then_some(*binding))
+                        .ok_or_else(|| {
+                            fail(self.function, "guard preview lost its source binding")
+                        })?;
+                    if let Some(slot) = self.bindings.get(&binding) {
+                        stores.push(
+                            self.put(
+                                *slot,
+                                &crate::expression_source(&value)
+                                    .map_err(|message| fail(self.function, message))?,
+                            ),
+                        );
+                    }
+                }
+                return Ok(stores.join("\n"));
+            }
         }
         let value = self.value(pattern.scrutinee, commit);
         let mut names = HashMap::new();
@@ -1231,6 +1321,22 @@ impl<'a> Emitter<'a> {
         mutable: bool,
         pinned: bool,
     ) -> Result<String, Error> {
+        let slot = *self.values.get(&dst).ok_or_else(|| {
+            fail(
+                self.function,
+                "borrow result has no physical reference cell",
+            )
+        })?;
+        self.reborrow_to_slot(slot, descriptor, mutable, pinned)
+    }
+
+    fn reborrow_to_slot(
+        &mut self,
+        dst: usize,
+        descriptor: &PlaceDescriptor,
+        mutable: bool,
+        pinned: bool,
+    ) -> Result<String, Error> {
         if matches!(descriptor.root, AddressRoot::Local(_)) {
             let owner = crate::generator::async_owner::Borrow::new(
                 &self.function.graph,
@@ -1259,7 +1365,7 @@ impl<'a> Emitter<'a> {
             self.projections.push(owner.declaration(&name, &argument));
             if owner.output
                 != crate::typed_ir::resolve_type(
-                    &self.function.graph.values[dst.0].ty,
+                    &self.slots[dst].ty,
                     &self.planning.declarations.aliases,
                 )
                 .map_err(|message| fail(self.function, message))?
@@ -1269,7 +1375,7 @@ impl<'a> Emitter<'a> {
                     "stable owner borrow disagrees with its checked result type",
                 ));
             }
-            return Ok(self.put_value(dst, &format!("(#call {name} (: {argument} {input}))")));
+            return Ok(self.put(dst, &format!("(#call {name} (: {argument} {input}))")));
         }
         let project = crate::generator::async_projection::Reborrow::new(
             &self.function.graph,
@@ -1281,7 +1387,7 @@ impl<'a> Emitter<'a> {
         .map_err(|message| fail(self.function, message))?;
         if project.output
             != crate::typed_ir::resolve_type(
-                &self.function.graph.values[dst.0].ty,
+                &self.slots[dst].ty,
                 &self.planning.declarations.aliases,
             )
             .map_err(|message| fail(self.function, message))?
@@ -1295,7 +1401,7 @@ impl<'a> Emitter<'a> {
         let argument = self.fresh("project-input");
         self.projections.push(project.declaration(&name, &argument));
         let handle = self.nonmoving_handle(project.root, &project.input)?;
-        Ok(self.put_value(dst, &format!("(#call {name} (: {argument} {handle}))")))
+        Ok(self.put(dst, &format!("(#call {name} (: {argument} {handle}))")))
     }
 
     fn nonmoving_handle(&self, root: ValueId, ty: &Type) -> Result<String, Error> {
@@ -1861,20 +1967,42 @@ impl<'a> Emitter<'a> {
                 let read = self.read(self.addresses[place], true);
                 Ok(self.put_value(*dst, &read))
             }
-            Action::Borrow { .. } | Action::EndBorrow { .. } => Err(error(
+            Action::Borrow {
+                dst: None,
+                scope: Some(scope),
+                place,
+                mutable,
+                pinned,
+            } => {
+                let slot = self.scopes[scope];
+                if self.addresses.contains_key(place) {
+                    let address = self.addresses[place];
+                    if self.slots[address].ty != self.slots[slot].ty {
+                        return Err(error(
+                            "scoped selection cannot change checked reference capabilities",
+                        ));
+                    }
+                    Ok(self.put(slot, &self.read(address, true)))
+                } else {
+                    self.reborrow_to_slot(slot, &graph.places[place.0], *mutable, *pinned)
+                        .map_err(|failure| Error {
+                            message: failure.message,
+                            span: located.span.unwrap_or(self.function.source.function.span),
+                        })
+                }
+            }
+            Action::EndBorrow { scope } => Ok(self.clear_handle_slots(&[self.scopes[scope]])),
+            Action::Borrow { .. } => Err(error(
                 "borrow/address tokens must retain their checked lifetime and ownership mode",
             )),
             Action::Preview(pattern) => self.pattern_bind(pattern, false),
             Action::Commit(pattern) => self.pattern_bind(pattern, true),
-            Action::EndPreview(pattern) => {
-                self.pattern_value(pattern)?;
-                Ok(pattern
-                    .bindings
-                    .iter()
-                    .map(|binding| self.clear_binding(*binding))
-                    .collect::<Vec<_>>()
-                    .join("\n"))
-            }
+            Action::EndPreview(pattern) => Ok(pattern
+                .bindings
+                .iter()
+                .map(|binding| self.clear_binding(*binding))
+                .collect::<Vec<_>>()
+                .join("\n")),
         }
     }
 
@@ -2082,31 +2210,240 @@ impl<'a> Emitter<'a> {
             .collect()
     }
 
-    fn emit(mut self) -> Result<Generated, Error> {
-        if self
-            .planning
-            .interfaces
-            .functions
-            .values()
-            .any(|interface| {
-                interface.provenance
-                    == crate::generator::async_interfaces::Provenance::CancelDispatcher
-                    && interface
-                        .declaration
-                        .parameters
-                        .first()
-                        .is_some_and(|parameter| {
-                            parameter.ty == Type::Named(self.frame.clone())
-                                || (self.pinned
-                                    && parameter.ty == Type::Named(format!("{}-state", self.frame)))
-                        })
-            })
+    /// Export cancellation obligations by source declaration/await identity.
+    /// Private cell numbers and the dispatcher PC are never part of this ABI.
+    fn cleanup_interface(&self, receiver: &str) -> Result<String, Error> {
+        if !self.planning.public_cleanup {
+            if self.function.cancel.is_some() {
+                return Err(fail(
+                    self.function,
+                    "graph cancellation requires state-specific checked cleanup contracts",
+                ));
+            }
+            return Ok(String::new());
+        }
+        use crate::generator::async_cells::Cell;
+        let plan = crate::generator::async_cells::Plan::cancellation(
+            &self.function.graph,
+            &self.types,
+            self.retirement.as_ref(),
+            self.lending.as_ref(),
+        );
+        let mut occupied = HashSet::new();
+        for cell in plan.iter().flat_map(|plan| &plan.cancel_live) {
+            let slot = match cell {
+                Cell::Binding(binding) => self.bindings.get(binding),
+                Cell::Value(value) => self.values.get(value),
+                Cell::Scope(scope) => self.scopes.get(scope),
+            };
+            if let Some(slot) = slot {
+                occupied.insert(*slot);
+            }
+        }
+        let cleanup = format!("{}-cleanup", self.frame);
+        let mut fields = Vec::new();
+        let mut definitions = Vec::new();
+        let mut transfers = Vec::new();
+        let mut captures = Vec::new();
+        let mut public = Vec::new();
+        let mut used = HashSet::new();
+        fn source_expressions<'a>(
+            node: &'a crate::SpannedExpr,
+            output: &mut Vec<&'a crate::SpannedExpr>,
+        ) {
+            output.push(node);
+            for child in &node.children {
+                source_expressions(child, output);
+            }
+        }
+        let mut expressions = Vec::new();
+        for statement in self.function.source.function.children.iter().skip(4) {
+            source_expressions(statement, &mut expressions);
+        }
+        for (index, slot) in self
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.linear)
         {
-            return Err(fail(
-                self.function,
-                "graph cancellation requires state-specific checked cleanup contracts",
+            if !occupied.contains(&index) {
+                // A solver fact is made visible to independent ordinary checking.
+                transfers.push(format!(
+                    "(#assert (#variant-is (#borrow (#get state {})) {}))",
+                    slot.field, slot.empty
+                ));
+                continue;
+            }
+            let name = if let Some((binding, _)) =
+                self.bindings.iter().find(|(_, actual)| **actual == index)
+            {
+                self.function.graph.bindings[binding.0].name.clone()
+            } else if let Some((value, _)) =
+                self.values.iter().find(|(_, actual)| **actual == index)
+            {
+                if let Some(site) = self
+                    .function
+                    .graph
+                    .blocks
+                    .iter()
+                    .find_map(|block| match block.terminator {
+                        Terminator::Await { site, child, .. } if child == *value => Some(site),
+                        _ => None,
+                    })
+                {
+                    format!("await-{site}")
+                } else {
+                    let span = self.function.graph.values[value.0].span.ok_or_else(|| {
+                        fail(
+                            self.function,
+                            "owned cancellation temporary has no source identity",
+                        )
+                    })?;
+                    let ordinal = expressions.iter().position(|expression| expression.span == span)
+                        .ok_or_else(|| fail(self.function, "owned cancellation temporary has no original source-expression identity"))?;
+                    format!("source-expression-{ordinal}")
+                }
+            } else {
+                return Err(fail(
+                    self.function,
+                    "owned cancellation address has no source identity",
+                ));
+            };
+            let mut field = name.clone();
+            let mut occurrence = 1;
+            while !used.insert(field.clone()) {
+                occurrence += 1;
+                field = format!("{name}.{occurrence}");
+            }
+            let cell = format!("{cleanup}-{field}");
+            let empty = format!("{cell}-empty");
+            let full = format!("{cell}-full");
+            for name in [&cell, &empty, &full] {
+                if !self.reserved.borrow_mut().insert(name.clone()) {
+                    return Err(fail(self.function, format!("async generated cleanup name '{name}' conflicts with an existing declaration")));
+                }
+            }
+            definitions.push(format!(
+                "(#enum {cell} (({empty}) ({full} {})))\n(#linear {cell})",
+                crate::type_source(&slot.ty)
+            ));
+            fields.push(format!("({field} {cell})"));
+            let local = self.fresh("cleanup-slot");
+            let payload = self.fresh("cleanup-payload");
+            transfers.push(format!("(#let {local} {cell} (#match (#get state {}) (#case {} ({empty})) (#case ({} {payload}) ({full} {payload}))))", slot.field, slot.empty, slot.full));
+            captures.push(format!("({field} {local})"));
+            public.push((field, empty, full, slot.ty.clone()));
+        }
+        let extraction = if self.pinned {
+            // Keep loan clearing and extraction in this ordinary function.
+            // A wrapper around private cancel loses entry/clearing correlation
+            // in nested caller contracts for conditional internal references.
+            let clear = self.clear_handle_slots(&self.reference_slots());
+            let pc = self.fresh("cleanup-pc");
+            let mut takes = vec![format!("(#let {pc} #u32 (#get task pc))")];
+            let mut captures = vec![format!("(pc {pc})")];
+            for slot in &self.slots {
+                let value = self.fresh("cleanup-extracted");
+                takes.push(format!(
+                    "(#let {value} {} (#unsafe (#pin-read {})))\n(#unsafe (#pin-write {} ({})))",
+                    slot.name,
+                    Self::slot_ref(slot, true),
+                    Self::slot_ref(slot, true),
+                    slot.empty
+                ));
+                captures.push(format!("({} {value})", slot.field));
+            }
+            format!(
+                "{clear}\n{}\n{}\n(#let state {}-state (#struct-literal {}-state ({})))",
+                takes.join("\n"),
+                self.set_pc(u32::MAX),
+                self.frame,
+                self.frame,
+                captures.join(" ")
+            )
+        } else {
+            format!("(#let state {} task)", self.frame)
+        };
+        let mut source = format!(
+            "{}\n(#struct {cleanup} ({}))\n(#linear {cleanup})\n\
+            (#fn {}-cleanup (: task {receiver}) {cleanup}\n\
+              {extraction}\n{}\n\
+              (#forget state) (#return (#struct-literal {cleanup} ({}))))",
+            definitions.join("\n"),
+            fields.join(" "),
+            self.poll,
+            transfers.join("\n"),
+            captures.join(" ")
+        );
+        if let Some(config) = &self.function.cancel {
+            let Expr::List(config) = config else {
+                return Err(fail(self.function, "invalid graph cleanup configuration"));
+            };
+            let [Expr::Symbol(dispatch), Expr::List(entries)] = config.as_slice() else {
+                return Err(fail(
+                    self.function,
+                    "graph cleanup requires (function ((source-slot handler) ...))",
+                ));
+            };
+            let mut handlers = HashMap::new();
+            for entry in entries {
+                let Expr::List(entry) = entry else {
+                    return Err(fail(self.function, "invalid graph cleanup handler"));
+                };
+                let [Expr::Symbol(slot), Expr::Symbol(handler)] = entry.as_slice() else {
+                    return Err(fail(
+                        self.function,
+                        "graph cleanup handler requires (source-slot handler)",
+                    ));
+                };
+                if handlers.insert(slot.clone(), handler.clone()).is_some() {
+                    return Err(fail(
+                        self.function,
+                        format!("duplicate graph cleanup slot '{slot}'"),
+                    ));
+                }
+            }
+            let mut calls = Vec::new();
+            for (field, empty, full, ty) in &public {
+                let handler = handlers.remove(field).ok_or_else(|| {
+                    fail(
+                        self.function,
+                        format!("missing graph cleanup handler for source slot '{field}'"),
+                    )
+                })?;
+                let declaration = self.planning.interfaces.function(&handler).ok_or_else(|| {
+                    fail(
+                        self.function,
+                        format!("unknown graph cleanup handler '{handler}'"),
+                    )
+                })?;
+                let aliases = &self.planning.declarations.aliases;
+                if declaration.unsafe_call
+                    || declaration.parameters.len() != 1
+                    || declaration.return_type != Type::Unit
+                    || crate::typed_ir::resolve_type(&declaration.parameters[0].ty, aliases).ok()
+                        != crate::typed_ir::resolve_type(ty, aliases).ok()
+                {
+                    return Err(fail(self.function, format!("graph cleanup handler '{handler}' must safely consume one {} and return ()", crate::type_source(ty))));
+                }
+                let payload = self.fresh("cleanup-owned");
+                calls.push(format!("(#match (#get task {field}) (#case {empty} ()) (#case ({full} {payload}) (#call {handler} (: {} {payload}))))", declaration.parameters[0].name));
+            }
+            if let Some(slot) = handlers.keys().min() {
+                return Err(fail(
+                    self.function,
+                    format!("unknown graph cleanup source slot '{slot}'"),
+                ));
+            }
+            source.push_str(&format!(
+                "\n(#fn {dispatch} (: task {cleanup}) () {} (#forget task) (#return ()))",
+                calls.join("\n")
             ));
         }
+        Ok(source)
+    }
+
+    fn emit(mut self) -> Result<Generated, Error> {
         self.check_owned_cells()?;
         let graph: &Graph = &self.function.graph;
         let mut cases = Vec::new();
@@ -2163,6 +2500,9 @@ impl<'a> Emitter<'a> {
                             }
                             crate::generator::async_cells::Cell::Value(value) => {
                                 self.values.get(value)
+                            }
+                            crate::generator::async_cells::Cell::Scope(scope) => {
+                                self.scopes.get(scope)
                             }
                         };
                         if let Some(slot) = slot {
@@ -2315,8 +2655,9 @@ impl<'a> Emitter<'a> {
             cases.join("\n")
         );
         let projections = self.projections.join("\n");
+        let cleanup = self.cleanup_interface(&receiver)?;
         let source = crate::generator::format_generated_source(&format!(
-            "{source}\n{cancel}\n{projections}"
+            "{source}\n{cancel}\n{cleanup}\n{projections}"
         ))
         .map_err(|message| fail(self.function, message))?;
         Ok(Generated {
@@ -2331,8 +2672,22 @@ pub(crate) fn generate(planning: &Planning) -> Result<Vec<Generated>, Error> {
     planning
         .functions
         .iter()
-        .map(|function| Emitter::new(planning, function)?.emit())
+        .map(|function| generate_function(planning, function))
         .collect()
+}
+
+pub(crate) fn generate_function(
+    planning: &Planning,
+    function: &Function,
+) -> Result<Generated, Error> {
+    #[cfg(test)]
+    EMISSION_COUNT.with(|count| count.set(count.get() + 1));
+    Emitter::new(planning, function)?.emit()
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static EMISSION_COUNT: Cell<usize> = const { Cell::new(0) };
 }
 
 /// Complete the proposed declarations in a fresh ordinary program. Neither
@@ -2363,6 +2718,12 @@ pub(crate) fn program(
             .insert(source_id, generated.origin);
         for mut source in crate::parse(&generated.source)? {
             crate::set_source_id(&mut source, source_id);
+            // Protocol bundles have already been expanded in the prepared
+            // program, but must remain in the standalone inspectable artifact.
+            if matches!(&source.expr, Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#syntax"))
+            {
+                continue;
+            }
             crate::normalize_match_case_forms(&mut source).map_err(|(message, span)| {
                 SourceError::new(message, DiagnosticCode::Parse).at(span)
             })?;
@@ -5062,8 +5423,9 @@ mod tests {
             (#case (Resume value) value) (#case _ 0u64)))",
             RUN,
         );
-        let error = generate(&planning).err().unwrap();
-        assert!(error.message.contains("stationary storage aliases"));
+        let generated = generate(&planning).unwrap();
+        let ordinary = program(&planning, &generated).unwrap();
+        crate::CheckedProgram::validate_with_span(&ordinary).unwrap();
     }
 
     #[test]

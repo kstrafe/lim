@@ -18,10 +18,11 @@ use crate::generator::async_exec::{
 use crate::linearcheck::LinearTypes;
 use crate::typed_body::{BindingId, NodeId};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Cell {
     Binding(BindingId),
     Value(ValueId),
+    Scope(NodeId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,6 +33,9 @@ enum State {
 }
 
 pub(crate) struct Plan {
+    /// Possibly occupied at task construction or a reachable Pending return.
+    /// Used only for public cleanup layout; ordinary checking remains required.
+    pub cancel_live: Vec<Cell>,
     pub action_empty: HashMap<(BlockId, usize), Vec<Cell>>,
     pub pending_empty: HashMap<BlockId, Vec<Cell>>,
     pub exit_empty: HashMap<BlockId, Vec<Cell>>,
@@ -42,6 +46,7 @@ struct Solver<'a> {
     cells: Vec<Cell>,
     bindings: Vec<Option<usize>>,
     values: Vec<Option<usize>>,
+    scopes: HashMap<NodeId, usize>,
     copy: Vec<bool>,
     retirement: Option<&'a crate::generator::async_retire::Plan>,
     lending: Option<&'a crate::generator::async_lend::Plan>,
@@ -139,7 +144,19 @@ impl Solver<'_> {
                     }
                 }
             }
-            Action::Borrow { dst: Some(dst), .. } => self.define(states, *dst),
+            Action::Borrow { dst, scope, .. } => {
+                if let Some(dst) = dst {
+                    self.define(states, *dst);
+                }
+                if let Some(index) = scope.and_then(|scope| self.scopes.get(&scope)) {
+                    states[*index] = State::Full;
+                }
+            }
+            Action::EndBorrow { scope } => {
+                if let Some(index) = self.scopes.get(scope) {
+                    states[*index] = State::Empty;
+                }
+            }
             Action::Commit(pattern) => {
                 self.value(states, pattern.scrutinee, true);
                 for binding in &pattern.bindings {
@@ -233,28 +250,62 @@ impl Plan {
         retirement: Option<&crate::generator::async_retire::Plan>,
         lending: Option<&crate::generator::async_lend::Plan>,
     ) -> Option<Self> {
+        Self::solve(graph, types, retirement, lending, false)
+    }
+
+    pub(crate) fn cancellation(
+        graph: &Graph,
+        types: &LinearTypes,
+        retirement: Option<&crate::generator::async_retire::Plan>,
+        lending: Option<&crate::generator::async_lend::Plan>,
+    ) -> Option<Self> {
+        Self::solve(graph, types, retirement, lending, true)
+    }
+
+    fn solve(
+        graph: &Graph,
+        types: &LinearTypes,
+        retirement: Option<&crate::generator::async_retire::Plan>,
+        lending: Option<&crate::generator::async_lend::Plan>,
+        owners: bool,
+    ) -> Option<Self> {
         let mut solver = Solver {
             graph,
             cells: Vec::new(),
             bindings: vec![None; graph.bindings.len()],
             values: vec![None; graph.values.len()],
+            scopes: HashMap::new(),
             copy: Vec::new(),
             retirement,
             lending,
             types,
         };
         for (index, binding) in graph.bindings.iter().enumerate() {
-            if types.contains_reference(&binding.ty) {
+            if types.contains_reference(&binding.ty) || (owners && types.is_linear(&binding.ty)) {
                 solver.bindings[index] = Some(solver.cells.len());
                 solver.cells.push(Cell::Binding(BindingId(index)));
                 solver.copy.push(types.can_repeat(&binding.ty));
             }
         }
         for (index, value) in graph.values.iter().enumerate() {
-            if types.contains_reference(&value.ty) {
+            if types.contains_reference(&value.ty) || (owners && types.is_linear(&value.ty)) {
                 solver.values[index] = Some(solver.cells.len());
                 solver.cells.push(Cell::Value(ValueId(index)));
                 solver.copy.push(types.can_repeat(&value.ty));
+            }
+        }
+        for located in graph.blocks.iter().flat_map(|block| &block.actions) {
+            if let Action::Borrow {
+                scope: Some(scope),
+                mutable,
+                ..
+            } = located.action
+            {
+                if !solver.scopes.contains_key(&scope) {
+                    solver.scopes.insert(scope, solver.cells.len());
+                    solver.cells.push(Cell::Scope(scope));
+                    solver.copy.push(!mutable);
+                }
             }
         }
         if solver.cells.is_empty() {
@@ -267,6 +318,13 @@ impl Plan {
             }
         }
         let mut before = vec![None; graph.blocks.len()];
+        let mut cancel_live = solver
+            .cells
+            .iter()
+            .copied()
+            .zip(initial.iter())
+            .filter_map(|(cell, state)| (*state != State::Empty).then_some(cell))
+            .collect::<std::collections::HashSet<_>>();
         before[graph.entry.0] = Some(initial);
         let mut pending = VecDeque::from([graph.entry]);
         while let Some(block) = pending.pop_front() {
@@ -350,6 +408,14 @@ impl Plan {
             if let Some(plan) = retirement {
                 solver.clear(&mut states, &plan.edge[index][1]);
             }
+            cancel_live.extend(
+                solver
+                    .cells
+                    .iter()
+                    .copied()
+                    .zip(states.iter())
+                    .filter_map(|(cell, state)| (*state != State::Empty).then_some(cell)),
+            );
             pending_empty.insert(
                 BlockId(index),
                 solver
@@ -362,6 +428,12 @@ impl Plan {
             );
         }
         Some(Self {
+            cancel_live: solver
+                .cells
+                .iter()
+                .copied()
+                .filter(|cell| cancel_live.contains(cell))
+                .collect(),
             action_empty,
             pending_empty,
             exit_empty,
@@ -451,6 +523,7 @@ mod tests {
             cells: vec![Cell::Binding(BindingId(1))],
             bindings: vec![None, Some(0)],
             values: vec![None; graph.values.len()],
+            scopes: HashMap::new(),
             copy: vec![true],
             retirement: None,
             lending: lending.as_ref(),

@@ -15,6 +15,7 @@ use crate::source_error::SourceError;
 use crate::{DiagnosticCode, Item, PreparedProgramSyntax, Program, SpannedExpr};
 
 pub(crate) struct Function {
+    pub cancel: Option<crate::Expr>,
     pub source: Source,
     pub model: Lowered,
     pub graph: crate::generator::async_exec::Graph,
@@ -23,6 +24,7 @@ pub(crate) struct Function {
 /// This is deliberately not CheckedProgram. In particular, no method exposes
 /// native code generation or claims that deferred layouts can be accessed.
 pub(crate) struct Planning {
+    pub public_cleanup: bool,
     pub program: Program,
     pub interfaces: Registry,
     pub declarations: crate::typed_ir::Declarations,
@@ -92,11 +94,21 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
         .filter(|node| crate::is_async_invocation(node))
         .map(|node| invocation_tree(&mut program, node))
         .collect::<Result<Vec<_>, _>>()?;
-    let interfaces = Registry::from_program_invocations(&program, &invocations)
+    let mut interfaces = Registry::from_program_invocations(&program, &invocations)
         .map_err(|error| attach(error, &program))?;
+    interfaces.graph_cleanup_interfaces().map_err(|error| {
+        attach(
+            SourceError::new(error.message, DiagnosticCode::Type),
+            &program,
+        )
+    })?;
     let mut selected = HashSet::new();
     let mut models = Vec::with_capacity(invocations.len());
     for invocation in &invocations {
+        let cancel = match crate::normalize_builtin_generator_invocation(&invocation.expr)? {
+            crate::Expr::List(parts) => parts.get(5).cloned(),
+            _ => None,
+        };
         let source = Source::from_invocation(invocation)
             .map_err(|message| {
                 attach(
@@ -134,7 +146,7 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
             Item::Function(function) => Some(function.name.clone()),
             _ => None,
         }));
-        models.push((source, model));
+        models.push((source, model, cancel));
     }
     let declarations = crate::typecheck::resolve_generation_planning(
         &program,
@@ -152,7 +164,7 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
         attach(error, &program)
     })?;
     let mut functions = Vec::with_capacity(models.len());
-    for (source, model) in models {
+    for (source, model, cancel) in models {
         let body = declarations.bodies.get(&model.body_name).ok_or_else(|| {
             attach(
                 SourceError::new(
@@ -191,12 +203,14 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
             )
         })?;
         functions.push(Function {
+            cancel,
             source,
             model,
             graph,
         });
     }
     Ok(Planning {
+        public_cleanup: false,
         program,
         interfaces,
         declarations,

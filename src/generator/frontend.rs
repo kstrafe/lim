@@ -410,7 +410,7 @@ pub(crate) fn expand_program_in_directory(
 pub(crate) fn expand_prepared_program(
     prepared: &PreparedProgramSyntax,
 ) -> Result<(Program, ExpansionPlans), SourceError> {
-    expand_prepared_program_with_route(prepared, DEFAULT_ASYNC_ROUTE)
+    expand_prepared_program_with_route(prepared, prepared.async_route)
 }
 
 /// One selection for executable and inspectable output. Keep legacy production
@@ -418,7 +418,6 @@ pub(crate) fn expand_prepared_program(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AsyncRoute {
     Legacy,
-    #[allow(dead_code)] // Explicit migration route, exercised below.
     Graph,
 }
 
@@ -426,13 +425,96 @@ const DEFAULT_ASYNC_ROUTE: AsyncRoute = AsyncRoute::Legacy;
 
 fn graph_generated_program(
     prepared: &PreparedProgramSyntax,
+    cache_directory: Option<&Path>,
 ) -> Result<(Program, Vec<super::async_emit::Generated>), SourceError> {
-    let planning = super::async_prepare::prepare(prepared)?;
-    let generated = super::async_emit::generate(&planning).map_err(|error| {
-        SourceError::new(error.message, DiagnosticCode::Type)
-            .at(error.span)
-            .attach(&planning.program.source_files)
-    })?;
+    let mut planning = super::async_prepare::prepare(prepared)?;
+    planning.public_cleanup = true;
+    let invocations = prepared
+        .expressions
+        .iter()
+        .filter(|node| is_async_invocation(node))
+        .collect::<Vec<_>>();
+    let mut generated = Vec::with_capacity(invocations.len());
+    let mut staged = Vec::new();
+    for (function, invocation) in planning.functions.iter().zip(&invocations) {
+        let key = graph_source_key(prepared, invocation)?;
+        let origins = vec![graph_source_origin(prepared, invocation.span)];
+        // Probe through the shared key/digest/parser verifier. Its callback
+        // deliberately refuses publication on a miss: all fresh output must
+        // pass the complete ordinary program check together before any write.
+        let mut missing = false;
+        let cached = if let Some(directory) = cache_directory {
+            match generator::cached_generated_source_with_origins(directory, &key, &origins, || {
+                // The shared loader repairs invalid entries for other routes.
+                // Graph output must fail closed instead of disguising a corrupt
+                // hit as fresh emission. Mirror only its public artifact naming;
+                // key, digest and parser verification stay in the shared loader.
+                let digest = generator::stable_hash(
+                    format!("lim-generated-source-format-v1\n{key}").as_bytes(),
+                );
+                for path in [
+                    generator::generated_source_directory(directory)
+                        .join(format!("generated-{digest:032x}.lim")),
+                    directory.join(format!("generated-{digest:032x}.key")),
+                    directory.join(format!("generated-{digest:032x}.hash")),
+                ] {
+                    if path.try_exists().map_err(|error| error.to_string())? {
+                        return Err(format!(
+                            "invalid async graph cache entry at {}",
+                            path.display()
+                        ));
+                    }
+                }
+                missing = true;
+                Err("async graph output is staged until program validation".into())
+            }) {
+                Ok(source) => Some(source),
+                Err(_) if missing => None,
+                Err(error) => return Err(error.into()),
+            }
+        } else {
+            None
+        };
+        let output = if let Some(source) = cached {
+            let start = planning
+                .interfaces
+                .function(&function.model.source_name)
+                .ok_or("async cached output lost its start interface")?;
+            let Type::Named(frame) = &start.return_type else {
+                return Err("async cached output lost its frame identity".into());
+            };
+            super::async_emit::Generated {
+                frame: frame.clone(),
+                source,
+                origin: function.source.function.span,
+            }
+        } else {
+            let mut output =
+                super::async_emit::generate_function(&planning, function).map_err(|error| {
+                    SourceError::new(error.message, DiagnosticCode::Type)
+                        .at(error.span)
+                        .attach(&planning.program.source_files)
+                })?;
+            let normalized = normalize_builtin_generator_invocation(&invocation.expr)?;
+            output.source.push_str(&format!(
+                "\n{}\n",
+                expression_source(&async_fn::protocol_declaration(&normalized)?)?
+            ));
+            output.source = generator::format_generated_source(&output.source)?;
+            // Match the shared cache's inspectable provenance annotation before
+            // checking, so the checked program and published text are identical.
+            output.source = format!(
+                "; Generated from:\n; {}\n\n{}",
+                origins[0].replace(['\r', '\n'], " "),
+                output.source
+            );
+            if cache_directory.is_some() {
+                staged.push((generated.len(), key, origins));
+            }
+            output
+        };
+        generated.push(output);
+    }
     let program = super::async_emit::program(&planning, &generated)?;
     // Planning is not an ownership proof. Validate both the original witnesses
     // and the emitted ordinary code before accepting or publishing graph output.
@@ -448,7 +530,46 @@ fn graph_generated_program(
             error.attach(&program.source_files)
         },
     )?;
+    if let Some(directory) = cache_directory {
+        for (index, key, origins) in staged {
+            let output = &generated[index];
+            let published =
+                generator::cached_generated_source_with_origins(directory, &key, &origins, || {
+                    Ok(output.source.clone())
+                })?;
+            // A concurrent publisher may have installed this key after the
+            // probe. Require identical ordinary declarations rather than use
+            // unchecked replacement text or validate the whole program twice.
+            let declarations = |text: &str| {
+                crate::parse(text)
+                    .map(|forms| forms.into_iter().map(|form| form.expr).collect::<Vec<_>>())
+            };
+            if declarations(&published)? != declarations(&output.source)? {
+                return Err("async graph cache changed during validated publication".into());
+            }
+        }
+    }
     Ok((program, generated))
+}
+
+fn graph_source_origin(prepared: &PreparedProgramSyntax, span: Span) -> String {
+    let path = prepared
+        .source_files
+        .get(span.source_id as usize)
+        .map_or_else(
+            || "<source>".to_owned(),
+            |file| file.path.display().to_string(),
+        );
+    format!("{path}:{}", span.line)
+}
+
+fn graph_source_key(
+    prepared: &PreparedProgramSyntax,
+    invocation: &SpannedExpr,
+) -> Result<String, String> {
+    Ok(format!("lim-inspectable-async-graph-v3\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}",
+        env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), prepared.graph_dependency_context,
+        async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types), expression_source(&invocation.expr)?))
 }
 
 fn expand_prepared_program_with_route(
@@ -456,7 +577,8 @@ fn expand_prepared_program_with_route(
     route: AsyncRoute,
 ) -> Result<(Program, ExpansionPlans), SourceError> {
     if route == AsyncRoute::Graph && prepared.expressions.iter().any(is_async_invocation) {
-        let (program, _) = graph_generated_program(prepared)?;
+        let (program, _) =
+            graph_generated_program(prepared, prepared.capture_cache_directory.as_deref())?;
         return Ok((program, ExpansionPlans::new()));
     }
     let capture_cache_key = format!(
@@ -625,6 +747,8 @@ pub(crate) fn decode_async_capture_plans(forms: &[Expr]) -> Option<ExpansionPlan
 }
 
 pub(crate) struct PreparedProgramSyntax {
+    async_route: AsyncRoute,
+    graph_dependency_context: String,
     pub(crate) bundles: syntax_bundle::Bundles,
     pub(crate) capture_cache_directory: Option<PathBuf>,
     pub(crate) root_source: String,
@@ -644,6 +768,16 @@ pub(crate) fn prepare_program_syntax(
     config: &CompileConfig,
     cache_directory: Option<&Path>,
 ) -> Result<PreparedProgramSyntax, SourceError> {
+    let async_route = match config.values.get("async-lowering").map(String::as_str) {
+        None => DEFAULT_ASYNC_ROUTE,
+        Some("legacy") => AsyncRoute::Legacy,
+        Some("graph") => AsyncRoute::Graph,
+        Some(value) => {
+            return Err(
+                format!("unknown async-lowering '{value}'; expected legacy or graph").into(),
+            )
+        }
+    };
     let (loaded, source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&loaded, config);
     let mut bundles = syntax_bundle::Bundles::default();
@@ -753,6 +887,22 @@ pub(crate) fn prepare_program_syntax(
         })
         .collect();
     Ok(PreparedProgramSyntax {
+        async_route,
+        graph_dependency_context: {
+            // Current witnesses retain spans; artifact identity retains only
+            // semantic dependencies and configuration, independent of location.
+            let mut settings = config.values.iter().collect::<Vec<_>>();
+            settings.sort();
+            let syntax = expressions
+                .iter()
+                .map(|node| expression_source(&node.expr))
+                .collect::<Result<Vec<_>, _>>()?
+                .join("\n");
+            format!(
+                "cfg={settings:?}\nsyntax={:032x}",
+                generator::stable_hash(syntax.as_bytes())
+            )
+        },
         bundles,
         capture_cache_directory: cache_directory.map(Path::to_path_buf),
         root_source: source.to_owned(),
@@ -1192,7 +1342,7 @@ pub(crate) fn write_prepared_generated_sources(
         directory,
         cache_directory,
         async_plans,
-        DEFAULT_ASYNC_ROUTE,
+        prepared.async_route,
     )
 }
 
@@ -1233,7 +1383,7 @@ fn write_prepared_generated_sources_with_route(
         })
         .collect::<HashMap<_, _>>();
     let graph_output = if route == AsyncRoute::Graph && expanded.iter().any(is_async_invocation) {
-        graph_generated_program(prepared)?.1
+        graph_generated_program(prepared, Some(&generated_cache))?.1
     } else {
         Vec::new()
     };
@@ -1262,12 +1412,7 @@ fn write_prepared_generated_sources_with_route(
                 .at(expression.span)
                 .attach(&prepared.source_files)
             })?;
-            let key = format!(
-                "lim-inspectable-async-graph-v1\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ninvocation={invocation}",
-                env!("CARGO_PKG_VERSION"),
-                env!("LIM_BUILD_FINGERPRINT"),
-                dependency_context,
-            );
+            let key = graph_source_key(prepared, expression)?;
             let origins = builtin_origins
                 .get(&invocation)
                 .cloned()
@@ -1302,7 +1447,7 @@ fn write_prepared_generated_sources_with_route(
             continue;
         }
         let key = format!(
-            "lim-inspectable-generated-source-v5\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\nasync-capture-plan={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}",
+            "lim-inspectable-generated-source-v6\ncompiler={}\nimplementation={}\ndependency-context={}\nasync-capture-plan={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}",
             env!("CARGO_PKG_VERSION"),
             env!("LIM_BUILD_FINGERPRINT"),
             dependency_context,
@@ -1391,9 +1536,14 @@ mod async_migration_tests {
         let text =
             source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
         let prepared = syntax(&text, Some(&scratch.0));
+        let emissions = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
         let (program, plans) =
             expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
         assert!(plans.is_empty());
+        assert_eq!(
+            super::super::async_emit::EMISSION_COUNT.with(|count| count.get()),
+            emissions + 1
+        );
         assert!(program.generator_validation.is_some());
         let graph_file = program
             .source_files
@@ -1418,6 +1568,11 @@ mod async_migration_tests {
                 graph_file.source
             );
         }
+        assert_eq!(
+            super::super::async_emit::EMISSION_COUNT.with(|count| count.get()),
+            emissions + 1,
+            "warm compile and publication hits must not invoke the emitter"
+        );
         let sources = fs::read_dir(generator::generated_source_directory(&scratch.0))
             .unwrap()
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
@@ -1437,12 +1592,97 @@ mod async_migration_tests {
             .collect::<Vec<_>>();
         assert!(keys
             .iter()
-            .any(|key| key.contains("lim-inspectable-async-graph-v1")));
+            .any(|key| key.contains("lim-inspectable-async-graph-v3")));
         assert!(!keys.iter().any(|key| key.contains("async-capture-plan=")));
     }
 
     #[test]
-    fn graph_route_never_falls_back_for_unsupported_scoped_borrows_or_awaiting_guards() {
+    fn graph_cache_deduplicates_locations_and_names_retained_source_expressions() {
+        let scratch = Scratch::new();
+        let text = format!("{CONTEXT}
+          (#struct Source (: amount #u64)) (#linear Source)
+          (#fn make (: amount #u64) Source (#return (#struct-literal Source (: amount amount))))
+          (#fn consume (: owner Source : amount #u64) #u64
+            (#let result #u64 (#u64.+.wrap (#get owner amount) amount)) (#forget owner) (#return result))
+          (@async-fn-pinned (: protocol WorkAwait : waker #u64 : function
+            (#fn work (: seed #u64) #u64 (#return (#call consume
+              (: owner (#call make (: amount seed))
+                 : amount (#await Child ChildPending ChildReady child-poll (Start 2u64))))))))");
+        let count = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
+        let mut bodies = Vec::new();
+        for (name, padding) in [("first.lim", ""), ("second.lim", "\n\n\n")] {
+            let path = scratch.0.join(name);
+            let prepared = prepare_program_syntax(
+                &format!("{padding}{text}"),
+                &scratch.0,
+                Some(&path),
+                &CompileConfig::default(),
+                Some(&scratch.0),
+            )
+            .unwrap();
+            let (program, _) =
+                expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+            let output = &program.source_files.last().unwrap().source;
+            assert!(
+                output.contains("work-frame-cleanup-source-expression-"),
+                "{output}"
+            );
+            bodies.push(output.split_once("\n\n").unwrap().1.to_owned());
+        }
+        assert_eq!(bodies[0], bodies[1]);
+        assert_eq!(
+            super::super::async_emit::EMISSION_COUNT.with(|count| count.get()),
+            count + 1
+        );
+        let artifacts = fs::read_dir(generator::generated_source_directory(&scratch.0))
+            .unwrap()
+            .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(artifacts.len(), 1);
+        assert!(artifacts[0].contains("first.lim:") && artifacts[0].contains("second.lim:"));
+    }
+
+    #[test]
+    fn graph_cache_does_not_publish_fresh_output_before_complete_validation() {
+        let scratch = Scratch::new();
+        let text = format!(
+            "{}\n(#fn main () #u64 (#return true))",
+            source("(#return seed)")
+        );
+        let prepared = syntax(&text, Some(&scratch.0));
+        assert!(expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).is_err());
+        assert!(!generator::generated_source_directory(&scratch.0).exists());
+    }
+
+    #[test]
+    fn graph_cache_corruption_fails_closed_without_emission_or_repair() {
+        let scratch = Scratch::new();
+        let text = source("(#return seed)");
+        let prepared = syntax(&text, Some(&scratch.0));
+        expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        let emissions = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
+        let artifact = fs::read_dir(generator::generated_source_directory(&scratch.0))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        // Even parseable corruption must not be accepted or silently repaired.
+        let corrupt = format!("{}\n; tampered\n", fs::read_to_string(&artifact).unwrap());
+        fs::write(&artifact, &corrupt).unwrap();
+        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("invalid async graph cache entry"), "{error}");
+        assert_eq!(
+            super::super::async_emit::EMISSION_COUNT.with(|count| count.get()),
+            emissions
+        );
+        assert_eq!(fs::read_to_string(artifact).unwrap(), corrupt);
+    }
+
+    #[test]
+    fn graph_route_never_falls_back_for_unsupported_local_or_scoped_borrows() {
         for (body, expected) in [
             (
                 "(#let owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) seed 2u64))
@@ -1452,13 +1692,10 @@ mod async_migration_tests {
                 "local borrows require stable frame-owner storage",
             ),
             (
-                "(#let task Child (Start seed))
-              (#return (#match task (#case (Start value)
-                (#when (#bool.! (#u64.==
-                  (#await Child ChildPending ChildReady child-poll (Start 0u64)) 1u64)))
-                (#await Child ChildPending ChildReady child-poll (Start value)))
-                (#case (Resume value) value) (#case _ 0u64)))",
-                "stationary storage aliases",
+                "(#let owner #u64 seed)
+                 (#return (#borrow owner
+                   (#await Child ChildPending ChildReady child-poll (Start 0u64))))",
+                "local borrows require stable frame-owner storage",
             ),
         ] {
             let text = source(body);
@@ -1483,19 +1720,26 @@ mod async_migration_tests {
     }
 
     #[test]
-    fn graph_route_rejects_custom_cancellation_dispatcher() {
-        let text = source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))")
-            .replace("@async-fn", "@async-fn-pinned")
-            .replace(": function", ": cancel (work-cancel ((work-frame-start cancel-start) (work-frame-await-0 cancel-await))) : function");
+    fn graph_route_accepts_checked_source_named_cancellation_dispatcher() {
+        let text =
+            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))")
+                .replace("@async-fn", "@async-fn-pinned")
+                .replace(
+                    ": function",
+                    ": cancel (work-cancel ((await-0 cancel-child))) : function",
+                );
+        let text =
+            format!("{text}\n(#fn cancel-child (: child Child) () (#forget child) (#return ()))");
         let prepared = syntax(&text, None);
-        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
-            .err()
-            .unwrap();
-        assert_eq!(
-            error.message,
-            "graph cancellation requires state-specific checked cleanup contracts"
+        let (program, _) =
+            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        let output = &program.source_files.last().unwrap().source;
+        assert!(
+            output.contains("(#fn work-cancel ((task work-frame-cleanup)) ()"),
+            "{output}"
         );
-        assert!(text[error.span.unwrap().start..error.span.unwrap().end].starts_with("(#fn work"));
+        assert!(output.contains("work-frame-cleanup-await-0-full"));
+        typecheck::CheckedProgram::validate_with_span(&program).unwrap();
     }
 
     #[test]

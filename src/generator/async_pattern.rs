@@ -201,6 +201,122 @@ pub(crate) fn test(
     .test(pattern, ty, reference)
 }
 
+/// Snapshot only checked Copy, reference-free guard bindings. The scrutinee
+/// remains in its stationary cell until the arm commits. Move-only aliases and
+/// alternative-pattern address selection still require a separate storage proof.
+pub(crate) fn preview(
+    declarations: &Declarations,
+    pattern: &Expr,
+    ty: &Type,
+    reference: Expr,
+    bindings: &std::collections::HashMap<String, Type>,
+) -> Result<Vec<(String, Expr)>, String> {
+    let ty = crate::typed_ir::resolve_type(ty, &declarations.aliases)?;
+    if let Expr::Symbol(name) = pattern {
+        if let Some(expected) = bindings.get(name) {
+            if crate::typed_ir::resolve_type(expected, &declarations.aliases)? != ty {
+                return Err("stationary guard binding changed its checked type".into());
+            }
+            return Ok(vec![(name.clone(), form("#deref", [reference]))]);
+        }
+        return Ok(Vec::new());
+    }
+    let Expr::List(parts) = pattern else {
+        return Ok(Vec::new());
+    };
+    if parts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let Some(Expr::Symbol(constructor)) = parts.first() else {
+        return Err("stationary guard pattern lost its constructor".into());
+    };
+    if constructor == "#or" {
+        return Err(
+            "alternative guard previews require selected stationary storage aliases".into(),
+        );
+    }
+    let fields = match &ty {
+        Type::Named(owner) if declarations.enums.contains_key(owner) => {
+            let variant = declarations.enums[owner]
+                .iter()
+                .find(|variant| &variant.name == constructor)
+                .ok_or("stationary guard variant belongs to another owner")?;
+            variant
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(index, ty)| {
+                    (
+                        ty.clone(),
+                        form(
+                            "#pin-get-payload",
+                            [
+                                reference.clone(),
+                                symbol(constructor),
+                                Expr::Integer(index as i128),
+                            ],
+                        ),
+                    )
+                })
+                .collect::<Vec<_>>()
+        }
+        Type::Named(owner) if constructor == owner => declarations
+            .structs
+            .get(owner)
+            .ok_or("stationary guard struct lost its checked layout")?
+            .iter()
+            .map(|field| {
+                (
+                    field.ty.clone(),
+                    form(
+                        "#pin-borrow",
+                        [form("#get", [reference.clone(), symbol(&field.name)])],
+                    ),
+                )
+            })
+            .collect(),
+        Type::Tuple(fields) if constructor == "#tuple" => fields
+            .iter()
+            .enumerate()
+            .map(|(index, ty)| {
+                (
+                    ty.clone(),
+                    form(
+                        "#pin-borrow",
+                        [form(
+                            "#get",
+                            [reference.clone(), Expr::Integer(index as i128)],
+                        )],
+                    ),
+                )
+            })
+            .collect(),
+        Type::Array(element, length) if constructor == "#array" => (0..*length)
+            .map(|index| {
+                (
+                    element.as_ref().clone(),
+                    form(
+                        "#pin-borrow",
+                        [form(
+                            "#index",
+                            [reference.clone(), symbol(format!("{index}usize"))],
+                        )],
+                    ),
+                )
+            })
+            .collect(),
+        _ => return Err("unsupported stationary guard pattern".into()),
+    };
+    if parts.len() - 1 != fields.len() {
+        return Err("stationary guard pattern arity changed".into());
+    }
+    let mut result = Vec::new();
+    for (nested, (ty, reference)) in parts[1..].iter().zip(fields) {
+        result.extend(preview(declarations, nested, &ty, reference, bindings)?);
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
