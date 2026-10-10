@@ -214,11 +214,8 @@ fn cannot_discard_an_indivisible_linear_error_enum() {
 #[test]
 fn linear_error_is_consumed_once() {
     let source = "(#struct Token (: value #u64)) (#linear Token)
-      (#enum Input (: Input-ok-value #u64 : Input-err-value Token))
-      (#enum Output (: Output-ok-value #bool : Output-err-value Token))
-      (#fn Output-err (: error Token) Output (#return (Output-err-value error)))
-      (#fn Output-ok (: value #bool) Output (#return (Output-ok-value value)))
-      (#fn Input-err (: error Token) Input (#return (Input-err-value error)))
+      (@result (: ok #u64 : error Token : name Input))
+      (@result (: ok #bool : error Token : name Output))
       (#fn convert (: value Input) Output
         (#let-else (Input-ok-value number) Input value
           (#else (Input-err-value error)
@@ -262,6 +259,250 @@ fn linear_error_is_consumed_once() {
             ),
         "linear",
     );
+}
+
+#[test]
+fn generated_linear_error_enum_propagates_on_both_edges() {
+    let declarations = "(#enum Error (Broken)) (#linear Error)
+      (@result (: ok #u64 : error Error : name Input))
+      (@result (: ok #bool : error Error : name Output))
+      (#fn convert (: value Input) Output
+        (#let-else (Input-ok-value number) Input value
+          (#else (Input-err-value error)
+            (#return (#call Output-err (: error error)))))
+        (#return (#call Output-ok (: value (#u64.== number 42u64)))))";
+    for constructor in [
+        "(#call Input-ok (: value 42u64))",
+        "(#call Input-err (: error Broken))",
+    ] {
+        run(
+            &format!(
+                "{declarations}
+          (#fn main () #u64
+            (#return (#match (#call convert (: value {constructor}))
+              (#case (Output-ok-value yes) (#if yes 42u64 0u64))
+              (#case (Output-err-value error) (#block (#forget error) 42u64)))))"
+            ),
+            42,
+        );
+    }
+    rejected(
+        &format!(
+            "{declarations}
+      (#fn main () #bool
+        (#return (#call Input-is-ok (: value (#call Input-err (: error Broken))))))"
+        ),
+        "Input-is-ok",
+    );
+    run(
+        "(#struct Token (: value #u64)) (#linear Token)
+      (@optional (: type Token : name Maybe))
+      (#fn main () #u64
+        (#let value Maybe (#call Maybe-construct (: value (#struct-literal Token (: value 42u64)))))
+        (#return (#match value
+          (#case (Maybe-some token) (#block
+            (#let answer #u64 (#get token value)) (#forget token) answer))
+          (#case Maybe-none 0u64))))",
+        42,
+    );
+}
+
+#[test]
+fn builtin_helper_policy_matches_materialization_and_cache_context() {
+    let scratch = support::Scratch::new("result-helper-context");
+    let source = "(#enum Error (Broken))
+      (@result (: ok #u64 : error Error : name Result))
+      (@optional (: type Error : name Maybe))";
+    let generated = || {
+        std::fs::read_dir(scratch.path().join("generated"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "lim"))
+            .map(|path| std::fs::read_to_string(path).unwrap())
+            .collect::<Vec<_>>()
+    };
+    for linear in [false, true] {
+        let source = format!("{source} {}", if linear { "(#linear Error)" } else { "" });
+        let before = if linear { generated() } else { Vec::new() };
+        lim::write_generated_sources(&source, scratch.path()).unwrap();
+        let after = generated();
+        let new_sources = after
+            .iter()
+            .filter(|source| !before.contains(source))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            new_sources.len(),
+            2,
+            "Copy context must invalidate both builtin caches"
+        );
+        let program = lim::parse_program(&source).unwrap();
+        lim::check_types(&program).unwrap();
+        for (name, constructor, helper) in
+            [("Result", "ok", "is-ok"), ("Maybe", "construct", "is-some")]
+        {
+            let materialized = new_sources
+                .iter()
+                .find(|source| source.contains(&format!("#enum {name} ")))
+                .unwrap();
+            let ast_names = program
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    lim::Item::Function(function)
+                        if function.name.starts_with(&format!("{name}-")) =>
+                    {
+                        Some(function.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let materialized_program = lim::parse_program(materialized).unwrap();
+            let materialized_names = materialized_program
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    lim::Item::Function(function) => Some(function.name.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(ast_names, materialized_names);
+            assert!(ast_names.contains(&format!("{name}-{constructor}")));
+            assert_eq!(ast_names.contains(&format!("{name}-{helper}")), !linear);
+            assert_eq!(materialized.contains("unwrap-or"), !linear);
+            assert!(!materialized.contains("#forget"));
+        }
+        lim::write_generated_sources(&source, scratch.path()).unwrap();
+        assert_eq!(
+            generated().len(),
+            after.len(),
+            "warm materialization must reuse its context"
+        );
+    }
+}
+
+#[test]
+fn builtin_copy_policy_handles_aliases_exclusive_refs_and_explicit_linearity() {
+    for (declarations, payload, generated_linear, helpers) in [
+        ("", "#u64", false, true),
+        ("", "#u64", true, false),
+        ("(#type Payload #u64)", "Payload", false, true),
+        (
+            "(#enum Error (Broken)) (#linear Error) (#type Payload Error)",
+            "Payload",
+            false,
+            false,
+        ),
+        ("", "(#ref-mut #u64)", false, false),
+        ("(#type Payload (#ref-mut #u64))", "Payload", false, false),
+        (
+            "(#struct Payload (: view (#ref-mut #u64)))",
+            "Payload",
+            false,
+            false,
+        ),
+        ("", "(#tuple #u64 (#ref-mut #u64))", false, false),
+        ("", "(#array (#ref-mut #u64) 2)", false, false),
+        ("", "(#ref #u64)", false, true),
+    ] {
+        let source = format!(
+            "{declarations}
+          (@result (: ok #bool : error {payload} : name Result))
+          (@optional (: type {payload} : name Maybe)) {}",
+            if generated_linear {
+                "(#linear Result) (#linear Maybe)"
+            } else {
+                ""
+            }
+        );
+        let program = lim::parse_program(&source).unwrap();
+        lim::check_types(&program).unwrap_or_else(|error| panic!("{error}\n{source}"));
+        let scratch = support::Scratch::new("result-copy-policy");
+        lim::write_generated_sources(&source, scratch.path()).unwrap();
+        for entry in std::fs::read_dir(scratch.path().join("generated")).unwrap() {
+            let path = entry.unwrap().path();
+            if !path.extension().is_some_and(|extension| extension == "lim") {
+                continue;
+            }
+            let generated = std::fs::read_to_string(path).unwrap();
+            let name = if generated.contains("#enum Result ") {
+                "Result"
+            } else {
+                "Maybe"
+            };
+            let ast_names = program
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    lim::Item::Function(function)
+                        if function.name.starts_with(&format!("{name}-")) =>
+                    {
+                        Some(function.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            let materialized = lim::parse_program(&generated).unwrap();
+            let generated_names = materialized
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    lim::Item::Function(function) => Some(function.name.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(ast_names, generated_names, "{source}");
+            assert_eq!(generated.contains("unwrap-or"), helpers, "{source}");
+            assert_eq!(
+                generated.contains("is-ok") || generated.contains("is-some"),
+                helpers,
+                "{source}"
+            );
+            assert!(!generated.contains("#forget"));
+        }
+    }
+    run(
+        "(@optional (: type (#ref-mut #u64) : name Maybe))
+      (#fn main () #u64
+        (#let-mut number #u64 42u64)
+        (#let value Maybe (#call Maybe-construct (: value (#borrow-mut number))))
+        (#let-else (Maybe-some view) Maybe value (#else Maybe-none (#return 0u64)))
+        (#return (#deref view)))",
+        42,
+    );
+}
+
+#[test]
+fn user_generator_emitted_builtins_keep_copy_dependent_helpers() {
+    let generator = "(#gn emit (payload)
+      `((@optional (: type ,payload : name Maybe))
+        (@result (: ok #bool : error ,payload : name Result))))";
+    run(
+        &format!(
+            "{generator} (#type Payload #u64) (@emit Payload)
+      (#fn main () #u64
+        (#let maybe Maybe (#call Maybe-construct (: value 42u64)))
+        (#let result Result (#call Result-err (: error 42u64)))
+        (#return (#if (#call Result-is-ok (: value (#clone result))) 0u64
+          (#u64.+.wrap
+            (#call Maybe-unwrap-or (: value maybe : fallback 0u64))
+            (#call Result-unwrap-err-or (: value result : fallback 0u64))))))"
+        ),
+        84,
+    );
+    let source = format!(
+        "{generator}
+      (#enum Error (Broken)) (#linear Error) (#type Payload Error) (@emit Payload)
+      (#fn main () #u64
+        (#let result Result (#call Result-err (: error Broken)))
+        (#let-else (Result-ok-value yes) Result result
+          (#else (Result-err-value error) (#forget error) (#return 42u64)))
+        (#return (#if yes 1u64 0u64)))"
+    );
+    run(&source, 42);
+    let program = lim::parse_program(&source).unwrap();
+    assert!(!program.items.iter().any(|item| matches!(item,
+        lim::Item::Function(function) if function.name.contains("unwrap-or")
+            || function.name == "Result-is-ok" || function.name == "Maybe-is-some")));
 }
 
 #[test]

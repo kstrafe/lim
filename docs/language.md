@@ -2305,18 +2305,26 @@ generators retain their own positional literal interface. For example:
 (@result (: ok #u64 : error #u32 : name Result))
 ```
 
-`(@optional (: type T : name Name))` creates an enum with `Name-some` and `Name-none`, plus
-free-standing helpers:
+`(@optional (: type T : name Name))` always creates an enum with `Name-some`
+and `Name-none`, plus the free-standing `Name-construct` constructor. When the
+enum and its payload are Copy, it also creates:
 
-- `Name-construct`
 - `Name-is-some`
 - `Name-unwrap-or`
 
-`(@result (: ok Ok : error Err : name Name))` creates `Name-ok-value` and `Name-err-value`, plus:
+`(@result (: ok Ok : error Err : name Name))` always creates an enum with
+`Name-ok-value` and `Name-err-value`, plus the `Name-ok` and `Name-err`
+constructors. When the enum and both payloads are Copy, it also creates:
 
-- `Name-ok` and `Name-err` constructors;
 - `Name-is-ok`;
 - `Name-unwrap-or` and `Name-unwrap-err-or`.
+
+The by-value predicate and fallback unwrap helpers discard values on some
+paths, so they are omitted for linear payloads, exclusive references, and
+explicitly linear generated enums. No implicit `#forget` is inserted. Use
+explicit matching or [`#let-else` error propagation](error-propagation.md)
+instead. AST expansion and inspectable generated sources use the same Copy
+policy, whose declaration context is included in the generated-source cache.
 
 Expansion is part of program parsing. Readable generated Lim sources for both
 built-in and user-defined `@` invocations are stored as hash-named `.lim` files

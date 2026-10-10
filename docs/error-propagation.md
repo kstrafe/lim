@@ -37,6 +37,11 @@ their borrowing provenance through destructuring and rewrapping. There is no
 inferred propagation, conversion, or implicit destruction: explicitly construct
 the destination Result's error variant with a payload of the same error type.
 
-The current built-in `@result` fallback unwrap helpers are unsuitable for linear
-payloads because those helpers discard payloads or fallbacks on some paths.
-Equivalent explicitly declared enums support linear propagation with this syntax.
+Built-in `@result` and `@optional` always generate their enum and constructors,
+including for linear payloads. Their by-value predicates (`is-ok`, `is-some`)
+and fallback unwrap helpers are generated only when the enum and all payloads
+are Copy. These helpers discard payloads or fallbacks on some paths, so they
+are omitted for linear values and exclusive references. Use explicit matching
+or `#let-else` instead; no implicit `#forget` is generated. Copy payloads keep
+the existing helper API. Inspectable generated source uses the same policy,
+and its cache identity includes the declaration-dependent Copy context.

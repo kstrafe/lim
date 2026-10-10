@@ -2486,7 +2486,7 @@ fn async_copy_type_names_from_items(items: &[Item]) -> HashSet<String> {
             }
             _ => None,
         })
-        .filter(|name| !linear_types.is_linear(&Type::Named(name.clone())))
+        .filter(|name| linear_types.can_repeat(&Type::Named(name.clone())))
         .collect()
 }
 
@@ -2497,8 +2497,14 @@ fn async_copy_type_names(expressions: &[SpannedExpr]) -> HashSet<String> {
             matches!(&expression.expr,
             Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head))
                 if matches!(head.as_str(), "#type" | "#struct" | "#enum" | "#linear")))
+            || matches!(&expression.expr, Expr::List(items)
+                if matches!(items.first(), Some(Expr::At))
+                && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "optional" | "result")))
         })
-        .filter_map(|expression| parse_item(&normalize_keywords(expression.expr.clone())).ok())
+        .filter_map(|expression| {
+            let invocation = normalize_builtin_generator_invocation(&expression.expr).ok()?;
+            parse_item(&normalize_keywords(invocation)).ok()
+        })
         .collect::<Vec<_>>();
     async_copy_type_names_from_items(&items)
 }
@@ -2924,13 +2930,20 @@ fn prepare_program_syntax(
     // Generated declarations and cfg selection are already expanded here, so
     // detect async users after those passes rather than from the root file.
     let needs_async = expressions.iter().any(is_async_invocation);
-    let (async_copy_types, async_types) = if needs_async {
-        (
-            async_copy_type_names(&expressions),
-            async_type_environment(&expressions),
-        )
+    let needs_copy_types = needs_async || expressions.iter().any(|expression| {
+        matches!(&expression.expr, Expr::List(items)
+            if matches!(items.first(), Some(Expr::At))
+            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "optional" | "result")))
+    });
+    let async_copy_types = if needs_copy_types {
+        async_copy_type_names(&expressions)
     } else {
-        (HashSet::new(), async_fn::AsyncTypeEnvironment::default())
+        HashSet::new()
+    };
+    let async_types = if needs_async {
+        async_type_environment(&expressions)
+    } else {
+        async_fn::AsyncTypeEnvironment::default()
     };
     let needs_workers = expressions.iter().any(is_thread_spawn_invocation);
     let worker_functions = expressions
@@ -3098,8 +3111,13 @@ fn parse_prepared_program_items(
                         .ok()
                     } else {
                         kind.and_then(|kind| {
-                            materialize_builtin_generated_source(kind, forms, &worker_functions)
-                                .ok()
+                            materialize_builtin_generated_source(
+                                kind,
+                                forms,
+                                &worker_functions,
+                                &async_copy_types,
+                            )
+                            .ok()
                         })
                     };
                     if let Some(generated_text) = generated_text {
@@ -3171,7 +3189,7 @@ fn parse_prepared_program_items(
                     )
                     .and_then(|source| parse_generated_source_items(&source))
                 } else {
-                    parse_generated_items(forms)
+                    parse_generated_items_with_copy_types(forms, &async_copy_types)
                 };
                 generated.map_err(|error| {
                     let is_async_fn = matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "async-fn" || kind == "async-fn-pinned");
@@ -6239,7 +6257,7 @@ fn write_prepared_generated_sources(
             continue;
         }
         let key = format!(
-            "lim-inspectable-generated-source-v4\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\nasync-capture-plan={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}",
+            "lim-inspectable-generated-source-v5\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\nasync-capture-plan={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}",
             env!("CARGO_PKG_VERSION"),
             env!("LIM_BUILD_FINGERPRINT"),
             dependency_context,
@@ -6257,7 +6275,7 @@ fn write_prepared_generated_sources(
                 )?;
                 async_dispatch::collapse(&source, &async_types)
             } else {
-                materialize_builtin_generated_source(&kind, &forms, &worker_functions)
+                materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types)
             }
         })?;
     }
@@ -6335,6 +6353,7 @@ fn materialize_builtin_generated_source(
     kind: &str,
     forms: &[Expr],
     worker_functions: &HashMap<String, Function>,
+    copy_types: &HashSet<String>,
 ) -> Result<String, String> {
     if kind == "thread-spawn" {
         let task = expect_symbol(forms.get(2), "thread task type name")?;
@@ -6375,8 +6394,11 @@ fn materialize_builtin_generated_source(
         .unwrap_or("none");
     let first_source = type_source(first);
     if kind == "optional" {
-        Ok(format!(
+        let source = format!(
             "(#enum {name} (({first_name} {first_source}) {second_name}))\n(#fn {name}-construct ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-is-some ((value {name})) #bool (#return (#match value (#case ({first_name} _) true) (#case {second_name} false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (#case ({first_name} payload) payload) (#case {second_name} fallback))))\n"
+        );
+        Ok(builtin_payload_helpers_source(
+            source, &name, &variants, copy_types, 2,
         ))
     } else if kind == "result" {
         let second = variants
@@ -6384,11 +6406,59 @@ fn materialize_builtin_generated_source(
             .and_then(|variant| variant.fields.first())
             .ok_or_else(|| "result expansion has no error payload type".to_owned())?;
         let second_source = type_source(second);
-        Ok(format!(
+        let source = format!(
             "(#enum {name} (({first_name} {first_source}) ({second_name} {second_source})))\n(#fn {name}-ok ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-err ((error {second_source})) {name} (#return ({second_name} error)))\n(#fn {name}-is-ok ((value {name})) #bool (#return (#match value (#case ({first_name} _) true) (#case ({second_name} _) false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (#case ({first_name} payload) payload) (#case ({second_name} _) fallback))))\n(#fn {name}-unwrap-err-or ((value {name}) (fallback {second_source})) {second_source} (#return (#match value (#case ({first_name} _) fallback) (#case ({second_name} error) error))))\n"
+        );
+        Ok(builtin_payload_helpers_source(
+            source, &name, &variants, copy_types, 3,
         ))
     } else {
         Err(format!("unknown builtin generated declaration '@{kind}'"))
+    }
+}
+
+// These by-value predicates and fallback unwraps discard values on at least
+// one branch. Constructors are safe for every payload; discard helpers are
+// available only when all payloads can be copied, including named aggregates.
+fn builtin_payload_is_copy(ty: &Type, copy_types: &HashSet<String>) -> bool {
+    match ty {
+        Type::Named(name) => copy_types.contains(name),
+        Type::Tuple(elements) => elements
+            .iter()
+            .all(|ty| builtin_payload_is_copy(ty, copy_types)),
+        Type::Array(element, _) => builtin_payload_is_copy(element, copy_types),
+        Type::Reference { mutable: true, .. }
+        | Type::PinnedReference { mutable: true, .. }
+        | Type::MutableSlice(_)
+        | Type::Atomic(_)
+        | Type::PinOwned(_)
+        | Type::Generic(_) => false,
+        _ => true,
+    }
+}
+
+fn builtin_payload_helpers_source(
+    source: String,
+    name: &str,
+    variants: &[EnumVariant],
+    copy_types: &HashSet<String>,
+    constructor_lines: usize,
+) -> String {
+    if copy_types.contains(name)
+        && variants
+            .iter()
+            .flat_map(|variant| &variant.fields)
+            .all(|ty| builtin_payload_is_copy(ty, copy_types))
+    {
+        source
+    } else {
+        // Each declaration above occupies exactly one line: enum followed by
+        // mandatory constructors, then the optional discard-based helpers.
+        source
+            .lines()
+            .take(constructor_lines)
+            .map(|line| format!("{line}\n"))
+            .collect()
     }
 }
 
@@ -7608,6 +7678,21 @@ fn parse_generated_item(items: &[Expr]) -> Result<Item, String> {
     }
 }
 
+fn parse_generated_items_with_copy_types(
+    items: &[Expr],
+    copy_types: &HashSet<String>,
+) -> Result<Vec<Item>, String> {
+    let kind = expect_symbol(items.get(1), "generated declaration name")?;
+    if matches!(kind, "optional" | "result") {
+        // The AST and inspectable materialization must expose exactly the same
+        // API. Parse the shared source rather than independently choosing helpers.
+        let source =
+            materialize_builtin_generated_source(kind, items, &HashMap::new(), copy_types)?;
+        return parse_generated_source_items(&source);
+    }
+    parse_generated_items(items)
+}
+
 fn parse_generated_items(items: &[Expr]) -> Result<Vec<Item>, String> {
     let kind = expect_symbol(items.get(1), "generated declaration name")?;
     if kind == "result" {
@@ -7985,14 +8070,19 @@ fn generated_vec_sort_source_parts(
 }
 
 fn parse_generated_source_items(source: &str) -> Result<Vec<Item>, String> {
+    let expressions = parse(source)?;
+    // Builtins nested in generated source need the same declaration-dependent
+    // helper policy as top-level builtins, including forward linear markers.
+    let copy_types = async_copy_type_names(&expressions);
     let mut items = Vec::new();
-    for mut spanned in parse(source)? {
+    for mut spanned in expressions {
         normalize_match_case_forms(&mut spanned).map_err(|(error, _)| error)?;
-        let mut expression = normalize_keywords(spanned.expr);
+        let invocation = normalize_builtin_generator_invocation(&spanned.expr)?;
+        let mut expression = normalize_keywords(invocation);
         normalize_match_cases_expr(&mut expression);
         if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
-                items.extend(parse_generated_items(forms)?);
+                items.extend(parse_generated_items_with_copy_types(forms, &copy_types)?);
                 continue;
             }
         }
@@ -12843,6 +12933,52 @@ mod tests {
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
         std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn nested_generated_builtins_reconstruct_copy_context() {
+        for (declarations, payload, marker, helpers) in [
+            ("", "#u64", "", true),
+            ("(#type Payload #u64)", "Payload", "", true),
+            (
+                "(#enum Error (Broken)) (#linear Error) (#type Payload Error)",
+                "Payload",
+                "",
+                false,
+            ),
+            ("(#type Payload (#ref-mut #u64))", "Payload", "", false),
+            ("", "#u64", "(#linear Result) (#linear Maybe)", false),
+        ] {
+            let source = format!(
+                "{declarations}
+                (@result (: error {payload} : name Result : ok #bool))
+                (@optional (: name Maybe : type {payload})) {marker}"
+            );
+            let nested = parse_generated_source_items(&source).unwrap();
+            let top_level = parse_program(&source).unwrap();
+            let names = |items: &[Item]| {
+                items
+                    .iter()
+                    .filter_map(|item| match item {
+                        Item::Function(function) => Some(function.name.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let nested_names = names(&nested);
+            assert_eq!(nested_names, names(&top_level.items), "{source}");
+            assert!(nested_names.contains(&"Result-ok".to_owned()));
+            assert!(nested_names.contains(&"Result-err".to_owned()));
+            assert!(nested_names.contains(&"Maybe-construct".to_owned()));
+            assert_eq!(nested_names.contains(&"Result-is-ok".to_owned()), helpers);
+            assert_eq!(
+                nested_names.contains(&"Maybe-unwrap-or".to_owned()),
+                helpers
+            );
+            let mut program = top_level;
+            program.items = nested;
+            check_types(&program).unwrap();
+        }
     }
 
     #[test]
