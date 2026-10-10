@@ -17,6 +17,46 @@ use crate::{Span, Type};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct FlowNodeId(pub usize);
 
+/// Dense membership with a traversal-order list for iteration. Flow IDs are
+/// arena indices, so reachability needs neither hashing nor per-key allocation.
+pub(crate) struct ReachableNodes {
+    present: Vec<bool>,
+    order: Vec<FlowNodeId>,
+}
+
+impl ReachableNodes {
+    pub fn contains(&self, id: &FlowNodeId) -> bool {
+        self.present.get(id.0).copied().unwrap_or(false)
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, FlowNodeId> {
+        self.order.iter()
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.order.len()
+    }
+}
+
+impl IntoIterator for ReachableNodes {
+    type Item = FlowNodeId;
+    type IntoIter = std::vec::IntoIter<FlowNodeId>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.order.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a ReachableNodes {
+    type Item = &'a FlowNodeId;
+    type IntoIter = std::slice::Iter<'a, FlowNodeId>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 type CallResultRefinement = (
     Vec<(FlowNodeId, NodeId, Vec<Segment>)>,
     VariantId,
@@ -2906,11 +2946,15 @@ impl FlowGraph {
         Ok(graph)
     }
 
-    pub fn reachable(&self) -> HashSet<FlowNodeId> {
-        let mut seen = HashSet::new();
+    pub fn reachable(&self) -> ReachableNodes {
+        let mut seen = ReachableNodes {
+            present: vec![false; self.nodes.len()],
+            order: Vec::new(),
+        };
         let mut pending = vec![self.entry];
         while let Some(id) = pending.pop() {
-            if seen.insert(id) {
+            if !std::mem::replace(&mut seen.present[id.0], true) {
+                seen.order.push(id);
                 pending.extend(self.nodes[id.0].successors.iter().copied());
             }
         }
@@ -3320,7 +3364,7 @@ impl FlowGraph {
         use_event: FlowNodeId,
         predecessors: &[Vec<FlowNodeId>],
         replacements: bool,
-        reachable: &HashSet<FlowNodeId>,
+        reachable: &ReachableNodes,
     ) -> Option<Vec<(NodeId, Vec<Segment>)>> {
         let mut pending_values = vec![(value, use_event, Vec::new(), Vec::new())];
         let mut calls = Vec::new();
@@ -13579,13 +13623,13 @@ fn collect_call_input_components(
 
 fn returned_provenance_components(body: &Body, value: NodeId) -> Vec<NodeId> {
     let mut pending = vec![value];
-    let mut seen = HashSet::new();
+    let mut seen = vec![false; body.nodes.len()];
     let mut components = Vec::new();
     while let Some(value) = pending.pop() {
         let mut alternatives = Vec::new();
         collect_result_alternatives(body, value, &mut alternatives);
         for alternative in alternatives {
-            if !seen.insert(alternative) {
+            if std::mem::replace(&mut seen[alternative.0], true) {
                 continue;
             }
             components.push(alternative);
@@ -14555,6 +14599,51 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dense_reachability_matches_hash_traversal_after_edge_changes() {
+        let mut seed = 0x1234_5678u32;
+        for count in [1, 2, 8, 64, 129] {
+            let mut graph = FlowGraph {
+                variant_pruned_edges: HashMap::new(),
+                nodes: (0..count)
+                    .map(|_| FlowNode {
+                        action: FlowAction::Exit,
+                        successors: Vec::new(),
+                        span: None,
+                    })
+                    .collect(),
+                entry: FlowNodeId(0),
+                exit: FlowNodeId(count - 1),
+            };
+            for _ in 0..16 {
+                for node in &mut graph.nodes {
+                    node.successors.clear();
+                    seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                    for offset in 0..(seed as usize % 4) {
+                        node.successors
+                            .push(FlowNodeId((seed as usize + offset) % count));
+                    }
+                }
+                let mut expected = HashSet::new();
+                let mut pending = vec![graph.entry];
+                while let Some(id) = pending.pop() {
+                    if expected.insert(id) {
+                        pending.extend(graph.nodes[id.0].successors.iter().copied());
+                    }
+                }
+                let actual = graph.reachable();
+                assert_eq!(actual.len(), expected.len());
+                for index in 0..=count {
+                    assert_eq!(
+                        actual.contains(&FlowNodeId(index)),
+                        expected.contains(&FlowNodeId(index))
+                    );
+                }
+                assert_eq!(actual.into_iter().collect::<HashSet<_>>(), expected);
+            }
+        }
+    }
 
     #[test]
     fn enum_tag_reads_are_nonconsuming_proven_referent_reads() {
@@ -19113,7 +19202,10 @@ mod tests {
                 let order = graph.reachable_postorder();
                 let reachable = graph.reachable();
                 assert_eq!(order.len(), reachable.len());
-                assert_eq!(order.iter().copied().collect::<HashSet<_>>(), reachable);
+                assert_eq!(
+                    order.iter().copied().collect::<HashSet<_>>(),
+                    reachable.iter().copied().collect::<HashSet<_>>()
+                );
                 assert_eq!(order, graph.reachable_postorder());
                 let expected = graph.liveness(body);
                 let mut alternative = order.clone();
