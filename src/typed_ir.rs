@@ -1893,14 +1893,19 @@ impl Declarations {
                 flow.loan_origins(body)
             };
             let mut returned = Vec::new();
+            // Contents-aware return and store analysis have identical seeds.
+            // Share this immutable result; the legacy store-only mode remains
+            // a distinct solve because its call-store transfer differs.
+            let legacy_store_origins;
             let store_origins = if include_parameter_contents {
-                flow.staged_parameter_store_loan_origins(body)
+                &origins
             } else {
-                flow.staged_store_loan_origins(body)
+                legacy_store_origins = flow.staged_store_loan_origins(body);
+                &legacy_store_origins
             };
-            let stores = flow.parameter_store_summaries(body, &store_origins);
-            let mutations = flow.parameter_tag_mutations(body, &store_origins);
-            let output_stores = flow.parameter_output_store_variant_summaries(body, &store_origins);
+            let stores = flow.parameter_store_summaries(body, store_origins);
+            let mutations = flow.parameter_tag_mutations(body, store_origins);
+            let output_stores = flow.parameter_output_store_variant_summaries(body, store_origins);
             let variants = output_stores
                 .iter()
                 .filter_map(|((path, variant), stores)| {
