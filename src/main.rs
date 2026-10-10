@@ -626,7 +626,12 @@ fn stack_usage_command(arguments: &[String]) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-    match lim::stack_usage_report(&assembly) {
+    let report = if target == lim::TargetDescription::AARCH64_LINUX {
+        lim::aarch64::stack_usage_report(&assembly)
+    } else {
+        lim::stack_usage_report(&assembly)
+    };
+    match report {
         Ok(report) => {
             print!("{report}");
             ExitCode::SUCCESS

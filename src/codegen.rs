@@ -1257,7 +1257,9 @@ pub fn generate_assembly_for_target(
     program: &Program,
     target: crate::TargetDescription,
 ) -> Result<String, String> {
-    if target != crate::TargetDescription::X86_64_SYSTEM_V {
+    if target != crate::TargetDescription::X86_64_SYSTEM_V
+        && target != crate::TargetDescription::AARCH64_LINUX
+    {
         return Err("native backend has no implementation for the selected target".into());
     }
     let checked = crate::typecheck::CheckedProgram::validate(program)?;
@@ -1284,6 +1286,9 @@ fn generate_checked_assembly_with_roots(
     target: crate::TargetDescription,
     retained: Option<&HashSet<String>>,
 ) -> Result<String, crate::source_error::SourceError> {
+    if target == crate::TargetDescription::AARCH64_LINUX {
+        return crate::aarch64::generate_checked_assembly(checked, retained);
+    }
     if target != crate::TargetDescription::X86_64_SYSTEM_V {
         return Err("native backend has no implementation for the selected target".into());
     }

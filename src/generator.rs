@@ -885,7 +885,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(Vec::new());
     }
     let cache_key = format!(
-        "lim-generator-cache-v10\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
+        "lim-generator-cache-v11\ncompiler={}\nimplementation={}\ndependency-context={}\ncapability-hash={:032x}\ngenerator-hash={:032x}\ngenerator-input={}\narguments={:?}",
         env!("CARGO_PKG_VERSION"),
         env!("LIM_BUILD_FINGERPRINT"),
         context.dependency_context,

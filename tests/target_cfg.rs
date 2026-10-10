@@ -55,3 +55,37 @@ fn explicit_cfg_overrides_survive_target_selection_in_either_order() {
         false,
     );
 }
+
+#[test]
+fn lsp_context_round_trip_preserves_selected_target_and_cfg() {
+    let scratch = support::Scratch::new("target-lsp-context");
+    let entry = scratch.path().join("main.lim");
+    let path = scratch.path().join("lim.lsp");
+    fs::write(&entry, "(#fn main () #u64 (#return 42u64))").unwrap();
+    let mut config = lim::CompileConfig::default();
+    config.set("feature", "enabled");
+    let context = lim::lsp_context::LspContext {
+        entry,
+        target: lim::TargetDescription::AARCH64_LINUX,
+        config,
+    };
+    context.write(&path).unwrap();
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("target = \"aarch64-linux\""));
+    assert!(text.contains("arch=aarch64"));
+    assert!(text.contains("target=aarch64-unknown-linux-gnu"));
+    let loaded = lim::lsp_context::LspContext::read(&path).unwrap();
+    assert_eq!(loaded.target, context.target);
+    assert_eq!(loaded.config, context.config.with_target(context.target));
+    let modified = fs::metadata(&path).unwrap().modified().unwrap();
+    loaded.write(&path).unwrap();
+    assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+    fs::write(
+        &path,
+        "schema-version = 1\nentry = \"main.lim\"\ntarget = \"aarch64-linux\"\n",
+    )
+    .unwrap();
+    let loaded = lim::lsp_context::LspContext::read(&path).unwrap();
+    loaded.write(&path).unwrap();
+    assert!(fs::read_to_string(&path).unwrap().contains("arch=aarch64"));
+}

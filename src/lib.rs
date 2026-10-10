@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub mod aarch64;
 mod analysis_error;
 // Retain the lexical model only for differential regression tests. Production
 // borrowing is decided by checked places, callee contracts and typed flow.
@@ -2311,7 +2312,7 @@ pub fn link_native_binary(
     libraries: &[String],
     target: TargetDescription,
 ) -> Result<(), Diagnostic> {
-    if target != TargetDescription::X86_64_SYSTEM_V {
+    if target != TargetDescription::X86_64_SYSTEM_V && target != TargetDescription::AARCH64_LINUX {
         return Err(Diagnostic::new(
             DiagnosticCode::Link,
             "native linker has no implementation for the selected target",
@@ -2329,6 +2330,15 @@ pub fn link_native_binary(
     let entry = "\n.section .text\n.globl _start\n.type _start, @function\n_start:\n    xor ebp, ebp\n    and rsp, -16\n    call main\n    mov edi, eax\n    mov eax, 231\n    syscall\n    ud2\n.size _start, .-_start\n";
     let complete_assembly = format!("{assembly}{entry}");
     let build = || -> Result<Vec<u8>, String> {
+        if target == TargetDescription::AARCH64_LINUX {
+            let _link_timing = timing::stage("native_link");
+            if !object_files.is_empty() || !libraries.is_empty() {
+                return Err(
+                    "AArch64 native output does not support external objects or libraries".into(),
+                );
+            }
+            return aarch64::executable(assembly);
+        }
         let _encoding_timing = timing::stage("native_assembly");
         let assembled = native_assembly::assemble(&complete_assembly)?;
         drop(_encoding_timing);

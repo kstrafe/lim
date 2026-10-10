@@ -5,6 +5,9 @@ readable to both people and LLMs. It has strong static types, no type
 inference, linear-by-default values, explicit returns and arithmetic behavior,
 and a dependency-free Rust compiler. The native backend emits inspectable
 x86-64 System V assembly, then encodes and links ELF binaries internally.
+An experimental AArch64 Linux backend has its own instruction encoder and
+static ELF writer; supported programs can be tested with `qemu-aarch64` in the
+Nix shell. See [AArch64 coverage and testing](docs/aarch64-testing.md).
 
 Lim uses concrete generated code instead of user-facing generic types. A
 generator invocation such as `(@optional (: type #u64 : name MaybeU64))` emits a concrete type

@@ -84,19 +84,7 @@ impl LspContext {
             return Err(format!("{}: missing schema-version = 1", path.display()));
         }
         let target = target.ok_or_else(|| format!("{}: missing target", path.display()))?;
-        // Both accepted target spellings currently describe Linux x86-64.
-        // Explicit recorded cfg overrides retain the compiler's exact values.
-        for (key, value) in [
-            ("platform", "linux"),
-            ("os", "linux"),
-            ("arch", "x86_64"),
-            ("target", "x86_64-unknown-linux-gnu"),
-        ] {
-            config
-                .values
-                .entry(key.into())
-                .or_insert_with(|| value.into());
-        }
+        config = config.with_target(target);
         Ok(Self {
             entry: entry.ok_or_else(|| format!("{}: missing entry", path.display()))?,
             target,
@@ -132,10 +120,16 @@ impl LspContext {
                 .ok_or_else(|| "LSP context paths must be UTF-8".to_owned())
         };
         let mut text = format!(
-            "schema-version = 1\nentry = {}\ntarget = \"x86_64-sysv\"\n",
-            quote(&path_text(&self.entry)?)
+            "schema-version = 1\nentry = {}\ntarget = {}\n",
+            quote(&path_text(&self.entry)?),
+            quote(match self.target {
+                TargetDescription::X86_64_SYSTEM_V => "x86_64-sysv",
+                TargetDescription::AARCH64_LINUX => "aarch64-linux",
+                _ => return Err("unsupported LSP context target".into()),
+            })
         );
-        let mut keys = self.config.values.iter().collect::<Vec<_>>();
+        let config = self.config.with_target(self.target);
+        let mut keys = config.values.iter().collect::<Vec<_>>();
         keys.sort();
         for (key, value) in keys {
             text.push_str(&format!("cfg = {}\n", quote(&format!("{key}={value}"))));

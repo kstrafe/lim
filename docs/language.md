@@ -2543,10 +2543,22 @@ implicit dispatch in generated code.
 
 ## Value representation and native backend
 
-The backend emits Intel-syntax x86-64 assembly and follows the explicit
+The established backend emits Intel-syntax x86-64 assembly and follows the explicit
 `x86_64-sysv` target description. Scalar integer and pointer-sized ABI words use general
 purpose registers; `#f32` and `#f64` values use SSE registers.  `#i128` and
 `#u128` use two machine words.
+
+An experimental `aarch64-linux` target (`aarch64-unknown-linux-gnu`) lowers
+checked bodies directly through a separate A64 instruction encoder and writes
+static Linux ELF internally. Its inspectable `.inst` listing contains resolved
+instruction words and descriptions; no external assembler or linker is used.
+Scalar integer arguments use AAPCS64 registers and aligned stack arguments.
+Aggregates use Lim's internal indirect convention, not a foreign aggregate ABI.
+The target deliberately rejects operations it does not yet implement; it is
+not equivalent in coverage to x86-64. See [AArch64 testing](aarch64-testing.md)
+for the supported subset, emulator execution and remaining acceptance matrix.
+`--target` selects builtin cfg defaults independently of the host; explicit
+`--cfg` values override those defaults regardless of argument order.
 
 Tuples, arrays, structs, and enums remain value types.  Small aggregates can
 be flattened through the native argument and result registers.  Larger
