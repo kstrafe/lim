@@ -1734,6 +1734,48 @@ fn inactive_variant_bound_slot(bounds: &VariantBounds, path: &[Segment]) -> bool
     })
 }
 
+/// Prove an input payload absent behind an actual evaluated safe reference.
+/// Only the first pointer boundary is supported: another dereference requires
+/// resolving a different stored handle, not appending to the owner's address.
+fn inactive_referenced_variant_slot(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    argument: NodeId,
+    path: &[Segment],
+    facts: &HashMap<Place, VariantId>,
+) -> bool {
+    let Some((Segment::Dereference, tail)) = path.split_first() else {
+        return false;
+    };
+    if tail.contains(&Segment::Dereference)
+        || !matches!(
+            body.nodes[argument.0].ty,
+            Some(Type::Reference { .. } | Type::PinnedReference { .. })
+        )
+    {
+        return false;
+    }
+    let pointers = origins.value_before(body, flow, event, argument);
+    !pointers.is_empty()
+        && pointers.iter().all(|pointer| {
+            if !pointer.storage.is_empty() || pointer.lifetime_only {
+                return false;
+            }
+            tail.iter().enumerate().any(|(index, segment)| {
+                let Segment::Payload(wanted, _) = segment else {
+                    return false;
+                };
+                let mut place = pointer.place.clone();
+                place.segments.extend_from_slice(&tail[..index]);
+                facts
+                    .get(&place)
+                    .is_some_and(|selected| selected.owner == wanted.owner && selected != wanted)
+            })
+        })
+}
+
 fn known_variant_bound_slot(bounds: &VariantBounds, path: &[Segment]) -> bool {
     path.iter().enumerate().all(|(index, segment)| {
         let Segment::Payload(wanted, _) = segment else {
@@ -8109,12 +8151,7 @@ impl FlowGraph {
                                 // If every supplying input payload is provably absent,
                                 // this output payload is impossible at this invocation.
                                 if sources.iter().all(|source| {
-                                    if source.global.is_some()
-                                        || source
-                                            .input_storage
-                                            .iter()
-                                            .any(|segment| matches!(segment, Segment::Dereference))
-                                    {
+                                    if source.global.is_some() {
                                         return false;
                                     }
                                     let Some(argument) = children.get(source.parameter + 1) else {
@@ -8123,6 +8160,17 @@ impl FlowGraph {
                                     let Some(state) = variant_states[event.0].as_ref() else {
                                         return false;
                                     };
+                                    if source.input_storage.contains(&Segment::Dereference) {
+                                        return inactive_referenced_variant_slot(
+                                            body,
+                                            self,
+                                            origins,
+                                            event,
+                                            *argument,
+                                            &source.input_storage,
+                                            state,
+                                        );
+                                    }
                                     let bounds = value_variant_bounds(
                                         body,
                                         *argument,

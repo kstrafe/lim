@@ -2807,24 +2807,32 @@ mod tests {
                     (#assert (#u64.== value {expected}u64)) (#set value 99u64)
                     (#return 42u64))"
             );
-            {
-                // Cancellation of this aggregate-bearing suspended state
-                // still needs complete output-slot provenance. Preserve the
-                // ordinary checker's fail-closed boundary until that contract
-                // exists; successful polling is not cancellation permission.
-                let planning = prepare_generator("async-fn-pinned", function, &main);
+            // A missing reference in an Empty input slot is not a fabricated
+            // output loan. Transfer occupied linear holders to explicit user
+            // cleanup, and allow the referent again only after that cleanup.
+            runtime_planned(prepare_generator("async-fn-pinned", function, &main), 42);
+            if expected == 41 {
+                let cleanup = "(#fn echo-state (: state work-frame-state) work-frame-state
+                    (#return state))";
+                let conflicting = format!("{cleanup}\n{}", main.replace(
+                    "(#forget state) (#forget task)",
+                    "(#set value 99u64) (#let observed work-frame-state (#call echo-state (: state state))) (#forget observed) (#forget task)",
+                ));
+                let planning = prepare_generator("async-fn-pinned", function, &conflicting);
                 let generated = generate(&planning).unwrap();
                 let proposed = program(&planning, &generated).unwrap();
                 let error = crate::CheckedProgram::validate_with_span(&proposed)
                     .err()
                     .unwrap();
-                assert_eq!(error.1, DiagnosticCode::Linear, "{}", error.0);
+                assert_eq!(error.1, DiagnosticCode::Borrow, "{}", error.0);
                 let span = error.2.unwrap();
-                assert!(error.0.contains("missing slot provenance"), "{}", error.0);
-                assert!((span.source_id as usize) < planning.program.source_files.len());
-                assert!(proposed.source_files[span.source_id as usize].source
-                    [span.start..span.end]
-                    .contains("#call work-poll-cancel"));
+                assert!(
+                    proposed.source_files[span.source_id as usize].source[span.start..span.end]
+                        == *"#set",
+                    "{} at {}",
+                    error.0,
+                    &proposed.source_files[span.source_id as usize].source[span.start..span.end]
+                );
             }
         }
     }
