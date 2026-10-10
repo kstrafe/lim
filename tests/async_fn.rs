@@ -35,6 +35,182 @@ fn assert_single_poll(generated: &str, poll: &str) {
 }
 
 #[test]
+fn async_protocols_compose_with_forward_references_and_derived_names() {
+    let source = "(#enum Tick ((TickStart #u64) (TickResume #u64)))
+      (#enum TickPoll ((TickPending Tick) (TickReady #u64)))
+      (#syntax TickAwait (#u64 Tick TickPending TickReady tick-poll))
+      (#fn tick-poll (: task Tick : waker (#ref #u64)) TickPoll
+        (#return (#match task
+          (#case (TickStart amount) (TickPending (TickResume amount)))
+          (#case (TickResume amount) (TickReady amount)))))
+      (@async-fn (: protocol ParentAwait : waker #u64 : function
+        (#fn parent (: amount #u64) #u64
+          (#let answer #u64 (#await ChildAwait (#call child (($ amount)))))
+          (#return (#u64.+.wrap answer 2u64)))))
+      (@async-fn (: protocol ChildAwait : waker #u64 : function
+        (#fn child (: amount #u64) #u64
+          (#return (#await TickAwait (TickStart amount))))))
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let first parent-poll-result
+          (#call parent-poll (: task (#call parent (: amount 40u64)) : waker (#borrow waker))))
+        (#let-else (parent-pending pending-task) parent-poll-result first (#unreachable))
+        (#let second parent-poll-result
+          (#call parent-poll (: task pending-task : waker (#borrow waker))))
+        (#return (#match second
+          (#case (parent-ready value) value)
+          (#case (parent-pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+    let generated = build_and_run(source, 42);
+    for declaration in [
+        "(#syntax ParentAwait (#u64 parent-task parent-pending parent-ready parent-poll))",
+        "(#syntax ChildAwait (#u64 child-task child-pending child-ready child-poll))",
+    ] {
+        assert!(generated.contains(declaration), "{generated}");
+        assert_eq!(generated.matches(declaration).count(), 1);
+    }
+    assert_single_poll(&generated, "parent-poll");
+    assert_single_poll(&generated, "child-poll");
+}
+
+#[test]
+fn pinned_async_protocols_lend_the_frame_instead_of_moving_it() {
+    let source = "(#enum Tick ((Waiting #u64)))
+      (#enum TickPoll ((TickPending Tick) (TickReady #u64)))
+      (#syntax TickAwait (#u64 Tick TickPending TickReady tick-poll))
+      (#fn tick-poll (: task Tick : waker (#ref #u64)) TickPoll
+        (#return (#match task (#case (Waiting count)
+          (#if (#u64.== count 0u64) (TickPending (Waiting 1u64)) (TickReady count))))))
+      (@async-fn-pinned (: protocol ChildAwait : waker #u64 : function
+        (#fn child (: amount #u64) #u64
+          (#let ignored #u64 (#await TickAwait (Waiting 0u64)))
+          (#forget ignored) (#return amount))))
+      (@async-fn (: protocol ParentAwait : waker #u64 : function
+        (#fn parent (: task (#pin-ref-mut child-frame)) #u64
+          (#return (#await ChildAwait task)))))
+      (#fn main () #u64
+        (#let-mut frame child-frame (#call child (: amount 42u64)))
+        (#let waker #u64 0u64)
+        (#let first parent-poll-result
+          (#call parent-poll (: task (#call parent (: task (#pin-borrow-mut frame))) : waker (#borrow waker))))
+        (#let-else (parent-pending pending-task) parent-poll-result first (#unreachable))
+        (#let result parent-poll-result
+          (#call parent-poll (: task pending-task : waker (#borrow waker))))
+        (#let answer #u64 (#match result
+          (#case (parent-ready value) value)
+          (#case (parent-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame) (#return answer))";
+    let generated = build_and_run(source, 42);
+    assert!(generated.contains("(#syntax ChildAwait (#u64 (#pin-ref-mut child-frame) child-pending child-ready child-poll))"), "{generated}");
+}
+
+#[test]
+fn async_protocols_cross_internal_and_external_imports() {
+    for (import, prefix) in [("#import", ""), ("#import-external", "ext-")] {
+        let scratch = support::Scratch::new("async-protocol-import");
+        fs::write(
+            scratch.path().join("child.lim"),
+            "(#type Amount #u64)
+             (@async-fn (: protocol ChildAwait : waker #u64 : function
+              (#fn child (: amount Amount) Amount (#return amount))))",
+        )
+        .unwrap();
+        let source = format!("({import} \"child.lim\" {prefix})
+          (@async-fn (: protocol ParentAwait : waker #u64 : function
+            (#fn parent () #u64
+              (#return (#await {prefix}ChildAwait (#call {prefix}child (: {prefix}amount 42u64)))))))
+          (#fn main () #u64
+            (#let waker #u64 0u64)
+            (#return (#match (#call parent-poll (: task (#call parent (:)) : waker (#borrow waker)))
+              (#case (parent-ready value) value)
+              (#case (parent-pending task) (#block (#forget task) (#unreachable))))))");
+        let program =
+            lim::parse_program_from_path(&source, &scratch.path().join("main.lim")).unwrap();
+        lim::check_types(&program).unwrap();
+        lim::generate_assembly(&program).unwrap();
+    }
+}
+
+#[test]
+fn async_protocols_keep_unknown_name_and_result_mismatch_spans() {
+    let scratch = support::Scratch::new("async-protocol-errors");
+    for (source, message, offending) in [
+        (
+            "(@async-fn (: protocol WorkAwait : waker #u64 : function
+            (#fn work () #u64 (#return (#await Missing task)))))",
+            "unknown syntax bundle 'Missing'",
+            "Missing",
+        ),
+        (
+            "(@async-fn (: protocol ChildAwait : waker #u64 : function
+            (#fn child () #u64 (#return 42u64))))
+          (@async-fn (: protocol ParentAwait : waker #u64 : function
+            (#fn parent () #u64
+              (#let value #u32 (#await ChildAwait (#call child (:))))
+              (#return (#as value #u64)))))",
+            "result type does not match",
+            "#await",
+        ),
+    ] {
+        let error = lim::compile_source_to_assembly(
+            source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert!(error.message.contains(message), "{error:?}");
+        let span = error.span.expect("protocol errors retain a source span");
+        assert_eq!(&source[span.start..span.end], offending, "{error:?}");
+    }
+}
+
+#[test]
+fn async_protocols_reject_invalid_declarations_and_name_collisions() {
+    for (source, message) in [
+        ("(@async-fn (: waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+            "missing argument 'protocol'"),
+        ("(@async-fn (: protocol #u64 : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+            "protocol names must be user-defined"),
+        ("(@async-fn (: protocol A : protocol B : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+            "repeats argument 'protocol'"),
+        ("(#syntax WorkAwait ())
+          (@async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+            "duplicate syntax bundle"),
+        ("(#struct WorkAwait ())
+          (@async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+            "conflicts with a syntax bundle"),
+        ("(@async-fn (: protocol work-task : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
+            "conflicts with a syntax bundle"),
+    ] {
+        let error = lim::parse_program(source).unwrap_err();
+        assert!(error.contains(message), "{error}");
+    }
+}
+
+#[test]
+fn async_protocols_are_exported_by_generator_produced_functions() {
+    let source = "(#gn emit ()
+        `((@async-fn (: protocol ChildAwait : waker #u64 : function
+           (#fn child () #u64 (#return 42u64))))))
+      (@emit)
+      (@async-fn (: protocol ParentAwait : waker #u64 : function
+        (#fn parent () #u64 (#return (#await ChildAwait (#call child (:)))))))
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#return (#match (#call parent-poll (: task (#call parent (:)) : waker (#borrow waker)))
+          (#case (parent-ready value) value)
+          (#case (parent-pending task) (#block (#forget task) (#unreachable))))))";
+    let generated = build_and_run(source, 42);
+    assert!(
+        generated.contains(
+            "(#syntax ChildAwait (#u64 child-task child-pending child-ready child-poll))"
+        ),
+        "{generated}"
+    );
+}
+
+#[test]
 fn async_task_named_capture_survives_pending_without_shadowing_the_poll_parameter() {
     let source = example_without_cancel_work().replace("offset", "task");
     let generated = build_and_run(&source, 42);

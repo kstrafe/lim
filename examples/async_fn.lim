@@ -47,13 +47,13 @@
 
 (#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
 
-(@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset #u64)) #u64
+(@async-fn (: protocol WorkAwait : names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset #u64)) #u64
     (#let started-text (#array #char 14) "work: started\n")
     (#call print-text (: text (#slice-of (#borrow started-text))))
     (#let step Step (Waiting 1u64))
     (#let-mut total #u64 0u64)
     (#set total
-      (#await (#syntax-splice StepAwait) step))
+      (#await StepAwait step))
     (#let resumed-text (#array #char 14) "work: resumed\n")
     (#call print-text (: text (#slice-of (#borrow resumed-text))))
     (#return (#u64.+.wrap total offset)))))

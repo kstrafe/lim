@@ -1,6 +1,7 @@
 # kind expected source stdout-fixture stderr-fixture
 # Paths are relative to examples for source, repository root for fixtures.
 # A dash means empty output. Signals use Linux signal numbers (4 = SIGILL).
+exit 42 async_composition.lim - -
 exit 20 aggregate_block.lim - -
 exit 20 aggregate_control_argument.lim - -
 exit 20 aggregate_if.lim - -

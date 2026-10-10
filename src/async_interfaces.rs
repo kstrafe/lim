@@ -193,13 +193,14 @@ impl Registry {
         let Some(Expr::List(names)) = parts.get(2) else {
             return Err(fail("async interface requires generated names".into()));
         };
-        if names.len() != 5 {
+        if !matches!(names.len(), 5 | 6) {
             return Err(fail(
                 "async names must be (Frame Poll Pending Ready poll)".into(),
             ));
         }
         let names = names
             .iter()
+            .take(5)
             .map(|name| match name {
                 Expr::Symbol(name) => Ok(name.clone()),
                 _ => Err(fail("async generated names must be identifiers".into())),

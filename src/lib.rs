@@ -2932,8 +2932,36 @@ fn prepare_program_syntax(
     .map_err(|error| attach_generator_source(error, &source_files))?;
     let expressions = expand_cfg_forms(expanded, config)
         .map_err(|error| attach_generator_source(error, &source_files))?;
+    let mut with_protocols = Vec::with_capacity(expressions.len());
+    for expression in expressions {
+        if is_async_invocation(&expression) {
+            let invocation =
+                normalize_builtin_generator_invocation(&expression.expr).map_err(|message| {
+                    attach_span_to_source_error_kind(
+                        message,
+                        expression.span,
+                        &source_files,
+                        "generator error: ",
+                    )
+                })?;
+            let declaration = async_fn::protocol_declaration(&invocation).map_err(|message| {
+                attach_span_to_source_error_kind(
+                    message,
+                    expression.span,
+                    &source_files,
+                    "generator error: ",
+                )
+            })?;
+            with_protocols.push(SpannedExpr {
+                expr: declaration,
+                span: expression.span,
+                children: vec![],
+            });
+        }
+        with_protocols.push(expression);
+    }
     let expressions = bundles
-        .expand(expressions, true)
+        .expand(with_protocols, true)
         .map_err(|error| error.attach(&source_files))?;
     // Generated declarations and cfg selection are already expanded here, so
     // detect async users after those passes rather than from the root file.
@@ -6041,6 +6069,22 @@ fn prefix_expression(expression: &mut Expr, prefix: &str, generator_names: &Hash
             }
         }
         Expr::List(items) => {
+            // Builtin generator argument keys describe the API, not imported
+            // declarations. Prefix their literal values, including protocols.
+            if matches!(items.first(), Some(Expr::At))
+                && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "async-fn" | "async-fn-pinned"))
+            {
+                if let Some(Expr::List(arguments)) = items.get_mut(2) {
+                    for argument in arguments {
+                        if let Expr::List(pair) = argument {
+                            for value in pair.iter_mut().skip(1) {
+                                prefix_expression(value, prefix, generator_names);
+                            }
+                        }
+                    }
+                }
+                return;
+            }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "#gn-symbol") {
                 for item in items.iter_mut().skip(1) {
                     match item {
@@ -6499,7 +6543,7 @@ fn normalize_builtin_generator_invocation(expression: &Expr) -> Result<Expr, Str
             "destroy",
         ],
         "vec-sort" => &["element", "vector", "comparator"],
-        "async-fn" | "async-fn-pinned" => &["names", "waker", "function", "cancel"],
+        "async-fn" | "async-fn-pinned" => &["names", "waker", "function", "cancel", "protocol"],
         _ => return Ok(expression.clone()),
     };
     let Some(Expr::List(arguments)) = items.get(2) else {
@@ -6527,8 +6571,55 @@ fn normalize_builtin_generator_invocation(expression: &Expr) -> Result<Expr, Str
     }
     let mut normalized = vec![Expr::At, Expr::Symbol(kind.clone())];
     let optional_async_cancel = matches!(kind.as_str(), "async-fn" | "async-fn-pinned");
+    if optional_async_cancel {
+        let function = expect_list(
+            values
+                .get("function")
+                .ok_or_else(|| format!("@{kind} is missing argument 'function'"))?,
+            "async function",
+        )?;
+        let start = expect_symbol(function.get(1), "async function name")?.to_owned();
+        let protocol = values.remove("protocol");
+        if let Some(protocol) = &protocol {
+            let name = expect_symbol(Some(protocol), "async protocol name")?;
+            if name.starts_with('#') || name.starts_with('@') || name == "$" {
+                return Err("async protocol names must be user-defined identifiers".into());
+            }
+        }
+        if !values.contains_key("names") {
+            if protocol.is_none() {
+                return Err(format!("@{kind} is missing argument 'protocol'"));
+            }
+            let frame_suffix = if kind == "async-fn-pinned" {
+                "frame"
+            } else {
+                "task"
+            };
+            values.insert(
+                "names",
+                Expr::List(
+                    [frame_suffix, "poll-result", "pending", "ready", "poll"]
+                        .iter()
+                        .map(|suffix| Expr::Symbol(format!("{start}-{suffix}")))
+                        .collect(),
+                ),
+            );
+        }
+        if let Some(protocol) = protocol {
+            let names = values.get_mut("names").unwrap();
+            let Expr::List(names) = names else {
+                return Err("@async-fn names must be (Frame Poll Pending Ready poll)".into());
+            };
+            if names.len() != 5 {
+                return Err("@async-fn names must be (Frame Poll Pending Ready poll)".into());
+            }
+            names.push(protocol);
+        }
+    }
     for key in keys {
-        if optional_async_cancel && *key == "cancel" && !values.contains_key(key) {
+        if optional_async_cancel
+            && (*key == "protocol" || (*key == "cancel" && !values.contains_key(key)))
+        {
             continue;
         }
         normalized.push(
@@ -8078,7 +8169,9 @@ fn generated_vec_sort_source_parts(
 }
 
 fn parse_generated_source_items(source: &str) -> Result<Vec<Item>, String> {
-    let expressions = parse(source)?;
+    let expressions = syntax_bundle::Bundles::default()
+        .expand(parse(source)?, true)
+        .map_err(|error| error.message)?;
     // Builtins nested in generated source need the same declaration-dependent
     // helper policy as top-level builtins, including forward linear markers.
     let copy_types = async_copy_type_names(&expressions);
@@ -12829,6 +12922,14 @@ mod tests {
             (
                 "(@async-fn (: function (#fn work () #u64 (#return 1)) : waker Wake : names (Frame Poll Pending Ready poll)))",
                 "(@ async-fn (Frame Poll Pending Ready poll) Wake (#fn work () #u64 (#return 1)))",
+            ),
+            (
+                "(@async-fn (: function (#fn work () #u64 (#return 1)) : protocol WorkAwait : waker Wake))",
+                "(@ async-fn (work-task work-poll-result work-pending work-ready work-poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
+            ),
+            (
+                "(@async-fn-pinned (: protocol WorkAwait : waker Wake : function (#fn work () #u64 (#return 1))))",
+                "(@ async-fn-pinned (work-frame work-poll-result work-pending work-ready work-poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
             ),
         ];
         for (source, expected) in cases {

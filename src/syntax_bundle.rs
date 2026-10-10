@@ -42,7 +42,8 @@ fn needs_expansion(expression: &Expr) -> bool {
     if matches!(items.first(), Some(Expr::Symbol(h)) if matches!(h.as_str(), "#gn" | "#gn-fn")) {
         return false;
     }
-    matches!(items.first(), Some(Expr::Symbol(h)) if matches!(h.as_str(), "#syntax" | "#syntax-splice"))
+    matches!(items.first(), Some(Expr::Symbol(h)) if matches!(h.as_str(), "#syntax" | "#syntax-splice")
+        || (h == "#await" && items.len() == 3 && matches!(items.get(1), Some(Expr::Symbol(_)))))
         || items.iter().any(needs_expansion)
 }
 
@@ -140,6 +141,36 @@ impl Bundles {
         *budget -= 1;
         if !needs_expansion(&expression.expr) {
             return Ok(expression);
+        }
+        if head(&expression, "#await") {
+            let Expr::List(items) = &expression.expr else {
+                unreachable!()
+            };
+            if items.len() == 3 && matches!(items.get(1), Some(Expr::Symbol(_))) {
+                let name = child(&expression, 1);
+                let splice_head = SpannedExpr {
+                    expr: Expr::Symbol("#syntax-splice".into()),
+                    span: name.span,
+                    children: vec![],
+                };
+                let splice = SpannedExpr {
+                    expr: Expr::List(vec![splice_head.expr.clone(), name.expr.clone()]),
+                    span: name.span,
+                    children: vec![splice_head, name],
+                };
+                let children = vec![child(&expression, 0), splice, child(&expression, 2)];
+                return self.walk(
+                    SpannedExpr {
+                        expr: Expr::List(children.iter().map(|child| child.expr.clone()).collect()),
+                        span: expression.span,
+                        children,
+                    },
+                    strict,
+                    active,
+                    budget,
+                    depth + 1,
+                );
+            }
         }
         let Expr::List(items) = &expression.expr else {
             return Ok(expression);

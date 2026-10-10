@@ -1,0 +1,35 @@
+; Async functions export one protocol each. The parent can await a function
+; declared later without listing its task type, variants, or poll function.
+(#enum Tick ((TickStart #u64) (TickResume #u64)))
+(#enum TickPoll ((TickPending Tick) (TickReady #u64)))
+(#syntax TickAwait (#u64 Tick TickPending TickReady tick-poll))
+
+(#fn tick-poll (: task Tick : waker (#ref #u64)) TickPoll
+  (#return (#match task
+    (#case (TickStart amount) (TickPending (TickResume amount)))
+    (#case (TickResume amount) (TickReady amount)))))
+
+(@async-fn
+  (: protocol ParentAwait : waker #u64
+   : function (#fn parent (: amount #u64) #u64
+     (#let answer #u64 (#await ChildAwait (#call child (($ amount)))))
+     (#return (#u64.+.wrap answer 2u64)))))
+
+(@async-fn
+  (: protocol ChildAwait : waker #u64
+   : function (#fn child (: amount #u64) #u64
+     (#return (#await TickAwait (TickStart amount))))))
+
+(#fn main () #u64
+  (#let waker #u64 0u64)
+  (#let first parent-poll-result
+    (#call parent-poll
+      (: task (#call parent (: amount 40u64)) : waker (#borrow waker))))
+  (#let-else (parent-pending pending-task) parent-poll-result first
+    (#unreachable))
+  (#let second parent-poll-result
+    (#call parent-poll (: task pending-task : waker (#borrow waker))))
+  (#return (#match second
+    (#case (parent-ready value) value)
+    (#case (parent-pending unexpected)
+      (#block (#forget unexpected) (#unreachable))))))

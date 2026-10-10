@@ -935,11 +935,38 @@ evaluates values or infers types. An await protocol can be named once:
 
 ```lisp syntax
 (#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
-(#await (#syntax-splice StepAwait) step)
+(#await StepAwait step)
 ```
 
-The second form expands to `(#await u64 Step StepPending StepReady step-poll
+The second form expands to `(#await #u64 Step StepPending StepReady step-poll
 step)` before async lowering. It is only valid inside an async function.
+The longer `(#await (#syntax-splice StepAwait) step)` spelling is equivalent.
+Both async function generators export a bundle automatically. Supply one
+explicit protocol name instead of listing all five generated names:
+
+```lisp syntax
+(@async-fn (: protocol WorkAwait : waker LocalWaker
+  : function (#fn work (: offset #u64) #u64
+    (#return (#await StepAwait (Waiting offset))))))
+; In another async function:
+(#await WorkAwait (#call work (($ offset))))
+```
+
+For `work`, the generated names are `work-task`, `work-poll-result`,
+`work-pending`, `work-ready`, and `work-poll`. The exported declaration is
+`(#syntax WorkAwait (#u64 work-task work-pending work-ready work-poll))`.
+`@async-fn-pinned` instead generates `work-frame` and exports
+`(#syntax WorkAwait (#u64 (#pin-ref-mut work-frame) work-pending work-ready work-poll))`.
+Callers must pin a frame explicitly before awaiting that protocol.
+An optional `: names (Frame Poll Pending Ready poll)` overrides those five
+names. If only explicit names are supplied, the protocol defaults to
+`work-await`. A supplied `: protocol` always selects the bundle name.
+Protocols are collected after imports, generators and cfg selection, before
+await expansion, so functions can refer forward to one another's protocols.
+Duplicate bundles and declaration collisions are rejected. The bundle appears
+in the same inspectable, hash-cached generated file as the function's code.
+This shorthand supplies types explicitly; it adds neither type inference nor
+implicit pinning, allocation or cancellation.
 Bundles can also supply function parameters or named call arguments. Definitions
 are top-level, may refer forward to other bundles, and may contain nested
 splices. Names must be unique across declarations; cycles, unknown names,
@@ -1919,7 +1946,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#atomic-init` | `(#atomic-init ScalarType initial-value)` | `(#atomic-init #u64 0u64)` (initializer) | Creates an atomic value; allowed scalar widths are documented in the atomics section. |
 | `#atomic-load` | `(#atomic-load reference order)` | `(#atomic-load (#borrow counter) #memory-acquire)` (expression) | Atomically reads a value using an allowed load ordering. |
 | `#atomic-store` | `(#atomic-store reference value order)` | `(#atomic-store (#borrow counter) 4u64 #memory-release)` (statement) | Atomically stores a value using an allowed store ordering. |
-| `#await` | `(#await ChildTask PendingVariant ReadyVariant poll-function child-expression)`; nested value forms add the result type after `#await` | `(#let value #u64 (#await Step StepPending StepReady step-poll child))` (inside `@async-fn`) | Marks a sequential suspension point for `@async-fn` or `@async-fn-pinned`; live captures are inferred from the continuation, and the form is not valid in an ordinary function. |
+| `#await` | `(#await Protocol child-expression)`; explicit expanded forms can list the result/task types, variants and poll function | `(#let value #u64 (#await StepAwait child))` (inside `@async-fn`, with a declared `StepAwait` bundle) | Marks a sequential suspension point for `@async-fn` or `@async-fn-pinned`; the protocol supplies concrete types and poll operations. Live captures are inferred from the continuation, and the form is not valid in an ordinary function. |
 | `#block` | `(#block statement... final-expression)` | `(#block (#let x #u64 2u64) (#u64.+.wrap x 1u64))` (expression) | Evaluates statements in order and yields the final expression, or unit for a side-effect-only block. |
 | `#bool` | `#bool` | `(#fn identity ((value #bool)) #bool (#return value))` (function signature) | Boolean scalar type; values are `true` and `false`. |
 | `#borrow` | `(#borrow place)` or `(#borrow place body)` | `(#let r (#ref #u64) (#borrow value))` (binding) | Creates a shared reference, or scopes a shared borrow around a body. |

@@ -340,8 +340,32 @@ Later polls resume the stored state. Multiple sequential awaits are allowed.
 
 At a top-level binding, `#await` has the form
 `(#await ChildTask PendingVariant ReadyVariant poll-function child-expression)`.
+The shorter form is `(#await Protocol child-expression)`. A protocol bundle
+includes the result type, task type, Pending/Ready variants and poll function,
+so this spelling also works in supported nested value expressions without
+repeating the result type. Declare a bundle for a handwritten task, or let
+`@async-fn` export it:
+
+```lisp
+(@async-fn (: protocol WorkAwait : waker LocalWaker
+  : function (#fn work (: offset #u64) #u64
+    (#return (#await StepAwait (Waiting offset))))))
+; Inside another generated async function:
+(#let value #u64 (#await WorkAwait (#call work (($ offset)))))
+```
+
+The default names are `work-task`, `work-poll-result`, `work-pending`,
+`work-ready`, and `work-poll`. A pinned function uses `work-frame` instead
+of `work-task`, and its bundle requires `(#pin-ref-mut work-frame)`; pinning
+remains explicit. The optional `: names` argument is an explicit override.
+Existing explicit-name invocations export `work-await` unless `: protocol`
+selects a different name. Generated protocols are available across internal
+and external imports, including forward references, and are inspectable in
+the function's cached `.lim/generated/` file. Cancellation handlers remain
+explicit. See `examples/async_composition.lim` for a parent task awaiting a
+separate child through two polls.
 When nested inside another value expression, put the awaited result type
-immediately after `#await`. Values live after suspension are inferred from the
+immediately after `#await` when using the expanded spelling. Values live after suspension are inferred from the
 continuation; there is no capture list. Unused linear values must be consumed
 before suspension. Sequential stages
 preserve `#mut` parameters and `#let-mut` local state across suspension;
