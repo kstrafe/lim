@@ -818,6 +818,7 @@ impl Declarations {
         statement_ids: &HashMap<usize, StatementId>,
         selected: Option<&HashSet<String>>,
     ) -> Result<(), String> {
+        let _timing = crate::timing::detail("semantic.lowering_and_initial_summaries");
         {
             self.thread_capture_schemas = program
                 .items
@@ -1055,6 +1056,7 @@ impl Declarations {
         )>,
     ) -> Result<HashMap<FunctionId, crate::typed_flow::ReferentFunctionEffects>, StagedReferentError>
     {
+        let _timing = crate::timing::detail("semantic.referent_contracts");
         if self.planning_only {
             return Err(StagedReferentError::Dependency);
         }
@@ -1517,6 +1519,11 @@ impl Declarations {
     }
 
     fn summarize_parameter_loans_with_contents(&mut self, include_parameter_contents: bool) {
+        let _timing = crate::timing::detail(if include_parameter_contents {
+            "semantic.contents_summaries"
+        } else {
+            "semantic.initial_summaries"
+        });
         let mut preserves_tags = HashSet::new();
         for flow in self.flows.values_mut() {
             flow.restore_variant_paths();

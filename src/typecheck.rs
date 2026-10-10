@@ -1137,6 +1137,7 @@ fn check_types_inner(
     enforce_ownership: bool,
     planning: Option<&GenerationPlanning<'_>>,
 ) -> Result<Declarations, String> {
+    let frontend_timing = crate::timing::detail("semantic.types_and_signatures");
     #[cfg(test)]
     SEMANTIC_PASSES.with(|passes| passes.set(passes.get() + 1));
     if let Some(planning) = planning {
@@ -1982,6 +1983,7 @@ fn check_types_inner(
     let checked_statement_spans = std::sync::Arc::new(functions.statement_spans.into_inner());
     let expression_ids = std::sync::Arc::new(functions.expression_ids);
     let statement_ids = std::sync::Arc::new(functions.statement_ids);
+    drop(frontend_timing);
     declarations.lower_bodies_selected(
         program,
         &checked_expression_types,
@@ -2033,6 +2035,7 @@ fn check_types_inner(
         diagnostic_labels,
     )?;
     *diagnostic_code = crate::DiagnosticCode::Linear;
+    let ownership_timing = crate::timing::detail("semantic.linear_ownership");
     let linear_types = crate::linearcheck::LinearTypes::from_program(program);
     for body in declarations.bodies.values() {
         for node in &body.nodes {
@@ -2153,6 +2156,7 @@ fn check_types_inner(
         *diagnostic_labels = error.labels;
         return Err(error.message);
     }
+    drop(ownership_timing);
     // Prepare actual callee storage effects and result-conditioned clearing
     // before solving live loans. Keep the ownership error until its existing
     // diagnostic boundary, but never validate successful programs against the
@@ -2164,6 +2168,7 @@ fn check_types_inner(
     // These checks inspect the same immutable body/graph pair. Keep their
     // diagnostic ordering while solving provenance only once per function.
     // Cells are local to this validation, never reused after a body changes.
+    let borrow_timing = crate::timing::detail("semantic.borrow_validation");
     let loan_caches = declarations
         .bodies
         .keys()
@@ -2282,10 +2287,13 @@ fn check_types_inner(
         }
     }
     *diagnostic_code = crate::DiagnosticCode::Unsafe;
+    drop(borrow_timing);
+    let unsafe_timing = crate::timing::detail("semantic.unsafe_validation");
     crate::unsafecheck::check_program_with_span(program).map_err(|(message, span)| {
         *diagnostic_span = span;
         message
     })?;
+    drop(unsafe_timing);
     *diagnostic_code = crate::DiagnosticCode::Borrow;
     crate::pin_access::check(&declarations, &linear_types, &loan_caches).map_err(|error| {
         *diagnostic_span = error.span;

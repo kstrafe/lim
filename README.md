@@ -124,6 +124,13 @@ as a JSON object on stderr. Timings are opt-in; without the flag the compiler
 does not collect events. The flag is accepted for compile, `--check`, and
 `--emit-asm` commands; it is not available on `--stack-usage` or other commands.
 
+The `semantic.*` events break validation down into type/signature checking,
+lowering, initial and contents-aware summaries, linear ownership, referent
+contracts, provenance, outcome graphs, consumption, borrowing and unsafe
+checks. Repeated per-function work is aggregated by category. These detail
+times are inclusive and overlap (for example, provenance is part of summary
+inference); do not add them together. `total` remains the command's wall time.
+
 Stages cover input reading; import loading, root lexing/parsing, cfg selection,
 and user-defined generator preparation; user-defined and native builtin
 generator expansion; generated-source materialization; semantic validation;

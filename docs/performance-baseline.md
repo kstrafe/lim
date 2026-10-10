@@ -1043,3 +1043,19 @@ Using the same alternating, CPU-pinned, 40-pair warm benchmark protocol above:
 | `async_fn` | 64.970 ms | 63.784 ms | 1.8% |
 
 Executable bytes and runtime results are identical for all three workloads.
+
+## Opt-in semantic stage timings (2026-10-10)
+
+`--timings` now aggregates inclusive semantic substage durations while retaining
+the existing outer stages. Nested categories overlap and are not additive.
+Disabled collection creates no timestamps or timing events. Unit tests cover
+aggregation, nested-session isolation and disabled clocks; command tests cover
+successful compilation, type errors and stable text/JSON output.
+
+With timing collection disabled, 40 alternating CPU-pinned warm pairs measured
+string_view at 77.835 -> 77.811 ms and async_fn at 66.009 -> 65.781 ms.
+These are effectively unchanged, not a speedup claim. Native bytes are identical.
+A representative timed string_view check spent 51.240 ms in semantic validation:
+30.057 ms in referent contracts, 13.977 ms in provenance, 8.329 ms in referent
+consumptions, 7.040 ms in initial summaries and 6.044 ms in contents summaries.
+The solver totals are included in their enclosing phases, not additional work.

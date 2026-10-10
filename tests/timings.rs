@@ -37,6 +37,17 @@ fn check_timings_are_opt_in_and_json_is_a_plain_object() {
         "expansion",
         "materialize_generated_sources",
         "semantic_validate",
+        "semantic.types_and_signatures",
+        "semantic.lowering_and_initial_summaries",
+        "semantic.initial_summaries",
+        "semantic.linear_ownership",
+        "semantic.contents_summaries",
+        "semantic.referent_contracts",
+        "semantic.provenance",
+        "semantic.outcome_graphs",
+        "semantic.referent_consumptions",
+        "semantic.borrow_validation",
+        "semantic.unsafe_validation",
         "total",
     ] {
         assert!(
@@ -44,6 +55,28 @@ fn check_timings_are_opt_in_and_json_is_a_plain_object() {
             "{stderr}"
         );
     }
+}
+
+#[test]
+fn semantic_failure_preserves_completed_and_unwound_detail_timings() {
+    let scratch = support::Scratch::new("timings-type-failure");
+    let source = scratch.path().join("bad.lim");
+    fs::write(
+        &source,
+        "(#fn main () #u64 (#let wrong #u32 1u64) (#return 0u64))",
+    )
+    .unwrap();
+    let output = lim()
+        .arg("--check")
+        .arg(&source)
+        .arg("--timings")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = timing_stderr(&output);
+    assert!(stderr.contains("semantic.types_and_signatures"), "{stderr}");
+    assert!(stderr.contains("semantic_validate"), "{stderr}");
+    assert!(!stderr.contains("semantic.borrow_validation"), "{stderr}");
 }
 
 #[test]

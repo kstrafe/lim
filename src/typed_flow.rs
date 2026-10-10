@@ -4149,6 +4149,7 @@ impl FlowGraph {
         body: &Body,
         origins: &FlowLoanOrigins,
     ) -> HashMap<(Vec<Segment>, VariantId), Self> {
+        let _timing = crate::timing::detail("semantic.outcome_graphs");
         let states = origins
             .variants
             .get_or_init(|| self.variant_facts_with_origins(body, origins));
@@ -4294,6 +4295,7 @@ impl FlowGraph {
         include_parameter_contents: bool,
         aliases: &[crate::call_self_loans::Alias],
     ) -> FlowLoanOrigins {
+        let _timing = crate::timing::detail("semantic.provenance");
         // Branch results are read at their evaluation events, before lexical
         // cleanup kills their local bindings. Those snapshots are additional
         // dataflow dependencies: a changed snapshot must wake its consumers
@@ -6102,6 +6104,7 @@ impl FlowGraph {
         possible_restorations: &[(FlowNodeId, Vec<Place>)],
         origins: &FlowLoanOrigins,
     ) -> FlowConsumptions {
+        let _timing = crate::timing::detail("semantic.referent_consumptions");
         let mut calls = calls
             .iter()
             .map(|(event, effects, unresolved)| {
