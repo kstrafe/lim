@@ -155,8 +155,7 @@ fn operator_reference_examples_typecheck() {
         // A working u64 example alone does not establish that a family is
         // supported for every advertised qualifier (notably i128 and floats).
         let integers = [
-            "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128",
-            "usize",
+            "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64", "u128", "usize",
         ];
         let (family, operation) = name.strip_prefix('#').unwrap().split_once('.').unwrap();
         let qualifiers: Vec<&str> = match family {

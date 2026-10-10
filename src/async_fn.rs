@@ -8355,9 +8355,10 @@ fn lower_async_for_range(
         return Err("@async-fn #for-range binding must have the form (name Type)".into());
     }
     let iteration_name = symbol(&range_binding[0], "for-range binding name")?.to_owned();
-    let iteration_type = symbol(&range_binding[1], "for-range integer type")?.to_owned();
+    let iteration_type = expression_source(&range_binding[1])?;
+    let scalar = iteration_type.strip_prefix('#').unwrap_or(&iteration_type);
     if !matches!(
-        iteration_type.as_str(),
+        scalar,
         "u8" | "u16"
             | "u32"
             | "u64"
@@ -8389,7 +8390,7 @@ fn lower_async_for_range(
         Expr::Symbol(index.clone()),
     ]);
     let condition = Expr::List(vec![
-        Expr::Symbol(format!("#{iteration_type}.<")),
+        Expr::Symbol(format!("#{scalar}.<")),
         Expr::Symbol(index.clone()),
         items[3].clone(),
     ]);
@@ -8397,7 +8398,7 @@ fn lower_async_for_range(
         Expr::Symbol("#set".into()),
         Expr::Symbol(index.clone()),
         Expr::List(vec![
-            Expr::Symbol(format!("#{iteration_type}.+.wrap")),
+            Expr::Symbol(format!("#{scalar}.+.wrap")),
             Expr::Symbol(index.clone()),
             Expr::Integer(1),
         ]),

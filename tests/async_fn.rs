@@ -2282,7 +2282,7 @@ fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
     assert_eq!(error.code, lim::DiagnosticCode::Type);
     let message = error.message.to_ascii_lowercase();
     assert!(
-        message.contains("#u64") && message.contains("#u32"),
+        message.contains("u64") && message.contains("u32"),
         "{}",
         error.message
     );

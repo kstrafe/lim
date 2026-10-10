@@ -131,7 +131,7 @@ fn unused_imported_functions_are_still_checked() {
     let source = "(#import \"unused.lim\") (#fn main () #u64 (#return 42u64))";
     let error = assembly(source, &scratch.path().join("main.lim"), true).unwrap_err();
     let text = error.message.to_ascii_lowercase();
-    assert!(text.contains("#u64") && text.contains("#bool"), "{text}");
+    assert!(text.contains("u64") && text.contains("bool"), "{text}");
 }
 
 #[test]

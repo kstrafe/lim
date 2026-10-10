@@ -13627,7 +13627,8 @@ fn let_else_discards_linear(
                             .flat_map(|pattern| success_rows(pattern, variant))
                             .collect()
                     }
-                    Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == &variant.name) => {
+                    Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == &variant.name) =>
+                    {
                         vec![parts[1..].to_vec()]
                     }
                     _ => vec![],

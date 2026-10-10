@@ -35,20 +35,21 @@ fn exchange_and_compare_exchange_cover_all_atomic_widths_and_orders() {
     for ty in [
         "#u8", "#u16", "#u32", "#u64", "#usize", "#i8", "#i16", "#i32", "#i64",
     ] {
-        let initial = if ty.starts_with('i') {
-            format!("-1{ty}")
+        let suffix = ty.trim_start_matches('#');
+        let initial = if suffix.starts_with('i') {
+            format!("-1{suffix}")
         } else {
-            format!("17{ty}")
+            format!("17{suffix}")
         };
         let source = format!("(#fn main () #u64
           (#let-mut state (#atomic {ty}) (#atomic-init {ty} {initial}))
-          (#let old {ty} (#atomic-exchange (#borrow state) 2{ty} #memory-relaxed))
+          (#let old {ty} (#atomic-exchange (#borrow state) 2{suffix} #memory-relaxed))
           (#assert ({ty}.== old {initial}))
-          (#let (#tuple won observed) (#tuple #bool {ty}) (#atomic-compare-exchange (#borrow state) 2{ty} {initial} #memory-acq-rel #memory-acquire))
-          (#assert won) (#assert ({ty}.== observed 2{ty}))
-          (#let (#tuple failed actual) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) 0{ty} 3{ty} #memory-seq-cst #memory-seq-cst))
+          (#let (#tuple won observed) (#tuple #bool {ty}) (#atomic-compare-exchange (#borrow state) 2{suffix} {initial} #memory-acq-rel #memory-acquire))
+          (#assert won) (#assert ({ty}.== observed 2{suffix}))
+          (#let (#tuple failed actual) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) 0{suffix} 3{suffix} #memory-seq-cst #memory-seq-cst))
           (#assert (#bool.== failed false)) (#assert ({ty}.== actual {initial}))
-          (#let (#tuple weak-won weak-old) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) {initial} 42{ty} #memory-release #memory-relaxed))
+          (#let (#tuple weak-won weak-old) (#tuple #bool {ty}) (#atomic-compare-exchange-weak (#borrow state) {initial} 42{suffix} #memory-release #memory-relaxed))
           (#assert weak-won) (#assert ({ty}.== weak-old {initial}))
           (#forget state) (#return 42u64))");
         let path = root.join(format!("{ty}.lim"));

@@ -11,6 +11,10 @@ generator invocation such as `(@optional (: type #u64 : name MaybeU64))` emits a
 and its functions. Generators are pure, interpreted at compile time, and use
 the restricted `#gn-*` operation set.
 
+Builtin type keywords require `#`, such as `#u8`, `#u64`, and `#bool`.
+Numeric literal suffixes remain unchanged (`42u64`), as do explicitly typed
+operators (`#u64.+.wrap`).
+
 The language has free-standing functions, not methods or `impl` blocks. It
 does not support recursion, function pointers, closures, traits, or implicit
 returns. See [docs/language.md](docs/language.md) for the implemented syntax,
@@ -23,6 +27,10 @@ The internal typed-representation migration is documented in
 Frozen syntax collections, allocation-free error enums, and the initial
 cooperative task API are documented in
 [docs/collections-and-tasks.md](docs/collections-and-tasks.md).
+
+See [explicit error propagation](docs/error-propagation.md),
+[owned files and buffered readers](docs/files.md), and
+[semantic checking without native emission](docs/check-command.md).
 
 ## Build the compiler
 
