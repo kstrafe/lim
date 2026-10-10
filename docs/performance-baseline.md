@@ -975,3 +975,51 @@ speedup claim. The async change is likewise small. Absolute tiny-program
 timings vary across runs, and the custom_generator cold median worsened
 9.5% in this run; the reliable result is the eliminated repeated I/O and
 publication work, backed by read-count tests and the repeated-call timings.
+
+## Borrow-analysis allocation and traversal work (2026-10-10)
+
+Four separately committed changes retain whole-program semantic validation:
+
+1. Reuse the identical contents-aware provenance solution for return and store
+   summaries; retain the distinct legacy store-only transfer.
+2. Share reachability, predecessor and call-evaluation indexes within an
+   immutable call-result refinement pass, without persistent graph caches.
+3. Use dense membership tables for arena IDs in reachability and returned
+   provenance traversal. Test membership against an independent hash traversal
+   after graph-edge changes, including cyclic and disconnected graphs.
+4. Share unchanged loan-state containers with copy-on-write snapshots. Mutating
+   access detaches the affected container; identical-container joins avoid
+   copying. Tests check branch isolation for bindings, allocation contents,
+   parameter contents and global coverage facts, including joins.
+
+The first two changes used 30 sequential warm runs per compiler. Their commit
+messages record the individual results, including an effectively unchanged
+printing measurement for the first change. Scheduling outliers motivated
+alternating execution order and pinning later comparisons to one available
+CPU. The dense-ID change's 40 paired samples measured 3.7% and 3.3% reductions
+for string_view and string_println respectively.
+
+Final comparisons use preserved release binaries, three warmups per compiler
+and 40 measured compilations per compiler/workload. Before/after execution
+order alternates each pair, on one CPU, with no concurrent builds or tests.
+Measurements include process startup, native linking and executable output
+to a temporary directory. Generator caches and OS pages are warm; cold
+compilation was not measured. Executable bytes, exit status, stdout and stderr
+are identical for every compared workload.
+
+| Cumulative warm median | Before all four | After all four | Reduction |
+| --- | ---: | ---: | ---: |
+| `examples/string_view.lim` | 108.15 ms | 79.85 ms | 26.2% |
+| `examples/string_println.lim` | 106.57 ms | 78.77 ms | 26.1% |
+| `examples/async_fn.lim` | 73.38 ms | 63.19 ms | 13.9% |
+
+| Copy-on-write alone | Before fourth change | After fourth change | Reduction |
+| --- | ---: | ---: | ---: |
+| `examples/string_view.lim` | 98.12 ms | 80.04 ms | 18.4% |
+| `examples/string_println.lim` | 97.05 ms | 79.33 ms | 18.3% |
+
+All 1,282 compiler unit tests and 213 async tests pass, along with the native
+example manifest, UI diagnostics, UTF-8 oracle tests, String/standard-library
+and documentation tests, LSP end-to-end tests, and additional reference,
+slice, heap-borrow and pinning regressions. Formatting and all-target checking
+also pass. No ownership or borrow-validation gate was removed.

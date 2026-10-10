@@ -502,28 +502,81 @@ impl LoanOrigin {
     }
 }
 
+/// Snapshots share unchanged containers. Mutating access detaches exactly that
+/// container, so branch writes cannot change an earlier solver snapshot.
+#[derive(Clone, Default)]
+struct SharedLoanData<T>(std::sync::Arc<T>);
+
+impl<T> From<T> for SharedLoanData<T> {
+    fn from(value: T) -> Self {
+        Self(std::sync::Arc::new(value))
+    }
+}
+
+impl<T> SharedLoanData<T> {
+    fn shares_storage(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl<T> std::ops::Deref for SharedLoanData<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T: Clone> std::ops::DerefMut for SharedLoanData<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+}
+
+impl<'a, T> IntoIterator for &'a SharedLoanData<T>
+where
+    &'a T: IntoIterator,
+{
+    type Item = <&'a T as IntoIterator>::Item;
+    type IntoIter = <&'a T as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        (&**self).into_iter()
+    }
+}
+
+impl<'a, T: Clone> IntoIterator for &'a mut SharedLoanData<T>
+where
+    &'a mut T: IntoIterator,
+{
+    type Item = <&'a mut T as IntoIterator>::Item;
+    type IntoIter = <&'a mut T as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        (&mut **self).into_iter()
+    }
+}
+
 #[derive(Clone)]
 struct LoanState {
-    bindings: Vec<Vec<LoanOrigin>>,
+    bindings: SharedLoanData<Vec<Vec<LoanOrigin>>>,
     // May-contents of stationary allocations. A definite concrete write
     // replaces one projection; CFG joins and uncertain writes still union
     // possible contents.
-    allocation_contents: HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>>,
+    allocation_contents: SharedLoanData<HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>>>,
     // Parameter input pointer slots and owned global storage have distinct
     // roots. These keys are not positions in the output value being stored.
-    parameter_contents: Option<HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>>>,
+    parameter_contents: Option<SharedLoanData<HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>>>>,
     // Globals have no symbolic parameter seed. Only every-path concrete writes
     // establish known contents; a may-write cannot invent the old provenance.
-    global_known_contents: HashMap<crate::typed_ir::GlobalId, HashSet<Vec<Segment>>>,
+    global_known_contents:
+        SharedLoanData<HashMap<crate::typed_ir::GlobalId, HashSet<Vec<Segment>>>>,
 }
 
 impl From<Vec<Vec<LoanOrigin>>> for LoanState {
     fn from(bindings: Vec<Vec<LoanOrigin>>) -> Self {
         Self {
-            bindings,
-            allocation_contents: HashMap::new(),
+            bindings: bindings.into(),
+            allocation_contents: SharedLoanData::default(),
             parameter_contents: None,
-            global_known_contents: HashMap::new(),
+            global_known_contents: SharedLoanData::default(),
         }
     }
 }
@@ -4325,7 +4378,7 @@ impl FlowGraph {
                     &[origin],
                 );
             }
-            empty.parameter_contents = Some(contents);
+            empty.parameter_contents = Some(contents.into());
         }
         seed_allocation_contents(&mut empty, None);
         let mut before: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
@@ -10117,40 +10170,51 @@ fn collect_pattern_bindings(body: &Body, id: NodeId, bindings: &mut HashSet<Bind
 
 fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
     let mut changed = false;
-    for (held, other) in existing.iter_mut().zip(incoming.iter()) {
-        changed |= merge_loan_origins(held, other);
+    if !existing.bindings.shares_storage(&incoming.bindings) {
+        for (held, other) in existing.iter_mut().zip(incoming.iter()) {
+            changed |= merge_loan_origins(held, other);
+        }
     }
-    for (key, contents) in &incoming.allocation_contents {
-        changed |= merge_loan_origins(
-            existing.allocation_contents.entry(key.clone()).or_default(),
-            contents,
-        );
+    if !existing
+        .allocation_contents
+        .shares_storage(&incoming.allocation_contents)
+    {
+        for (key, contents) in &incoming.allocation_contents {
+            changed |= merge_loan_origins(
+                existing.allocation_contents.entry(key.clone()).or_default(),
+                contents,
+            );
+        }
     }
     if let (Some(held), Some(other)) = (
         &mut existing.parameter_contents,
         &incoming.parameter_contents,
     ) {
-        for (key, contents) in other {
-            changed |= merge_loan_origins(held.entry(key.clone()).or_default(), contents);
+        if !held.shares_storage(other) {
+            for (key, contents) in other {
+                changed |= merge_loan_origins(held.entry(key.clone()).or_default(), contents);
+            }
         }
     }
-    existing.global_known_contents.retain(|global, paths| {
-        let previous = paths.clone();
-        let Some(other) = incoming.global_known_contents.get(global) else {
-            changed |= !paths.is_empty();
-            return false;
-        };
-        let candidates = previous.iter().chain(other);
-        *paths = candidates
-            .filter(|path| {
-                previous.iter().any(|prefix| path.starts_with(prefix))
-                    && other.iter().any(|prefix| path.starts_with(prefix))
-            })
-            .cloned()
-            .collect();
-        changed |= *paths != previous;
-        !paths.is_empty()
-    });
+    if !existing.global_known_contents.is_empty() {
+        existing.global_known_contents.retain(|global, paths| {
+            let previous = paths.clone();
+            let Some(other) = incoming.global_known_contents.get(global) else {
+                changed |= !paths.is_empty();
+                return false;
+            };
+            let candidates = previous.iter().chain(other);
+            *paths = candidates
+                .filter(|path| {
+                    previous.iter().any(|prefix| path.starts_with(prefix))
+                        && other.iter().any(|prefix| path.starts_with(prefix))
+                })
+                .cloned()
+                .collect();
+            changed |= *paths != previous;
+            !paths.is_empty()
+        });
+    }
     changed
 }
 
@@ -14601,6 +14665,107 @@ mod tests {
     use super::*;
 
     #[test]
+    fn loan_snapshots_share_containers_and_isolate_branch_mutations() {
+        let origin = allocation_origin(NodeId(0), Vec::new(), None);
+        let key = allocation_contents_key(&origin);
+        let program =
+            crate::parse_program("(#static Shared #u64 0u64) (#fn main () #u64 (#return 0u64))")
+                .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let global = checked.declarations().global_id("Shared").unwrap();
+        let mut original: LoanState = vec![vec![origin.clone()]].into();
+        original
+            .allocation_contents
+            .insert(key.clone(), vec![origin.clone()]);
+        original.parameter_contents =
+            Some(HashMap::from([(key.clone(), vec![origin.clone()])]).into());
+        original
+            .global_known_contents
+            .insert(global, HashSet::from([Vec::new()]));
+        let mut branch = original.clone();
+        assert!(branch.bindings.shares_storage(&original.bindings));
+        assert!(branch
+            .allocation_contents
+            .shares_storage(&original.allocation_contents));
+        assert!(branch
+            .parameter_contents
+            .as_ref()
+            .unwrap()
+            .shares_storage(original.parameter_contents.as_ref().unwrap()));
+        assert!(branch
+            .global_known_contents
+            .shares_storage(&original.global_known_contents));
+
+        branch[0].clear();
+        branch.allocation_contents.get_mut(&key).unwrap().clear();
+        branch
+            .parameter_contents
+            .as_mut()
+            .unwrap()
+            .get_mut(&key)
+            .unwrap()
+            .clear();
+        branch
+            .global_known_contents
+            .get_mut(&global)
+            .unwrap()
+            .clear();
+        assert_eq!(original[0], vec![origin.clone()]);
+        assert_eq!(original.allocation_contents[&key], vec![origin.clone()]);
+        assert_eq!(
+            original.parameter_contents.as_ref().unwrap()[&key],
+            vec![origin]
+        );
+        assert_eq!(
+            original.global_known_contents[&global],
+            HashSet::from([Vec::new()])
+        );
+        assert!(branch[0].is_empty());
+        assert!(branch.allocation_contents[&key].is_empty());
+        assert!(branch.parameter_contents.as_ref().unwrap()[&key].is_empty());
+        assert!(branch.global_known_contents[&global].is_empty());
+
+        let mut joined = branch.clone();
+        assert!(merge_loan_states(&mut joined, &original));
+        assert_eq!(joined[0], original[0]);
+        assert_eq!(
+            joined.allocation_contents[&key],
+            original.allocation_contents[&key]
+        );
+        assert_eq!(
+            joined.parameter_contents.as_ref().unwrap()[&key],
+            original.parameter_contents.as_ref().unwrap()[&key]
+        );
+        assert!(!joined.global_known_contents.contains_key(&global));
+        assert!(
+            branch[0].is_empty(),
+            "joining must not modify another snapshot"
+        );
+        assert_eq!(original[0].len(), 1);
+    }
+
+    #[test]
+    fn identical_snapshot_joins_preserve_shared_storage() {
+        let mut state: LoanState =
+            vec![vec![allocation_origin(NodeId(0), Vec::new(), None)]].into();
+        state.parameter_contents = Some(SharedLoanData::default());
+        let snapshot = state.clone();
+        assert!(!merge_loan_states(&mut state, &snapshot));
+        assert!(state.bindings.shares_storage(&snapshot.bindings));
+        assert!(state
+            .allocation_contents
+            .shares_storage(&snapshot.allocation_contents));
+        assert!(state
+            .parameter_contents
+            .as_ref()
+            .unwrap()
+            .shares_storage(snapshot.parameter_contents.as_ref().unwrap()));
+        assert!(state
+            .global_known_contents
+            .shares_storage(&snapshot.global_known_contents));
+    }
+
+    #[test]
     fn dense_reachability_matches_hash_traversal_after_edge_changes() {
         let mut seed = 0x1234_5678u32;
         for count in [1, 2, 8, 64, 129] {
@@ -14885,7 +15050,7 @@ mod tests {
         let first = origin(PlaceRoot::Parameter(BindingId(1)));
         let second = origin(PlaceRoot::Parameter(BindingId(2)));
         let mut state = empty_loan_state(0);
-        state.parameter_contents = Some(HashMap::new());
+        state.parameter_contents = Some(SharedLoanData::default());
         assert!(loaded_parameter_value_origins(&global, &state).is_empty());
         store_parameter_contents(&mut state, &global, vec![first.clone()], false);
         assert!(
@@ -14932,10 +15097,10 @@ mod tests {
             storage_inputs: Vec::new(),
         };
         let mut whole = empty_loan_state(0);
-        whole.parameter_contents = Some(HashMap::new());
+        whole.parameter_contents = Some(SharedLoanData::default());
         store_parameter_contents(&mut whole, &address(vec![]), Vec::new(), true);
         let mut field = empty_loan_state(0);
-        field.parameter_contents = Some(HashMap::new());
+        field.parameter_contents = Some(SharedLoanData::default());
         store_parameter_contents(
             &mut field,
             &address(vec![Segment::Tuple(0)]),
@@ -14948,7 +15113,7 @@ mod tests {
             HashSet::from([vec![Segment::Tuple(0)]])
         );
         let mut unknown = empty_loan_state(0);
-        unknown.parameter_contents = Some(HashMap::new());
+        unknown.parameter_contents = Some(SharedLoanData::default());
         assert!(merge_loan_states(&mut whole, &unknown));
         assert!(!whole.global_known_contents.contains_key(&global));
         store_parameter_contents(
