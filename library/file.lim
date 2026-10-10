@@ -1,0 +1,121 @@
+; Safe descriptor ownership and explicitly allocated buffered byte input.
+(#import "string.lim")
+(#struct File (: descriptor #i64))
+(#opaque File)
+(#linear File)
+(#enum FileError ((FileIoError #i64) (FileTextError StringError)
+  (FileAllocationError SystemAllocationError) FilePathContainsNul))
+(#enum FileOpenResult ((FileOpened File) (FileOpenFailed FileError)))
+(#enum FileStatus (FileOk (FileFailed FileError)))
+(#enum FileWriteResult ((FileWritten #usize) (FileWriteFailed #usize FileError)))
+
+(#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
+  (#unsafe-fn file-open-descriptor (: path (#ptr-mut #u8) : flags #u32 : permissions #u32) #i64
+    (#return (#unsafe (#linux-syscall #i64 257usize (-100i64 path flags permissions)))))
+  (#fn file-close-descriptor (: descriptor #i64) #i64
+    (#return (#unsafe (#linux-syscall #i64 3usize (descriptor)))))
+  (#unsafe-fn File-read-raw (: file (#ref-mut File) : buffer (#ptr-mut #u8) : capacity #usize) #i64
+    (#return (#unsafe (#linux-syscall #i64 0usize ((#get file descriptor) buffer capacity)))))
+  (#unsafe-fn file-write-raw (: file (#ref-mut File) : buffer (#ptr-mut #u8) : length #usize) #i64
+    (#return (#unsafe (#linux-syscall #i64 1usize ((#get file descriptor) buffer length))))))
+(#cfg-if (#cfg-not (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64)))
+  (#unsafe-fn file-open-descriptor (: path (#ptr-mut #u8) : flags #u32 : permissions #u32) #i64
+    (#return -38i64))
+  (#fn file-close-descriptor (: descriptor #i64) #i64 (#return -38i64))
+  (#unsafe-fn File-read-raw (: file (#ref-mut File) : buffer (#ptr-mut #u8) : capacity #usize) #i64
+    (#return -38i64))
+  (#unsafe-fn file-write-raw (: file (#ref-mut File) : buffer (#ptr-mut #u8) : length #usize) #i64
+    (#return -38i64)))
+
+(#fn File-open-with-flags (: path (#ref String) : flags #u32 : permissions #u32) FileOpenResult
+  (#let length #usize (#call String-len (: string path)))
+  (#let-mut index #usize 0usize)
+  (#while (#usize.< index length)
+    (#match (#call String-byte-at (: string path : index index))
+      (#case (StringByte byte)
+        (#if (#u8.== byte 0u8) (#block (#return (FileOpenFailed FilePathContainsNul))) ()))
+      (#case StringByteOutOfBounds (#unreachable)))
+    (#set index (#usize.+.wrap index 1usize)))
+  (#return (#match (#call String-try-clone (: string path))
+    (#case (StringCreateFailed error) (FileOpenFailed (FileTextError error)))
+    (#case (StringCreated copied)
+      (#block
+        (#let-mut terminated String copied)
+        (#match (#call String-push-char (: string (#borrow-mut terminated) : value #\null))
+          (#case (StringErr error)
+            (#block (#call String-free (: string terminated))
+              (#return (FileOpenFailed (FileTextError error)))))
+          (#case StringOk ()))
+        (#let descriptor #i64 (#unsafe (#call file-open-descriptor
+          (: path (#call String-data-pointer (: string (#borrow terminated)))
+           : flags flags : permissions permissions))))
+        (#call String-free (: string terminated))
+        (#if (#i64.< descriptor 0i64) (FileOpenFailed (FileIoError descriptor))
+          (FileOpened (#struct-literal File (: descriptor descriptor)))))))))
+
+(#fn File-open-read (: path (#ref String)) FileOpenResult
+  (#return (#call File-open-with-flags (: path path : flags 524288u32 : permissions 0u32))))
+; O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC. The name explicitly signals creation.
+(#fn File-create (: path (#ref String) : permissions #u32) FileOpenResult
+  (#return (#call File-open-with-flags (: path path : flags 524865u32 : permissions permissions))))
+(#fn File-close (: file File) FileStatus
+  (#let result #i64 (#call file-close-descriptor (: descriptor (#get file descriptor))))
+  (#forget file)
+  ; Linux releases the descriptor even on EINTR; never retry a possibly reused FD.
+  (#return (#if (#i64.< result 0i64) (FileFailed (FileIoError result)) FileOk)))
+
+(#fn File-write-string (: file (#ref-mut File) : text (#ref String)) FileWriteResult
+  (#let length #usize (#call String-len (: string text)))
+  (#let pointer (#ptr-mut #u8) (#unsafe (#call String-data-pointer (: string text))))
+  (#let-mut offset #usize 0usize)
+  (#while (#usize.< offset length)
+    (#let count #i64 (#unsafe (#call file-write-raw
+      (: file file : buffer (#ptr-offset pointer offset) : length (#usize.-.wrap length offset)))))
+    (#if (#i64.> count 0i64)
+      (#block
+        (#let amount #usize (#as count #usize))
+        (#if (#usize.> amount (#usize.-.wrap length offset))
+          (#block (#return (FileWriteFailed offset (FileIoError -5i64)))) ())
+        (#set offset (#usize.+.wrap offset amount)) ())
+      (#if (#i64.== count -4i64) ()
+        (#block (#return (FileWriteFailed offset (FileIoError (#if (#i64.== count 0i64) -5i64 count))))))))
+  (#return (FileWritten offset)))
+
+(#struct FileReader (: file File : buffer (#ptr-mut #u8) : capacity #usize
+  : position #usize : length #usize : ended #bool))
+(#opaque FileReader)
+(#linear FileReader)
+(#enum FileReaderCreateResult ((FileReaderCreated FileReader) (FileReaderCreateFailed File FileError)))
+(#enum FileByteResult ((FileByte #u8) FileByteEof (FileByteFailed FileError)))
+
+(#fn FileReader-create (: file File : capacity #usize) FileReaderCreateResult
+  (#return (#match (#call system-allocate (: size capacity))
+    (#case (SystemAllocationFailed error) (FileReaderCreateFailed file (FileAllocationError error)))
+    (#case (SystemAllocated pointer)
+      (FileReaderCreated (#struct-literal FileReader (: file file : buffer pointer
+        : capacity capacity : position 0usize : length 0usize : ended false)))))))
+
+(#fn FileReader-next-byte (: reader (#ref-mut FileReader)) FileByteResult
+  (#if (#usize.== (#get reader position) (#get reader length))
+    (#block
+      (#if (#get reader ended) (#block (#return FileByteEof)) ())
+      (#let count #i64 (#unsafe (#call File-read-raw
+        (: file (#borrow-mut (#get reader file)) : buffer (#get reader buffer) : capacity (#get reader capacity)))))
+      (#if (#i64.< count 0i64) (#block (#return (FileByteFailed (FileIoError count)))) ())
+      (#if (#i64.== count 0i64)
+        (#block (#deref-set (#borrow-mut (#get reader ended)) true) (#return FileByteEof)) ())
+      (#let amount #usize (#as count #usize))
+      (#if (#usize.> amount (#get reader capacity)) (#block (#return (FileByteFailed (FileIoError -5i64)))) ())
+      (#deref-set (#borrow-mut (#get reader position)) 0usize)
+      (#deref-set (#borrow-mut (#get reader length)) amount)
+      ()) ())
+  (#let position #usize (#get reader position))
+  (#let byte #u8 (#unsafe (#ptr-read (#ptr-offset (#get reader buffer) position))))
+  (#deref-set (#borrow-mut (#get reader position)) (#usize.+.wrap position 1usize))
+  (#return (FileByte byte)))
+
+(#fn FileReader-close (: reader FileReader) FileStatus
+  (#unsafe (#call system-deallocate (: pointer (#get reader buffer))))
+  (#let file File (#get reader file))
+  (#forget reader)
+  (#return (#call File-close (: file file))))
