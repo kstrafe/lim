@@ -28,6 +28,7 @@ pub(crate) struct Source {
     pub function: SpannedExpr,
     pub waker: Type,
     pub pinned_frame: Option<String>,
+    pub generated_poll: Option<String>,
 }
 
 impl Source {
@@ -67,10 +68,18 @@ impl Source {
         } else {
             None
         };
+        let generated_poll = match parts.get(2) {
+            Some(Expr::List(names)) => names.get(4).and_then(|name| match name {
+                Expr::Symbol(name) => Some(name.clone()),
+                _ => None,
+            }),
+            _ => None,
+        };
         Ok(Some(Self {
             function: function.clone(),
             waker,
             pinned_frame,
+            generated_poll,
         }))
     }
 }
@@ -1009,6 +1018,19 @@ pub(crate) fn resolve(
             }
             error
         })?;
+    for source in &program.async_functions {
+        let Some(poll) = &source.generated_poll else {
+            continue;
+        };
+        if let Some(id) = declarations.function_id(poll) {
+            declarations.async_generated_functions.insert(id);
+        }
+        if source.pinned_frame.is_some() {
+            if let Some(id) = declarations.function_id(&format!("{poll}-cancel")) {
+                declarations.async_generated_functions.insert(id);
+            }
+        }
+    }
     let runtime_names = program
         .items
         .iter()
@@ -1357,6 +1379,7 @@ mod tests {
             function: original,
             waker: Type::U64,
             pinned_frame: None,
+            generated_poll: None,
         });
         let error = crate::CheckedProgram::validate_with_span(&base)
             .err()

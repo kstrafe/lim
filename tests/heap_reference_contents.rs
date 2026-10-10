@@ -114,6 +114,135 @@ fn direct_heap_field_writes_track_the_new_source_without_rewriting_it() {
 }
 
 #[test]
+fn definite_heap_field_replacement_retires_only_the_old_source_loan() {
+    let source = format!(
+        r#"{PREFIX}
+      (#fn main () u64
+        (#let-mut first u64 1u64) (#let-mut second u64 42u64)
+        (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
+          (0usize 4096usize 3usize 34usize -1i64 0usize))))
+        (#let-mut owner (#pin-own Holder) (#call make (: pointer pointer : source (#borrow first))))
+        (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))
+        (#pin-set-field view link (#borrow second))
+        (#drop view)
+        (#set first 0u64)
+        (#let result (#ref u64) (#call get (: owner (#borrow owner))))
+        (#call destroy (: owner owner)) (#return (#deref result)))"#
+    );
+    run(&source);
+
+    let invalid = source.replace("(#set first 0u64)", "(#set second 0u64)");
+    let error = compile(&invalid).expect_err("the replacement reference remains borrowed");
+    assert_eq!(error.code_string(), "E4100", "{}", error.message);
+    assert!(error.message.contains("second"), "{}", error.message);
+}
+
+#[test]
+fn replacement_does_not_retire_a_reference_already_loaded_from_the_old_field() {
+    let prefix = format!(
+        r#"{PREFIX}
+      (#fn replace (: owner (#ref-mut (#pin-own Holder)) : value (#ref u64)) ()
+        (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))
+        (#pin-set-field view link value) (#return ()))"#
+    );
+    let invalid = format!(
+        r#"{prefix}
+      (#fn bad (: pointer (#ptr-mut Holder)) ()
+        (#let-mut first u64 1u64) (#let second u64 42u64)
+        (#let-mut owner (#pin-own Holder) (#call make (: pointer pointer : source (#borrow first))))
+        (#let previous (#ref u64) (#call get (: owner (#borrow owner))))
+        (#call replace (: owner (#borrow-mut owner) : value (#borrow second)))
+        (#set first 0u64)
+        (#call destroy (: owner owner)) (#return ()))"#
+    );
+    let error = compile(&invalid).expect_err("the extracted reference still borrows first");
+    assert_eq!(error.code_string(), "E4100", "{}", error.message);
+    assert!(error.message.contains("first"), "{}", error.message);
+
+    let valid = invalid
+        .replace("(#set first 0u64)", "(#drop previous) (#set first 0u64)")
+        .replace("(#fn bad", "(#fn main");
+    compile(&valid).unwrap_or_else(|error| panic!("{}", error.message));
+}
+
+#[test]
+fn branch_join_retains_each_possible_heap_field_referent() {
+    let source = format!(
+        r#"{PREFIX}
+      (#fn exercise (: pointer (#ptr-mut Holder) : replace bool) ()
+        (#let-mut first u64 1u64) (#let-mut second u64 2u64)
+        (#let-mut owner (#pin-own Holder) (#call make (: pointer pointer : source (#borrow first))))
+        (#if replace
+          (#block
+            (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))
+            (#pin-set-field view link (#borrow second)) (#drop view))
+          ())
+        (#set first 0u64)
+        (#call destroy (: owner owner)) (#return ()))"#
+    );
+    let first = compile(&source).expect_err("the non-replacing branch still contains first");
+    assert_eq!(first.code_string(), "E4100", "{}", first.message);
+    assert!(first.message.contains("first"), "{}", first.message);
+
+    let second = compile(&source.replace("(#set first 0u64)", "(#set second 0u64)"))
+        .expect_err("the replacing branch contains second");
+    assert_eq!(second.code_string(), "E4100", "{}", second.message);
+    assert!(second.message.contains("second"), "{}", second.message);
+}
+
+#[test]
+fn loop_join_keeps_pre_loop_and_written_heap_field_referents() {
+    let source = format!(
+        r#"{PREFIX}
+      (#fn exercise (: pointer (#ptr-mut Holder) : replace bool) ()
+        (#let-mut first u64 1u64) (#let-mut second u64 2u64)
+        (#let-mut owner (#pin-own Holder) (#call make (: pointer pointer : source (#borrow first))))
+        (#while replace
+          (#block
+            (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))
+            (#pin-set-field view link (#borrow second)) (#drop view)))
+        (#set first 0u64)
+        (#call destroy (: owner owner)) (#return ()))"#
+    );
+    let first = compile(&source).expect_err("the loop may execute zero times");
+    assert_eq!(first.code_string(), "E4100", "{}", first.message);
+    assert!(first.message.contains("first"), "{}", first.message);
+
+    let second = compile(&source.replace("(#set first 0u64)", "(#set second 0u64)"))
+        .expect_err("the loop may execute and leave second stored");
+    assert_eq!(second.code_string(), "E4100", "{}", second.message);
+    assert!(second.message.contains("second"), "{}", second.message);
+}
+
+#[test]
+fn uncertain_heap_destination_keeps_all_candidate_contents() {
+    let source = r#"(#struct Holder (: link (#ref u64)))
+      (#fn make (: pointer (#ptr-mut Holder) : source (#ref u64)) (#pin-own Holder)
+        (#return (#unsafe (#pin-own-of pointer (#struct-literal Holder (: link source))))))
+      (#fn destroy (: owner (#pin-own Holder)) () (#forget owner) (#return ()))
+      (#fn exercise (: first-pointer (#ptr-mut Holder) : second-pointer (#ptr-mut Holder) : choose bool) ()
+        (#let-mut first u64 1u64) (#let-mut second u64 2u64)
+        (#let-mut first-owner (#pin-own Holder) (#call make (: pointer first-pointer : source (#borrow first))))
+        (#let-mut second-owner (#pin-own Holder) (#call make (: pointer second-pointer : source (#borrow second))))
+        (#let view (#pin-ref-mut Holder)
+          (#if choose (#pin-own-borrow-mut first-owner) (#pin-own-borrow-mut second-owner)))
+        (#let replacement (#ref u64) (#if choose (#borrow second) (#borrow first)))
+        (#pin-set-field view link replacement)
+        (#drop view) (#drop replacement)
+        (#set first 0u64)
+        (#call destroy (: owner first-owner)) (#call destroy (: owner second-owner))
+        (#return ()))"#;
+    let first = compile(source).expect_err("either owner may still contain first");
+    assert_eq!(first.code_string(), "E4100", "{}", first.message);
+    assert!(first.message.contains("first"), "{}", first.message);
+
+    let second = compile(&source.replace("(#set first 0u64)", "(#set second 0u64)"))
+        .expect_err("either owner may still contain second");
+    assert_eq!(second.code_string(), "E4100", "{}", second.message);
+    assert!(second.message.contains("second"), "{}", second.message);
+}
+
+#[test]
 fn direct_reference_pointees_keep_provenance_after_heap_owner_release() {
     let source = r#"(#fn main () u64
       (#let-mut source u64 42u64)
@@ -187,6 +316,29 @@ fn updated_contents_follow_an_owner_returned_by_a_helper() {
     assert!(error.message.contains("second"), "{}", error.message);
     compile(&source.replace("(#set second 3u64)", "()"))
         .unwrap_or_else(|e| panic!("{}", e.message));
+}
+
+#[test]
+fn definite_helper_replacement_retires_the_old_heap_field_loan() {
+    let source = format!(
+        r#"{PREFIX}
+      (#fn replace-owned (: owner (#pin-own Holder) : value (#ref u64)) (#pin-own Holder)
+        (#let-mut moved (#pin-own Holder) owner)
+        (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut moved))
+        (#pin-set-field view link value)
+        (#drop view)
+        (#return moved))
+      (#fn main () u64
+        (#let-mut first u64 1u64) (#let second u64 42u64)
+        (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
+          (0usize 4096usize 3usize 34usize -1i64 0usize))))
+        (#let owner (#pin-own Holder) (#call make (: pointer pointer : source (#borrow first))))
+        (#let updated (#pin-own Holder) (#call replace-owned (: owner owner : value (#borrow second))))
+        (#set first 0u64)
+        (#let result (#ref u64) (#call get (: owner (#borrow updated))))
+        (#call destroy (: owner updated)) (#return (#deref result)))"#
+    );
+    run(&source);
 }
 
 #[test]
@@ -293,4 +445,43 @@ fn storing_an_exclusive_reference_in_heap_storage_blocks_other_borrows() {
         assert_eq!(error.code_string(), "E4100", "{}", error.message);
         assert!(error.message.contains("source"), "{}", error.message);
     }
+}
+
+#[test]
+fn stored_exclusive_field_blocks_a_later_borrow_of_its_external_referent() {
+    let source = r#"(#struct Holder (: link (#ref-mut u64)))
+      (#fn use-both (: holder (#ref-mut Holder) : source (#ref u64)) () (#return ()))
+      (#fn main () ()
+        (#let-mut value u64 1u64)
+        (#let child (#ref-mut u64) (#borrow-mut value))
+        (#let-mut holder Holder (#struct-literal Holder (: link child)))
+        (#call use-both (: holder (#borrow-mut holder) : source (#borrow value)))
+        (#forget holder) (#return ()))"#;
+    let error = compile(source)
+        .expect_err("the reference stored in Holder still exclusively borrows value");
+    assert_eq!(error.code_string(), "E4100", "{}", error.message);
+    assert!(error.message.contains("value"), "{}", error.message);
+
+    let moved = source
+        .replace(
+            "(: holder (#ref-mut Holder) : source (#ref u64)) () (#return ())",
+            "(: holder Holder : source (#ref u64)) Holder (#return holder)",
+        )
+        .replace(
+            "(: holder (#borrow-mut holder) : source (#borrow value))",
+            "(: holder holder : source (#borrow value))",
+        )
+        .replace(
+            "(#call use-both (: holder holder : source (#borrow value)))",
+            "(#let result Holder (#call use-both (: holder holder : source (#borrow value)))) (#forget result)",
+        )
+        .replace("(#forget holder) (#return ()))", "(#return ()))");
+    let error = compile(&moved)
+        .expect_err("moving the holder into a call must transfer its nested exclusive loan");
+    assert_eq!(error.code_string(), "E4100", "{}", error.message);
+    assert!(
+        error.message.contains("overlapping borrows"),
+        "{}",
+        error.message
+    );
 }

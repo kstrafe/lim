@@ -51,11 +51,22 @@ pub(crate) fn check_live_direct_loans_with_types(
     check_live_direct_loans_cached(body, flow, types, &OnceCell::new())
 }
 
+#[cfg(test)]
 pub(crate) fn check_live_direct_loans_cached(
     body: &Body,
     flow: &FlowGraph,
     types: &LinearTypes,
     cache: &OnceCell<FlowLoanOrigins>,
+) -> Result<(), BorrowConflict> {
+    check_live_direct_loans_cached_with_permissions(body, flow, types, cache, &[])
+}
+
+pub(crate) fn check_live_direct_loans_cached_with_permissions(
+    body: &Body,
+    flow: &FlowGraph,
+    types: &LinearTypes,
+    cache: &OnceCell<FlowLoanOrigins>,
+    permissions: &[crate::call_self_loans::InternalReborrowPermission],
 ) -> Result<(), BorrowConflict> {
     if !flow
         .nodes
@@ -84,6 +95,18 @@ pub(crate) fn check_live_direct_loans_cached(
     let consumptions = flow.consumptions(body, types);
     let live = flow.liveness(body);
     let unread = unread_loan_bindings(body, flow, types, origins);
+    let returned_loans = flow
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, node)| match node.action {
+            FlowAction::Return(Some(value)) => {
+                Some(origins.value_before(body, flow, FlowNodeId(index), value))
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect::<Vec<_>>();
     let scoped_ids = flow
         .nodes
         .iter()
@@ -336,7 +359,43 @@ pub(crate) fn check_live_direct_loans_cached(
                         .iter()
                         .any(|origin| call_referents_overlap(held, origin))
                 };
-                if matches!(access, AccessKind::Read) && place.segments.is_empty() {
+                if let FlowAction::Read { value, .. } = &node.action {
+                    let argument_origins = origins.value_before(body, flow, event, *value);
+                    if internal_reborrow_argument_matches(
+                        body,
+                        permissions,
+                        *value,
+                        &held_place,
+                        &argument_origins,
+                    ) {
+                        continue;
+                    }
+                }
+                if access_is_through_child_of_held_parent(origins, event, place, held) {
+                    continue;
+                }
+                let resumes_suspended_parent =
+                    accesses_suspended_exclusive_parent(body, origins, event, place, held);
+                if matches!(node.action, FlowAction::Evaluate(value)
+                if internal_reborrow_access_matches(
+                    permissions,
+                    value,
+                    &held_place,
+                    &computed_targets,
+                )) {
+                    // Returning a reference to this owner is not itself an
+                    // access to every referent stored inside it. The call's
+                    // exact child slot and callee effects were checked by
+                    // `check_calls_cached`; let that proof authorize the
+                    // disjoint call while keeping ordinary accesses checked.
+                    continue;
+                }
+                if matches!(access, AccessKind::Read)
+                    && place.segments.is_empty()
+                    && !matches!(&node.action,
+                        FlowAction::Read { value, .. }
+                            if is_mutable_slice_index_base(body, *value))
+                {
                     if let PlaceRoot::Local(parent) = place.root {
                         if held.borrowed_from == Some(parent)
                             && matches!(body.bindings[parent.0].ty, Type::MutableSlice(_))
@@ -357,7 +416,27 @@ pub(crate) fn check_live_direct_loans_cached(
                             PlaceRoot::Local(parent),
                             true,
                             AccessKind::Write | AccessKind::Release,
-                        ) => held.borrowed_from == Some(*parent) && !held.call_reborrow,
+                        ) => {
+                            let transfers_returned_loan = !held.lifetime_only
+                                && returned_loans.iter().any(|returned| {
+                                    returned.borrowed_from == Some(*parent)
+                                        && returned.referent_place() == held.referent_place()
+                                        && returned.mutable == held.mutable
+                                        && returned.pinned == held.pinned
+                                        && returned.owned_allocation == held.owned_allocation
+                                        && !returned.lifetime_only
+                                });
+                            let is_non_owning_handle = matches!(
+                                body.bindings[parent.0].ty,
+                                Type::Reference { .. }
+                                    | Type::PinnedReference { .. }
+                                    | Type::Slice(_)
+                                    | Type::MutableSlice(_)
+                            );
+                            held.borrowed_from == Some(*parent)
+                                && !held.call_reborrow
+                                && !(is_non_owning_handle && transfers_returned_loan)
+                        }
                         _ => false,
                     };
                 if releasing_reborrow_parent {
@@ -410,11 +489,12 @@ pub(crate) fn check_live_direct_loans_cached(
                             .collect(),
                     });
                 }
-                let conflicts = match access {
-                    AccessKind::Read | AccessKind::Clone => held.mutable,
-                    AccessKind::Borrow { mutable } => held.mutable || mutable,
-                    AccessKind::Move | AccessKind::Write | AccessKind::Release => true,
-                };
+                let conflicts = resumes_suspended_parent
+                    || match access {
+                        AccessKind::Read | AccessKind::Clone => held.mutable,
+                        AccessKind::Borrow { mutable } => held.mutable || mutable,
+                        AccessKind::Move | AccessKind::Write | AccessKind::Release => true,
+                    };
                 if conflicts && overlaps_access {
                     let owner = if matches!(access, AccessKind::Read) {
                         diagnostic_place_name(
@@ -595,7 +675,26 @@ pub(crate) fn check_live_direct_loans_cached(
             });
         }
     }
-    check_call_reborrow_parents(body, flow, origins, &live, &unread, &consumptions)
+    check_call_reborrow_parents(
+        body,
+        flow,
+        origins,
+        &live,
+        &unread,
+        &consumptions,
+        permissions,
+    )
+}
+
+/// A mutable-slice handle read used only as the receiver of `#slice-mut-idx`
+/// is not an access to the suspended slice contents. The resulting indexed
+/// borrow event checks overlap against existing element loans precisely.
+fn is_mutable_slice_index_base(body: &Body, value: NodeId) -> bool {
+    body.nodes.iter().any(|node| {
+        matches!(&node.kind,
+            NodeKind::Form { head, children, .. }
+                if head == "slice-mut-idx" && children.get(1) == Some(&value))
+    })
 }
 
 fn diagnostic_place_name(body: &Body, place: &Place) -> String {
@@ -623,6 +722,10 @@ fn diagnostic_place_name(body: &Body, place: &Place) -> String {
                 name.push_str(&format!(".{index}"))
             }
             Segment::DynamicIndex | Segment::SliceDynamicIndex => name.push_str(".*"),
+            Segment::SliceRange { start, end } => {
+                name.push_str(&format!("[{start}..{end}]"));
+            }
+            Segment::SliceRangeUnknown => name.push_str("[range?]"),
             Segment::Payload(variant, index) => {
                 name.push('.');
                 if let Some(variant) = body.declaration_name(DeclarationId::Variant(*variant)) {
@@ -793,6 +896,7 @@ fn check_call_reborrow_parents(
     live: &crate::typed_flow::FlowLiveness,
     unread: &[Vec<u64>],
     consumptions: &crate::typed_flow::FlowConsumptions,
+    permissions: &[crate::call_self_loans::InternalReborrowPermission],
 ) -> Result<(), BorrowConflict> {
     for (index, node) in flow.nodes.iter().enumerate() {
         let FlowAction::Evaluate(value) = node.action else {
@@ -868,6 +972,13 @@ fn check_call_reborrow_parents(
                     }) {
                         continue;
                     }
+                    if internal_reborrow_permission_matches(
+                        permissions,
+                        value,
+                        &held.referent_place(),
+                    ) {
+                        continue;
+                    }
                     let source = sources
                         .first()
                         .map(|source| &source.root)
@@ -891,6 +1002,129 @@ fn check_call_reborrow_parents(
         }
     }
     Ok(())
+}
+
+fn internal_reborrow_permission_matches(
+    permissions: &[crate::call_self_loans::InternalReborrowPermission],
+    call: NodeId,
+    referent: &Place,
+) -> bool {
+    // The permission retains the exact stored child slot whose internal
+    // access was checked. A copied local holder has a different storage slot,
+    // so apply that proof by the call identity and exact physical referent.
+    permissions
+        .iter()
+        .any(|permission| permission.call == call && &permission.referent == referent)
+}
+
+fn internal_reborrow_access_matches(
+    permissions: &[crate::call_self_loans::InternalReborrowPermission],
+    call: NodeId,
+    held_referent: &Place,
+    accessed_referents: &[LoanOrigin],
+) -> bool {
+    permissions.iter().any(|permission| {
+        permission.call == call
+            && &permission.referent == held_referent
+            && accessed_referents
+                .iter()
+                .any(|access| access.referent_place().overlaps(&permission.referent))
+    })
+}
+
+fn internal_reborrow_argument_matches(
+    body: &Body,
+    permissions: &[crate::call_self_loans::InternalReborrowPermission],
+    argument: NodeId,
+    held_referent: &Place,
+    argument_origins: &[LoanOrigin],
+) -> bool {
+    permissions.iter().any(|permission| {
+        if &permission.referent != held_referent
+            || !argument_origins
+                .iter()
+                .any(|origin| origin.referent_place().overlaps(&permission.referent))
+        {
+            return false;
+        }
+        matches!(
+            &body.nodes[permission.call.0].kind,
+            NodeKind::Form { children, callee: Some(_), .. }
+                if children.iter().skip(1).any(|child| *child == argument)
+        )
+    })
+}
+
+fn access_is_through_child_of_held_parent(
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    place: &Place,
+    held: &LoanOrigin,
+) -> bool {
+    let Some(parent) = held.borrowed_from else {
+        return false;
+    };
+    let binding = match place.root {
+        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => binding,
+        _ => return false,
+    };
+    if binding == parent {
+        return false;
+    }
+    let held_referent = held.referent_place();
+    origins.before(event, binding).iter().any(|access| {
+        let access_referent = access.referent_place();
+        access.borrowed_from == Some(parent)
+            && access_referent.root == held_referent.root
+            && access_referent != held_referent
+            && access_referent
+                .segments
+                .starts_with(&held_referent.segments)
+    })
+}
+
+fn accesses_suspended_exclusive_parent(
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    place: &Place,
+    held: &LoanOrigin,
+) -> bool {
+    let Some(parent) = held.borrowed_from else {
+        return false;
+    };
+    if place.segments.is_empty() {
+        return false;
+    }
+    let exclusive = |binding: BindingId| {
+        matches!(
+            body.bindings[binding.0].ty,
+            Type::Reference { mutable: true, .. }
+                | Type::PinnedReference { mutable: true, .. }
+                | Type::MutableSlice(_)
+        )
+    };
+    let access_binding = match place.root {
+        PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) => binding,
+        _ => return false,
+    };
+    if access_binding == parent {
+        return exclusive(access_binding);
+    }
+    if exclusive(access_binding) {
+        let held_referent = held.referent_place();
+        origins.before(event, access_binding).iter().any(|access| {
+            let access_referent = access.referent_place();
+            access.borrowed_from == Some(parent)
+                && access_referent.root == held_referent.root
+                && access_referent != held_referent
+                && held_referent
+                    .segments
+                    .starts_with(&access_referent.segments)
+        })
+    } else {
+        false
+    }
 }
 
 fn call_referents_overlap(left: &LoanOrigin, right: &LoanOrigin) -> bool {
@@ -2144,6 +2378,22 @@ fn storage_segment_matches(
             (wanted, held),
             (Segment::DynamicIndex, Segment::Index(_)) | (Segment::Index(_), Segment::DynamicIndex)
         )
+        || matches!(
+            (wanted, held),
+            (
+                Segment::DynamicIndex | Segment::SliceDynamicIndex,
+                Segment::SliceRange { .. } | Segment::SliceRangeUnknown
+            ) | (
+                Segment::SliceRange { .. } | Segment::SliceRangeUnknown,
+                Segment::DynamicIndex | Segment::SliceDynamicIndex
+            ) | (
+                Segment::Index(_) | Segment::SliceIndex(_),
+                Segment::SliceRange { .. } | Segment::SliceRangeUnknown
+            ) | (
+                Segment::SliceRange { .. } | Segment::SliceRangeUnknown,
+                Segment::Index(_) | Segment::SliceIndex(_)
+            )
+        )
         || matches!((wanted, held), (Segment::Tuple(wanted), Segment::SliceHalf(found)) if wanted == found)
 }
 
@@ -3274,6 +3524,35 @@ mod tests {
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
         check_live_direct_loans(body, &checked.declarations().flows["main"]).unwrap();
+    }
+
+    #[test]
+    fn reference_parameter_reborrows_distinguish_overlapping_and_disjoint_fields() {
+        let prefix = "(#struct Pair (: left u64 : right u64))\n";
+        let overlapping = format!(
+            "{prefix}(#fn bad (: target (#ref-mut Pair)) ()
+              (#let left (#ref-mut u64) (#borrow-mut (#get target left)))
+              (#let child (#ref u64) (#borrow (#get target left)))
+              (#drop child) (#drop left) (#return ()))"
+        );
+        let error =
+            match crate::CheckedProgram::validate(&crate::parse_program(&overlapping).unwrap()) {
+                Ok(_) => panic!("a parameter's active exclusive field reborrow must block overlap"),
+                Err(error) => error,
+            };
+        assert!(
+            error.contains("already borrowed mutably") || error.contains("live reference exists"),
+            "{error}"
+        );
+
+        let disjoint = format!(
+            "{prefix}(#fn valid (: target (#ref-mut Pair)) ()
+              (#let left (#ref-mut u64) (#borrow-mut (#get target left)))
+              (#let child (#ref u64) (#borrow (#get target right)))
+              (#drop child) (#drop left) (#return ()))"
+        );
+        crate::CheckedProgram::validate(&crate::parse_program(&disjoint).unwrap())
+            .expect("disjoint parameter fields remain independently borrowable");
     }
 
     #[test]

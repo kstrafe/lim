@@ -1223,6 +1223,12 @@ pub(crate) type OutputVariantMap<T> =
 
 #[derive(Default)]
 pub(crate) struct Body {
+    /// Generated async poll/cancel bodies have state-dependent frame contents;
+    /// ordinary lexical parent edges must not be seeded across their states.
+    pub async_generated: bool,
+    /// Resolved async-generated callees, used to keep their state-dependent
+    /// reference stores out of ordinary linear parent propagation.
+    pub async_generated_functions: Arc<std::collections::HashSet<crate::typed_ir::FunctionId>>,
     pub nodes: Vec<Node>,
     pub bindings: Vec<Binding>,
     pub instructions: Vec<Instruction>,

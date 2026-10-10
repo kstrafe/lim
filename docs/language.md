@@ -440,10 +440,11 @@ The caller still guarantees validity, alignment, unique raw ownership, and
 retirement of untracked raw pointers. Reference-bearing and nested owning-pin
 pointees retain their contents' loans through owner moves, return summaries,
 and field projections. Allocating storage does not extend a referent's lifetime.
-Heap writes, including helper-call writes, add retained loans to the owning
-allocation. Replacement conservatively retains old possible loans until the
-owner is consumed; this may reject early reuse of a replaced source, but never
-silently discards a borrow. `library/pin_box.lim` generates this owning protocol;
+Heap writes, including helper-call writes, update retained loans in the owning
+allocation. A definite write to one concrete field retires that field's old
+loan and records its replacement; uncertain writes and control-flow joins keep
+all possible referents. A reference already loaded from the old field remains
+an independent live loan. `library/pin_box.lim` generates this owning protocol;
 `examples/pin_box.lim` demonstrates moving a handle while a view stays live.
 
 An async function can initialize an owner containing an external reference

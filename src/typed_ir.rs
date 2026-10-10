@@ -360,6 +360,10 @@ pub(crate) struct Declarations {
     function_ids: HashMap<String, FunctionId>,
     external_function_ids: HashSet<FunctionId>,
     pub thread_capture_schemas: HashMap<String, ThreadCaptureSchema>,
+    /// Generated async poll/cancel bodies have a separate source-level witness
+    /// analysis; retain their identities so call-site checks can distinguish
+    /// state-machine plumbing from ordinary user functions.
+    pub(crate) async_generated_functions: HashSet<FunctionId>,
     global_names: Vec<String>,
     global_ids: HashMap<String, GlobalId>,
     aggregate_names: Vec<String>,
@@ -658,6 +662,7 @@ impl Declarations {
             function_ids,
             external_function_ids: HashSet::new(),
             thread_capture_schemas: HashMap::new(),
+            async_generated_functions: HashSet::new(),
             global_names,
             global_ids,
             aggregate_names,
@@ -857,9 +862,7 @@ impl Declarations {
                         program,
                         &expression_spans_by_address,
                     );
-                    Some((
-                        function.name.clone(),
-                        crate::typed_body::Body::lower(
+                    let mut body = crate::typed_body::Body::lower(
                             function,
                             self,
                             types,
@@ -869,8 +872,13 @@ impl Declarations {
                             statement_ids,
                             &binding_spans,
                             &parameter_spans,
-                        ),
-                    ))
+                        );
+                    body.async_generated = self
+                        .function_id(&function.name)
+                        .is_some_and(|id| self.async_generated_functions.contains(&id));
+                    body.async_generated_functions =
+                        Arc::new(self.async_generated_functions.clone());
+                    Some((function.name.clone(), body))
                 }
                 _ => None,
             })

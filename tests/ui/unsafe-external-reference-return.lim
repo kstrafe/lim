@@ -1,0 +1,4 @@
+(#extern-fn #abi-c external-reference () (#ref-mut u64))
+(#fn main () u64
+  (#let reference (#ref-mut u64) (#call external-reference (:)))
+  (#return (#deref reference)))

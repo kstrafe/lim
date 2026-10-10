@@ -50,6 +50,46 @@ fn ordinary_owner_shared_reads_and_child_reads_run_natively() {
 }
 
 #[test]
+fn loaded_internal_child_survives_disjoint_owner_call_natively() {
+    let source = SOURCE
+        .replace(
+            "(#let observed u64 (#get target value)) (#assert (#u64.== observed 42u64))",
+            "(#pin-set-field target state 2u32)",
+        )
+        .replace(
+            "(#let updated (#pin-ref-mut Link) (#call tick (: target running)))",
+            "(#let held (#pin-ref u64) (#get running view))\n    (#let updated (#pin-ref-mut Link) (#call tick (: target running)))",
+        )
+        .replace(
+            "(#let running (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))",
+            "(#let-mut running (#pin-ref-mut Link) (#pin-borrow-mut link))\n    (#let installed (#pin-ref-mut Link) (#call install (: target running)))\n    (#set running installed)",
+        )
+        .replace(
+            "(#let answer u64 (#deref (#get updated view)))",
+            "(#let answer u64 (#deref held))",
+        )
+        .replace(
+            "(#pin-set-field updated view outside) (#drop updated) (#forget link)",
+            "(#pin-set-field updated view outside) (#drop held) (#drop updated) (#forget link)",
+        );
+    let scratch = support::Scratch::new("loaded-internal-child-disjoint-call");
+    let assembly = compile(&source, &scratch).unwrap_or_else(|e| panic!("{e:?}\n{source}"));
+    let binary = scratch.path().join("program");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    let (status, stdout, stderr) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
+    assert_eq!(status.code(), Some(42), "{stderr:?}");
+    assert!(stdout.is_empty() && stderr.is_empty());
+}
+
+#[test]
 fn a_shared_internal_child_blocks_an_exclusive_borrow_at_the_actual_call_argument() {
     let source = SOURCE.replace(
         "(#let observed u64 (#get target value)) (#assert (#u64.== observed 42u64))",

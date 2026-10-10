@@ -23,12 +23,14 @@ the primary error underlines the actual caller argument. Acyclic call-DAG
 caches deduplicate semantic effects rather than expanding repeated calls.
 
 This is additional rejection, not permission to recycle a parent poll handle.
-Observation checks for conditional enum payloads remain staged: initializer
-argument evaluation precedes the callee's Empty guard and must not inherit
-resume-only loans. Existing guarded write rejection for shared payloads remains
-active; conditional exclusive contexts still require correlated entry-state
-and access-slot permissions. Cache keys distinguish write-only checks from
-full observation checks. Existing fail-closed async tests remain unchanged.
+Ordinary callee observations through conditional enum payloads retain checked
+entry-tag guards: a read is permitted only on a path proving the child slot
+inactive, and remains rejected when the child may be active. Uncorrelated
+conditional exclusive contexts remain fail-closed. Generated async poll calls
+with conditional payload aliases remain staged because ordinary caller flow
+does not retain poll-state correlation. Cache keys distinguish write-only
+checks from full observation checks. Existing fail-closed async tests remain
+unchanged.
 `examples/internal_owner_reads.lim` demonstrates ordinary shared internal loans.
 
 Incoming family checks also retain proved **entry** constructors of both the
@@ -263,6 +265,15 @@ ordinary handle-dependent reborrows: releasing the handle does not destroy its
 pointee or retire a live returned loan. This matters when generated pinned
 poll functions release temporary projection handles before restoring the frame
 state. Referent consumption and scope escape remain independently checked.
+When a function returns a child reborrow, explicitly consuming its non-owning
+reference or slice parameter transfers the loan to the returned value. The
+checker matches the child's returned referent and mutability before allowing
+this release, independent of the aggregate slot that stores it in the result.
+An unrelated live child, an owned aggregate parent, or a lifetime-only
+raw-pointer anchor does not receive the exemption. Checker and native
+regressions cover direct and aggregate-held field references plus slice-element
+references, and confirm that the original owner remains inaccessible until the
+child is released.
 Labeled value-loops resolve to the inner loop's checked break-result identity
 for both cached and event-specific loan queries; erasing the label without
 resolving its result previously lost returned-reference origins.
@@ -504,14 +515,28 @@ complete conflict enforcement still need the full ownership migration.
 Constructor values for structs, enums, tuples, and arrays contribute their
 contained direct origins to the resulting aggregate binding; value-block
 results preserve those origins as well.
-Reference-returning checked calls conservatively merge origins reachable
-through their arguments. A direct result sheds any aggregate-storage path
-from its arguments; precise callee return summaries are not yet available.
+Reference-returning checked calls use interprocedural return-loan summaries
+prepared during typed declaration checking. A summary identifies which
+parameter slots, globals, or fresh pinned allocations can supply each returned
+reference, and call-site substitution maps those sources through the evaluated
+argument snapshots. This preserves the selected argument and aggregate storage
+path instead of treating every reference argument as a possible result.
+External or otherwise unsummarized reference-returning calls retain the
+conservative argument-based fallback; missing provenance at that boundary is
+still an audit target and must not be interpreted as proof of disjointness.
 Slice creation, range, and element-reference forms forward the originating
 array loan through derived values. Mutable-slice splitting carries that loan
 through both tuple positions into destructured halves, retaining the original
-borrow span. Complete disjoint-range transfer and reborrow enforcement remain
-open.
+borrow span. Constant element indexes within a known slice remain distinct,
+while dynamic indexes overlap conservatively; split halves retain separate
+region paths. Constant ranged views over direct backing storage retain their
+physical half-open offsets, including nested ranges, so indexing a view maps
+back to the original array element. Dynamic bounds and ranges over reference-
+bearing contents select only matching known element slots; dynamic bounds and
+unresolved contents remain conservative. Element references returned through
+a mutable-reference parameter retain the caller's owner loan. Physical offsets
+into independently supplied incoming slices remain conservative when their
+backing layout is unavailable.
 Each origin also retains its structural storage path. Pattern transfers match
 owner-qualified fields, tuple and array positions, and variant payload IDs
 before assigning origins to destructured bindings, so other fields or variants

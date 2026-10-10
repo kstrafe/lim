@@ -16,6 +16,14 @@ pub(crate) enum Segment {
     Index(u128),
     DynamicIndex,
     SliceHalf(usize),
+    /// Physical half-open interval backing an immutable ranged-slice view.
+    SliceRange {
+        start: u128,
+        end: u128,
+    },
+    /// Ranged-slice bounds not known as constants; conservatively aliases
+    /// every element below the same place prefix.
+    SliceRangeUnknown,
     SliceIndex(u128),
     SliceDynamicIndex,
 }
@@ -136,17 +144,38 @@ impl Place {
                 .segments
                 .iter()
                 .zip(&other.segments)
-                .all(|(left, right)| {
-                    left == right
-                        || matches!(left, Segment::DynamicIndex)
-                        || matches!(right, Segment::DynamicIndex)
-                        || matches!(left, Segment::SliceDynamicIndex)
-                        || matches!(right, Segment::SliceDynamicIndex)
-                })
+                .all(|(left, right)| segments_overlap(left, right))
     }
 }
 
-fn literal_index(body: &Body, id: NodeId) -> Option<u128> {
+fn segments_overlap(left: &Segment, right: &Segment) -> bool {
+    use Segment::*;
+    if left == right
+        || matches!(left, DynamicIndex | SliceDynamicIndex | SliceRangeUnknown)
+        || matches!(right, DynamicIndex | SliceDynamicIndex | SliceRangeUnknown)
+    {
+        return true;
+    }
+    match (left, right) {
+        (SliceRange { start, end }, Index(index) | SliceIndex(index))
+        | (Index(index) | SliceIndex(index), SliceRange { start, end }) => {
+            start <= index && index < end
+        }
+        (
+            SliceRange {
+                start: left_start,
+                end: left_end,
+            },
+            SliceRange {
+                start: right_start,
+                end: right_end,
+            },
+        ) => left_start < right_end && right_start < left_end,
+        _ => false,
+    }
+}
+
+pub(crate) fn literal_index(body: &Body, id: NodeId) -> Option<u128> {
     match &body.nodes.get(id.0)?.kind {
         NodeKind::Literal(Expr::Integer(index)) => (*index).try_into().ok(),
         NodeKind::Literal(Expr::UnsignedInteger(index)) => Some(*index),

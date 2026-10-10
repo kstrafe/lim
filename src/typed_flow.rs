@@ -465,9 +465,9 @@ impl LoanOrigin {
 #[derive(Clone)]
 struct LoanState {
     bindings: Vec<Vec<LoanOrigin>>,
-    // May-contents of stationary allocations. Replacements conservatively
-    // retain the old loans until the owner is consumed: forgetting a possible
-    // old loan is unsound at joins or across an unrefined helper call.
+    // May-contents of stationary allocations. A definite concrete write
+    // replaces one projection; CFG joins and uncertain writes still union
+    // possible contents.
     allocation_contents: HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>>,
     // Parameter input pointer slots and owned global storage have distinct
     // roots. These keys are not positions in the output value being stored.
@@ -530,9 +530,11 @@ impl std::ops::Index<usize> for LoanSnapshots<'_> {
     }
 }
 
-/// Direct reference origins at each typed flow point. This is a may-analysis,
-/// not yet an enforcing borrow check; indirect provenance and destructured
-/// payloads still need the full IR-04 transfer.
+/// Reference origins at each typed flow point. This is a may-analysis: by
+/// itself it grants no access and does not enforce exclusivity. The enforcing
+/// checks combine these snapshots with resolved accesses, ownership transfers,
+/// call effects, and referent provenance. Consumers must treat unknown origins
+/// conservatively rather than interpreting their absence as disjointness.
 pub(crate) struct FlowLoanOrigins {
     variants: std::cell::OnceCell<Vec<Option<HashMap<Place, VariantId>>>>,
     storage_variant_bounds: std::cell::OnceCell<StorageVariantSnapshots>,
@@ -1244,6 +1246,11 @@ impl FlowLoanOrigins {
         };
         let incoming = self.value_before(body, flow, event, source);
         let mut destinations = self.value_before(body, flow, event, children[1]);
+        // A borrowed owner can carry loans to references stored inside its
+        // pointee alongside the address itself. Those carried contents are
+        // not additional write destinations and must not downgrade an
+        // otherwise definite write to the pointee.
+        destinations.retain(|destination| destination.storage.is_empty());
         for destination in &mut destinations {
             if let Some(field) = field {
                 destination.place.segments.push(Segment::Field(field));
@@ -1393,23 +1400,49 @@ impl FlowLoanOrigins {
         family: usize,
         alias: &crate::call_self_loans::Alias,
         live_bindings: &[BindingId],
+        facts: Option<&HashMap<Place, crate::typed_ir::VariantId>>,
     ) -> bool {
         let Some(state) = self.before[event.0].as_ref() else {
             return false;
         };
-        let retained = |origin: &LoanOrigin| {
+        let active_storage = |root: &PlaceRoot, storage: &[Segment]| {
+            let Some(facts) = facts else {
+                return true;
+            };
+            !storage.iter().enumerate().any(|(index, segment)| {
+                let Segment::Payload(wanted, _) = segment else {
+                    return false;
+                };
+                facts
+                    .get(&Place {
+                        root: root.clone(),
+                        segments: storage[..index].to_vec(),
+                    })
+                    .is_some_and(|actual| actual.owner == wanted.owner && actual != wanted)
+            })
+        };
+        let retained = |origin: &LoanOrigin, root: &PlaceRoot, storage: &[Segment]| {
             origin.entry_loan == Some(family)
                 && origin.place.root == PlaceRoot::Parameter(alias.parameter)
                 && origin.parameter_storage.as_deref() == Some(alias.owner_input.as_slice())
                 && origin.place.segments.starts_with(&alias.projection)
+                && active_storage(root, storage)
         };
-        state
-            .parameter_contents
-            .as_ref()
-            .is_some_and(|contents| contents.values().any(|held| held.iter().any(retained)))
-            || live_bindings
+        state.parameter_contents.as_ref().is_some_and(|contents| {
+            contents.iter().any(|((root, prefix), held)| {
+                held.iter().any(|origin| {
+                    let mut storage = prefix.clone();
+                    storage.push(Segment::Dereference);
+                    storage.extend_from_slice(&origin.storage);
+                    retained(origin, root, &storage)
+                })
+            })
+        }) || live_bindings.iter().any(|binding| {
+            let root = PlaceRoot::Local(*binding);
+            state[binding.0]
                 .iter()
-                .any(|binding| state[binding.0].iter().any(retained))
+                .any(|origin| retained(origin, &root, &origin.storage))
+        })
     }
 
     pub fn after(&self, node: FlowNodeId, binding: BindingId) -> &[LoanOrigin] {
@@ -1492,6 +1525,18 @@ impl FlowLoanOrigins {
                     if matches!(segment, Segment::SliceHalf(_)) {
                         selected.place.segments.push(segment.clone());
                     }
+                }
+                // With no reference-bearing contents summary, the origin is
+                // the slice backing storage itself. Resolve a range-relative
+                // index to its physical base-array index when the range bounds
+                // are known; unresolved regions stay wildcarded.
+                if origin.storage.is_empty() {
+                    let selected_index = match segments[index] {
+                        Segment::SliceIndex(index) => Segment::Index(index),
+                        Segment::SliceDynamicIndex => Segment::DynamicIndex,
+                        ref segment => segment.clone(),
+                    };
+                    append_slice_index(&mut selected.place, selected_index);
                 }
                 selected.place.segments.extend(suffix.iter().cloned());
                 selected.storage.clear();
@@ -1655,6 +1700,10 @@ fn display_linear_place(body: &Body, place: &Place) -> String {
             Segment::SliceHalf(half) => output.push_str(&format!(".half-{half}")),
             Segment::SliceIndex(index) => output.push_str(&format!("[{index}]")),
             Segment::SliceDynamicIndex => output.push_str("[*]"),
+            Segment::SliceRange { start, end } => {
+                output.push_str(&format!("[{start}..{end}]"));
+            }
+            Segment::SliceRangeUnknown => output.push_str("[range?]"),
         }
     }
     output
@@ -2629,8 +2678,13 @@ impl FlowGraph {
                             NodeKind::If { condition, .. } => condition,
                             _ => value,
                         };
-                        boolean_variant_value(body, condition, &partition.booleans)
-                            .map(|value| if value { 0 } else { 1 })
+                        boolean_variant_value(body, condition, &partition.booleans).map(|value| {
+                            if value {
+                                0
+                            } else {
+                                1
+                            }
+                        })
                     } else {
                         None
                     }
@@ -9930,6 +9984,17 @@ fn seed_parameter_contents(body: &Body) -> HashMap<(PlaceRoot, Vec<Segment>), Ve
 }
 
 fn loaded_parameter_value_origins(origin: &LoanOrigin, state: &LoanState) -> Vec<LoanOrigin> {
+    let mut result = Vec::new();
+    for (loaded, _) in loaded_parameter_value_origins_with_slots(origin, state) {
+        merge_loan_origins(&mut result, &[loaded]);
+    }
+    result
+}
+
+fn loaded_parameter_value_origins_with_slots(
+    origin: &LoanOrigin,
+    state: &LoanState,
+) -> Vec<(LoanOrigin, Place)> {
     if !matches!(
         origin.place.root,
         PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
@@ -9989,7 +10054,17 @@ fn loaded_parameter_value_origins(origin: &LoanOrigin, state: &LoanState) -> Vec
                 loaded.project_storage(selected);
             }
             loaded.mutable &= origin.mutable;
-            merge_loan_origins(&mut result, &[loaded]);
+            let mut source_path = input.clone();
+            source_path.push(Segment::Dereference);
+            source_path.extend_from_slice(&held.storage);
+            let source_slot = Place {
+                root: input_parameter.clone(),
+                segments: source_path,
+            };
+            let selected = (loaded, source_slot);
+            if !result.contains(&selected) {
+                result.push(selected);
+            }
         }
     }
     result
@@ -10006,15 +10081,20 @@ fn store_parameter_contents(
         || state.allocation_contents.contains_key(&allocation_key)
     {
         if !destination.lifetime_only && destination.storage.is_empty() {
-            extend_projected_origins(
-                state.allocation_contents.entry(allocation_key).or_default(),
-                &destination.place.segments,
-                incoming,
-            );
-            let contents = &state.allocation_contents;
-            for held in &mut state.bindings {
-                refresh_allocation_origins(held, contents);
+            let contents = state
+                .allocation_contents
+                .entry(allocation_key.clone())
+                .or_default();
+            if strong {
+                replace_projected_origins(contents, &destination.place.segments, incoming);
+            } else {
+                extend_projected_origins(contents, &destination.place.segments, incoming);
             }
+            refresh_replaced_allocation_origins(
+                state,
+                &allocation_key,
+                &destination.place.segments,
+            );
         }
         return;
     }
@@ -10057,6 +10137,36 @@ fn store_parameter_contents(
         replace_projected_origins(held, &destination.place.segments, incoming);
     } else {
         extend_projected_origins(held, &destination.place.segments, incoming);
+    }
+}
+
+/// Binding loan origins cache projections of allocation contents. Rebuild
+/// the affected projection after a definite heap store so the replaced
+/// referent's loan is retired without releasing unrelated fields or aliases.
+fn refresh_replaced_allocation_origins(
+    state: &mut LoanState,
+    allocation: &(PlaceRoot, Vec<Segment>),
+    replaced_path: &[Segment],
+) {
+    for held in &mut state.bindings {
+        let addresses = held
+            .iter()
+            .filter(|origin| {
+                origin.owned_allocation && allocation_contents_key(origin) == *allocation
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for address in addresses {
+            let mut prefix = address.storage;
+            prefix.push(Segment::Dereference);
+            prefix.extend(address.place.segments);
+            prefix.extend_from_slice(replaced_path);
+            held.retain(|origin| !origin.storage.starts_with(&prefix));
+        }
+    }
+    let contents = &state.allocation_contents;
+    for held in &mut state.bindings {
+        refresh_allocation_origins(held, contents);
     }
 }
 
@@ -10661,9 +10771,14 @@ fn substitute_call_stores(
     state: &LoanState,
     stores: &[crate::typed_body::ParameterStoreSummary],
 ) -> Vec<LoanStore> {
-    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+    let NodeKind::Form {
+        children, callee, ..
+    } = &body.nodes[value.0].kind
+    else {
         return Vec::new();
     };
+    let state_dependent_async_store = body.async_generated
+        || callee.is_some_and(|callee| body.async_generated_functions.contains(&callee));
     let substitute = |summary: &crate::typed_body::ParameterLoanSummary| {
         if let Some(origin) = fresh_allocation_origin(summary, value) {
             return vec![origin];
@@ -10686,7 +10801,32 @@ fn substitute_call_stores(
         let mut incoming = Vec::new();
         let mut complete = true;
         for source in &store.sources {
-            let selected = substitute(source);
+            let mut selected = substitute(source);
+            // If a callee stores a reference derived from the same borrowed
+            // owner input that supplies the destination, the resulting child
+            // loan must retain that owner handle as its reborrow parent.
+            // Otherwise a later local load of the child looks independent
+            // from the still-live exclusive owner handle and conflicts even
+            // when accessed through the validated child.
+            let owner_parent = (!state_dependent_async_store
+                && source.parameter == store.destination.parameter
+                && source.global.is_none()
+                && source.fresh_allocation.is_none())
+            .then(|| children.get(source.parameter + 1))
+            .flatten()
+            .and_then(|argument| reference_binding(body, *argument));
+            if let Some(parent) = owner_parent {
+                for origin in &mut selected {
+                    if origin.borrowed_from.is_none() {
+                        origin.borrowed_from = Some(parent);
+                        // The stored child retains its physical referent
+                        // independently of this particular owner handle.
+                        // Calls may consume/replace that handle, while direct
+                        // access through the child still suspends it.
+                        origin.call_reborrow = true;
+                    }
+                }
+            }
             complete &= !selected.is_empty();
             merge_loan_origins(&mut incoming, &selected);
         }
@@ -10784,8 +10924,11 @@ fn select_summary_inputs_with_slots(
         }
         if matches!(origin.place.root, PlaceRoot::Global(_)) && state.parameter_contents.is_some() {
             let mut result = Vec::new();
-            for loaded in loaded_parameter_value_origins(&origin, state) {
+            for (loaded, source_slot) in loaded_parameter_value_origins_with_slots(&origin, state) {
                 for mut selected in select_summary_inputs_with_slots(loaded, tail, state) {
+                    if selected.source_slot.is_none() {
+                        selected.source_slot = Some(source_slot.clone());
+                    }
                     selected.slots.insert(0, Segment::Dereference);
                     selected.inputs.insert(0, None);
                     result.push(selected);
@@ -10796,8 +10939,13 @@ fn select_summary_inputs_with_slots(
         if matches!(origin.place.root, PlaceRoot::Parameter(_)) {
             if state.parameter_contents.is_some() {
                 let mut result = Vec::new();
-                for loaded in loaded_parameter_value_origins(&origin, state) {
+                for (loaded, source_slot) in
+                    loaded_parameter_value_origins_with_slots(&origin, state)
+                {
                     for mut selected in select_summary_inputs_with_slots(loaded, tail, state) {
+                        if selected.source_slot.is_none() {
+                            selected.source_slot = Some(source_slot.clone());
+                        }
                         selected.slots.insert(0, Segment::Dereference);
                         selected.inputs.insert(0, None);
                         result.push(selected);
@@ -10828,13 +10976,34 @@ fn select_summary_inputs_with_slots(
                     || !prefix
                         .iter()
                         .zip(&held.storage)
-                        .all(|(expected, actual)| storage_slot_matches(expected, actual))
+                        .all(|(expected, actual)| storage_path_segment_matches(expected, actual))
                 {
                     continue;
                 }
                 let mut loaded = held.clone();
                 loaded.drain_storage(prefix.len());
                 loaded.mutable &= origin.mutable;
+                // A ranged view selects physical element slots, while the
+                // callee's summary still describes a relative slice index.
+                // Once a matching element slot has been selected from the
+                // caller's aggregate contents, consume that relative selector
+                // instead of applying it a second time to the element value.
+                let tail = if matches!(
+                    prefix.last(),
+                    Some(Segment::SliceRange { .. } | Segment::SliceRangeUnknown)
+                ) && tail.first().is_some_and(|segment| {
+                    matches!(
+                        segment,
+                        Segment::Index(_)
+                            | Segment::DynamicIndex
+                            | Segment::SliceIndex(_)
+                            | Segment::SliceDynamicIndex
+                    )
+                }) {
+                    &tail[1..]
+                } else {
+                    tail
+                };
                 for mut selected in select_summary_inputs_with_slots(loaded, tail, state) {
                     if selected.source_slot.is_none() {
                         selected.source_slot = Some(Place {
@@ -11213,18 +11382,91 @@ fn dereference_value_origins(
     result
 }
 
-/// Select possible element contents rather than loading the entire backing
-/// array as one element. Slice ranges and split views retain a region anchor,
-/// not an exact offset mapping: even literal indexes must not fabricate a
-/// physical element identity or a definite restoration destination.
-fn project_slice_element_origins(origins: &mut [LoanOrigin], state: &LoanState) {
-    if state.parameter_contents.is_none() {
-        return;
-    }
+/// Project an element reference into its slice-relative place. A mutable
+/// slice is a single linear view, so constant indexes within that view are
+/// disjoint; a dynamic index conservatively overlaps every element. Split
+/// halves already carry their own region component in the place path.
+fn project_slice_element_origins(body: &Body, value: NodeId, origins: &mut [LoanOrigin]) {
+    let index = Place::from_expression(body, value)
+        .and_then(|place| place.segments.last().cloned())
+        .and_then(|segment| match segment {
+            Segment::SliceIndex(index) => Some(Segment::Index(index)),
+            Segment::SliceDynamicIndex => Some(Segment::DynamicIndex),
+            _ => None,
+        })
+        .unwrap_or(Segment::DynamicIndex);
     for origin in origins {
         if origin.storage.is_empty() && !origin.lifetime_only {
-            origin.place.segments.push(Segment::DynamicIndex);
+            append_slice_index(&mut origin.place, index.clone());
         }
+    }
+}
+
+/// Record a slice's physical region. Constant ranges over direct backing
+/// storage retain their exact offset, including reference-bearing elements;
+/// dynamic bounds and origins already nested in unresolved stored contents use
+/// a wildcard region.
+fn record_slice_range(body: &Body, children: &[NodeId], origin: &mut LoanOrigin) {
+    if origin.lifetime_only {
+        return;
+    }
+    let range = children
+        .get(2)
+        .and_then(|start| crate::typed_place::literal_index(body, *start))
+        .zip(
+            children
+                .get(3)
+                .and_then(|end| crate::typed_place::literal_index(body, *end)),
+        )
+        .filter(|(start, end)| start <= end)
+        .map(|(start, end)| Segment::SliceRange { start, end })
+        .unwrap_or(Segment::SliceRangeUnknown);
+    let range = if origin.storage.is_empty() {
+        match (origin.place.segments.last(), range) {
+            (
+                Some(Segment::SliceRange {
+                    start: previous_start,
+                    end: _,
+                }),
+                Segment::SliceRange { start, end },
+            ) => previous_start
+                .checked_add(start)
+                .zip(previous_start.checked_add(end))
+                .map(|(start, end)| Segment::SliceRange { start, end })
+                .unwrap_or(Segment::SliceRangeUnknown),
+            (Some(Segment::SliceRangeUnknown), _) => Segment::SliceRangeUnknown,
+            (_, range) => range,
+        }
+    } else {
+        Segment::SliceRangeUnknown
+    };
+    if matches!(
+        origin.place.segments.last(),
+        Some(Segment::SliceRange { .. } | Segment::SliceRangeUnknown)
+    ) {
+        origin.place.segments.pop();
+    }
+    origin.place.segments.push(range);
+}
+
+fn append_slice_index(place: &mut Place, index: Segment) {
+    let Some(range) = place.segments.last().cloned() else {
+        place.segments.push(index);
+        return;
+    };
+    match (range, index) {
+        (Segment::SliceRange { start, end }, Segment::Index(index)) => {
+            place.segments.pop();
+            match start.checked_add(index) {
+                Some(index) if index < end => place.segments.push(Segment::Index(index)),
+                _ => place.segments.push(Segment::DynamicIndex),
+            }
+        }
+        (Segment::SliceRange { .. } | Segment::SliceRangeUnknown, _) => {
+            place.segments.pop();
+            place.segments.push(Segment::DynamicIndex);
+        }
+        (_, index) => place.segments.push(index),
     }
 }
 
@@ -11469,9 +11711,12 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     origin.borrowed_from = borrowed_from;
                     origin.call_reborrow = false;
                 }
+                if head == "slice-range" {
+                    record_slice_range(body, children, origin);
+                }
             }
             if matches!(head.as_str(), "slice-idx" | "slice-mut-idx") {
-                project_slice_element_origins(&mut origins, state);
+                project_slice_element_origins(body, id, &mut origins);
             }
             origins
         }
@@ -11913,9 +12158,12 @@ fn value_loan_origins_at_events(
                     origin.borrowed_from = borrowed_from;
                     origin.call_reborrow = false;
                 }
+                if head == "slice-range" {
+                    record_slice_range(body, children, origin);
+                }
             }
             if matches!(head.as_str(), "slice-idx" | "slice-mut-idx") {
-                project_slice_element_origins(&mut loans, state);
+                project_slice_element_origins(body, value, &mut loans);
             }
             return loans;
         }
@@ -11997,6 +12245,14 @@ fn value_loan_origins_at_events(
                     };
                     for origin in value_loan_origins_at_events(body, flow, before, *argument, state)
                     {
+                        // An owning-pointer summary denotes the allocation
+                        // handle, not every reference loan currently stored
+                        // inside that allocation. Those contents have their
+                        // own explicit storage summaries; carrying them along
+                        // here resurrects contents a callee definitely replaced.
+                        if source.owned_allocation && !origin.owned_allocation {
+                            continue;
+                        }
                         merge_loan_origins(
                             &mut result,
                             &apply_return_loan_summary(
@@ -13185,6 +13441,65 @@ fn storage_slot_matches(slot: &Segment, held: &Segment) -> bool {
             (slot, held),
             (Segment::DynamicIndex, Segment::Index(_)) | (Segment::Index(_), Segment::DynamicIndex)
         )
+        || matches!(
+            (slot, held),
+            (
+                Segment::DynamicIndex | Segment::SliceDynamicIndex,
+                Segment::SliceRange { .. } | Segment::SliceRangeUnknown
+            ) | (
+                Segment::SliceRange { .. } | Segment::SliceRangeUnknown,
+                Segment::DynamicIndex | Segment::SliceDynamicIndex
+            )
+        )
+        || matches!(
+            (slot, held),
+            (Segment::SliceRange { start, end }, Segment::Index(index) | Segment::SliceIndex(index))
+                | (Segment::Index(index) | Segment::SliceIndex(index), Segment::SliceRange { start, end })
+                if start <= index && index < end
+        )
+        || matches!(
+            (slot, held),
+            (
+                Segment::SliceRangeUnknown,
+                Segment::Index(_) | Segment::SliceIndex(_)
+            ) | (
+                Segment::Index(_) | Segment::SliceIndex(_),
+                Segment::SliceRangeUnknown
+            )
+        )
+        || matches!(
+            (slot, held),
+            (
+                Segment::SliceRange {
+                    start: left_start,
+                    end: left_end,
+                },
+                Segment::SliceRange {
+                    start: right_start,
+                    end: right_end,
+                }
+            ) if left_start < right_end && right_start < left_end
+        )
+        || matches!(
+            (slot, held),
+            (
+                Segment::SliceRangeUnknown,
+                Segment::SliceRange { .. } | Segment::SliceRangeUnknown
+            ) | (Segment::SliceRange { .. }, Segment::SliceRangeUnknown)
+        )
+}
+
+fn storage_path_segment_matches(wanted: &Segment, actual: &Segment) -> bool {
+    match (wanted, actual) {
+        (
+            Segment::SliceRange { start, end },
+            Segment::Index(index) | Segment::SliceIndex(index),
+        ) => start <= index && index < end,
+        (Segment::SliceRange { .. }, Segment::DynamicIndex | Segment::SliceDynamicIndex)
+        | (Segment::SliceRangeUnknown, Segment::Index(_) | Segment::SliceIndex(_))
+        | (Segment::SliceRangeUnknown, Segment::DynamicIndex | Segment::SliceDynamicIndex) => true,
+        _ => storage_slot_matches(wanted, actual),
+    }
 }
 
 fn distribute_pattern_origins(

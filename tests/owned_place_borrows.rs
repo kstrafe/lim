@@ -72,6 +72,45 @@ fn owned_nested_fields_pin_borrow_without_copying_the_owner() {
 }
 
 #[test]
+fn returned_reborrow_survives_consuming_its_parameter_handle() {
+    native(
+        "(#struct Pair (: left u64 : right u64))
+         (#fn pick (: target (#ref-mut Pair)) (#ref-mut u64)
+           (#let child (#ref-mut u64) (#borrow-mut (#get target left)))
+           (#forget target)
+           (#return child))
+         (#fn main () u64
+           (#let-mut pair Pair (#struct-literal Pair (: left 1u64 : right 2u64)))
+           (#let child (#ref-mut u64) (#call pick (: target (#borrow-mut pair))))
+           (#deref-set child 40u64)
+           (#let result u64 (#u64.+.wrap (#deref child) (#get pair right)))
+           (#forget child) (#forget pair) (#return result))",
+        42,
+    );
+}
+
+#[test]
+fn returned_aggregate_reborrow_survives_consuming_its_parameter_handle() {
+    native(
+        "(#struct Pair (: left u64 : right u64))
+         (#struct View (: selected (#ref-mut u64)))
+         (#fn pick (: target (#ref-mut Pair)) View
+           (#let child (#ref-mut u64) (#borrow-mut (#get target left)))
+           (#forget target)
+           (#return (#struct-literal View (: selected child))))
+         (#fn main () u64
+           (#let-mut pair Pair (#struct-literal Pair (: left 1u64 : right 2u64)))
+           (#let view View (#call pick (: target (#borrow-mut pair))))
+           (#set-field pair right 5u64)
+           (#let child (#ref-mut u64) (#get view selected))
+           (#deref-set child 40u64)
+           (#let result u64 (#u64.+.wrap (#deref child) (#get pair right)))
+           (#forget child) (#forget pair) (#return result))",
+        45,
+    );
+}
+
+#[test]
 fn disjoint_owned_fields_mutably_borrow_and_reborrow_in_place() {
     native(
         "(#struct Pair ((left u64) (right u64)))

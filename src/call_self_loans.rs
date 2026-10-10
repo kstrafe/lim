@@ -2,14 +2,16 @@
 //!
 //! A parameter's pointer-slot name is not its physical referent. Preserve the
 //! storage slot and the owner-relative pointee separately before attempting a
-//! context-sensitive callee check. This plan grants no borrow permission and
-//! does not replace ordinary checking or initialization/retirement contracts.
+//! context-sensitive callee check. Internal owner accesses are checked before
+//! granting a narrowly keyed permission for that call's exact retained child
+//! slot; this does not replace ordinary checking or initialization/retirement
+//! contracts.
 //! Ordinary validation uses this as an additional rejection gate. Entry-tag
 //! guards distinguish conditional initialization from overwriting a retained
 //! pointee. Owner reads, clones, and reborrows are also compared with the
 //! incoming child's capability, including nested ordinary calls. These checks
-//! do not authorize parent reborrows; complete state-dependent permissions
-//! and external child relationships remain separate obligations.
+//! authorize only the checked internal-child case. State-dependent async
+//! permissions and external child relationships remain separate obligations.
 
 use crate::typed_body::{BindingId, Body, NodeId, NodeKind, PlaceRoot};
 use crate::typed_flow::{FlowAction, FlowGraph, FlowLoanOrigins, FlowNodeId, LoanOrigin};
@@ -17,6 +19,8 @@ use crate::typed_ir::{resolve_type, Declarations, FunctionId};
 use crate::typed_place::{Place, Segment};
 use crate::Type;
 use std::collections::{HashMap, HashSet};
+
+const MAX_INTERNAL_OWNER_DEPTH: usize = 64;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct Alias {
@@ -29,6 +33,17 @@ pub(crate) struct Alias {
     pub projection: Vec<Segment>,
     pub mutable: bool,
     pub pinned: bool,
+    /// Actual caller slot and referent represented by this callee-relative
+    /// alias. Used to grant only a call whose internal-owner check succeeded.
+    pub caller_slot: Option<Place>,
+    pub caller_referent: Place,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct InternalReborrowPermission {
+    pub call: NodeId,
+    pub slot: Place,
+    pub referent: Place,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -581,7 +596,7 @@ fn check_calls(
     cache: &std::cell::OnceCell<FlowLoanOrigins>,
 ) -> Result<(), crate::typed_borrow::BorrowConflict> {
     let mut checked = Cache::default();
-    check_calls_cached(body, flow, declarations, types, cache, &mut checked)
+    check_calls_cached(body, flow, declarations, types, cache, &mut checked).map(|_| ())
 }
 
 pub(crate) fn check_calls_cached(
@@ -591,7 +606,8 @@ pub(crate) fn check_calls_cached(
     types: &crate::linearcheck::LinearTypes,
     cache: &std::cell::OnceCell<FlowLoanOrigins>,
     checked: &mut Cache,
-) -> Result<(), crate::typed_borrow::BorrowConflict> {
+) -> Result<Vec<InternalReborrowPermission>, crate::typed_borrow::BorrowConflict> {
+    let mut permissions = Vec::new();
     for (index, node) in flow.nodes.iter().enumerate() {
         let FlowAction::Evaluate(value) = node.action else {
             continue;
@@ -617,7 +633,8 @@ pub(crate) fn check_calls_cached(
         }
         let origins = cache.get_or_init(|| flow.loan_origins(body));
         let event = FlowNodeId(index);
-        let plan =
+        let async_generated_callee = declarations.async_generated_functions.contains(callee);
+        let mut plan =
             Plan::for_call(body, flow, event, value, origins, declarations).map_err(|message| {
                 crate::typed_borrow::BorrowConflict {
                     message,
@@ -625,44 +642,38 @@ pub(crate) fn check_calls_cached(
                     labels: vec![],
                 }
             })?;
-        // The extra rejection gate does not replace the authoritative direct
-        // loan checks. Exclusive pointers in conditional payload storage still
-        // need path-correlated incoming/fresh families before this specialized
-        // context can be used: unioning their resume and initial-entry paths
-        // incorrectly treats a write through a newly installed child as an
-        // access through its parent. Keep those contexts staged, without
-        // granting any additional reborrow permission.
-        if plan.aliases.iter().any(|alias| {
-            alias.mutable
-                && (alias
+        // Async-generated poll functions inspect and update a state-dependent
+        // future frame. Until the caller's concrete frame state is correlated
+        // with the callee's payload accesses, this summary is too broad to
+        // grant or reject an internal-loan permission soundly. Keep such
+        // payload-bearing calls under the ordinary call-argument loan checks.
+        if async_generated_callee
+            && plan.aliases.iter().any(|alias| {
+                alias
                     .storage
                     .iter()
-                    .any(|slot| matches!(slot, Segment::Payload(..)))
-                    || alias
-                        .projection
-                        .iter()
-                        .any(|slot| matches!(slot, Segment::Payload(..))))
-        }) {
+                    .chain(&alias.projection)
+                    .any(|segment| matches!(segment, Segment::Payload(..)))
+            })
+        {
             continue;
         }
-        // Observation permissions for conditional shared payloads are staged
-        // too: constructing an initializer's argument happens before its
-        // checked Empty guard. Keep existing guarded write rejection, but do
-        // not apply resume-only observation contexts to the initial path.
-        let check_observations = !plan.aliases.iter().any(|alias| {
-            alias
-                .storage
-                .iter()
-                .chain(&alias.projection)
-                .any(|slot| matches!(slot, Segment::Payload(..)))
+        // A conditional reference exists only if each payload on its storage
+        // and target paths is active. Remove an alias only when a checked tag
+        // proves it inactive. Unknown tags remain possible aliases; whether
+        // they can be checked depends on whether their storage provenance is
+        // path-correlated with the target (handled below).
+        plan.aliases.retain(|alias| {
+            storage_payload_status(body, flow, event, value, origins, alias) != Some(false)
+                && projection_payload_status(body, flow, event, value, origins, alias)
+                    != Some(false)
         });
-        if let Err((parameter, mut error)) = plan.check_owner_accesses_inner(
-            declarations,
-            types,
-            &mut Vec::new(),
-            checked,
-            check_observations,
-        ) {
+        if plan.aliases.is_empty() {
+            continue;
+        }
+        if let Err((parameter, mut error)) =
+            plan.check_owner_accesses_inner(declarations, types, &mut Vec::new(), checked, true)
+        {
             if let Some(span) = error.span {
                 error.labels.push((
                     span,
@@ -675,8 +686,18 @@ pub(crate) fn check_calls_cached(
                 .or(node.span);
             return Err(error);
         }
+        permissions.extend(plan.aliases.iter().filter_map(|alias| {
+            alias
+                .caller_slot
+                .clone()
+                .map(|slot| InternalReborrowPermission {
+                    call: value,
+                    slot,
+                    referent: alias.caller_referent.clone(),
+                })
+        }));
     }
-    Ok(())
+    Ok(permissions)
 }
 
 fn static_path(path: &[Segment]) -> bool {
@@ -686,6 +707,261 @@ fn static_path(path: &[Segment]) -> bool {
             Segment::Field(_) | Segment::Tuple(_) | Segment::Payload(_, _) | Segment::Index(_)
         )
     })
+}
+
+fn static_storage_path(path: &[Segment]) -> bool {
+    path.iter().all(|segment| {
+        matches!(
+            segment,
+            Segment::Field(_)
+                | Segment::Tuple(_)
+                | Segment::Payload(_, _)
+                | Segment::Index(_)
+                | Segment::Dereference
+        )
+    })
+}
+
+fn is_owner_pointer(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Reference { .. } | Type::PinnedReference { .. } | Type::PinOwned(_)
+    )
+}
+
+/// An access reached by selecting the exact reference slot represented by an
+/// incoming family is a use/reborrow of that loan, not a fresh access through
+/// the containing owner. Retain the slot test separately from referent-place
+/// overlap: sibling slots that happen to point at the same address remain
+/// conflicting families.
+fn access_uses_alias_storage(body: &Body, alias: &Alias, access: &LoanOrigin) -> bool {
+    let Some(span) = access.span else {
+        return false;
+    };
+    let Some((id, node)) = body
+        .nodes
+        .iter()
+        .enumerate()
+        .find(|(_, node)| node.span == Some(span))
+    else {
+        return false;
+    };
+    if !matches!(
+        node.kind,
+        NodeKind::Form { head: ref name, .. }
+            if matches!(name.as_str(), "pin-get-payload" | "pin-get-payload-mut")
+    ) {
+        return false;
+    }
+    let Some(mut place) = Place::from_expression(body, NodeId(id)) else {
+        return false;
+    };
+    if place.root != PlaceRoot::Parameter(alias.parameter) {
+        return false;
+    }
+    let parameter_ty = &body.bindings[alias.parameter.0].ty;
+    if matches!(
+        parameter_ty,
+        Type::Reference { .. }
+            | Type::PinnedReference { .. }
+            | Type::Slice(_)
+            | Type::MutableSlice(_)
+    ) && place.segments.first() != Some(&Segment::Dereference)
+    {
+        place.segments.insert(0, Segment::Dereference);
+    }
+    place.segments == alias.storage
+}
+
+/// `Some(true)` means all payloads are known active, `Some(false)` means at
+/// least one is known inactive, and `None` means the caller cannot prove the
+/// state. Unknown is deliberately distinct from inactive.
+fn projection_payload_status(
+    body: &Body,
+    flow: &FlowGraph,
+    event: FlowNodeId,
+    value: NodeId,
+    origins: &FlowLoanOrigins,
+    alias: &Alias,
+) -> Option<bool> {
+    payload_path_status(
+        body,
+        flow,
+        event,
+        value,
+        origins,
+        alias,
+        &alias.projection,
+        false,
+    )
+}
+
+fn storage_payload_status(
+    body: &Body,
+    flow: &FlowGraph,
+    event: FlowNodeId,
+    value: NodeId,
+    origins: &FlowLoanOrigins,
+    alias: &Alias,
+) -> Option<bool> {
+    payload_path_status(
+        body,
+        flow,
+        event,
+        value,
+        origins,
+        alias,
+        &alias.storage,
+        true,
+    )
+}
+
+fn payload_path_status(
+    body: &Body,
+    flow: &FlowGraph,
+    event: FlowNodeId,
+    value: NodeId,
+    origins: &FlowLoanOrigins,
+    alias: &Alias,
+    path: &[Segment],
+    crosses_owner_deref: bool,
+) -> Option<bool> {
+    let payloads = path
+        .iter()
+        .enumerate()
+        .filter_map(|(index, segment)| match segment {
+            Segment::Payload(variant, _) => Some((index, *variant)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if payloads.is_empty() {
+        return Some(true);
+    }
+    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+        return None;
+    };
+    let Some(argument) = children.get(alias.parameter.0 + 1) else {
+        return None;
+    };
+    let Some(facts) = origins.variants_before(body, flow, event) else {
+        return None;
+    };
+    let parents = origins.value_before(body, flow, event, *argument);
+    let mut unknown = false;
+    for (index, wanted) in payloads {
+        let status = if crosses_owner_deref {
+            nested_payload_status(
+                body, event, origins, alias, path, index, wanted, facts, &parents,
+            )
+        } else {
+            let statuses = parents
+                .iter()
+                .filter(|parent| !parent.lifetime_only && !parent.owned_allocation)
+                .map(|parent| {
+                    let mut place = parent.referent_place();
+                    place.segments.extend_from_slice(&path[..index]);
+                    payload_fact(facts, &place, wanted)
+                })
+                .collect::<Vec<_>>();
+            combine_payload_candidates(&statuses)
+        };
+        match status {
+            Some(false) => return Some(false),
+            Some(true) => {}
+            None => unknown = true,
+        }
+    }
+    if unknown {
+        None
+    } else {
+        Some(true)
+    }
+}
+
+fn nested_payload_status(
+    body: &Body,
+    event: FlowNodeId,
+    origins: &FlowLoanOrigins,
+    alias: &Alias,
+    path: &[Segment],
+    payload_index: usize,
+    wanted: crate::typed_ir::VariantId,
+    facts: &HashMap<Place, crate::typed_ir::VariantId>,
+    parents: &[LoanOrigin],
+) -> Option<bool> {
+    let boundaries = path[..payload_index]
+        .iter()
+        .enumerate()
+        .filter_map(|(index, segment)| (*segment == Segment::Dereference).then_some(index))
+        .collect::<Vec<_>>();
+    let first = *boundaries.first()?;
+    let mut statuses = Vec::new();
+    let pointers = parents
+        .iter()
+        .filter(|parent| {
+            !parent.lifetime_only && !parent.owned_allocation && parent.storage == alias.owner_input
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if pointers.is_empty() {
+        return None;
+    }
+    for pointer in pointers {
+        let mut current = vec![pointer];
+        let mut previous = first;
+        for boundary in boundaries.iter().skip(1) {
+            let slot = &path[previous + 1..*boundary];
+            if slot.is_empty() {
+                current.clear();
+                break;
+            }
+            let next = current
+                .iter()
+                .flat_map(|owner| origins.pointee_before(body, event, owner))
+                .filter(|nested| {
+                    !nested.lifetime_only && !nested.owned_allocation && nested.storage == slot
+                })
+                .collect::<Vec<_>>();
+            if next.is_empty() {
+                current.clear();
+                break;
+            }
+            current = next;
+            previous = *boundary;
+        }
+        if current.is_empty() {
+            statuses.push(None);
+            continue;
+        }
+        let suffix = &path[previous + 1..payload_index];
+        for owner in current {
+            let mut place = owner.referent_place();
+            place.segments.extend_from_slice(suffix);
+            statuses.push(payload_fact(facts, &place, wanted));
+        }
+    }
+    combine_payload_candidates(&statuses)
+}
+
+fn payload_fact(
+    facts: &HashMap<Place, crate::typed_ir::VariantId>,
+    place: &Place,
+    wanted: crate::typed_ir::VariantId,
+) -> Option<bool> {
+    facts
+        .get(place)
+        .filter(|actual| actual.owner == wanted.owner)
+        .map(|actual| *actual == wanted)
+}
+
+fn combine_payload_candidates(statuses: &[Option<bool>]) -> Option<bool> {
+    if statuses.contains(&Some(true)) {
+        Some(true)
+    } else if !statuses.is_empty() && statuses.iter().all(|status| *status == Some(false)) {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 fn same_pointer_root(parent: &LoanOrigin, child: &LoanOrigin) -> bool {
@@ -701,7 +977,9 @@ fn project(mut ty: Type, path: &[Segment], declarations: &Declarations) -> Resul
         ty = match (segment, ty) {
             (
                 Segment::Dereference,
-                Type::Reference { target, .. } | Type::PinnedReference { target, .. },
+                Type::Reference { target, .. }
+                | Type::PinnedReference { target, .. }
+                | Type::PinOwned(target),
             ) => *target,
             (Segment::Field(id), Type::Named(owner)) => {
                 let field = declarations
@@ -736,7 +1014,12 @@ fn project(mut ty: Type, path: &[Segment], declarations: &Declarations) -> Resul
             (Segment::Index(index), Type::Array(element, length)) if *index < length as u128 => {
                 *element
             }
-            _ => return Err("incoming self-loan needs a checked static storage path".into()),
+            (Segment::Index(_), Type::Slice(element) | Type::MutableSlice(element)) => *element,
+            (segment, ty) => {
+                return Err(format!(
+                    "incoming self-loan cannot project {segment:?} from {ty:?}"
+                ))
+            }
         };
     }
     resolve_type(&ty, &declarations.aliases)
@@ -778,15 +1061,17 @@ impl Alias {
     ) -> Result<(), String> {
         let mut prefix = self.owner_input.clone();
         prefix.push(Segment::Dereference);
-        if !static_path(&self.owner_input)
+        if !static_storage_path(&self.owner_input)
             || !self.storage.starts_with(&prefix)
-            || !static_path(&self.storage[prefix.len()..])
+            || !static_storage_path(&self.storage[prefix.len()..])
         {
             return Err("incoming self-loan storage is not inside its owner pointee".into());
         }
         let owner = project(parameter_type.clone(), &self.owner_input, declarations)?;
-        let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) = owner else {
-            return Err("incoming self-loan owner is not a reference slot".into());
+        let target = match owner {
+            Type::Reference { target, .. } | Type::PinnedReference { target, .. } => target,
+            Type::PinOwned(target) => target,
+            _ => return Err("incoming self-loan owner is not an addressable owner".into()),
         };
         let child = project(parameter_type.clone(), &self.storage, declarations)?;
         let (target_type, mutable, pinned) = match child {
@@ -860,43 +1145,91 @@ impl Plan {
                     || parent
                         .entry_loan
                         .is_some_and(|family| excluded.contains(&family))
-                    || !static_path(&parent.storage)
+                    || !static_storage_path(&parent.storage)
                     || !static_path(&parent.place.segments)
                 {
                     continue;
                 }
                 let pointer = project(ty.clone(), &parent.storage, declarations)?;
-                if !matches!(
-                    pointer,
-                    Type::Reference { .. } | Type::PinnedReference { .. }
-                ) {
+                if !is_owner_pointer(&pointer) {
                     continue;
                 }
-                for child in origins.pointee_before(body, event, &parent) {
-                    if child.lifetime_only
-                        || child
-                            .entry_loan
-                            .is_some_and(|family| excluded.contains(&family))
-                        || !same_pointer_root(&parent, &child)
-                        || !child.place.segments.starts_with(&parent.place.segments)
-                        || !static_path(&child.storage)
-                    {
+                let mut pending = vec![(parent.clone(), parent.storage.clone(), 0usize)];
+                let mut visited = HashSet::new();
+                while let Some((owner, owner_input, depth)) = pending.pop() {
+                    let key = (
+                        owner.place.clone(),
+                        owner.parameter_storage.clone(),
+                        owner.storage.clone(),
+                        owner_input.clone(),
+                        owner.mutable,
+                        owner.pinned,
+                    );
+                    if !visited.insert(key) {
                         continue;
                     }
-                    let mut storage = parent.storage.clone();
-                    storage.push(Segment::Dereference);
-                    storage.extend_from_slice(&child.storage);
-                    let alias = Alias {
-                        parameter: BindingId(parameter),
-                        storage,
-                        owner_input: parent.storage.clone(),
-                        projection: child.place.segments[parent.place.segments.len()..].to_vec(),
-                        mutable: child.mutable,
-                        pinned: child.pinned,
+                    if depth >= MAX_INTERNAL_OWNER_DEPTH {
+                        return Err(format!(
+                            "nested internal-reference chain exceeds {MAX_INTERNAL_OWNER_DEPTH} levels"
+                        ));
+                    }
+                    let Ok(owner_type) = project(ty.clone(), &owner_input, declarations) else {
+                        // Provenance can also carry pointers reachable from
+                        // neighboring parameters or opaque capture storage.
+                        // Follow only paths that resolve inside this argument's
+                        // checked type; those others are not nested owner slots.
+                        continue;
                     };
-                    alias.validate(ty, declarations)?;
-                    if !aliases.contains(&alias) {
-                        aliases.push(alias);
+                    if !is_owner_pointer(&owner_type) {
+                        continue;
+                    }
+                    for child in origins.pointee_before(body, event, &owner) {
+                        if child.lifetime_only
+                            || child
+                                .entry_loan
+                                .is_some_and(|family| excluded.contains(&family))
+                            || !static_storage_path(&child.storage)
+                            || !static_path(&child.place.segments)
+                        {
+                            continue;
+                        }
+                        let mut storage = owner_input.clone();
+                        storage.push(Segment::Dereference);
+                        storage.extend_from_slice(&child.storage);
+                        let Ok(child_type) = project(ty.clone(), &storage, declarations) else {
+                            continue;
+                        };
+                        if !is_owner_pointer(&child_type) {
+                            continue;
+                        }
+                        if same_pointer_root(&owner, &child)
+                            && child.place.segments.starts_with(&owner.place.segments)
+                        {
+                            let alias = Alias {
+                                parameter: BindingId(parameter),
+                                storage: storage.clone(),
+                                owner_input: owner_input.clone(),
+                                projection: child.place.segments[owner.place.segments.len()..]
+                                    .to_vec(),
+                                mutable: child.mutable,
+                                pinned: child.pinned,
+                                caller_slot: static_storage_path(&child.storage).then(|| {
+                                    let mut slot = owner.place.clone();
+                                    slot.segments.extend_from_slice(&child.storage);
+                                    slot
+                                }),
+                                caller_referent: child.referent_place(),
+                            };
+                            alias.validate(ty, declarations)?;
+                            if !aliases.contains(&alias) {
+                                aliases.push(alias);
+                            }
+                        }
+                        // A reference held by this owner grants access to a
+                        // second object as well. Follow it so references stored
+                        // in that object remain associated with this call's
+                        // named parameter and nested storage path.
+                        pending.push((child, storage, depth + 1));
                     }
                 }
             }
@@ -977,6 +1310,7 @@ impl Plan {
         let live = flow.liveness(body);
         for (index, node) in flow.nodes.iter().enumerate() {
             let event = FlowNodeId(index);
+            let current_variants = origins.variants_before(body, flow, event);
             let live_bindings = live
                 .before(event)
                 .into_iter()
@@ -998,7 +1332,7 @@ impl Plan {
                 .collect::<Vec<_>>();
             let mut guarded = Vec::new();
             let mut observations = if check_observations {
-                observations_at(body, flow, &baseline, event, &consumptions)
+                observations_at(body, flow, &origins, event, &consumptions)
             } else {
                 Vec::new()
             }
@@ -1027,11 +1361,11 @@ impl Plan {
                     writes.clear();
                     for effect in effects {
                         let targets =
-                            map_write_input(body, flow, &baseline, event, children, &effect.target);
+                            map_write_input(body, flow, &origins, event, children, &effect.target);
                         let mut guards = Vec::new();
                         for (guard, variant) in effect.guards {
                             let mapped =
-                                map_write_input(body, flow, &baseline, event, children, &guard);
+                                map_write_input(body, flow, &origins, event, children, &guard);
                             if mapped.len() == 1 && !mapped[0].lifetime_only {
                                 guards.push((mapped[0].clone(), variant));
                             }
@@ -1063,13 +1397,15 @@ impl Plan {
                         let mut guards = Vec::new();
                         for (guard, variant) in effect.guards {
                             let mapped =
-                                map_write_input(body, flow, &baseline, event, children, &guard);
+                                map_write_input(body, flow, &origins, event, children, &guard);
                             if mapped.len() == 1 && !mapped[0].lifetime_only {
                                 guards.push((mapped[0].clone(), variant));
                             }
                         }
+                        let mapped_targets =
+                            map_write_input(body, flow, &origins, event, children, &effect.target);
                         observations.extend(
-                            map_write_input(body, flow, &baseline, event, children, &effect.target)
+                            mapped_targets
                                 .into_iter()
                                 .filter(|target| !target.lifetime_only && target.storage.is_empty())
                                 .map(|target| {
@@ -1107,7 +1443,13 @@ impl Plan {
                 _ => {}
             }
             for (family, alias) in self.aliases.iter().enumerate() {
-                if !origins.entry_alias_retained_before(event, family, alias, &live_bindings) {
+                if !origins.entry_alias_retained_before(
+                    event,
+                    family,
+                    alias,
+                    &live_bindings,
+                    current_variants,
+                ) {
                     continue;
                 }
                 if alias.excluded_at_entry(&entry[event.0]) {
@@ -1159,14 +1501,18 @@ impl Plan {
                                     && guard.place.segments == alias.projection[..index])
                         })
                 };
-                if writes.iter().any(overlaps)
-                    || guarded.iter().any(|(write, guards)| {
-                        overlaps(write)
-                            && !guards
-                                .iter()
-                                .any(|(guard, variant)| incompatible(guard, *variant))
-                    })
-                {
+                if writes.iter().any(|write| {
+                    write.entry_loan != Some(family)
+                        && !access_uses_alias_storage(body, alias, write)
+                        && overlaps(write)
+                }) || guarded.iter().any(|(write, guards)| {
+                    write.entry_loan != Some(family)
+                        && !access_uses_alias_storage(body, alias, write)
+                        && overlaps(write)
+                        && !guards
+                            .iter()
+                            .any(|(guard, variant)| incompatible(guard, *variant))
+                }) {
                     return Err((alias.parameter, BorrowConflict {
                         message: format!("cannot mutate or consume an owner while its stored internal reference is retained in '{name}'"),
                         span: node.span, labels: vec![],
@@ -1174,7 +1520,9 @@ impl Plan {
                 }
                 if let Some((_, _, _, span)) =
                     observations.iter().find(|(target, exclusive, guards, _)| {
-                        (alias.mutable || *exclusive)
+                        target.entry_loan != Some(family)
+                            && !access_uses_alias_storage(body, alias, target)
+                            && (alias.mutable || *exclusive)
                             && overlaps(target)
                             && !guards
                                 .iter()
@@ -1331,6 +1679,244 @@ mod tests {
     }
 
     #[test]
+    fn parameter_contents_summary_preserves_the_selected_source_slot() {
+        let source = "(#struct Link (: view (#ref u64)))
+            (#fn read-link (: value (#ref Link)) u64
+              (#return (#deref (#get (#deref value) view))))
+            (#fn caller (: target (#ref Link)) u64
+              (#return (#call read-link (: value target))))";
+        let declarations = fixture(source);
+        let body = &declarations.bodies["caller"];
+        let flow = &declarations.flows["caller"];
+        let origins = flow.loan_origins(body);
+        let call = declarations.function_id("read-link").unwrap();
+        let (event, value) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match node.action {
+                FlowAction::Evaluate(value)
+                    if matches!(body.nodes[value.0].kind,
+                        NodeKind::Form { callee: Some(found), .. } if found == call) =>
+                {
+                    Some((FlowNodeId(index), value))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let view = declarations
+            .field_id(&Type::Named("Link".into()), "view")
+            .unwrap();
+        let summary = crate::typed_body::ParameterLoanSummary {
+            fresh_allocation: None,
+            owned_allocation: false,
+            global: None,
+            parameter: 0,
+            mutable: false,
+            pinned: false,
+            lifetime_only: false,
+            referent_projection: Vec::new(),
+            input_storage: vec![Segment::Dereference, Segment::Field(view)],
+            storage: Vec::new(),
+            storage_inputs: Vec::new(),
+        };
+        let argument = match &body.nodes[value.0].kind {
+            NodeKind::Form { children, .. } => children[1],
+            _ => unreachable!(),
+        };
+        let slots = origins.summary_slots_before(body, flow, event, argument, &summary);
+        assert_eq!(
+            slots,
+            vec![Place {
+                root: PlaceRoot::Parameter(BindingId(0)),
+                segments: vec![Segment::Dereference, Segment::Field(view)],
+            }]
+        );
+    }
+
+    #[test]
+    fn enum_payload_owner_observation_is_not_hidden_by_a_missing_alias() {
+        let source = "(#enum View (NoView (HasView (#pin-ref-mut u64))))
+          (#struct Link (: value u64 : view View))
+          (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#let view (#pin-ref-mut u64) (#pin-borrow-mut (#get target value)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view)))
+            (#return target))
+          (#fn observe (: target (#pin-ref-mut Link)) u64 (#return (#get target value)))
+          (#fn driver () u64
+            (#let-mut link Link (#struct-literal Link (: value 42u64 : view NoView)))
+            (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
+            (#let value u64 (#call observe (: target installed)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) NoView))
+            (#drop installed) (#forget link) (#return value))";
+        let declarations = fixture(source);
+        let plan = call_plan(&declarations, "driver", "observe");
+        assert_eq!(plan.aliases.len(), 1, "{:#?}", plan.aliases);
+        assert!(plan.aliases[0].mutable, "{:#?}", plan.aliases);
+        assert!(plan.aliases[0]
+            .storage
+            .iter()
+            .any(|segment| matches!(segment, Segment::Payload(..))));
+        let body = &declarations.bodies["driver"];
+        let flow = &declarations.flows["driver"];
+        let checked = check_calls(
+            body,
+            flow,
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &std::cell::OnceCell::new(),
+        );
+        assert!(checked.is_err(), "{source}");
+
+        let shared = source.replace("#pin-ref-mut u64", "#pin-ref u64").replace(
+            "(#pin-borrow-mut (#get target value))",
+            "(#pin-borrow (#get target value))",
+        );
+        let declarations = fixture(&shared);
+        let body = &declarations.bodies["driver"];
+        let flow = &declarations.flows["driver"];
+        check_calls(
+            body,
+            flow,
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &std::cell::OnceCell::new(),
+        )
+        .unwrap_or_else(|error| {
+            panic!("a shared payload loan permits a shared read: {error:?}\n{shared}")
+        });
+    }
+
+    #[test]
+    fn unknown_enum_tag_retains_possible_mutable_payload_aliases() {
+        let source = "(#enum Value (Empty (Full u64)))
+          (#struct Link (: value Value : view (#pin-ref-mut u64)))
+          (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#let view (#pin-ref-mut u64)
+              (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))
+            (#return target))
+          (#fn observe (: target (#pin-ref-mut Link)) ()
+            (#let payload (#pin-ref-mut u64)
+              (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0))
+            (#drop payload) (#return ()))
+          (#fn driver (: outside (#pin-ref-mut u64) : choose bool) ()
+            (#let-mut link Link (#struct-literal Link
+              (: value (#if choose (Full 42u64) Empty) : view outside)))
+            (#if choose
+              (#block
+                (#let installed (#pin-ref-mut Link)
+                  (#call install (: target (#pin-borrow-mut link))))
+                (#drop installed) ())
+              ())
+            (#call observe (: target (#pin-borrow-mut link)))
+            (#forget link) (#return ()))";
+        let declarations = fixture(source);
+        let plan = call_plan(&declarations, "driver", "observe");
+        assert!(plan.aliases.iter().any(|alias| alias
+            .projection
+            .iter()
+            .any(|part| matches!(part, Segment::Payload(..)))));
+        let body = &declarations.bodies["driver"];
+        let flow = &declarations.flows["driver"];
+        let origins = flow.loan_origins(body);
+        let (event, call) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match node.action {
+                FlowAction::Evaluate(value)
+                    if matches!(body.nodes[value.0].kind,
+                    NodeKind::Form { callee: Some(found), .. }
+                        if found == declarations.function_id("observe").unwrap()) =>
+                {
+                    Some((FlowNodeId(index), value))
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            projection_payload_status(body, flow, event, call, &origins, &plan.aliases[0]),
+            None,
+            "the join must remain unknown, not be treated as inactive"
+        );
+        let error = check_calls(
+            body,
+            flow,
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &std::cell::OnceCell::new(),
+        )
+        .expect_err("the active branch may retain a mutable alias into the payload");
+        assert!(
+            error.message.contains("stored conflicting reference"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn nested_dereference_payload_tag_proves_the_stored_reference_is_active() {
+        let source = "(#enum View (NoView (HasView (#pin-ref u64))))
+          (#struct Inner (: value u64 : view View))
+          (#struct Middle (: inner (#pin-ref-mut Inner)))
+          (#struct Outer (: middle (#pin-ref-mut Middle)))
+          (#struct Shell (: outer (#pin-ref-mut Outer)))
+          (#fn touch-inner (: target (#pin-ref-mut Inner)) ()
+            (#let child (#pin-ref-mut u64) (#pin-borrow-mut (#get target value)))
+            (#drop child) (#return ()))
+          (#fn observe (: target (#pin-ref-mut Shell)) ()
+            (#let outer_ref (#pin-ref-mut Outer) (#get target outer))
+            (#let middle_ref (#pin-ref-mut Middle) (#get (#deref outer_ref) middle))
+            (#let inner_ref (#pin-ref-mut Inner) (#get (#deref middle_ref) inner))
+            (#call touch-inner (: target inner_ref)) (#return ()))
+          (#fn relay (: target (#pin-ref-mut Shell)) ()
+            (#call observe (: target target)) (#return ()))
+          (#fn driver () ()
+            (#let-mut inner Inner (#struct-literal Inner (: value 7u64 : view NoView)))
+            (#let inner_ref (#pin-ref-mut Inner) (#pin-borrow-mut inner))
+            (#let view (#pin-ref u64) (#pin-borrow (#get inner_ref value)))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get inner_ref view)) (HasView view)))
+            (#let-mut middle Middle (#struct-literal Middle (: inner inner_ref)))
+            (#let middle_ref (#pin-ref-mut Middle) (#pin-borrow-mut middle))
+            (#let-mut outer Outer (#struct-literal Outer (: middle middle_ref)))
+            (#let outer_ref (#pin-ref-mut Outer) (#pin-borrow-mut outer))
+            (#let-mut shell Shell (#struct-literal Shell (: outer outer_ref)))
+            (#let shell_ref (#pin-ref-mut Shell) (#pin-borrow-mut shell))
+            (#call relay (: target shell_ref)) (#return ()))";
+        let declarations = fixture(source);
+        let plan = call_plan(&declarations, "driver", "relay");
+        assert!(
+            plan.aliases.iter().any(|alias| {
+                alias
+                    .storage
+                    .iter()
+                    .filter(|segment| **segment == Segment::Dereference)
+                    .count()
+                    > 2
+                    && alias
+                        .storage
+                        .iter()
+                        .any(|segment| matches!(segment, Segment::Payload(..)))
+            }),
+            "expected a nested payload alias: {:#?}",
+            plan.aliases
+        );
+        let error = plan
+            .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
+            .expect_err("exclusive nested owner access conflicts with the stored shared loan");
+        assert!(
+            error.message.contains("stored conflicting reference"),
+            "{error:?}"
+        );
+
+        let inactive = source.replace("(HasView view)", "NoView");
+        let declarations = fixture(&inactive);
+        let plan = call_plan(&declarations, "driver", "relay");
+        plan.check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
+            .expect("an inactive payload contains no retained child loan");
+    }
+
+    #[test]
     fn actual_stored_self_loan_has_separate_storage_and_referent_paths() {
         let declarations = fixture(SOURCE);
         let plan = call_plan(&declarations, "driver", "tick");
@@ -1350,11 +1936,145 @@ mod tests {
                 projection: vec![Segment::Field(value)],
                 mutable: false,
                 pinned: true,
+                caller_slot: Some(Place {
+                    root: PlaceRoot::Local(BindingId(1)),
+                    segments: vec![Segment::Field(view)],
+                }),
+                caller_referent: Place {
+                    root: PlaceRoot::Local(BindingId(1)),
+                    segments: vec![Segment::Field(value)],
+                },
             }]
         );
         assert!(call_plan(&declarations, "driver", "install")
             .aliases
             .is_empty());
+    }
+
+    #[test]
+    fn proven_disjoint_owner_call_grants_only_its_retained_child_slot() {
+        let declarations = fixture(SOURCE);
+        let body = &declarations.bodies["driver"];
+        let flow = &declarations.flows["driver"];
+        let permissions = check_calls_cached(
+            body,
+            flow,
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &std::cell::OnceCell::new(),
+            &mut Cache::default(),
+        )
+        .unwrap();
+        let view = declarations
+            .field_id(&Type::Named("Link".into()), "view")
+            .unwrap();
+        let value = declarations
+            .field_id(&Type::Named("Link".into()), "value")
+            .unwrap();
+        assert!(
+            permissions.iter().any(|permission| {
+                permission.slot
+                    == Place {
+                        root: PlaceRoot::Local(BindingId(1)),
+                        segments: vec![Segment::Field(view)],
+                    }
+                    && permission.referent
+                        == Place {
+                            root: PlaceRoot::Local(BindingId(1)),
+                            segments: vec![Segment::Field(value)],
+                        }
+            }),
+            "the proven call should grant its own view field: {permissions:?}"
+        );
+    }
+
+    #[test]
+    fn loaded_internal_child_can_survive_a_proven_disjoint_owner_call() {
+        let source = SOURCE.replace(
+            "(#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)",
+            "(#let held (#pin-ref u64) (#get running view))\n        (#let sibling u32 (#get running state)) (#forget sibling)\n        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)\n        (#let observed u64 (#deref held)) (#forget observed) (#drop held)",
+        );
+        let declarations = fixture(&source);
+        let body = &declarations.bodies["driver"];
+        let flow = &declarations.flows["driver"];
+        let permissions = check_calls_cached(
+            body,
+            flow,
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &std::cell::OnceCell::new(),
+            &mut Cache::default(),
+        )
+        .unwrap();
+        let ordinary = crate::typed_borrow::check_live_direct_loans_cached_with_permissions(
+            body,
+            flow,
+            &crate::linearcheck::LinearTypes::default(),
+            &std::cell::OnceCell::new(),
+            &[],
+        );
+        let permitted = crate::typed_borrow::check_live_direct_loans_cached_with_permissions(
+            body,
+            flow,
+            &crate::linearcheck::LinearTypes::default(),
+            &std::cell::OnceCell::new(),
+            &permissions,
+        );
+        assert!(
+            ordinary.is_err(),
+            "the fixture must exercise the conflict: {ordinary:?}"
+        );
+        assert!(
+            permitted.is_ok(),
+            "the exact owner permission should resolve it: {permitted:?}\n{source}"
+        );
+        let program = crate::parse_program(&source).unwrap();
+        crate::check_types(&program).unwrap();
+    }
+
+    #[test]
+    fn loaded_internal_child_still_rejects_an_overlapping_owner_call() {
+        let source = SOURCE
+            .replace(
+                "(#pin-set-field target state 2u32)",
+                "(#pin-set-field target value 2u64)",
+            )
+            .replace(
+                "(#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)",
+                "(#let held (#pin-ref u64) (#get running view))\n        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)\n        (#let observed u64 (#deref held)) (#forget observed) (#drop held)",
+            );
+        let declarations = fixture(&source);
+        let body = &declarations.bodies["driver"];
+        let error = check_calls_cached(
+            body,
+            &declarations.flows["driver"],
+            &declarations,
+            &crate::linearcheck::LinearTypes::default(),
+            &std::cell::OnceCell::new(),
+            &mut Cache::default(),
+        )
+        .unwrap_err();
+        let span = error.span.unwrap();
+        assert_eq!(&source[span.start..span.end], "running");
+        assert!(
+            error
+                .labels
+                .iter()
+                .any(|(_, label)| label.contains("callee accesses")),
+            "expected the overlapping callee access to be labeled: {error:?}"
+        );
+    }
+
+    #[test]
+    fn loaded_internal_child_suspends_only_overlapping_parent_access() {
+        let source = SOURCE.replace(
+            "(#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)",
+            "(#let held (#pin-ref u64) (#get running view))\n        (#let forbidden u64 (#get running value)) (#forget forbidden)\n        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)\n        (#let observed u64 (#deref held)) (#forget observed) (#drop held)",
+        );
+        let program = crate::parse_program(&source).unwrap();
+        let (_, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
+        let span = span.unwrap();
+        assert_eq!(&source[span.start..span.end], "#get");
     }
 
     #[test]
@@ -2212,7 +2932,7 @@ mod tests {
                 .filter(|binding| binding.0 >= body.parameter_count)
                 .collect::<Vec<_>>();
             assert_eq!(
-                origins.entry_alias_retained_before(event, 0, &plan.aliases[0], &live),
+                origins.entry_alias_retained_before(event, 0, &plan.aliases[0], &live, None),
                 keep_copy
             );
             let actual =
@@ -2308,7 +3028,7 @@ mod tests {
             .unwrap();
         for (family, alias) in plan.aliases.iter().enumerate() {
             assert_eq!(
-                origins.entry_alias_retained_before(event, family, alias, &[]),
+                origins.entry_alias_retained_before(event, family, alias, &[], None),
                 alias.storage.last() == Some(&Segment::Field(field("second")))
             );
         }

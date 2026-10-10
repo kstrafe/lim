@@ -1972,6 +1972,53 @@ fn check_types_inner(
         functions.signatures,
         &declaration_spans,
     );
+    let mut async_graph_sources = program
+        .source_files
+        .iter()
+        .enumerate()
+        .filter_map(|(source_id, file)| {
+            file.path
+                .to_string_lossy()
+                .starts_with("<async graph ")
+                .then_some(source_id as u32)
+        })
+        .collect::<HashSet<_>>();
+    let mut async_invocation_spans = HashSet::new();
+    for (source_id, invocation) in &program.generated_source_invocations {
+        let is_async_generator = program
+            .source_files
+            .get(invocation.source_id as usize)
+            .and_then(|file| file.source.get(invocation.start..invocation.end))
+            .is_some_and(|text| text.trim_start().starts_with("(@async-fn"));
+        if is_async_generator {
+            async_graph_sources.insert(*source_id);
+            async_invocation_spans.insert((invocation.source_id, invocation.start, invocation.end));
+        }
+    }
+    if !async_graph_sources.is_empty() {
+        for item in &program.items {
+            let crate::Item::Function(function) = item else {
+                continue;
+            };
+            let async_generated =
+                program
+                    .declaration_spans
+                    .get(&function.name)
+                    .is_some_and(|span| {
+                        async_graph_sources.contains(&span.source_id)
+                            || async_invocation_spans.contains(&(
+                                span.source_id,
+                                span.start,
+                                span.end,
+                            ))
+                    });
+            if async_generated {
+                if let Some(id) = declarations.function_id(&function.name) {
+                    declarations.async_generated_functions.insert(id);
+                }
+            }
+        }
+    }
     if let Some(planning) = planning {
         declarations.set_deferred_layouts(&planning.registry.deferred_layouts);
     }
@@ -2211,6 +2258,20 @@ fn check_types_inner(
     for item in &program.items {
         if let crate::Item::Function(function) = item {
             if let Some(body) = declarations.bodies.get(&function.name) {
+                let reborrow_permissions = crate::call_self_loans::check_calls_cached(
+                    body,
+                    &declarations.flows[&function.name],
+                    &declarations,
+                    &linear_types,
+                    &loan_caches[function.name.as_str()],
+                    &mut internal_owner_cache,
+                )
+                .map_err(|error| {
+                    *diagnostic_span = error.span;
+                    *diagnostic_labels = error.labels;
+                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
+                    error.message
+                })?;
                 crate::typed_borrow::check_call_arguments_cached(
                     body,
                     &declarations.flows[&function.name],
@@ -2231,25 +2292,12 @@ fn check_types_inner(
                     record_generated_invocation(program, diagnostic_span, diagnostic_labels);
                     error.message
                 })?;
-                crate::call_self_loans::check_calls_cached(
-                    body,
-                    &declarations.flows[&function.name],
-                    &declarations,
-                    &linear_types,
-                    &loan_caches[function.name.as_str()],
-                    &mut internal_owner_cache,
-                )
-                .map_err(|error| {
-                    *diagnostic_span = error.span;
-                    *diagnostic_labels = error.labels;
-                    record_generated_invocation(program, diagnostic_span, diagnostic_labels);
-                    error.message
-                })?;
-                crate::typed_borrow::check_live_direct_loans_cached(
+                crate::typed_borrow::check_live_direct_loans_cached_with_permissions(
                     body,
                     &declarations.flows[&function.name],
                     &linear_types,
                     &loan_caches[function.name.as_str()],
+                    &reborrow_permissions,
                 )
                 .map_err(|error| {
                     *diagnostic_span = error
@@ -16117,8 +16165,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_parameter_contents_follow_writes_without_replacing_the_handle() {
-        // This remains a staged-analysis fixture: the legacy production checker
-        // rejects the field read after replacing the parameter's contents.
+        // These writes must update the callee's concrete reference contents;
+        // the read that follows must retain the replacement's actual loan.
         let native = crate::parse_program(
             "(#struct Holder (: view (#ref u64)))
              (#fn load-after-replace (: target (#ref-mut Holder) : replacement (#ref u64)) u64
@@ -16127,6 +16175,7 @@ mod typed_ownership_tests {
                (#return (#deref chosen)))",
         )
         .unwrap();
+        crate::check_types(&native).unwrap();
         let declarations = resolve_program_for_analysis(&native, false).unwrap();
         let body = &declarations.bodies["load-after-replace"];
         let flow = &declarations.flows["load-after-replace"];
@@ -16181,6 +16230,7 @@ mod typed_ownership_tests {
                 (#fn rewrite (: target ({target_type} Holder) : replacement (#ref u64) : selected bool) (#ref u64)
                   {write} (#return {read}))");
             let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap_or_else(|error| panic!("{mode}: {error}"));
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
             let body = &declarations.bodies["rewrite"];
             let flow = &declarations.flows["rewrite"];
@@ -16266,6 +16316,42 @@ mod typed_ownership_tests {
         assert_eq!(addresses.len(), 1);
         assert_eq!(addresses[0].parameter_storage.as_ref().unwrap().len(), 2);
         assert!(addresses[0].storage.is_empty());
+    }
+
+    #[test]
+    fn production_nested_pointer_store_retains_the_replacement_loan() {
+        let source = "(#struct Holder (: view (#ref u64)))
+            (#struct Outer (: inner (#ref-mut Holder) : sibling u64))
+            (#fn rewrite (: target (#ref-mut Outer) : replacement (#ref u64)) ()
+              (#let inner (#ref-mut Holder) (#get target inner))
+              (#deref-set inner (#struct-literal Holder (: view replacement)))
+              (#return ()))
+            (#fn main () ()
+              (#let old u64 1u64) (#let-mut replacement u64 42u64)
+              (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
+              (#let-mut outer Outer (#struct-literal Outer (: inner (#borrow-mut holder) : sibling 0u64)))
+              (#call rewrite (: target (#borrow-mut outer) : replacement (#borrow replacement)))
+              (#set replacement 0u64)
+              (#forget outer) (#forget holder) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let (message, code, span, labels) = check_types_with_span(&program).unwrap_err();
+        assert_eq!(code, crate::DiagnosticCode::Borrow, "{message}");
+        assert_eq!(&source[span.unwrap().start..span.unwrap().end], "#set");
+        assert!(message.contains("replacement"), "{message}");
+        assert!(
+            labels
+                .iter()
+                .any(|(span, _)| span.start == source.find("#borrow replacement").unwrap()),
+            "{labels:?}"
+        );
+
+        let restored = source.replace(
+            "(#set replacement 0u64)",
+            "(#call rewrite (: target (#borrow-mut outer) : replacement (#borrow old)))\n              (#set-field outer sibling 9u64)\n              (#set replacement 0u64)",
+        );
+        crate::check_types(&crate::parse_program(&restored).unwrap()).unwrap_or_else(|error| {
+            panic!("restoring the stored reference must release its old loan: {error}")
+        });
     }
 
     #[test]
@@ -16936,6 +17022,32 @@ mod typed_ownership_tests {
             stores[0].sources.iter().all(|source| source.parameter == 2),
             "{stores:?}"
         );
+    }
+
+    #[test]
+    fn definite_heap_field_write_stays_definite_with_carried_owner_loans() {
+        let source = "(#struct Holder (: link (#ref u64)))
+            (#fn replace-owned (: owner (#pin-own Holder) : value (#ref u64)) (#pin-own Holder)
+              (#let-mut moved (#pin-own Holder) owner)
+              (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut moved))
+              (#pin-set-field view link value) (#drop view) (#return moved))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["replace-owned"];
+        let function = declarations.function_id("replace-owned").unwrap();
+        let stores = &body.call_store_origins[&function];
+        assert_eq!(stores.len(), 1, "{stores:?}");
+        assert!(stores[0].definitely_written, "{stores:?}");
+        let returns = &body.call_return_origins[&function];
+        assert!(returns.iter().any(|origin| origin.owned_allocation));
+        assert!(returns
+            .iter()
+            .any(|origin| origin.parameter == 1 && !origin.storage.is_empty()));
+        assert!(stores[0]
+            .destination
+            .storage
+            .iter()
+            .all(|segment| *segment != crate::typed_place::Segment::Dereference));
     }
 
     #[test]
@@ -20211,7 +20323,7 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_slice_ranges_do_not_invent_exact_element_identities() {
+    fn staged_slice_ranges_select_only_the_bounded_reference_slots() {
         let source = "(#struct Resource ((number u64))) (#linear Resource)
           (#struct View ((value (#ref Resource))))
           (#fn read ((sources (#slice View)) (index usize)) u64
@@ -20232,13 +20344,48 @@ mod typed_ownership_tests {
             .staged_contents_referent_entry_contracts(&types)
             .unwrap();
         let summary = &summaries[&declarations.function_id("inspect").unwrap()];
+        assert!(
+            summary.reads.iter().any(|read| {
+                read.place.root
+                    == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(1))
+            }),
+            "the selected range element retains its reference loan: {summary:?}"
+        );
+        assert!(
+            !summary.reads.iter().any(|read| {
+                read.place.root
+                    == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(0))
+            }),
+            "an element outside the range must not become a possible referent: {summary:?}"
+        );
+
+        let dynamic_source = source
+            .replace(
+                "((left (#ref Resource)) (right (#ref Resource))) u64",
+                "((left (#ref Resource)) (right (#ref Resource)) (start usize) (end usize)) u64",
+            )
+            .replace(
+                "(#slice-range (#slice-of (#borrow views)) 1usize 2usize)",
+                "(#slice-range (#slice-of (#borrow views)) start end)",
+            );
+        let dynamic_program = crate::parse_program(&dynamic_source).unwrap();
+        crate::check_types(&dynamic_program).unwrap();
+        let mut dynamic_declarations =
+            resolve_program_for_analysis(&dynamic_program, false).unwrap();
+        let dynamic_summaries = dynamic_declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let dynamic_summary =
+            &dynamic_summaries[&dynamic_declarations.function_id("inspect").unwrap()];
         for parameter in [0, 1] {
             assert!(
-                summary.reads.iter().any(|read| read.place.root
-                    == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(
-                        parameter
-                    ))),
-                "range offset must not specialize to the wrong element: {summary:?}"
+                dynamic_summary.reads.iter().any(|read| {
+                    read.place.root
+                        == crate::typed_body::PlaceRoot::Parameter(crate::typed_body::BindingId(
+                            parameter,
+                        ))
+                }),
+                "unknown range bounds must retain every possible element: {dynamic_summary:?}"
             );
         }
     }

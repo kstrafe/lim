@@ -614,6 +614,12 @@ fn compilation_errors_render_the_offending_source_line() {
             line_number: 3,
         },
         Case {
+            name: "unsafe-external-reference-return",
+            diagnostic_code: "E4300",
+            offending_line: "  (#let reference (#ref-mut u64) (#call external-reference (:)))",
+            line_number: 3,
+        },
+        Case {
             name: "unsafe-function-call",
             diagnostic_code: "E4300",
             offending_line: "  (#return (#call answer (:))))",
@@ -1238,6 +1244,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "duplicate-generator-parameter" => Some("x"),
             "unsafe" => Some("VALUE"),
             "unsafe-external-call" => Some("external-value"),
+            "unsafe-external-reference-return" => Some("external-reference"),
             "unsafe-function-call" => Some("answer"),
             "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
