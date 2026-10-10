@@ -7,12 +7,40 @@ fn snapshot(root: &Path, directory: &Path, output: &mut BTreeMap<String, Vec<u8>
         if path.is_dir() {
             snapshot(root, &path, output);
         } else {
+            let mut contents = fs::read(&path).unwrap();
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "hash")
+            {
+                // Source checksums include invocation-location comments, which
+                // intentionally differ after relocating a workspace. Verify
+                // integrity independently rather than comparing those hashes.
+                let key = fs::read(path.with_extension("key")).unwrap();
+                let source = fs::read(
+                    root.join(".lim/generated")
+                        .join(path.file_name().unwrap())
+                        .with_extension("lim"),
+                )
+                .unwrap();
+                let mut hash = 0x6c62272e07bb014262b821756295c58du128;
+                for byte in key.iter().chain([0].iter()).chain(source.iter()) {
+                    hash ^= u128::from(*byte);
+                    hash = hash.wrapping_mul(0x0000000001000000000000000000013bu128);
+                }
+                assert_eq!(contents, format!("{hash:032x}").as_bytes());
+                contents = b"verified source checksum".to_vec();
+            } else if path.extension().is_some_and(|extension| extension == "lim") {
+                // Normalize only provenance comments, never executable source.
+                let source = String::from_utf8(contents).unwrap();
+                let prefix = format!("; {}/", root.display());
+                contents = source.replace(&prefix, "; <workspace>/").into_bytes();
+            }
             output.insert(
                 path.strip_prefix(root)
                     .unwrap()
                     .to_string_lossy()
                     .into_owned(),
-                fs::read(path).unwrap(),
+                contents,
             );
         }
     }
