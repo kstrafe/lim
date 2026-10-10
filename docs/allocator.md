@@ -34,6 +34,15 @@ and calls `free` exactly once for an allocation. `String-clear` retains
 allocated capacity; an empty
 string with retained capacity still needs freeing.
 
+`library/utf8_view.lim`, included by `#std`, generates validated borrowed text
+views over String allocations or shared byte slices. `String-view` is a
+constant-time borrow; `Utf8Slice-from-owner` validates without allocation.
+Checked byte-boundary subviews, explicit view clones, and character iterators
+retain the original source loan even after a parent view is forgotten.
+They never copy or destroy the owner. Packed heap bytes and word-backed Lim
+slices use distinct safe readers. See the borrowed UTF-8 view section in
+`docs/language.md` for the complete generated API and unsafe-constructor contract.
+
 The allocator is fixed by this concrete library type, not selected implicitly
 by a call or borrowed from a temporary allocator instance. It is a
 process-wide allocator with process lifetime. Collections using user-defined

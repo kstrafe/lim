@@ -1396,6 +1396,76 @@ caller must keep a shared borrow alive, read only initialized bytes, and never
 write, grow, move, or free the string while using it. Safe stdout functions
 uphold these obligations internally; printing does not require `#unsafe`.
 
+### Borrowed UTF-8 views
+
+`(#std)` also provides `StringView` and `Utf8Slice`: opaque, allocation-free
+UTF-8 views that retain a shared borrow of their source. `String-view
+(: string (#ref String))` borrows the complete String in constant time, since
+safe String operations already guarantee valid UTF-8. `Utf8Slice-from-owner
+(: owner (#slice #u8))` validates the complete byte slice and returns
+`(Utf8SliceValid view)` or `Utf8SliceInvalidUtf8`, without allocating or
+copying the bytes. Empty input and embedded NUL are valid.
+
+Both APIs come from an ordinary library generator. To declare another concrete
+view, choose its public name and source layout explicitly:
+
+```lisp library
+(#std)
+(@utf8-view (: name BorrowedText : owner (#slice #u8)))
+(#fn main () #u64
+  (#let bytes (#array #u8 2) (#array-of (#array #u8 2) 195u8 169u8))
+  (#let view BorrowedText
+    (#match (#call BorrowedText-from-owner (: owner (#slice-of (#borrow bytes))))
+      (#case (BorrowedTextValid accepted) accepted)
+      (#case _ (#panic))))
+  (#let-mut iterator BorrowedTextChars (#call BorrowedText-chars (: view view)))
+  (#assert (#match (#call BorrowedTextChars-next (: iterator (#borrow-mut iterator)))
+    (#case (BorrowedTextChar value) (#char.== value #\é))
+    (#case _ false)))
+  (#forget iterator)
+  (#return 42u64))
+```
+
+For a generated name `V`, the public operations are:
+
+| Function | Arguments | Result |
+| --- | --- | --- |
+| `V-from-owner` | `: owner` with the declared source type | `VResult`: `(VValid view)` or `VInvalidUtf8`; validates in O(bytes). |
+| `V-len` | `: view (#ref V)` | `#usize` byte length, not character count. |
+| `V-is-empty` | `: view (#ref V)` | `#bool`. |
+| `V-byte-at` | `: view (#ref V) : index #usize` | `(Utf8Byte copied-byte)` or `Utf8ByteOutOfBounds`. |
+| `V-boundary` | `: view (#ref V) : index #usize` | Whether the offset is a scalar boundary; zero and length are boundaries, out-of-range is false. |
+| `V-subview` | `: view (#ref V) : start #usize : end #usize` | `VResult` for half-open byte range `[start,end)`: `(VValid subview)`, `VInvalidRange`, or `VInvalidBoundary`. |
+| `V-clone` | `: view (#ref V)` | A new borrowed view; copies only borrow metadata, not the source or allocation. |
+| `V-chars` | `: view V` | `VChars`, consuming the view and retaining its source borrow. |
+| `VChars-next` | `: iterator (#ref-mut VChars)` | `(VChar scalar)` or `VEnd`; repeated end reads remain at end. |
+
+Subview bounds are checked before additions or byte access, including maximal
+`#usize` offsets. Splitting a multibyte scalar is an error, including an empty
+range at a non-boundary offset. Nested subviews use offsets relative to their
+parent and retain the original source borrow, not the temporary parent view.
+Views can be returned through helpers or stored in aggregates. Forgetting a
+parent does not release a child's or iterator's source loan. Mutation, growth,
+moving, and destruction of that source are rejected while such loans remain
+live. Explicitly `#forget` unused views and iterators; no destructor or allocator
+operation runs. See `examples/string_view.lim` for an owned String example.
+
+Iteration decodes Unicode scalar values, not grapheme clusters or normalized
+text. It requires no dynamic dispatch, function pointers, heap allocation,
+or compiler-specific view primitive. Generated ordinary Lim is inspectable in
+`.lim/generated/` and uses the same content-addressed cache as other generators.
+The supporting `V-byte`, `V-valid`, and `V-decode` functions perform checked byte
+access, validation, and decoding; `V-decode` asserts an in-range scalar boundary
+and returns `(#tuple #char #usize)` containing the scalar and its byte width.
+`V-assume-valid` is an **unsafe** constructor that skips validation. Its caller
+must prove the complete source is valid UTF-8 and preserve the source's shared
+borrow. The safe `String-view` wrapper upholds this contract internally.
+
+The generator accepts only `(#ref String)` and `(#slice #u8)` sources. Arbitrary
+reader callbacks could change interior-mutable storage after validation and are
+not accepted. Packed String bytes and Lim word-backed byte slices use separate
+accessors: no raw pointer is reinterpreted as a word-layout slice or reference.
+
 Raw-backed scalar references preserve exact byte addresses and access the
 native width of the scalar, including at odd `#u8` addresses. References keep
 internal high-bit storage metadata, which is removed before syscall and

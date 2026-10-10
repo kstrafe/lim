@@ -1,6 +1,7 @@
 ; Explicit standard-library entry point. The compiler embeds these modules,
 ; so (#std) does not depend on a checkout or a working-directory search path.
 (#import "string.lim")
+(#import "utf8_view.lim")
 (#import "stdio.lim")
 (#import "stdin.lim")
 (#import "file.lim")
