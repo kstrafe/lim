@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::generator::async_exec::{
     Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Edge, Graph, LoadKind,
-    PlaceDescriptor, ReleaseKind, Terminator, ValueId,
+    PlaceDescriptor, PlaceId, ReleaseKind, Terminator, ValueId,
 };
 use crate::generator::async_prepare::{Function, Planning};
 use crate::source_error::SourceError;
@@ -72,6 +72,8 @@ struct Emitter<'a> {
     leases: crate::generator::async_lease::Plan,
     reference_cells: Option<crate::generator::async_cells::Plan>,
     projections: Vec<String>,
+    addresses: HashMap<PlaceId, usize>,
+    address_retirement: Option<crate::generator::async_addresses::Plan>,
 }
 
 fn atom(name: &str) -> Expr {
@@ -178,6 +180,8 @@ impl<'a> Emitter<'a> {
             leases,
             reference_cells: None,
             projections: Vec::new(),
+            addresses: HashMap::new(),
+            address_retirement: None,
         };
         emitter.finish = emitter.fresh("frame-finish");
         // Each scope/declaration activates its own cell. The factory installs
@@ -200,6 +204,94 @@ impl<'a> Emitter<'a> {
             let slot = emitter.add_slot(format!("value.{index}"), value.ty.clone());
             emitter.values.insert(ValueId(index), slot);
         }
+        // Checked selections and their descendants are actual addresses, not
+        // recipes to evaluate again after effects or a suspension.
+        let mut selected = HashSet::new();
+        for (index, descriptor) in function.graph.places.iter().enumerate() {
+            if !descriptor.checks().is_empty()
+                || descriptor
+                    .parent
+                    .is_some_and(|parent| selected.contains(&parent))
+            {
+                selected.insert(PlaceId(index));
+            }
+        }
+        let mut mutable = HashSet::new();
+        for block in &function.graph.blocks {
+            for action in &block.actions {
+                match action.action {
+                    Action::Store { place, .. }
+                    | Action::Borrow {
+                        place,
+                        mutable: true,
+                        ..
+                    } => {
+                        mutable.insert(place);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for index in (0..function.graph.places.len()).rev() {
+            if mutable.contains(&PlaceId(index)) {
+                if let Some(parent) = function.graph.places[index].parent {
+                    mutable.insert(parent);
+                }
+            }
+        }
+        for index in 0..function.graph.places.len() {
+            let place = PlaceId(index);
+            if !selected.contains(&place) {
+                continue;
+            }
+            let descriptor = &function.graph.places[index];
+            let selection_error = |message: &str| Error {
+                message: message.into(),
+                span: descriptor
+                    .source
+                    .and_then(|source| body.nodes[source.0].span)
+                    .unwrap_or(function.source.function.span),
+            };
+            let pinned = match descriptor.root {
+                AddressRoot::Local(_) if emitter.pinned => true,
+                AddressRoot::Value(value) => match crate::typed_ir::resolve_type(
+                    &function.graph.values[value.0].ty,
+                    &planning.declarations.aliases,
+                )
+                .map_err(|message| fail(function, message))?
+                {
+                    Type::PinnedReference { .. } => true,
+                    Type::Reference { .. } => false,
+                    _ => {
+                        return Err(selection_error(
+                            "selected addresses require safe checked references",
+                        ))
+                    }
+                },
+                _ => {
+                    return Err(selection_error(
+                        "selected owned addresses require a pinned frame",
+                    ))
+                }
+            };
+            let ty = if pinned {
+                Type::PinnedReference {
+                    mutable: mutable.contains(&place),
+                    target: Box::new(descriptor.ty.clone()),
+                }
+            } else {
+                Type::Reference {
+                    mutable: mutable.contains(&place),
+                    target: Box::new(descriptor.ty.clone()),
+                }
+            };
+            let slot = emitter.add_slot(format!("address.{index}"), ty);
+            emitter.addresses.insert(place, slot);
+        }
+        emitter.address_retirement = Some(crate::generator::async_addresses::Plan::new(
+            &function.graph,
+            &selected,
+        ));
         let mut exclusive_handles = HashSet::new();
         for (value, slot) in &emitter.values {
             let ty = crate::typed_ir::resolve_type(
@@ -522,7 +614,7 @@ impl<'a> Emitter<'a> {
         self.clear_handle_slots(&slots)
     }
 
-    fn clear_handle_slots(&mut self, slots: &[usize]) -> String {
+    fn clear_handle_slots(&self, slots: &[usize]) -> String {
         let mut clears = Vec::new();
         for &index in slots {
             let handle = self.fresh("retired-handle");
@@ -679,6 +771,221 @@ impl<'a> Emitter<'a> {
         Ok(format!(
             "(#match {value} (#case {source} (#block {} ())) (#case _ (#unreachable)))",
             stores.join("\n")
+        ))
+    }
+
+    fn selected_reference(&self, place: PlaceId) -> String {
+        let slot = &self.slots[self.addresses[&place]];
+        if slot.copy {
+            self.read(self.addresses[&place], false)
+        } else {
+            format!(
+                "(#deref (#pin-get-payload-mut {} {} 0))",
+                Self::slot_ref(slot, true),
+                slot.full
+            )
+        }
+    }
+
+    fn clear_addresses(&self, places: &[PlaceId]) -> String {
+        self.clear_handle_slots(
+            &places
+                .iter()
+                .filter_map(|place| self.addresses.get(place).copied())
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    fn select_address(
+        &mut self,
+        place: PlaceId,
+        descriptor: &PlaceDescriptor,
+    ) -> Result<String, Error> {
+        let slot = &self.slots[self.addresses[&place]];
+        let (pinned, mutable) = match slot.ty {
+            Type::PinnedReference { mutable, .. } => (true, mutable),
+            Type::Reference { mutable, .. } => (false, mutable),
+            _ => unreachable!(),
+        };
+        let borrow = format!(
+            "#{}borrow{}",
+            if pinned { "pin-" } else { "" },
+            if mutable { "-mut" } else { "" }
+        );
+        let output_type = slot.ty.clone();
+        let destination = self.addresses[&place];
+        let (input, input_type, start) = if let Some(parent) = descriptor
+            .parent
+            .filter(|parent| self.addresses.contains_key(parent))
+        {
+            (
+                self.selected_reference(parent),
+                self.slots[self.addresses[&parent]].ty.clone(),
+                descriptor.checked_prefix,
+            )
+        } else {
+            match descriptor.root {
+                AddressRoot::Local(binding) => {
+                    let owner = &self.slots[self.bindings[&binding]];
+                    (
+                        format!(
+                            "(#pin-get-payload{} {} {} 0)",
+                            if mutable { "-mut" } else { "" },
+                            Self::slot_ref(owner, mutable),
+                            owner.full
+                        ),
+                        Type::PinnedReference {
+                            mutable,
+                            target: Box::new(owner.ty.clone()),
+                        },
+                        0,
+                    )
+                }
+                AddressRoot::Value(value)
+                    if matches!(
+                        descriptor.projections.first(),
+                        Some(AddressProjection::Dereference)
+                    ) =>
+                {
+                    (
+                        self.nonmoving_handle(value, &self.function.graph.values[value.0].ty)?,
+                        self.function.graph.values[value.0].ty.clone(),
+                        1,
+                    )
+                }
+                _ => {
+                    return Err(fail(
+                        self.function,
+                        "selected address has no checked stable owner",
+                    ))
+                }
+            }
+        };
+        // Ordinary projection builtins require a variable-rooted capability.
+        // Pass the evaluated parent into a checked helper rather than borrowing
+        // an accessor call or reconstructing the original owner's address.
+        let helper = self.fresh("select-address");
+        let base = self.fresh("select-base");
+        let mut signature = vec![format!("({base} {})", crate::type_source(&input_type))];
+        let mut arguments = vec![format!("({base} {input})")];
+        let mut reference = base;
+        let resolved =
+            crate::typed_ir::resolve_type(&input_type, &self.planning.declarations.aliases)
+                .map_err(|message| fail(self.function, message))?;
+        let mut target = match resolved {
+            Type::Reference { target, .. } | Type::PinnedReference { target, .. } => *target,
+            _ => {
+                return Err(fail(
+                    self.function,
+                    "selected helper requires a checked reference",
+                ))
+            }
+        };
+        let mut steps = Vec::new();
+        for projection in &descriptor.projections[start..] {
+            let expression = match projection {
+                AddressProjection::Field(field) => format!(
+                    "({borrow} (#get {reference} {}))",
+                    self.planning.declarations.field(*field).name
+                ),
+                AddressProjection::Tuple(index) => format!("({borrow} (#get {reference} {index}))"),
+                AddressProjection::Index(index) => {
+                    let name = self.fresh("select-index");
+                    signature.push(format!("({name} #usize)"));
+                    arguments.push(format!("({name} {})", self.value(*index, false)));
+                    format!("({borrow} (#index {reference} {name}))")
+                }
+                AddressProjection::Payload(variant, index) => {
+                    let name = &self.planning.declarations.variant(*variant).name;
+                    if pinned {
+                        format!(
+                            "(#pin-get-payload{} {reference} {name} {index})",
+                            if mutable { "-mut" } else { "" }
+                        )
+                    } else {
+                        format!("({borrow} (#get-payload {reference} {name} {index}))")
+                    }
+                }
+                _ => {
+                    return Err(fail(
+                        self.function,
+                        "selected address projection lacks a checked reference operation",
+                    ))
+                }
+            };
+            target = match projection {
+                AddressProjection::Field(field) => {
+                    self.planning.declarations.field(*field).ty.clone()
+                }
+                AddressProjection::Tuple(index) => {
+                    let Type::Tuple(fields) = target else {
+                        return Err(fail(
+                            self.function,
+                            "selected tuple has no checked tuple type",
+                        ));
+                    };
+                    fields.get(*index).cloned().ok_or_else(|| {
+                        fail(self.function, "selected tuple field is out of range")
+                    })?
+                }
+                AddressProjection::Index(_) => {
+                    let Type::Array(element, _) = target else {
+                        return Err(fail(
+                            self.function,
+                            "selected index has no checked array type",
+                        ));
+                    };
+                    *element
+                }
+                AddressProjection::Payload(variant, index) => self
+                    .planning
+                    .declarations
+                    .variant(*variant)
+                    .fields
+                    .get(*index)
+                    .cloned()
+                    .ok_or_else(|| fail(self.function, "selected payload is out of range"))?,
+                _ => unreachable!(),
+            };
+            target = crate::typed_ir::resolve_type(&target, &self.planning.declarations.aliases)
+                .map_err(|message| fail(self.function, message))?;
+            let selected_type = if pinned {
+                Type::PinnedReference {
+                    mutable,
+                    target: Box::new(target.clone()),
+                }
+            } else {
+                Type::Reference {
+                    mutable,
+                    target: Box::new(target.clone()),
+                }
+            };
+            let selected = self.fresh("selected-step");
+            steps.push(format!(
+                "(#let {selected} {} {expression})",
+                crate::type_source(&selected_type)
+            ));
+            reference = selected;
+        }
+        self.projections.push(format!(
+            "(#fn {helper} ({}) {} {} (#return {reference}))",
+            signature.join(" "),
+            crate::type_source(&output_type),
+            steps.join("\n")
+        ));
+        let slot = &self.slots[destination];
+        // Repeated execution may select this address only after its prior
+        // capability has been retired. Publish that physical tag invariant
+        // before touching the owner, so ordinary call contracts distinguish
+        // first-entry selection from resumed access through a retained handle.
+        Ok(format!(
+            "(#assert (#variant-is {} {}))\n{}",
+            Self::slot_ref(slot, false),
+            slot.empty,
+            self.put(
+                destination,
+                &format!("(#call {helper} ({}))", arguments.join(" "))
+            )
         ))
     }
 
@@ -1252,7 +1559,10 @@ impl<'a> Emitter<'a> {
                 }
                 Ok(self.put_value(*dst, &text))
             }
-            Action::Place { descriptor, .. } => {
+            Action::Place { dst, descriptor } => {
+                if self.addresses.contains_key(dst) {
+                    return self.select_address(*dst, descriptor);
+                }
                 let simple_owned = matches!(descriptor.root, AddressRoot::Local(_))
                     && descriptor.projections.iter().all(|projection| {
                         matches!(
@@ -1280,6 +1590,20 @@ impl<'a> Emitter<'a> {
             }
             Action::Load { dst, place, kind } => {
                 let descriptor = &graph.places[place.0];
+                if self.addresses.contains_key(place) {
+                    if !self.types.can_repeat(&descriptor.ty)
+                        || self.types.contains_reference(&descriptor.ty)
+                    {
+                        return Err(error("selected loads require Copy reference-free leaves"));
+                    }
+                    let read = format!("(#deref {})", self.selected_reference(*place));
+                    let read = if *kind == LoadKind::Clone {
+                        self.clone_read(&descriptor.ty, &read)
+                    } else {
+                        read
+                    };
+                    return Ok(self.put_value(*dst, &read));
+                }
                 if matches!(descriptor.root, AddressRoot::Value(_)) {
                     let read = self.handle_leaf_read(descriptor)?;
                     let read = if *kind == LoadKind::Clone {
@@ -1378,12 +1702,61 @@ impl<'a> Emitter<'a> {
                 };
                 Ok(self.put_value(*dst, &read))
             }
-            Action::Bind { binding, value, .. } => Ok(self.bindings.get(binding).map_or_else(
-                || self.value(*value, true),
-                |slot| self.put(*slot, &self.value(*value, true)),
-            )),
+            Action::Bind { binding, value, .. } => {
+                let mut guards = self
+                    .addresses
+                    .iter()
+                    .filter_map(|(place, index)| {
+                        if graph.places[place.0].root == AddressRoot::Local(*binding) {
+                            let slot = &self.slots[*index];
+                            Some((
+                                place.0,
+                                format!(
+                                    "(#assert (#variant-is {} {}))",
+                                    Self::slot_ref(slot, false),
+                                    slot.empty
+                                ),
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                guards.sort_by_key(|(place, _)| *place);
+                let store = self.bindings.get(binding).map_or_else(
+                    || self.value(*value, true),
+                    |slot| self.put(*slot, &self.value(*value, true)),
+                );
+                Ok(format!(
+                    "{}\n{store}",
+                    guards
+                        .into_iter()
+                        .map(|(_, guard)| guard)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                ))
+            }
             Action::Store { place, value } => {
                 let descriptor = &graph.places[place.0];
+                if self.addresses.contains_key(place) {
+                    if !self.types.can_repeat(&descriptor.ty)
+                        || self.types.contains_reference(&descriptor.ty)
+                    {
+                        return Err(error("selected writes require Copy reference-free leaves"));
+                    }
+                    let reference = self.selected_reference(*place);
+                    let value = self.value(*value, true);
+                    return Ok(
+                        if matches!(
+                            self.slots[self.addresses[place]].ty,
+                            Type::PinnedReference { .. }
+                        ) {
+                            format!("(#unsafe (#pin-write {reference} {value}))")
+                        } else {
+                            format!("(#deref-set {reference} {value})")
+                        },
+                    );
+                }
                 if matches!(descriptor.root, AddressRoot::Value(_)) {
                     return self
                         .write_through_handle(descriptor, *value)
@@ -1456,12 +1829,38 @@ impl<'a> Emitter<'a> {
                 mutable,
                 pinned,
                 scope: None,
-            } => self
+            } if !self.addresses.contains_key(place) => self
                 .reborrow_from_handle(*dst, &graph.places[place.0], *mutable, *pinned)
                 .map_err(|failure| Error {
                     message: failure.message,
                     span: located.span.unwrap_or(self.function.source.function.span),
                 }),
+            Action::Borrow {
+                dst: Some(dst),
+                place,
+                mutable,
+                pinned,
+                scope: None,
+            } if self.addresses.contains_key(place) => {
+                let expected = if *pinned {
+                    Type::PinnedReference {
+                        mutable: *mutable,
+                        target: Box::new(graph.places[place.0].ty.clone()),
+                    }
+                } else {
+                    Type::Reference {
+                        mutable: *mutable,
+                        target: Box::new(graph.places[place.0].ty.clone()),
+                    }
+                };
+                if self.slots[self.addresses[place]].ty != expected {
+                    return Err(error(
+                        "selected borrow cannot change its checked pinning or exclusivity",
+                    ));
+                }
+                let read = self.read(self.addresses[place], true);
+                Ok(self.put_value(*dst, &read))
+            }
             Action::Borrow { .. } | Action::EndBorrow { .. } => Err(error(
                 "borrow/address tokens must retain their checked lifetime and ownership mode",
             )),
@@ -1716,6 +2115,9 @@ impl<'a> Emitter<'a> {
         for BlockId(index) in live {
             let block = &graph.blocks[index];
             let mut actions = Vec::new();
+            actions.push(
+                self.clear_addresses(&self.address_retirement.as_ref().unwrap().entry[index]),
+            );
             let retired = self
                 .retirement
                 .as_ref()
@@ -1774,6 +2176,16 @@ impl<'a> Emitter<'a> {
                     }
                 }
                 actions.push(self.action(action)?);
+                actions.push(
+                    self.clear_addresses(
+                        self.address_retirement
+                            .as_ref()
+                            .unwrap()
+                            .after
+                            .get(&(index, action_index))
+                            .map_or(&[], Vec::as_slice),
+                    ),
+                );
                 let retired = self.retirement.as_ref().map_or_else(Vec::new, |plan| {
                     plan.after_action[index][action_index].clone()
                 });
@@ -2002,6 +2414,10 @@ pub(crate) fn program(
     crate::generator::async_source::attach_validation(&mut program, &sources);
     Ok(program)
 }
+
+#[cfg(test)]
+#[path = "../../tests/regressions/selected_address_snapshots.rs"]
+mod selected_address_snapshots;
 
 #[cfg(test)]
 mod tests {
@@ -4507,6 +4923,108 @@ mod tests {
     }
 
     #[test]
+    fn selected_array_address_survives_rhs_pending_and_is_checked_eagerly() {
+        let function = "(#fn work ((seed #u64)) #u64
+          (#let-mut items (#array #u64 2) (#array-of (#array #u64 2) 7u64 0u64))
+          (#let-mut index #usize 1usize)
+          (#set-index items index (#block (#set index 0usize)
+            (#await Child ChildPending ChildReady child-poll (Start seed))))
+          (#let result #u64 (#index items 1usize))
+          (#assert (#u64.== (#index items 0usize) 7u64))
+          (#forget items) (#return result))";
+        let main = "(#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let-mut task work-frame (#call work (: seed 42u64)))
+          (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) work-poll-result first (#unreachable))
+          (#let result #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+            (#case (work-ready answer) answer)
+            (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
+          (#forget task) (#return result))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        // An invalid selection must trap before polling the RHS child. If
+        // delayed until Store, this program would instead return 99 on Pending.
+        let invalid = function.replace("1usize", "2usize");
+        let main = "(#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let-mut task work-frame (#call work (: seed 42u64)))
+          (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) work-poll-result first (#unreachable))
+          (#let state work-frame-state (#call work-poll-cancel (: task next)))
+          (#forget state) (#forget task) (#return 99u64))";
+        let planning = prepare_generator("async-fn-pinned", &invalid, main);
+        let generated = generate(&planning).unwrap();
+        runtime_generated_outcome(planning, generated, NativeOutcome::Signal(4));
+    }
+
+    #[test]
+    fn nested_selection_checks_its_parent_before_awaiting_a_child_index() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let items (#array (#array #u64 2) 2)
+            (#array-of (#array (#array #u64 2) 2)
+              (#array-of (#array #u64 2) 0u64 7u64)
+              (#array-of (#array #u64 2) 0u64 seed)))
+          (#let-mut outer #usize 1usize)
+          (#let result #u64 (#index (#index items outer)
+            (#block (#set outer 0usize)
+              (#as (#await Child ChildPending ChildReady child-poll (Start 1u64)) #usize))))
+          (#forget items) (#return result))";
+        let main = "(#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let-mut task work-frame (#call work (: seed 42u64)))
+          (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) work-poll-result first (#unreachable))
+          (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+            (#case (work-ready result) result)
+            (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
+          (#forget task) (#return answer))";
+        runtime_planned(prepare_generator("async-fn-pinned", function, main), 42);
+        let invalid = function.replace("outer #usize 1usize", "outer #usize 2usize");
+        let main = "(#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let-mut task work-frame (#call work (: seed 42u64)))
+          (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) work-poll-result first (#unreachable))
+          (#let state work-frame-state (#call work-poll-cancel (: task next)))
+          (#forget state) (#forget task) (#return 99u64))";
+        let planning = prepare_generator("async-fn-pinned", &invalid, main);
+        let generated = generate(&planning).unwrap();
+        runtime_generated_outcome(planning, generated, NativeOutcome::Signal(4));
+    }
+
+    #[test]
+    fn selected_payload_and_nested_array_addresses_keep_their_checked_owners() {
+        let main = "(#enum Choice ((Good #u64) (Bad #u64)))
+          (#struct Owner (: values (#array #u64 2)))
+          (#fn main () #u64
+            (#let waker #u64 0u64)
+            (#let-mut task work-frame (#call work (: seed 42u64)))
+            (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+              (#case (work-ready result) result)
+              (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
+            (#forget task) (#return answer))";
+        for body in [
+            "(#let-mut owner Choice (Good 0u64))
+              (#set-payload owner Good 0 (#await Child ChildPending ChildReady child-poll (Start seed)))
+              (#let answer #u64 (#get-payload owner Good 0)) (#forget owner) (#return answer)",
+            "(#let owner Owner (#struct-literal Owner (: values (#array-of (#array #u64 2) 0u64 seed))))
+              (#let amount #u64 (#index (#get owner values) 1usize))
+              (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+              (#forget owner) (#return (#u64.+.wrap amount child))",
+            "(#let-mut owner (#array #u64 2) (#array-of (#array #u64 2) 0u64 seed))
+              (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#index owner 1usize)))
+              (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+              (#let answer #u64 (#deref view)) (#drop view) (#forget owner)
+              (#return (#u64.+.wrap answer child))",
+        ] {
+            let function = format!("(#fn work (: seed #u64) #u64 {body})");
+            runtime_planned(prepare_generator("async-fn-pinned", &function, main), 42);
+        }
+    }
+
+    #[test]
     fn unsupported_storage_modes_fail_before_proposing_unsafe_code() {
         let planning = prepare(
             "(#let items (#array #u64 1) (#array-of (#array #u64 1) seed))
@@ -4515,7 +5033,7 @@ mod tests {
             RUN,
         );
         let error = generate(&planning).err().unwrap();
-        assert!(error.message.contains("immediate place checks"));
+        assert!(error.message.contains("pinned frame"));
         let planning = prepare(
             "
           (#let owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) seed 2u64))

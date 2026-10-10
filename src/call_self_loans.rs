@@ -1676,6 +1676,98 @@ mod tests {
         declarations
     }
 
+    #[test]
+    fn selected_payload_snapshot_access_and_reinitialization_are_distinct() {
+        let source = r#"
+          (#enum Choice ((Good #u64) (Bad #u64)))
+          (#enum Address (Empty (Full (#pin-ref-mut #u64))))
+          (#struct Frame (: owner Choice : address Address : pc #u32))
+          (#fn select (: owner (#pin-ref-mut Choice)) (#pin-ref-mut #u64)
+            (#return (#pin-get-payload-mut owner Good 0)))
+          (#fn install (: target (#pin-ref-mut Frame)) (#pin-ref-mut Frame)
+            (#let selected (#pin-ref-mut #u64)
+              (#pin-get-payload-mut (#pin-borrow-mut (#get target owner)) Good 0))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Full selected)))
+            (#return target))
+          (#fn resume (: target (#pin-ref-mut Frame)) (#pin-ref-mut Frame)
+            INITIALIZE
+            (#unsafe (#pin-write
+              (#deref (#pin-get-payload-mut (#pin-borrow-mut (#get target address)) Full 0))
+              42u64))
+            (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) Empty))
+            (#return target))
+          (#fn driver () ()
+            (#let-mut frame Frame
+              (#struct-literal Frame (: owner (Good 0u64) : address Empty : pc 1u32)))
+            (#let installed (#pin-ref-mut Frame)
+              (#call install (: target (#pin-borrow-mut frame))))
+            (#let resumed (#pin-ref-mut Frame) (#call resume (: target installed)))
+            (#drop resumed) (#forget frame) (#return ()))
+        "#;
+        for (initialize, conflicting_access) in [
+            ("", None),
+            (
+                "(#if (#u32.== (#get target pc) 0u32)
+                  (#block
+                    (#assert (#variant-is (#pin-borrow (#get target address)) Empty))
+                    (#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64)))
+                    (#let selected (#pin-ref-mut #u64)
+                      (#pin-get-payload-mut (#pin-borrow-mut (#get target owner)) Good 0))
+                    (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Full selected)))
+                    ()) ())",
+                None,
+            ),
+            (
+                "(#if (#u32.== (#get target pc) 0u32)
+                  (#block
+                    (#let selected (#pin-ref-mut #u64)
+                      (#pin-get-payload-mut (#pin-borrow-mut (#get target owner)) Good 0))
+                    (#unsafe (#pin-write (#pin-borrow-mut (#get target address)) (Full selected)))
+                    ()) ())",
+                Some("(#pin-borrow-mut (#get target owner))"),
+            ),
+            (
+                "(#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64)))",
+                Some("(#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64))"),
+            ),
+            (
+                "(#unsafe (#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64)))
+                  (#assert (#variant-is (#pin-borrow (#get target address)) Empty))",
+                Some("(#pin-write (#pin-borrow-mut (#get target owner)) (Good 9u64))"),
+            ),
+        ] {
+            for helper in [false, true] {
+                let mut source = source.replace("INITIALIZE", initialize);
+                if helper {
+                    source = source.replace(
+                        "(#pin-get-payload-mut (#pin-borrow-mut (#get target owner)) Good 0)",
+                        "(#call select (: owner (#pin-borrow-mut (#get target owner))))",
+                    );
+                }
+                let declarations = fixture(&source);
+                let plan = call_plan(&declarations, "driver", "resume");
+                assert_eq!(plan.aliases.len(), 1, "{plan:?}");
+                let result = plan.check_owner_accesses(
+                    &declarations,
+                    &crate::linearcheck::LinearTypes::default(),
+                );
+                assert_eq!(
+                    result.is_err(),
+                    conflicting_access.is_some(),
+                    "{result:?}\n{source}"
+                );
+                if let Err(error) = result {
+                    let span = error.span.expect("identify the conflicting owner access");
+                    assert_eq!(
+                        &source[span.start..span.end],
+                        conflicting_access.unwrap(),
+                        "{error:?}"
+                    );
+                }
+            }
+        }
+    }
+
     fn exclusive_source() -> String {
         SOURCE
             .replace("#pin-ref #u64", "#pin-ref-mut #u64")
