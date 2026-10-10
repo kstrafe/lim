@@ -4603,15 +4603,15 @@ fn expand_cfg_forms(
         let condition = eval_cfg(&form.children[1], config)?;
         let mut else_forms = None;
         let mut then_forms = Vec::new();
-        for branch in &items[2..] {
-            if let Expr::List(branch_items) = branch {
+        for branch in &form.children[2..] {
+            if let Expr::List(branch_items) = &branch.expr {
                 if matches!(branch_items.first(), Some(Expr::Symbol(name)) if name == "#cfg-else") {
                     if else_forms.is_some() || branch_items.len() < 2 {
                         return Err(at_form(
                             "#cfg-else must occur once and contain at least one form".into(),
                         ));
                     }
-                    else_forms = Some(branch_items[1..].to_vec());
+                    else_forms = Some(branch.children[1..].to_vec());
                     continue;
                 }
             }
@@ -4625,14 +4625,6 @@ fn expand_cfg_forms(
         } else {
             else_forms.unwrap_or_default()
         };
-        let selected = selected
-            .into_iter()
-            .map(|expr| SpannedExpr {
-                expr,
-                span: form.span,
-                children: Vec::new(),
-            })
-            .collect();
         expanded.extend(expand_cfg_forms(selected, config).map_err(&at_form)?);
     }
     Ok(expanded)
@@ -4688,23 +4680,7 @@ fn load_imports_inner(
             result.push(expression);
             continue;
         };
-        let unresolved_paths = std::iter::once(base.join(specification.path))
-            .chain(
-                config
-                    .module_paths
-                    .iter()
-                    .map(|root| root.join(specification.path)),
-            )
-            .collect::<Vec<_>>();
-        let unresolved_path = unresolved_paths
-            .iter()
-            .find(|candidate| {
-                standard_library::source(candidate).is_some()
-                    || candidate.is_file()
-                    || editor::source(candidate).is_some()
-            })
-            .cloned()
-            .unwrap_or_else(|| unresolved_paths[0].clone());
+        let unresolved_path = import_candidate(base, specification.path, config);
         let path = if editor::source(&unresolved_path).is_some() {
             Ok(editor::path_key(&unresolved_path))
         } else if standard_library::source(&unresolved_path).is_some() {
@@ -5033,6 +5009,21 @@ struct ImportSpec<'a> {
     external: bool,
     path: &'a str,
     prefix: Option<&'a str>,
+}
+
+pub(crate) fn import_candidate(base: &Path, name: &str, config: &CompileConfig) -> PathBuf {
+    let paths = std::iter::once(base.join(name))
+        .chain(config.module_paths.iter().map(|root| root.join(name)))
+        .collect::<Vec<_>>();
+    paths
+        .iter()
+        .find(|candidate| {
+            standard_library::source(candidate).is_some()
+                || candidate.is_file()
+                || editor::source(candidate).is_some()
+        })
+        .cloned()
+        .unwrap_or_else(|| paths[0].clone())
 }
 
 fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
@@ -9061,6 +9052,28 @@ mod tests {
         config.set("feature", "slow");
         let program = parse_program_with_config(source, &config).unwrap();
         assert!(check_types(&program).is_err());
+    }
+
+    #[test]
+    fn cfg_selection_preserves_nested_declaration_source_spans() {
+        let source = "(#cfg-if (#cfg-is #feature enabled)\n  (#cfg-if (#cfg-is #mode first)\n    (#fn first () #u64 (#return 1u64))\n    (#cfg-else (#fn second () #u64 (#return 2u64))))\n  (#cfg-else\n    (#cfg-if (#cfg-is #mode first)\n      (#fn third () #u64 (#return 3u64))\n      (#cfg-else (#fn fourth () #u64 (#return 4u64))))))";
+        for (feature, mode, name) in [
+            ("enabled", "first", "first"),
+            ("enabled", "second", "second"),
+            ("disabled", "first", "third"),
+            ("disabled", "second", "fourth"),
+        ] {
+            let mut config = CompileConfig::default();
+            config.set("feature", feature);
+            config.set("mode", mode);
+            let program = parse_program_with_config(source, &config).unwrap();
+            assert_eq!(program.items.len(), 1);
+            let declaration = &program.declaration_expressions[name];
+            let span = declaration.children[1].span;
+            assert_eq!(&source[span.start..span.end], name);
+            assert_eq!(span.start, source.find(&format!("#fn {name}")).unwrap() + 4);
+            assert!(check_types(&program).is_ok());
+        }
     }
 
     #[test]

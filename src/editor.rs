@@ -40,6 +40,45 @@ pub(crate) fn source(path: &Path) -> Option<String> {
     })
 }
 
+pub(crate) fn import_target(
+    path: &Path,
+    name: &str,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+) -> Option<PathBuf> {
+    let overlays = overlays
+        .iter()
+        .map(|(p, s)| (path_key(p), s.clone()))
+        .collect();
+    let _restore = Restore(SOURCES.with(|sources| sources.replace(overlays)));
+    let mut config = config.clone();
+    if let Some(context) = context_file
+        .map(Path::to_owned)
+        .or_else(|| crate::lsp_context::discover(path))
+    {
+        config = crate::lsp_context::LspContext::read(&context).ok()?.config;
+    } else {
+        for directory in path.parent()?.ancestors() {
+            let manifest = directory.join("lim.project");
+            if manifest.is_file() {
+                let project = crate::read_project(&manifest).ok()?;
+                config.add_module_path(project.source_root);
+                for module in project.module_paths {
+                    config.add_module_path(module);
+                }
+                break;
+            }
+        }
+    }
+    let candidate = crate::import_candidate(path.parent()?, name, &config);
+    if candidate.is_file() || self::source(&candidate).is_some() {
+        Some(path_key(&candidate))
+    } else {
+        None
+    }
+}
+
 struct Restore(HashMap<PathBuf, String>);
 impl Drop for Restore {
     fn drop(&mut self) {
@@ -73,6 +112,17 @@ pub(crate) fn checked_program_in_context(
     config: &crate::CompileConfig,
     overlays: &HashMap<PathBuf, String>,
     context_file: Option<&Path>,
+) -> Result<crate::Program, crate::Diagnostic> {
+    program_in_context(source, path, config, overlays, context_file, true)
+}
+
+pub(crate) fn program_in_context(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+    validate: bool,
 ) -> Result<crate::Program, crate::Diagnostic> {
     let mut overlays: HashMap<PathBuf, String> = overlays
         .iter()
@@ -161,11 +211,13 @@ pub(crate) fn checked_program_in_context(
         )
         .with_source(path.display().to_string(), source.to_owned()));
     }
-    crate::CheckedProgram::validate_with_span(&program).map_err(
-        |(message, code, span, labels)| {
-            crate::analysis_diagnostic(message, code, span, labels, &program)
-        },
-    )?;
+    if validate {
+        crate::CheckedProgram::validate_with_span(&program).map_err(
+            |(message, code, span, labels)| {
+                crate::analysis_diagnostic(message, code, span, labels, &program)
+            },
+        )?;
+    }
     Ok(program)
 }
 

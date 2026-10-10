@@ -390,6 +390,33 @@ impl Server<'_> {
             .ok_or((-32602, "Invalid params"))?;
         let byte = position_byte(&doc.text, line as usize, character as usize)
             .ok_or((-32602, "Invalid position"))?;
+        if let Some(name) = crate::parse(&doc.text)
+            .ok()
+            .and_then(|tree| import_reference(&tree, byte))
+        {
+            let overlays = self
+                .documents
+                .values()
+                .map(|d| (d.path.clone(), d.text.clone()))
+                .collect();
+            let target = crate::editor::import_target(
+                &doc.path,
+                &name,
+                self.config,
+                &overlays,
+                self.context_file(doc).as_deref(),
+            );
+            return Ok(target
+                .and_then(|path| path_to_uri(&path))
+                .map(|uri| {
+                    format!(
+                        "{{\"uri\":{},\"range\":{}}}",
+                        quoted(&uri),
+                        range(0, 0, 0, 0)
+                    )
+                })
+                .unwrap_or_else(|| "null".into()));
+        }
         // Explicit #call callee role has a function namespace, unlike arbitrary names.
         let callee = crate::parse(&doc.text)
             .ok()
@@ -402,7 +429,7 @@ impl Server<'_> {
             });
             if let Some(name) = name {
                 return Ok(self
-                    .generated_definition(doc, &name)
+                    .resolved_definition(doc, byte, &name)
                     .unwrap_or_else(|| "null".into()));
             }
         }
@@ -411,7 +438,7 @@ impl Server<'_> {
                 .ok()
                 .and_then(|tree| type_reference(&tree, byte))
             {
-                if let Some(location) = self.generated_definition(doc, &name) {
+                if let Some(location) = self.resolved_definition(doc, byte, &name) {
                     return Ok(location);
                 }
             }
@@ -422,7 +449,7 @@ impl Server<'_> {
                 .filter(|d| d.kind == 12 && d.name == callee);
             let first = candidates.next();
             if first.is_none() {
-                if let Some(location) = self.generated_definition(doc, &callee) {
+                if let Some(location) = self.resolved_definition(doc, byte, &callee) {
                     return Ok(location);
                 }
             }
@@ -447,20 +474,65 @@ impl Server<'_> {
             .unwrap_or_else(|| "null".into()))
     }
 
-    fn generated_definition(&self, doc: &Document, name: &str) -> Option<String> {
+    fn resolved_definition(&self, doc: &Document, byte: usize, name: &str) -> Option<String> {
         let overlays = self
             .documents
             .values()
             .map(|d| (d.path.clone(), d.text.clone()))
             .collect();
-        let program = crate::editor::checked_program_in_context(
+        let program = crate::editor::program_in_context(
             &doc.text,
             &doc.path,
             self.config,
             &overlays,
             self.context_file(doc).as_deref(),
+            false,
         )
         .ok()?;
+        let mut names = BTreeSet::new();
+        for expression in program.declaration_expressions.values() {
+            if program
+                .source_files
+                .get(expression.span.source_id as usize)
+                .is_some_and(|file| path_key(&file.path) == doc.path)
+            {
+                if let Some(resolved) = semantic_symbol(expression, &expression.expr, byte) {
+                    names.insert(resolved);
+                }
+            }
+        }
+        if names.is_empty() {
+            names.insert(name.to_owned());
+        }
+        let mut locations = BTreeSet::new();
+        for name in names {
+            if program
+                .declaration_occurrences
+                .get(&name)
+                .is_some_and(|items| items.len() > 1)
+            {
+                continue;
+            }
+            if let Some(location) = self.definition_location(doc, &program, &name) {
+                locations.insert(location);
+            }
+        }
+        match locations.len() {
+            0 => None,
+            1 => locations.into_iter().next(),
+            _ => Some(format!(
+                "[{}]",
+                locations.into_iter().collect::<Vec<_>>().join(",")
+            )),
+        }
+    }
+
+    fn definition_location(
+        &self,
+        doc: &Document,
+        program: &crate::Program,
+        name: &str,
+    ) -> Option<String> {
         let expression = program.declaration_expressions.get(name)?;
         let span = expression.children.get(1)?.span;
         let file = program.source_files.get(span.source_id as usize)?;
@@ -471,6 +543,9 @@ impl Server<'_> {
                 span_range(&file.source, Some(span))
             ));
         }
+        // Invalid runtime programs may still navigate ordinary declarations.
+        // Only publish generated source after the normal safety checks pass.
+        crate::CheckedProgram::validate_with_span(program).ok()?;
         let (source, prefix) = generated_snapshot(&program, span.source_id)?;
         let hash = crate::generator::stable_hash(source.as_bytes());
         let directory = doc.path.parent()?.join(".lim/generated");
@@ -497,6 +572,59 @@ impl Server<'_> {
             byte_range(&source, prefix + span.start, prefix + span.end)
         ))
     }
+}
+
+fn semantic_symbol(source: &SpannedExpr, semantic: &Expr, byte: usize) -> Option<String> {
+    if byte < source.span.start || byte >= source.span.end {
+        return None;
+    }
+    if let Expr::Symbol(name) = semantic {
+        return Some(name.clone());
+    }
+    if let Expr::List(values) = semantic {
+        for (child, value) in source.children.iter().zip(values) {
+            if let Some(name) = semantic_symbol(child, value, byte) {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
+fn import_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
+    for expression in expressions {
+        if byte < expression.span.start || byte >= expression.span.end {
+            continue;
+        }
+        if matches!(expression.expr, Expr::Quote(_) | Expr::QuasiQuote(_)) {
+            continue;
+        }
+        let head = expression.children.first().map(|e| &e.expr);
+        if matches!(head, Some(Expr::At))
+            || matches!(head, Some(Expr::Symbol(name)) if name == "#gn" || name == "#gn-fn")
+        {
+            continue;
+        }
+        if matches!(head, Some(Expr::Symbol(name)) if name == "#import" || name == "#import-external")
+        {
+            let path = expression.children.get(1)?;
+            if (path.span.start <= byte && byte < path.span.end)
+                || expression
+                    .children
+                    .first()
+                    .is_some_and(|head| head.span.start <= byte && byte < head.span.end)
+            {
+                if let Expr::String(name) = &path.expr {
+                    return Some(name.clone());
+                }
+            }
+            continue;
+        }
+        if let Some(name) = import_reference(&expression.children, byte) {
+            return Some(name);
+        }
+    }
+    None
 }
 
 pub(crate) fn generated_snapshot(
@@ -622,7 +750,7 @@ fn call_callee(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
             continue;
         }
         if let Some(Expr::Symbol(head)) = expression.children.first().map(|c| &c.expr) {
-            if head == "#gn" {
+            if head == "#gn" || head == "#gn-fn" {
                 continue;
             }
             if head == "#call" {
@@ -676,6 +804,18 @@ fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
         let index = match head {
             Some("#let" | "#let-mut" | "#type") => Some(2),
             Some("#struct-literal") => Some(1),
+            Some("#struct" | "#enum") => {
+                if let Some(fields) = expr.children.get(2) {
+                    for field in &fields.children {
+                        for ty in field.children.iter().skip(1) {
+                            if let Some(name) = in_type(ty, byte) {
+                                return Some(name);
+                            }
+                        }
+                    }
+                }
+                None
+            }
             Some("#fn" | "#unsafe-fn" | "#extern-fn") => {
                 if let Some(args) = expr.children.get(2) {
                     for arg in &args.children {

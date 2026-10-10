@@ -61,17 +61,23 @@ canonical style determines the result.
 
 Document symbols cover direct top-level function, struct, enum, and global
 declarations. Goto definition resolves explicit `#call` callee symbols to a
-unique same-document top-level function declaration, and declaration names to
-their own span. Generated calls and explicit type annotations/struct-literal
-types resolve through the checked expansion, including unsaved imported buffers.
+unique function declaration across internal and external imports, and declaration
+names to their own span. Explicit type annotations, aggregate field types and
+struct-literal types also navigate to their declarations. External prefixes are
+resolved even when navigating an unprefixed call inside the imported source.
+Import path strings and import keywords open the resolved module; local files
+take precedence over configured module directories, including unsaved buffers.
+Unrelated type errors do not block ordinary declaration navigation. Generated
+calls and types resolve through the checked expansion, including unsaved imports.
 Navigation publishes the selected expanded source as a content-addressed
 `.lim/generated/editor-*.lim` snapshot next to the requesting source, with
 invocation provenance and exact UTF-16 name ranges. Existing identical snapshots
 are not rewritten; diagnostic checks remain write-free and no generator-cache
 entries are created. Invalid expansions return no generated location.
 With a compilation context, imported calls and explicit types also navigate to
-their declaration files in the checked entry graph.
-Other references, locals, fields, quoted templates,
+their declaration files in the selected entry graph; files outside that graph
+must use a different entry in `lim.lsp`.
+Other references, generator invocation names, locals, fields, quoted templates,
 and ambiguous duplicate functions return no location.
 Generated diagnostics point to file-backed invocation provenance;
 expansion provenance is also included as related diagnostic locations.

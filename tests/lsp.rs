@@ -67,6 +67,232 @@ fn finish(messages: &mut Vec<String>) {
     messages.push(notify("exit", "null"));
 }
 
+fn definition(id: i64, uri: &str, text: &str, needle: &str) -> String {
+    let byte = text.find(needle).unwrap();
+    let (line, character) = lsp::byte_position(text, byte);
+    request(id, "textDocument/definition", &format!(
+        "{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":{line},\"character\":{character}}}}}",
+        diagnostic_json::quoted(uri)
+    ))
+}
+
+#[test]
+fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors() {
+    let base =
+        std::env::temp_dir().join(format!("lim-lsp-import-navigation-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("main.lim");
+    let child = base.join("child.lim");
+    let text = "(#import \"child.lim\")\n(#import-external \"child.lim\" ext-)\n(#fn main () #u64 (#let value ext-Number 42u64) (#return (#call ext-read (: ext-value value))))\n(#fn broken () #u64 (#return #true))\n(#struct Holder ((field Number)))\n(#enum Choice ((Present Number) (Absent ())))";
+    let imported = "(#type Number #u64)\n(#fn read ((value Number)) #u64 (#return value))";
+    std::fs::write(&root, text).unwrap();
+    std::fs::write(&child, imported).unwrap();
+    let uri = lsp::path_to_uri(&root).unwrap();
+    let child_uri = lsp::path_to_uri(&child).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, text));
+    for (id, needle) in [
+        (2, "child.lim"),
+        (3, "#import-external"),
+        (4, "ext-read"),
+        (5, "ext-Number"),
+    ] {
+        messages.push(definition(id, &uri, text, needle));
+    }
+    messages.push(definition(6, &uri, text, "ext-)"));
+    messages.push(definition(7, &uri, text, "Number)))"));
+    messages.push(definition(8, &uri, text, "Number) (Absent"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    for id in [2, 3, 4, 5, 7, 8] {
+        let result = reply(&replies, id).get("result").unwrap();
+        assert_eq!(
+            result.get("uri").and_then(Json::string),
+            Some(child_uri.as_str()),
+            "{id}: {result:?}"
+        );
+    }
+    let result = reply(&replies, 4).get("result").unwrap();
+    assert_eq!(
+        result
+            .get("range")
+            .unwrap()
+            .get("start")
+            .unwrap()
+            .get("line")
+            .and_then(Json::integer),
+        Some(1)
+    );
+    assert_eq!(
+        result
+            .get("range")
+            .unwrap()
+            .get("start")
+            .unwrap()
+            .get("character")
+            .and_then(Json::integer),
+        Some(5)
+    );
+    assert_eq!(reply(&replies, 6).get("result"), Some(&Json::Null));
+    assert!(!base.join(".lim").exists());
+}
+
+#[test]
+fn external_import_internal_calls_and_types_use_the_compilation_names() {
+    let base = std::env::temp_dir().join(format!(
+        "lim-lsp-prefixed-navigation-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&base).unwrap();
+    let root = base.join("main.lim");
+    let child = base.join("child.lim");
+    let text = "(#cfg-if (#cfg-is #os linux)\n(#type Number #u64)\n(#fn read () Number (#return 42u64))\n(#fn invoke () Number (#return (#call read ()))))";
+    std::fs::write(&root, "(#import-external \"child.lim\" first-)\n(#import-external \"child.lim\" second-)\n(#fn main () #u64 (#return (#call first-invoke ())))").unwrap();
+    std::fs::write(&child, text).unwrap();
+    lim::lsp_context::LspContext {
+        entry: root,
+        target: lim::TargetDescription::X86_64_SYSTEM_V,
+        config: CompileConfig::default(),
+    }
+    .write(&base.join("lim.lsp"))
+    .unwrap();
+    let uri = lsp::path_to_uri(&child).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, text));
+    messages.push(definition(2, &uri, text, "Number (#return 42u64)"));
+    messages.push(definition(3, &uri, text, "read ())))"));
+    messages.push(definition(4, &uri, text, "Number (#return (#call"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    for (id, line) in [(2, 1), (3, 2), (4, 1)] {
+        let result = reply(&replies, id).get("result").unwrap();
+        assert_eq!(result.get("uri").and_then(Json::string), Some(uri.as_str()));
+        assert_eq!(
+            result
+                .get("range")
+                .unwrap()
+                .get("start")
+                .unwrap()
+                .get("line")
+                .and_then(Json::integer),
+            Some(line)
+        );
+    }
+}
+
+#[test]
+fn import_navigation_respects_module_paths_local_precedence_and_unsaved_sources() {
+    let base =
+        std::env::temp_dir().join(format!("lim-lsp-module-navigation-{}", std::process::id()));
+    let modules = base.join("modules");
+    std::fs::create_dir_all(&modules).unwrap();
+    let root = base.join("main.lim");
+    let unsaved = base.join("unsaved.lim");
+    let local = base.join("local.lim");
+    let shared = modules.join("shared.lim");
+    let text = "(#import \"shared.lim\")\n(#import \"local.lim\")\n(#import \"unsaved.lim\")\n(#fn main () #u64 (#return (#call unsaved-value ())))";
+    std::fs::write(&root, text).unwrap();
+    std::fs::write(&local, "(#type Local #u64)").unwrap();
+    std::fs::write(modules.join("local.lim"), "(#type Other #bool)").unwrap();
+    std::fs::write(&shared, "(#type Shared #u64)").unwrap();
+    let mut config = CompileConfig::default();
+    config.add_module_path(modules);
+    lim::lsp_context::LspContext {
+        entry: root.clone(),
+        target: lim::TargetDescription::X86_64_SYSTEM_V,
+        config,
+    }
+    .write(&base.join("lim.lsp"))
+    .unwrap();
+    let uri = lsp::path_to_uri(&root).unwrap();
+    let unsaved_uri = lsp::path_to_uri(&unsaved).unwrap();
+    let mut messages = start();
+    messages.push(open(
+        &unsaved_uri,
+        1,
+        "(#fn unsaved-value () #u64 (#return 42u64))",
+    ));
+    messages.push(open(&uri, 1, text));
+    for (id, needle) in [
+        (2, "shared.lim"),
+        (3, "local.lim"),
+        (4, "unsaved.lim"),
+        (5, "unsaved-value"),
+    ] {
+        messages.push(definition(id, &uri, text, needle));
+    }
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    for (id, path) in [(2, shared), (3, local), (4, unsaved.clone()), (5, unsaved)] {
+        assert_eq!(
+            reply(&replies, id)
+                .get("result")
+                .unwrap()
+                .get("uri")
+                .and_then(Json::string),
+            lsp::path_to_uri(&path).as_deref(),
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn navigation_resolves_real_async_example_imported_calls() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let base = std::env::temp_dir().join(format!(
+        "lim-lsp-real-import-navigation-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&base).unwrap();
+    let entry = base.join("main.lim");
+    let text = std::fs::read_to_string(root.join("examples/async_fn.lim"))
+        .unwrap()
+        .replace("../library/", &format!("{}/library/", root.display()));
+    std::fs::write(&entry, &text).unwrap();
+    lim::lsp_context::LspContext {
+        entry: entry.clone(),
+        target: lim::TargetDescription::X86_64_SYSTEM_V,
+        config: CompileConfig::default(),
+    }
+    .write(&base.join("lim.lsp"))
+    .unwrap();
+    let uri = lsp::path_to_uri(&entry).unwrap();
+    let mut messages = start();
+    messages.push(open(&uri, 1, &text));
+    messages.push(definition(2, &uri, &text, "linux-write-byte"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    let result = reply(&replies, 2).get("result").unwrap();
+    assert_eq!(
+        result.get("uri").and_then(Json::string),
+        lsp::path_to_uri(&root.join("library/linux_x86_64.lim")).as_deref(),
+        "{replies:?}"
+    );
+    let imported = std::fs::read_to_string(root.join("library/linux_x86_64.lim")).unwrap();
+    let (line, character) =
+        lsp::byte_position(&imported, imported.find("linux-write-byte").unwrap());
+    let start = result.get("range").unwrap().get("start").unwrap();
+    assert_eq!(start.get("line").and_then(Json::integer), Some(line as i64));
+    assert_eq!(
+        start.get("character").and_then(Json::integer),
+        Some(character as i64)
+    );
+}
+
+#[test]
+fn missing_and_quoted_imports_do_not_invent_definition_targets() {
+    let uri = "file:///tmp/lim-lsp-missing-import-navigation.lim";
+    let text = "(#import \"does-not-exist-743198.lim\")\n'(#import \"quoted.lim\")";
+    let mut messages = start();
+    messages.push(open(uri, 1, text));
+    messages.push(definition(2, uri, text, "does-not-exist"));
+    messages.push(definition(3, uri, text, "quoted.lim"));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    assert_eq!(reply(&replies, 2).get("result"), Some(&Json::Null));
+    assert_eq!(reply(&replies, 3).get("result"), Some(&Json::Null));
+}
+
 #[test]
 fn lifecycle_and_protocol_only_output() {
     let mut messages = vec![request(0, "textDocument/documentSymbol", "{}")];

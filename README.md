@@ -140,7 +140,11 @@ overlapping event. Failed commands report stages reached before the failure.
 
 Run `lim lsp` to serve LSP over stdin/stdout. It provides live compiler
 diagnostics for unsaved buffers and imports, formatting, document symbols,
-and same-file explicit `#call` definitions, plus generated call/type definitions.
+and explicit `#call` and type definitions across the selected import graph,
+including external import prefixes. Navigation on an import path or keyword
+opens the imported file, using the compiler's module-path search order and
+unsaved buffers. Ordinary declarations remain navigable despite unrelated
+type errors. Generated call/type definitions are also supported.
 Generated navigation publishes inspectable `.lim/generated/editor-*.lim` source
 snapshots on demand, including expansions from unsaved buffers.
 It discovers project module paths
