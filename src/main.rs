@@ -233,14 +233,6 @@ fn check_command(arguments: &[String]) -> ExitCode {
         return ExitCode::FAILURE;
     };
     let mut config = lim::CompileConfig::default();
-    let mut target = match lim::TargetDescription::host() {
-        Ok(target) => target,
-        Err(error) => {
-            eprintln!("lim: {error}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let mut target_explicit = false;
     let mut index = 2;
     while index < arguments.len() {
         match arguments[index].as_str() {
@@ -261,14 +253,10 @@ fn check_command(arguments: &[String]) -> ExitCode {
                     eprintln!("lim: --target requires a target name");
                     return ExitCode::FAILURE;
                 };
-                target = match lim::TargetDescription::parse(value) {
-                    Ok(target) => target,
-                    Err(error) => {
-                        eprintln!("lim: {error}");
-                        return ExitCode::FAILURE;
-                    }
-                };
-                target_explicit = true;
+                if let Err(error) = lim::TargetDescription::parse(value) {
+                    eprintln!("lim: {error}");
+                    return ExitCode::FAILURE;
+                }
             }
             "--module-path" => {
                 index += 1;
@@ -298,11 +286,6 @@ fn check_command(arguments: &[String]) -> ExitCode {
         for path in metadata.module_paths {
             config.add_module_path(path);
         }
-        if !target_explicit {
-            if let Some(project_target) = metadata.target {
-                target = project_target;
-            }
-        }
     }
 
     let source = match fs::read_to_string(input_path) {
@@ -318,16 +301,14 @@ fn check_command(arguments: &[String]) -> ExitCode {
         .unwrap_or_else(|| Path::new("."))
         .join(".lim");
     let cache_directory = generated_directory.join("cache");
-    match lim::compile_source_with_generated_sources(
+    match lim::check_source_with_generated_sources(
         &source,
         input_file,
         &config,
         &cache_directory,
-        target,
-        None,
         &generated_directory,
     ) {
-        Ok(_in_memory_assembly) => ExitCode::SUCCESS,
+        Ok(()) => ExitCode::SUCCESS,
         Err(diagnostic) => {
             emit_diagnostic(&diagnostic, &source, input_path);
             ExitCode::FAILURE

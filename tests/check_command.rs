@@ -1,8 +1,21 @@
 use std::{
     fs,
-    process::Command,
+    process::{Command, ExitStatus},
     sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
 };
+
+mod support;
+
+fn run_lim(command: &mut Command) -> (ExitStatus, String, String) {
+    let (status, stdout, stderr) = support::run(command, Duration::from_secs(20), 64 * 1024)
+        .unwrap_or_else(|error| panic!("lim subprocess failed: {error}"));
+    (
+        status,
+        String::from_utf8(stdout).expect("lim stdout is UTF-8"),
+        String::from_utf8(stderr).expect("lim stderr is UTF-8"),
+    )
+}
 
 fn scratch() -> std::path::PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -39,18 +52,14 @@ fn checks_project_imports_and_cfg_without_creating_native_output() {
     let source = "(#import \"root-type.lim\")\n(#import \"selected.lim\")\n(#fn main () Selected (#return 0u64))\n";
     fs::write(&input, source).unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_lim"))
-        .arg("--check")
-        .arg(&input)
-        .args(["--cfg", "feature=enabled"])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+    let (status, stdout, stderr) = run_lim(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg("--check")
+            .arg(&input)
+            .args(["--cfg", "feature=enabled"]),
     );
-    assert!(output.stdout.is_empty());
+    assert!(status.success(), "{stderr}");
+    assert!(stdout.is_empty());
     assert_eq!(fs::read_to_string(&input).unwrap(), source);
     assert!(!app.join("main").exists(), "check wrote a binary");
     assert!(!app.join("main.s").exists(), "check wrote assembly");
@@ -63,15 +72,15 @@ fn reports_borrow_diagnostic_as_json_with_primary_byte_span() {
     let input = directory.join("borrow.lim");
     let source = "(#fn main () #u64\n  (#let-mut owner #u64 1u64)\n  (#let view (#ref #u64) (#borrow owner))\n  (#set owner 2u64)\n  (#drop view)\n  (#return 0u64))\n";
     fs::write(&input, source).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_lim"))
-        .arg("--check")
-        .arg(&input)
-        .arg("--diagnostic-format=json")
-        .output()
-        .unwrap();
-    assert!(!output.status.success());
-    assert!(output.stdout.is_empty());
-    let json = String::from_utf8(output.stderr).unwrap();
+    let (status, stdout, stderr) = run_lim(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg("--check")
+            .arg(&input)
+            .arg("--diagnostic-format=json"),
+    );
+    assert!(!status.success());
+    assert!(stdout.is_empty());
+    let json = stderr;
     assert!(json.contains("\"category\":\"borrow\""), "{json}");
     assert!(json.contains("\"primary\":true"), "{json}");
     assert!(
@@ -89,5 +98,27 @@ fn reports_borrow_diagnostic_as_json_with_primary_byte_span() {
     );
     assert_eq!(fs::read_to_string(&input).unwrap(), source);
     assert!(!directory.join("borrow").exists(), "check wrote a binary");
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn checks_semantically_valid_source_without_running_native_codegen() {
+    let directory = scratch();
+    let input = directory.join("backend-only.lim");
+    let source = "(#fn wide-result () #i128 (#return 1i128))\n(#fn main () () (#return ()))\n";
+    fs::write(&input, source).unwrap();
+
+    let (status, stdout, stderr) = run_lim(
+        Command::new(env!("CARGO_BIN_EXE_lim"))
+            .arg("--check")
+            .arg(&input),
+    );
+    assert!(
+        status.success(),
+        "semantic check unexpectedly invoked/failed native codegen: {}",
+        stderr
+    );
+    assert!(stdout.is_empty());
+    assert!(!directory.join("backend-only.s").exists());
     fs::remove_dir_all(directory).unwrap();
 }

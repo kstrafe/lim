@@ -1967,6 +1967,41 @@ pub fn compile_source_with_generated_sources(
     )
 }
 
+/// Check a Lim source file through parsing, generator expansion, and semantic
+/// validation without invoking the native backend or producing assembly.
+/// Generated sources and generator cache entries are materialized using the
+/// same rules as [`compile_source_with_generated_sources`].
+pub fn check_source_with_generated_sources(
+    source: &str,
+    source_path: &Path,
+    config: &CompileConfig,
+    cache_directory: &Path,
+    generated_directory: &Path,
+) -> Result<(), Diagnostic> {
+    let prepared = prepare_program_syntax(
+        source,
+        source_path.parent().unwrap_or(Path::new(".")),
+        Some(source_path),
+        config,
+        Some(cache_directory),
+    )
+    .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    let (program, capture_plans) = parse_prepared_program_with_capture_plans(&prepared)
+        .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    write_prepared_generated_sources(
+        &prepared,
+        generated_directory,
+        Some(cache_directory),
+        &capture_plans,
+    )
+    .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    typecheck::CheckedProgram::validate_with_span(&program)
+        .map(|_| ())
+        .map_err(|(message, code, span, labels)| {
+            analysis_diagnostic(message, code, span, labels, &program)
+        })
+}
+
 /// Emit only executable-reachable functions after validating the full program.
 /// Assembly/library emission should use `compile_source_with_generated_sources`.
 pub fn compile_executable_source_with_generated_sources(
