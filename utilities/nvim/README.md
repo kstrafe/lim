@@ -34,6 +34,9 @@ Enable `filetype plugin on` and add this directory to your runtime path to load
 `vim.g.lim_lsp_cmd = { '/absolute/path/to/lim', 'lsp' }` before opening a Lim
 buffer to select a development binary. Additional `--cfg KEY=VALUE` and
 `--module-path PATH` arguments can be included in that command list.
+Set `vim.g.lim_lsp_autostart = false` before opening a Lim buffer when
+`nvim-lspconfig` or another integration manages server startup. This keeps
+the bundled syntax highlighting without starting a duplicate client.
 Explicit cfg settings apply to the whole server session. The server also
 discovers the nearest `lim.project` for each buffer and adds its source root
 and module directories, just like the build CLI.
