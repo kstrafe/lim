@@ -2054,8 +2054,13 @@ fn loop_result_values(
                 | Control::Evaluate(value) => {
                     expression_breaks(body, *value, label, nested_loops, values);
                 }
-                Control::Destructure { value, .. } => {
+                Control::Destructure {
+                    value, otherwise, ..
+                } => {
                     expression_breaks(body, *value, label, nested_loops, values);
+                    if let Some(otherwise) = otherwise {
+                        instruction_breaks(body, otherwise, label, nested_loops, values);
+                    }
                 }
                 Control::Loop(loop_body) => {
                     instruction_breaks(body, loop_body, label, nested_loops + 1, values);

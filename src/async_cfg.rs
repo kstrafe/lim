@@ -723,7 +723,17 @@ impl<'a> Builder<'a> {
                     let branch = self.emit(&c[1], Action::Pattern, vec![value]);
                     self.arm_start(branch, node, EdgeKind::False);
                     if let Some(other) = c.get(4) {
-                        self.expression(other, None, None)?;
+                        if head(other) == "else" {
+                            if let Some(pattern) = other.children.get(1) {
+                                let ids = self.bind_pattern(pattern, ty.clone(), false);
+                                self.emit(pattern, Action::Bind(ids), vec![value]);
+                            }
+                            for statement in other.children.iter().skip(2) {
+                                self.expression(statement, None, None)?;
+                            }
+                        } else {
+                            self.expression(other, None, None)?;
+                        }
                     }
                     self.pop_scope(node);
                     // The else path must diverge; normal checking enforces this.

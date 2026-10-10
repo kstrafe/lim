@@ -579,9 +579,11 @@ fn substitute_statement(statement: &Statement, substitutions: &HashMap<String, T
             pattern,
             ty,
             value,
+            failure_pattern,
             else_body,
         } => Statement::LetElse {
             pattern: pattern.clone(),
+            failure_pattern: failure_pattern.clone(),
             ty: substitute_type(ty, substitutions),
             value: substitute_expr(value, substitutions),
             else_body: else_body
@@ -742,9 +744,11 @@ fn rewrite_statement(
             pattern,
             ty,
             value,
+            failure_pattern,
             else_body,
         } => Statement::LetElse {
             pattern: pattern.clone(),
+            failure_pattern: failure_pattern.clone(),
             ty: ty.clone(),
             value: rewrite_expr(value, specializations),
             else_body: else_body
@@ -1107,9 +1111,11 @@ fn prepare_checked_program(
                 pattern,
                 ty,
                 value,
+                failure_pattern,
                 else_body,
             } => Statement::LetElse {
                 pattern: expr(pattern),
+                failure_pattern: failure_pattern.as_ref().map(expr),
                 ty: ty.clone(),
                 value: expr(value),
                 else_body: else_body.iter().map(statement).collect(),
@@ -2634,9 +2640,17 @@ fn collect_local_types(
             pattern,
             ty,
             value,
+            failure_pattern,
             else_body,
         } => {
             if let Ok(ty) = resolve_type(ty, aliases) {
+                if let Some(pattern) = failure_pattern {
+                    if let Ok(bindings) = let_else_bindings(pattern, &ty, structs, enums) {
+                        for (name, field_type) in bindings {
+                            types.entry(name).or_insert(field_type);
+                        }
+                    }
+                }
                 if let Ok(bindings) = let_else_bindings(pattern, &ty, structs, enums) {
                     for (name, field_type) in bindings {
                         types.entry(name).or_insert(field_type);
@@ -3194,9 +3208,23 @@ fn collect_locals(
             pattern,
             ty,
             value,
+            failure_pattern,
             else_body,
         } => {
             let ty = resolve_type(ty, aliases)?;
+            if let Some(pattern) = failure_pattern {
+                for (name, field_type) in let_else_bindings(pattern, &ty, structs, enums)? {
+                    add_local(
+                        locals,
+                        &name,
+                        &field_type,
+                        structs,
+                        enums,
+                        aliases,
+                        next_slot,
+                    )?;
+                }
+            }
             for (name, field_type) in let_else_bindings(pattern, &ty, structs, enums)? {
                 add_local(
                     locals,
@@ -6577,6 +6605,7 @@ impl FunctionContext<'_> {
                 pattern,
                 ty,
                 value,
+                failure_pattern,
                 else_body,
             } => {
                 let storage_words = storage_word_count(ty, &self.structs, &self.enums)?;
@@ -6640,7 +6669,18 @@ impl FunctionContext<'_> {
                     } else {
                         None
                     };
-                    self.emit_scalar_pattern_at(pattern, ty, low_operand, high_operand, &failure)?;
+                    if matches!(pattern, Expr::Symbol(name) if !matches!(name.as_str(), "_" | "true" | "false"))
+                    {
+                        self.collect_enum_pattern_bindings(pattern, ty, 0, &mut bindings)?;
+                    } else {
+                        self.emit_scalar_pattern_at(
+                            pattern,
+                            ty,
+                            low_operand,
+                            high_operand,
+                            &failure,
+                        )?;
+                    }
                 } else {
                     let constructor = match pattern {
                         Expr::List(items) => match items.first() {
@@ -6686,6 +6726,71 @@ impl FunctionContext<'_> {
                 self.stack_depth -= words;
                 self.output
                     .push_str(&format!("    jmp {done}\n{failure}:\n"));
+                // The mismatch edge still owns the original value on the stack.
+                self.stack_depth += words;
+                if let Some(pattern) = failure_pattern {
+                    let impossible = self.label("let_else_impossible");
+                    let mut bindings = Vec::new();
+                    if fieldless_enum_type {
+                        self.emit_let_else_fieldless_enum_pattern(pattern, ty, &impossible)?;
+                    } else if enum_type {
+                        if matches!(pattern, Expr::List(items) if matches!(items.first(),
+                            Some(Expr::Symbol(head)) if head == "or"))
+                        {
+                            self.emit_let_else_enum_or_pattern(pattern, ty, &impossible)?;
+                        } else {
+                            self.emit_let_else_enum_pattern(
+                                pattern,
+                                ty,
+                                &impossible,
+                                &mut bindings,
+                            )?;
+                        }
+                    } else if is_scalar_pattern_type(ty) {
+                        if matches!(pattern, Expr::Symbol(name) if !matches!(name.as_str(), "_" | "true" | "false"))
+                        {
+                            self.collect_enum_pattern_bindings(pattern, ty, 0, &mut bindings)?;
+                        } else {
+                            self.emit_scalar_pattern_at(
+                                pattern,
+                                ty,
+                                "QWORD PTR [rsp]",
+                                is_wide_integer(ty).then_some("QWORD PTR [rsp+8]"),
+                                &impossible,
+                            )?;
+                        }
+                    } else if let Expr::List(items) = pattern {
+                        let Some(Expr::Symbol(constructor)) = items.first() else {
+                            return Err("let-else pattern must start with a constructor".into());
+                        };
+                        self.emit_aggregate_pattern(
+                            pattern,
+                            constructor,
+                            ty,
+                            0,
+                            &impossible,
+                            &mut bindings,
+                        )?;
+                    } else {
+                        self.collect_enum_pattern_bindings(pattern, ty, 0, &mut bindings)?;
+                    }
+                    for (binding_id, name, offset, _) in bindings {
+                        let slots = self.local_slots_for_binding(binding_id, &name)?;
+                        let stack_offset = if enum_type { offset + 1 } else { offset };
+                        for (index, slot) in slots.into_iter().enumerate() {
+                            self.output.push_str(&format!(
+                                "    mov rax, QWORD PTR [rsp+{}]\n    mov QWORD PTR [rbp-{}], rax\n",
+                                (stack_offset + index) * 8, slot * 8));
+                        }
+                    }
+                    let bound = self.label("let_else_failure_bound");
+                    self.output.push_str(&format!(
+                        "    jmp {bound}\n{impossible}:\n    ud2\n{bound}:\n"
+                    ));
+                }
+                self.output
+                    .push_str(&format!("    add rsp, {}\n", words * 8));
+                self.stack_depth -= words;
                 for statement in else_body {
                     self.statement(statement)?;
                 }
@@ -12979,6 +13084,9 @@ impl FunctionContext<'_> {
         ty: &Type,
         failure: &str,
     ) -> Result<(), String> {
+        if matches!(pattern, Expr::Symbol(name) if name == "_") {
+            return Ok(());
+        }
         let Type::Named(enum_name) = ty else {
             return Err("fieldless enum let-else pattern requires a named enum".into());
         };

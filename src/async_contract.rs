@@ -161,7 +161,17 @@ impl Checker<'_> {
                     return Some(error);
                 }
                 if let Some(failure) = items.get(4) {
-                    if let Some(error) = self.visit(failure, &mut scope.clone(), None) {
+                    let mut failure_scope = scope.clone();
+                    if head(failure) == "else" {
+                        if let Some(pattern) = failure.children.get(1) {
+                            self.bind(&pattern.expr, &ty, &mut failure_scope);
+                        }
+                        for statement in failure.children.iter().skip(2) {
+                            if let Some(error) = self.visit(statement, &mut failure_scope, None) {
+                                return Some(error);
+                            }
+                        }
+                    } else if let Some(error) = self.visit(failure, &mut failure_scope, None) {
                         return Some(error);
                     }
                 }

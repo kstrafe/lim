@@ -1136,6 +1136,7 @@ pub(crate) enum Control {
         ty: Type,
         mutable: bool,
         otherwise: Option<Vec<Instruction>>,
+        failure_pattern: Option<NodeId>,
     },
     Assign(PlaceRoot, Projection, NodeId),
     While(NodeId, Vec<Instruction>),
@@ -1232,6 +1233,8 @@ pub(crate) struct Body {
     pub nodes: Vec<Node>,
     pub bindings: Vec<Binding>,
     pub instructions: Vec<Instruction>,
+    /// Failure patterns retain their success pattern for mismatch-only cleanup checks.
+    pub let_else_failures: HashMap<NodeId, (NodeId, Type)>,
     /// Function parameters occupy the first `parameter_count` binding slots.
     /// Keeping this boundary in typed IR lets ownership analyses distinguish
     /// externally supplied reference roots from references to local owners.
@@ -1388,10 +1391,14 @@ impl Body {
                     pattern,
                     value,
                     otherwise,
+                    failure_pattern,
                     ..
                 } => {
                     self.walk_emission_node(*pattern, order);
                     self.walk_emission_node(*value, order);
+                    if let Some(pattern) = failure_pattern {
+                        self.walk_emission_node(*pattern, order);
+                    }
                     if let Some(otherwise) = otherwise {
                         self.walk_emission_instructions(otherwise, order);
                     }
@@ -1772,9 +1779,11 @@ impl Body {
                 ty,
                 mutable,
                 otherwise,
+                failure_pattern,
             } => match otherwise {
                 Some(body) => Statement::LetElse {
                     pattern: expr(*pattern),
+                    failure_pattern: failure_pattern.map(expr),
                     value: expr(*value),
                     ty: ty.clone(),
                     else_body: self.statements(body, erase),
@@ -1969,11 +1978,15 @@ fn walk_statements<'a>(statements: &'a [Statement], output: &mut Vec<&'a Expr>) 
             Statement::LetElse {
                 pattern,
                 value,
+                failure_pattern,
                 else_body,
                 ..
             } => {
                 walk_expression(pattern, output);
                 walk_expression(value, output);
+                if let Some(pattern) = failure_pattern {
+                    walk_expression(pattern, output);
+                }
                 walk_statements(else_body, output);
             }
             Statement::ArrayAssign { index, value, .. } => {
@@ -2078,10 +2091,14 @@ fn lowering_expression_order(
                 S::LetElse {
                     pattern,
                     value,
+                    failure_pattern,
                     else_body,
                     ..
                 } => {
                     expression(value, ids, output);
+                    if let Some(pattern) = failure_pattern {
+                        expression(pattern, ids, output);
+                    }
                     statements_order(else_body, ids, output);
                     expression(pattern, ids, output);
                 }
@@ -2581,25 +2598,40 @@ impl Builder<'_> {
                     ty,
                     mutable: *mutable,
                     otherwise: None,
+                    failure_pattern: None,
                 }
             }
             Statement::LetElse {
                 pattern,
                 ty,
                 value,
+                failure_pattern,
                 else_body,
             } => {
                 let value = self.expression(value);
-                let otherwise = Some(self.statements(else_body));
-                let pattern_id = self.expression(pattern);
                 let ty = resolve_type(ty, &self.declarations.aliases).expect("checked pattern");
+                let saved = self.names.clone();
+                let failure_pattern = failure_pattern.as_ref().map(|pattern| {
+                    let node = self.expression(pattern);
+                    self.pattern_bindings(pattern, node, &ty, true);
+                    node
+                });
+                let otherwise = Some(self.statements(else_body));
+                self.names = saved;
+                let pattern_id = self.expression(pattern);
                 self.pattern_bindings(pattern, pattern_id, &ty, true);
+                if let Some(failure) = failure_pattern {
+                    self.body
+                        .let_else_failures
+                        .insert(failure, (pattern_id, ty.clone()));
+                }
                 Control::Destructure {
                     pattern: pattern_id,
                     value,
                     ty,
                     mutable: false,
                     otherwise,
+                    failure_pattern,
                 }
             }
             Statement::Assign { name, value } => {

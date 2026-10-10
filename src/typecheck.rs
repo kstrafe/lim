@@ -4532,13 +4532,19 @@ fn semantic_statement_source<'a>(
         Statement::LetElse {
             pattern,
             value,
+            failure_pattern,
             else_body,
             ..
         } => locate(value, source.children.get(3)?)
             .or_else(|| {
+                let (body_source, offset) = if failure_pattern.is_some() {
+                    (source.children.get(4)?, 2)
+                } else {
+                    (source, 4)
+                };
                 else_body
                     .iter()
-                    .zip(source.children.iter().skip(4))
+                    .zip(body_source.children.iter().skip(offset))
                     .find_map(|(statement, source)| {
                         semantic_statement_source(
                             statement,
@@ -4549,6 +4555,11 @@ fn semantic_statement_source<'a>(
                             structs,
                         )
                     })
+            })
+            .or_else(|| {
+                failure_pattern
+                    .as_ref()
+                    .and_then(|pattern| locate(pattern, source.children.get(4)?.children.get(1)?))
             })
             .or_else(|| locate(pattern, source.children.get(1)?)),
         Statement::Return(Some(value)) | Statement::BreakValue(value) => {
@@ -5488,7 +5499,7 @@ fn type_pattern_symbol_span(expression: &crate::SpannedExpr, target: &str) -> Op
                     }
                 }
             }
-        } else if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.strip_prefix('#').unwrap_or(operator), "let-else" | "if-let" | "while-let"))
+        } else if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.strip_prefix('#').unwrap_or(operator), "let-else" | "else" | "if-let" | "while-let"))
         {
             if let Some(pattern) = expression.children.get(1) {
                 if let Some(span) = inclusive_symbol_span(pattern, target) {
@@ -5798,6 +5809,7 @@ fn statement_type_in_context(
             pattern,
             ty,
             value,
+            failure_pattern,
             else_body,
         } => {
             let binding_type = resolve_type(ty, aliases)?;
@@ -5820,6 +5832,29 @@ fn statement_type_in_context(
             }
             let mut else_variables = variables.clone();
             let mut else_mutable = mutable.clone();
+            if let Some(failure_pattern) = failure_pattern {
+                let bindings = check_let_else_pattern(
+                    failure_pattern,
+                    &binding_type,
+                    variables,
+                    structs,
+                    enums,
+                )?;
+                if !let_else_patterns_cover(
+                    &[vec![pattern.clone()], vec![failure_pattern.clone()]],
+                    &[binding_type.clone()],
+                    structs,
+                    enums,
+                ) {
+                    return Err(semantic_at!(
+                        ErrorSite::Operator("else".into()),
+                        "let-else failure pattern does not cover all success mismatches"
+                    ));
+                }
+                for (name, ty) in bindings {
+                    else_variables.insert(name, ty);
+                }
+            }
             for statement in else_body {
                 statement_type(
                     statement,
@@ -6391,6 +6426,86 @@ fn check_destructure_pattern(
         }
     }
     Ok(bindings)
+}
+
+// Pattern-matrix coverage checks the union, including refutable payloads.
+// Specializing constructors keeps the fallback restricted to success mismatches.
+pub(crate) fn let_else_patterns_cover(
+    rows: &[Vec<Expr>],
+    types: &[Type],
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+) -> bool {
+    if types.is_empty() {
+        return !rows.is_empty();
+    }
+    let ty = &types[0];
+    let constructors: Vec<(String, Vec<Type>)> = match ty {
+        Type::Bool => vec![("false".into(), vec![]), ("true".into(), vec![])],
+        Type::Tuple(fields) => vec![("tuple".into(), fields.clone())],
+        Type::Array(element, length) => vec![("array".into(), vec![*element.clone(); *length])],
+        Type::Named(name) if enums.contains_key(name) => enums[name]
+            .iter()
+            .map(|variant| (variant.name.clone(), variant.fields.clone()))
+            .collect(),
+        Type::Named(name) if structs.contains_key(name) => vec![(
+            name.clone(),
+            structs[name].iter().map(|field| field.ty.clone()).collect(),
+        )],
+        _ => vec![],
+    };
+    fn alternatives(pattern: &Expr) -> Vec<&Expr> {
+        if let Expr::List(items) = pattern {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if head == "or") {
+                return items[1..].iter().flat_map(alternatives).collect();
+            }
+        }
+        vec![pattern]
+    }
+    let is_default = |pattern: &Expr| {
+        matches!(pattern, Expr::Symbol(name)
+        if name == "_" || (!matches!(name.as_str(), "true" | "false")
+            && !constructors.iter().any(|(constructor, _)| constructor == name)))
+    };
+    if constructors.is_empty() {
+        let defaults = rows
+            .iter()
+            .filter(|row| {
+                alternatives(&row[0])
+                    .iter()
+                    .any(|pattern| is_default(pattern))
+            })
+            .map(|row| row[1..].to_vec())
+            .collect::<Vec<_>>();
+        return let_else_patterns_cover(&defaults, &types[1..], structs, enums);
+    }
+    constructors.iter().all(|(constructor, fields)| {
+        let mut specialized = Vec::new();
+        for row in rows {
+            for pattern in alternatives(&row[0]) {
+                let mut payload = if is_default(pattern) {
+                    vec![Expr::Symbol("_".into()); fields.len()]
+                } else {
+                    match pattern {
+                        Expr::Symbol(name) if name == constructor && fields.is_empty() => vec![],
+                        Expr::List(items)
+                            if matches!(items.first(), Some(Expr::Symbol(name))
+                            if name == constructor)
+                                && items.len() == fields.len() + 1 =>
+                        {
+                            items[1..].to_vec()
+                        }
+                        _ => continue,
+                    }
+                };
+                payload.extend_from_slice(&row[1..]);
+                specialized.push(payload);
+            }
+        }
+        let mut field_types = fields.clone();
+        field_types.extend_from_slice(&types[1..]);
+        let_else_patterns_cover(&specialized, &field_types, structs, enums)
+    })
 }
 
 fn check_let_else_pattern(

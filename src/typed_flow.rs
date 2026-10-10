@@ -8469,6 +8469,19 @@ impl FlowGraph {
         moves: Option<&FlowConsumptions>,
         referent_exit_facts: bool,
     ) -> Result<(), ReleaseConflict> {
+        let mut failures = body.let_else_failures.iter().collect::<Vec<_>>();
+        failures.sort_by_key(|(failure, _)| failure.0);
+        for (failure, (success, ty)) in failures {
+            let failure_syntax = body.syntax(*failure, false);
+            let success_syntax = body.syntax(*success, false);
+            if let_else_discards_linear(&failure_syntax, &success_syntax, ty, types, declarations) {
+                return Err(ReleaseConflict {
+                    message: "let-else failure pattern would discard a linear payload; bind and consume it explicitly".into(),
+                    span: body.nodes[failure.0].span,
+                    labels: Vec::new(),
+                });
+            }
+        }
         let obligations = body
             .bindings
             .iter()
@@ -13568,6 +13581,106 @@ fn origins_selected_by_variant(
     )
 }
 
+fn let_else_discards_linear(
+    failure: &crate::Expr,
+    success: &crate::Expr,
+    ty: &crate::Type,
+    types: &LinearTypes,
+    declarations: &crate::typed_ir::Declarations,
+) -> bool {
+    use crate::{Expr, Type};
+    let ty =
+        crate::typed_ir::resolve_type(ty, &declarations.aliases).expect("checked pattern type");
+    if crate::typecheck::let_else_patterns_cover(
+        &[vec![success.clone()]],
+        &[ty.clone()],
+        &declarations.structs,
+        &declarations.enums,
+    ) {
+        return false;
+    }
+    if matches!(failure, Expr::Symbol(name) if name == "_")
+        && types.linear_obligation_paths(&ty).iter().any(Vec::is_empty)
+    {
+        return true;
+    }
+    if let Expr::List(parts) = failure {
+        if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "or") {
+            return parts[1..].iter().any(|pattern| {
+                let_else_discards_linear(pattern, success, &ty, types, declarations)
+            });
+        }
+    }
+    if let Type::Named(name) = &ty {
+        if let Some(variants) = declarations.enums.get(name) {
+            fn success_rows(pattern: &Expr, variant: &crate::EnumVariant) -> Vec<Vec<Expr>> {
+                match pattern {
+                    Expr::Symbol(head) if head == "_" => {
+                        vec![vec![Expr::Symbol("_".into()); variant.fields.len()]]
+                    }
+                    Expr::Symbol(head) if head == &variant.name && variant.fields.is_empty() => {
+                        vec![vec![]]
+                    }
+                    Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "or") => {
+                        parts[1..]
+                            .iter()
+                            .flat_map(|pattern| success_rows(pattern, variant))
+                            .collect()
+                    }
+                    Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == &variant.name) => {
+                        vec![parts[1..].to_vec()]
+                    }
+                    _ => vec![],
+                }
+            }
+            for variant in variants {
+                let payloads = match failure {
+                    Expr::Symbol(head) if head == "_" || head == &variant.name => {
+                        vec![Expr::Symbol("_".into()); variant.fields.len()]
+                    }
+                    Expr::List(parts) if matches!(parts.first(), Some(Expr::Symbol(head)) if head == &variant.name) => {
+                        parts[1..].to_vec()
+                    }
+                    _ => continue,
+                };
+                if crate::typecheck::let_else_patterns_cover(
+                    &success_rows(success, variant),
+                    &variant.fields,
+                    &declarations.structs,
+                    &declarations.enums,
+                ) {
+                    continue;
+                }
+                if payloads.iter().zip(&variant.fields).any(|(pattern, ty)| {
+                    let_else_discards_linear(pattern, &Expr::Integer(0), ty, types, declarations)
+                }) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+    match failure {
+        Expr::Symbol(name) if name == "_" => types.is_linear(&ty),
+        Expr::List(parts) => {
+            let fields = match &ty {
+                Type::Tuple(fields) => fields.clone(),
+                Type::Array(element, count) => vec![*element.clone(); *count],
+                Type::Named(name) => declarations
+                    .structs
+                    .get(name)
+                    .map(|fields| fields.iter().map(|field| field.ty.clone()).collect())
+                    .unwrap_or_default(),
+                _ => vec![],
+            };
+            parts.iter().skip(1).zip(&fields).any(|(pattern, ty)| {
+                let_else_discards_linear(pattern, &Expr::Integer(0), ty, types, declarations)
+            })
+        }
+        _ => false,
+    }
+}
+
 fn direct_scope_bindings(body: &Body, instructions: &[Instruction]) -> Vec<BindingId> {
     fn collect(body: &Body, instruction: &Instruction, bindings: &mut HashSet<BindingId>) {
         match &instruction.control {
@@ -13686,6 +13799,7 @@ impl Builder<'_> {
                 pattern,
                 value,
                 otherwise,
+                failure_pattern,
                 ..
             } => {
                 let bind = self.push(
@@ -13697,7 +13811,25 @@ impl Builder<'_> {
                     vec![next],
                 );
                 let decision = if let Some(otherwise) = otherwise {
+                    let mut bindings = HashSet::new();
+                    if let Some(pattern) = failure_pattern {
+                        collect_pattern_bindings(self.body, *pattern, &mut bindings);
+                    }
+                    self.active_scopes.push(bindings.into_iter().collect());
                     let failure = self.scoped_instructions(otherwise, next, targets)?;
+                    self.active_scopes.pop();
+                    let failure = if let Some(pattern) = failure_pattern {
+                        self.push(
+                            FlowAction::Pattern {
+                                pattern: *pattern,
+                                value: *value,
+                            },
+                            span,
+                            vec![failure],
+                        )
+                    } else {
+                        failure
+                    };
                     self.push(FlowAction::Branch(*pattern), span, vec![bind, failure])
                 } else {
                     bind

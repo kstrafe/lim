@@ -116,11 +116,15 @@ pub(crate) fn expression_ids_selected(
             S::LetElse {
                 pattern,
                 value,
+                failure_pattern,
                 else_body,
                 ..
             } => {
                 expression(pattern, ids, next);
                 expression(value, ids, next);
+                if let Some(pattern) = failure_pattern {
+                    expression(pattern, ids, next);
+                }
                 for statement_value in else_body {
                     statement(statement_value, ids, next);
                 }
@@ -250,11 +254,15 @@ pub(crate) fn statement_ids_selected(
             S::LetElse {
                 pattern,
                 value,
+                failure_pattern,
                 else_body,
                 ..
             } => {
                 expression(pattern, ids, next);
                 expression(value, ids, next);
+                if let Some(pattern) = failure_pattern {
+                    expression(pattern, ids, next);
+                }
                 statements(else_body, ids, next);
             }
             S::ArrayAssign { index, value, .. } => {
@@ -434,7 +442,10 @@ fn collect_statement_binding_spans(
             output,
         ),
         S::LetElse {
-            value, else_body, ..
+            value,
+            failure_pattern,
+            else_body,
+            ..
         } => {
             collect_expression_binding_spans(
                 value,
@@ -442,7 +453,23 @@ fn collect_statement_binding_spans(
                 expression_spans,
                 output,
             );
-            collect_statement_list_binding_spans(else_body, source, 4, expression_spans, output);
+            if failure_pattern.is_some() {
+                collect_statement_list_binding_spans(
+                    else_body,
+                    source_child(source, 4),
+                    2,
+                    expression_spans,
+                    output,
+                );
+            } else {
+                collect_statement_list_binding_spans(
+                    else_body,
+                    source,
+                    4,
+                    expression_spans,
+                    output,
+                );
+            }
         }
         S::Assign { value, .. }
         | S::FieldAssign { value, .. }

@@ -1483,6 +1483,7 @@ pub enum Statement {
         pattern: Expr,
         ty: Type,
         value: Expr,
+        failure_pattern: Option<Expr>,
         else_body: Vec<Statement>,
     },
     Assign {
@@ -4367,10 +4368,41 @@ fn rename_shadowed_locals(
 fn shadow_binding_span(span: Span, name: &str, source_files: &[SourceFile]) -> Option<Span> {
     let source = &source_files.get(span.source_id as usize)?.source;
     let form = source.get(span.start..span.end)?;
-    let (offset, _) = form.match_indices(name).find(|(offset, _)| {
-        let before = form[..*offset].chars().next_back();
-        let after = form[*offset + name.len()..].chars().next();
-        !before.is_some_and(is_identifier_character) && !after.is_some_and(is_identifier_character)
+    // A failure binder can repeat the scrutinee's spelling; locate its
+    // declaration, rather than that earlier value use, in the new syntax.
+    let failure_binding_offset = if form.starts_with("(#let-else") {
+        fn pattern_binding(node: &SpannedExpr, name: &str) -> Option<usize> {
+            if matches!(&node.expr, Expr::Symbol(found) if found == name) {
+                return Some(node.span.start);
+            }
+            node.children
+                .iter()
+                .skip(1)
+                .find_map(|child| pattern_binding(child, name))
+        }
+        parse(form).ok().and_then(|forms| {
+            forms.first().and_then(|statement| {
+                let fallback = statement.children.get(4)?;
+                if !matches!(&fallback.expr, Expr::List(items) if matches!(items.first(),
+                Some(Expr::Symbol(head)) if head == "#else"))
+                {
+                    return None;
+                }
+                pattern_binding(fallback.children.get(1)?, name)
+            })
+        })
+    } else {
+        None
+    };
+    let offset = failure_binding_offset.or_else(|| {
+        form.match_indices(name)
+            .find(|(offset, _)| {
+                let before = form[..*offset].chars().next_back();
+                let after = form[*offset + name.len()..].chars().next();
+                !before.is_some_and(is_identifier_character)
+                    && !after.is_some_and(is_identifier_character)
+            })
+            .map(|(offset, _)| offset)
     })?;
     let start = span.start + offset;
     let prefix = &source[..start];
@@ -4604,11 +4636,23 @@ fn rename_statement(
         Statement::LetElse {
             pattern,
             value,
+            failure_pattern,
             else_body,
             ..
         } => {
             rename_expression(value, bindings, used, next_id, globals, variants);
             let mut else_bindings = bindings.clone();
+            if let Some(pattern) = failure_pattern {
+                rename_pattern_bindings(
+                    pattern,
+                    &mut else_bindings,
+                    used,
+                    next_id,
+                    globals,
+                    variants,
+                    &mut HashSet::new(),
+                );
+            }
             rename_statements(
                 else_body,
                 &mut else_bindings,
@@ -6760,9 +6804,11 @@ fn specialize_statement(
             pattern,
             ty,
             value,
+            failure_pattern,
             else_body,
         } => Statement::LetElse {
             pattern: pattern.clone(),
+            failure_pattern: failure_pattern.clone(),
             ty: specialize_type(ty, substitutions, templates, names, generated)?,
             value: specialize_expr(value, substitutions, templates, names, generated)?,
             else_body: else_body
@@ -8313,9 +8359,11 @@ fn replace_generic_statement(statement: &Statement, parameters: &[String]) -> St
             pattern,
             ty,
             value,
+            failure_pattern,
             else_body,
         } => Statement::LetElse {
             pattern: pattern.clone(),
+            failure_pattern: failure_pattern.clone(),
             ty: replace_generic_types(ty, parameters),
             value: value.clone(),
             else_body: else_body
@@ -8675,14 +8723,27 @@ fn parse_statement(expression: &Expr) -> Result<Statement, String> {
                 "let-else requires (#let-else pattern Type value else-statement ...)".into(),
             );
         }
-        let mut else_body = Vec::with_capacity(items.len() - 4);
-        for expression in &items[4..] {
+        let (failure_pattern, expressions) = if is_form(&items[4], "else") {
+            if items.len() != 5 {
+                return Err("#else must be the only let-else fallback".into());
+            }
+            let fallback = expect_list(&items[4], "let-else #else")?;
+            if fallback.len() < 3 {
+                return Err("#else requires a failure pattern and statements".into());
+            }
+            (Some(fallback[1].clone()), &fallback[2..])
+        } else {
+            (None, &items[4..])
+        };
+        let mut else_body = Vec::with_capacity(expressions.len());
+        for expression in expressions {
             else_body.push(parse_statement(expression)?);
         }
         return Ok(Statement::LetElse {
             pattern: items[1].clone(),
             ty: parse_type(items.get(2))?,
             value: lower_expr(&items[3])?,
+            failure_pattern,
             else_body,
         });
     }

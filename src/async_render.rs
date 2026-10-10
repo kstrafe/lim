@@ -398,7 +398,7 @@ impl<'a> RenderContext<'a> {
                         .map_or(String::new(), |mode| format!(".{mode}"));
                     symbol(format!(
                         "#{}.{}{mode}",
-                        numeric.scalar_name(),
+                        numeric.scalar_name().trim_start_matches('#'),
                         numeric.operation.as_str()
                     ))
                 } else if operation.head.starts_with('#') {

@@ -507,12 +507,16 @@ fn check_statements(
                 pattern,
                 ty,
                 value,
+                failure_pattern,
                 else_body,
                 ..
             } => {
                 check_expr(value, bindings, moved, globals, false, types)?;
                 let mut else_bindings = bindings.clone();
                 let mut else_moved = moved.clone();
+                if let Some(pattern) = failure_pattern {
+                    collect_typed_pattern_names(pattern, ty, types, &mut else_bindings);
+                }
                 check_scoped_statements(
                     else_body,
                     &mut else_bindings,

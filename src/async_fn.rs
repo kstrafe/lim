@@ -9956,7 +9956,7 @@ fn terminalize_async_iterations(
             {
                 return;
             }
-            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut" | "#let-else" | "#case" | "#if-let" | "#while-let"))
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#let" | "#let-mut" | "#let-else" | "#else" | "#case" | "#if-let" | "#while-let"))
             {
                 if let Some(pattern) = items.get_mut(1) {
                     rename_async_value(pattern, from, to);
@@ -12966,6 +12966,11 @@ fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
                     collect_value_names(&items[3], names);
                     collect_value_names(&items[4], names);
                 }
+                "#else" | "else" => {
+                    for statement in items.iter().skip(2) {
+                        collect_value_names(statement, names);
+                    }
+                }
                 "#struct-literal" if items.len() >= 3 => {
                     if let Expr::List(fields) = &items[2] {
                         for field in fields {
@@ -13049,6 +13054,16 @@ fn collect_value_names(expr: &Expr, names: &mut HashSet<String>) {
 fn collect_local_binding_names(expr: &Expr, names: &mut HashSet<String>) {
     match expr {
         Expr::List(items) => {
+            if matches!(items.first(), Some(Expr::Symbol(head)) if matches!(head.as_str(), "#else" | "else"))
+            {
+                if let Some(pattern) = items.get(1) {
+                    names.extend(pattern_symbols(pattern));
+                }
+                for statement in items.iter().skip(2) {
+                    collect_local_binding_names(statement, names);
+                }
+                return;
+            }
             if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#while-let") {
                 if let Some(pattern) = items.get(1) {
                     names.extend(pattern_symbols(pattern));
@@ -13152,6 +13167,11 @@ fn rename_async_value(expr: &mut Expr, from: &str, to: &str) {
                 "#let-else" | "let-else" if items.len() >= 5 => {
                     rename_async_value(&mut items[3], from, to);
                     rename_async_value(&mut items[4], from, to);
+                }
+                "#else" | "else" => {
+                    for statement in items.iter_mut().skip(2) {
+                        rename_async_value(statement, from, to);
+                    }
                 }
                 "#await" if items.len() >= 6 => {
                     let task_index = if items.len() == 7 { 6 } else { 5 };

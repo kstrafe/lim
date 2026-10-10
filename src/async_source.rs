@@ -255,6 +255,7 @@ impl Builder<'_> {
                 "while-let" => index >= 3,
                 "for" => index == 1 || index >= 3,
                 "for-range" | "let-else" => index >= 4,
+                "else" => index >= 2,
                 "label" => index == 2 && statement,
                 _ => false,
             };

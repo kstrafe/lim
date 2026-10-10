@@ -779,6 +779,7 @@ impl Builder<'_> {
                 pattern,
                 value: source,
                 otherwise,
+                failure_pattern,
                 mutable,
                 ..
             } => {
@@ -798,9 +799,17 @@ impl Builder<'_> {
                     };
                     self.action(yes, Some(pattern.source), Action::Commit(pattern));
                     self.goto(yes, join);
+                    let failure_depth = self.scopes.len();
+                    if let Some(source) = failure_pattern {
+                        let pattern = self.pattern(*source, value, false)?;
+                        self.enter(no, pattern.bindings.clone());
+                        self.action(no, Some(pattern.source), Action::Commit(pattern));
+                    }
                     if let Some(end) = self.scoped(otherwise, no)? {
+                        self.cleanup(end, failure_depth);
                         self.goto(end, join);
                     }
+                    self.scopes.truncate(failure_depth);
                     Ok(Some(join))
                 } else {
                     self.action(end, Some(pattern.source), Action::Commit(pattern));

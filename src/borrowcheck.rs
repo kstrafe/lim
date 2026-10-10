@@ -1168,7 +1168,11 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
             }
         }
         Statement::LetElse {
-            pattern, ty, value, ..
+            pattern,
+            ty,
+            value,
+            failure_pattern,
+            else_body,
         } => {
             check_expression(value, context)?;
             if !context.typed_scope_escapes {
@@ -1181,6 +1185,14 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
                     context,
                 )?;
             }
+            let mut failure_context = context.clone();
+            if let Some(pattern) = failure_pattern {
+                bind_pattern_references(pattern, ty, value, &mut failure_context)?;
+                let mut names = Vec::new();
+                pattern_names(pattern, &mut names);
+                failure_context.scope_bindings.extend(names);
+            }
+            check_statements(else_body, &mut failure_context)?;
             bind_pattern_references(pattern, ty, value, context)?;
             let mut names = Vec::new();
             pattern_names(pattern, &mut names);
@@ -1298,9 +1310,6 @@ fn check_statement(statement: &Statement, context: &mut Context) -> Result<(), E
         | Statement::BreakTo(_)
         | Statement::Continue
         | Statement::ContinueTo(_) => {}
-    }
-    if let Statement::LetElse { else_body, .. } = statement {
-        check_statements(else_body, context)?;
     }
     Ok(())
 }
