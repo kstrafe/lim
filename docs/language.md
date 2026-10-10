@@ -1376,12 +1376,32 @@ marked mutable:
 ```
 
 Function calls also name every argument explicitly. Use `#call` with a
-colon-prefixed argument list; each argument label must match a parameter in
+list of `(name value)` pairs or a colon-prefixed argument list;
+each argument label must match a parameter in
 the declaration:
 
 ```lisp syntax
 (#call add (: left 20u32 : right 22u32))
 ```
+
+When a variable has the same name as its parameter, `($ name)` expands to
+`(name name)`:
+
+```lisp run=42
+(#fn add (: left #u32 : right #u32) #u32
+  (#return (#u32.+.wrap left right)))
+(#fn main () #u64
+  (#let left #u32 20u32)
+  (#let right #u32 22u32)
+  (#return (#as (#call add (($ left) ($ right))) #u64)))
+```
+
+This is general parser sugar, so it also works in struct field lists and
+quoted generator syntax. It requires exactly one identifier, preserves that
+identifier's source location for diagnostics, and does not change evaluation
+order or borrowing rules. The formatter preserves the shorthand spelling.
+Do not add a colon around an already grouped `($ name)` pair: `(: ($ name))`
+would introduce an extra list, just like `(: (name name))`.
 
 Positional call forms are rejected. Calls with no arguments use
 `(#call function (:))`.

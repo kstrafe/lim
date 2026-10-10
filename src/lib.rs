@@ -1249,9 +1249,9 @@ fn pretty_spanned_expression(
     comments: &[SourceComment],
     indent: usize,
 ) -> String {
-    // A colon-grouped list is parser sugar. Keep its spelling when formatting
+    // Parser sugar keeps its spelling when formatting
     // instead of printing its desugared list-of-lists representation.
-    if is_colon_list_source(expression, source) {
+    if is_parser_sugar_source(expression, source) {
         return source[expression.span.start..expression.span.end].to_owned();
     }
     let has_comments = comments.iter().any(|comment| {
@@ -1261,7 +1261,7 @@ fn pretty_spanned_expression(
         && !expression
             .children
             .iter()
-            .any(|child| contains_colon_list_source(child, source))
+            .any(|child| contains_parser_sugar_source(child, source))
     {
         return pretty_expression(&expression.expr, indent);
     }
@@ -1351,12 +1351,20 @@ fn is_colon_list_source(expression: &SpannedExpr, source: &str) -> bool {
             .starts_with(':')
 }
 
-fn contains_colon_list_source(expression: &SpannedExpr, source: &str) -> bool {
-    is_colon_list_source(expression, source)
+fn contains_parser_sugar_source(expression: &SpannedExpr, source: &str) -> bool {
+    is_parser_sugar_source(expression, source)
         || expression
             .children
             .iter()
-            .any(|child| contains_colon_list_source(child, source))
+            .any(|child| contains_parser_sugar_source(child, source))
+}
+
+fn is_parser_sugar_source(expression: &SpannedExpr, source: &str) -> bool {
+    is_colon_list_source(expression, source)
+        // Dollar shorthand duplicates one source token into two AST children.
+        || (matches!(expression.expr, Expr::List(_))
+            && expression.children.len() == 2
+            && expression.children[0].span == expression.children[1].span)
 }
 
 fn pretty_expression(expression: &Expr, indent: usize) -> String {
@@ -9428,7 +9436,7 @@ impl<'a> Parser<'a> {
             return self.colon_list(start);
         }
         let mut items = Vec::new();
-        let mut children = Vec::new();
+        let mut children: Vec<SpannedExpr> = Vec::new();
         loop {
             match self.tokens.get(self.index) {
                 Some(Token {
@@ -9437,6 +9445,21 @@ impl<'a> Parser<'a> {
                 }) => {
                     let end = span.end;
                     self.index += 1;
+                    if matches!(items.first(), Some(Expr::Symbol(name)) if name == "$") {
+                        if items.len() != 2 {
+                            let span = children.get(2).unwrap_or(&children[0]).span;
+                            return Err(
+                                self.error("'$' shorthand expects exactly one identifier", span)
+                            );
+                        }
+                        if !matches!(items[1], Expr::Symbol(_)) {
+                            return Err(
+                                self.error("'$' shorthand expects an identifier", children[1].span)
+                            );
+                        }
+                        items[0] = items[1].clone();
+                        children[0] = children[1].clone();
+                    }
                     return Ok(SpannedExpr {
                         expr: Expr::List(items),
                         span: Span::new(start.start, end, start.line, start.column),
@@ -11695,6 +11718,97 @@ mod tests {
     fn parses_nested_lists_quotes_and_comments() {
         let expressions = parse("# header\n'(#fn main () #i32 42) ; tail\n").unwrap();
         assert!(matches!(expressions[0].expr, Expr::Quote(_)));
+    }
+
+    #[test]
+    fn dollar_shorthand_expands_and_preserves_identifier_spans() {
+        for name in ["x", "that-name", "some.name"] {
+            let source = format!("($ {name})");
+            let expression = parse(&source).unwrap().remove(0);
+            assert_eq!(
+                expression.expr,
+                parse(&format!("({name} {name})")).unwrap()[0].expr
+            );
+            assert_eq!(expression.children.len(), 2);
+            for child in &expression.children {
+                assert_eq!(&source[child.span.start..child.span.end], name);
+            }
+            assert_eq!(expression.span.start, 0);
+            assert_eq!(expression.span.end, source.len());
+        }
+        assert_eq!(
+            parse("'($ x)").unwrap()[0].expr,
+            parse("'(x x)").unwrap()[0].expr
+        );
+        assert_eq!(
+            parse("(: pair ($ x))").unwrap()[0].expr,
+            parse("(: pair (x x))").unwrap()[0].expr
+        );
+        for (source, offending) in [
+            ("($)", "$"),
+            ("($ x y)", "y"),
+            ("($ 42)", "42"),
+            ("($ 42u64)", "42u64"),
+            ("($ (x))", "(x)"),
+            ("($ \"x\")", "\"x\""),
+        ] {
+            let tokens = lex(source).unwrap();
+            let error = Parser::new(&tokens).run().unwrap_err();
+            assert!(error.message.contains("shorthand expects"), "{error}");
+            assert_eq!(&source[error.span.start..error.span.end], offending);
+        }
+    }
+
+    #[test]
+    fn dollar_shorthand_type_errors_point_to_the_original_name() {
+        let source = "(#fn take (: value #u32) #u32 (#return value))
+          (#fn main () #u32 (#let value #u64 42u64)
+            (#return (#call take (($ value)))))";
+        let cache =
+            std::env::temp_dir().join(format!("lim-dollar-diagnostic-{}", std::process::id()));
+        let error = compile_source_to_assembly(
+            source,
+            Path::new("dollar-diagnostic.lim"),
+            &CompileConfig::default(),
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        let span = error
+            .span
+            .expect("shorthand mismatch has an original source span");
+        assert_eq!(&source[span.start..span.end], "value");
+        assert_eq!(span.start, source.rfind("value").unwrap());
+    }
+
+    #[test]
+    fn dollar_shorthand_works_in_named_calls_and_struct_fields() {
+        let source = "(#struct Pair (: left #u32 : right #u32))
+          (#fn sum (: left #u32 : right #u32) #u32 (#return (#u32.+.wrap left right)))
+          (#fn main () #u32
+            (#let left #u32 40u32) (#let right #u32 2u32)
+            (#let pair Pair (#struct-literal Pair (($ left) ($ right))))
+            (#forget pair)
+            (#return (#call sum (($ right) ($ left)))))";
+        let program = parse_program(source).unwrap();
+        check_types(&program).unwrap();
+        generate_assembly(&program).unwrap();
+        let formatted = format_source(source).unwrap();
+        assert!(formatted.contains("($ left)"));
+        assert!(formatted.contains("($ right)"));
+        assert_eq!(format_source(&formatted).unwrap(), formatted);
+        assert_eq!(
+            parse(&formatted)
+                .unwrap()
+                .iter()
+                .map(|e| &e.expr)
+                .collect::<Vec<_>>(),
+            parse(source)
+                .unwrap()
+                .iter()
+                .map(|e| &e.expr)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
