@@ -41,6 +41,16 @@ Explicit cfg settings apply to the whole server session. The server also
 discovers the nearest `lim.project` for each buffer and adds its source root
 and module directories, just like the build CLI.
 
+For application-aware checks, generate `lim.lsp` at the project root using
+`lim --check src/main.lim --cfg KEY=VALUE --write-lsp-config lim.lsp`.
+It records the effective entry, target, cfg values and module paths. A discovered
+context replaces session settings and checks the entry's full import graph with
+unsaved overlays, rather than treating each open module as an independent root.
+Use `lim.lsp` alongside `lim.project` and `.git` as an lspconfig root marker.
+Clients supporting dynamic watched-file registration (including Neovim) receive
+a watcher for `lim.lsp`; changes recheck open documents. Otherwise the next buffer
+event or navigation request reloads it. See the repository README for its schema.
+
 The server checks full unsaved buffers, including open imported files that do
 not exist on disk, and publishes compiler diagnostics with UTF-16 positions.
 Checks do not save buffers or create generator cache artifacts. Saving and
@@ -59,11 +69,13 @@ Navigation publishes the selected expanded source as a content-addressed
 invocation provenance and exact UTF-16 name ranges. Existing identical snapshots
 are not rewritten; diagnostic checks remain write-free and no generator-cache
 entries are created. Invalid expansions return no generated location.
-Other references, locals, fields, ordinary imported symbols, quoted templates,
+With a compilation context, imported calls and explicit types also navigate to
+their declaration files in the checked entry graph.
+Other references, locals, fields, quoted templates,
 and ambiguous duplicate functions return no location.
 Generated diagnostics point to file-backed invocation provenance;
 expansion provenance is also included as related diagnostic locations.
-No completion, rename, incremental edits, filesystem watching, or workspace
+No completion, rename, incremental edits, general source-file watching, or workspace
 symbol index is provided. Changes to unopened files are picked up on the next
 open-buffer change/save/close event. The server handles local absolute `file:`
 URIs and rejects remote authorities and malformed percent escapes.

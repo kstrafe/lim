@@ -64,37 +64,103 @@ pub(crate) fn checked_program_for_editor(
     config: &crate::CompileConfig,
     overlays: &HashMap<PathBuf, String>,
 ) -> Result<crate::Program, crate::Diagnostic> {
-    let overlays = overlays
+    checked_program_in_context(source, path, config, overlays, None)
+}
+
+pub(crate) fn checked_program_in_context(
+    source: &str,
+    path: &Path,
+    config: &crate::CompileConfig,
+    overlays: &HashMap<PathBuf, String>,
+    context_file: Option<&Path>,
+) -> Result<crate::Program, crate::Diagnostic> {
+    let mut overlays: HashMap<PathBuf, String> = overlays
         .iter()
         .map(|(path, text)| (path_key(path), text.clone()))
         .collect();
+    overlays.insert(path_key(path), source.to_owned());
     let _restore = Restore(SOURCES.with(|sources| sources.replace(overlays)));
     let mut config = config.clone();
     let absolute = path_key(path);
-    for directory in absolute.parent().into_iter().flat_map(Path::ancestors) {
-        let manifest = directory.join("lim.project");
-        if manifest.is_file() {
-            let project = crate::read_project(&manifest).map_err(|message| {
+    let context = context_file
+        .map(Path::to_owned)
+        .or_else(|| crate::lsp_context::discover(path))
+        .map(|manifest| {
+            crate::lsp_context::LspContext::read(&manifest).map_err(|message| {
                 crate::Diagnostic::new(crate::DiagnosticCode::Cli, message)
                     .with_source(path.display().to_string(), source.to_owned())
-            })?;
-            config.add_module_path(project.source_root);
-            for module in project.module_paths {
-                config.add_module_path(module);
+            })
+        })
+        .transpose()?;
+    let entry = context
+        .as_ref()
+        .map_or(absolute.clone(), |context| context.entry.clone());
+    if let Some(context) = &context {
+        config = context.config.clone();
+    } else {
+        for directory in absolute.parent().into_iter().flat_map(Path::ancestors) {
+            let manifest = directory.join("lim.project");
+            if manifest.is_file() {
+                let project = crate::read_project(&manifest).map_err(|message| {
+                    crate::Diagnostic::new(crate::DiagnosticCode::Cli, message)
+                        .with_source(path.display().to_string(), source.to_owned())
+                })?;
+                config.add_module_path(project.source_root);
+                for module in project.module_paths {
+                    config.add_module_path(module);
+                }
+                break;
             }
-            break;
         }
     }
+    let entry_source = if entry == absolute {
+        source.to_owned()
+    } else {
+        self::source(&entry)
+            .or_else(|| std::fs::read_to_string(&entry).ok())
+            .ok_or_else(|| {
+                crate::Diagnostic::new(
+                    crate::DiagnosticCode::Cli,
+                    format!("cannot read LSP entry '{}'", entry.display()),
+                )
+                .with_source(path.display().to_string(), source.to_owned())
+            })?
+    };
     let prepared = crate::prepare_program_syntax(
-        source,
-        path.parent().unwrap_or(Path::new(".")),
-        Some(path),
+        &entry_source,
+        entry.parent().unwrap_or(Path::new(".")),
+        Some(&entry),
         &config,
         None,
     )
-    .map_err(|error| crate::generator_diagnostic(error, path, source))?;
+    .map_err(|error| crate::generator_diagnostic(error, &entry, &entry_source))?;
     let (program, _) = crate::expand_prepared_program(&prepared)
-        .map_err(|error| crate::generator_diagnostic(error, path, source))?;
+        .map_err(|error| crate::generator_diagnostic(error, &entry, &entry_source))?;
+    if context.is_some()
+        && !program
+            .source_files
+            .iter()
+            .any(|file| path_key(&file.path) == absolute)
+        && !(path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("editor-"))
+            && path
+                .parent()
+                .is_some_and(|parent| parent.file_name().is_some_and(|name| name == "generated"))
+            && program.generated_source_invocations.keys().any(|id| {
+                crate::lsp::generated_snapshot(&program, *id)
+                    .is_some_and(|(text, _)| text == source)
+            }))
+    {
+        return Err(crate::Diagnostic::new(
+            crate::DiagnosticCode::Cli,
+            format!(
+                "file is not included by LSP entry '{}' under the selected cfg",
+                entry.display()
+            ),
+        )
+        .with_source(path.display().to_string(), source.to_owned()));
+    }
     crate::CheckedProgram::validate_with_span(&program).map_err(
         |(message, code, span, labels)| {
             crate::analysis_diagnostic(message, code, span, labels, &program)

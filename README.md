@@ -147,3 +147,42 @@ It discovers project module paths
 and accepts `--cfg KEY=VALUE` and `--module-path PATH` for session settings.
 Checks do not write source files or generator caches. See the
 [Neovim setup and feature limits](utilities/nvim/README.md#language-server).
+
+### Compilation context for editor checks
+
+Record the effective entry file, native target, cfg values (including builtin
+defaults), and project/CLI module paths after a successful compilation or check:
+
+```sh
+lim --check src/main.lim --cfg feature=logging --write-lsp-config lim.lsp
+```
+
+The same flag works with native compilation and `--emit-asm`. Failed commands
+leave the previous context intact; identical settings do not rewrite the file.
+Generated paths are absolute. Handwritten relative paths resolve beside `lim.lsp`:
+
+```text
+schema-version = 1
+entry = "src/main.lim"
+target = "x86_64-sysv"
+cfg = "platform=linux"
+cfg = "arch=x86_64"
+cfg = "feature=logging"
+module-path = "src"
+```
+
+The server discovers the nearest `lim.lsp` to the document, falling back to its
+initialized workspace root for imported files outside that directory. This file
+is authoritative: it replaces session cfg/module-path settings rather than
+merging incompatible configurations. Checks and definition navigation use the
+entry's complete import graph, overlaid with unsaved buffers. Files outside the
+selected graph produce an explicit diagnostic. Malformed contexts do not silently
+fall back to isolated checking. Without `lim.lsp`, the existing per-file behavior
+and `lim.project` module-path discovery remain available.
+
+One file selects one active compilation context. Regenerate it to change entry
+points or flags. The server requests `lim.lsp` file watching when the client
+supports dynamic watcher registration, rechecking open documents on changes;
+otherwise settings are reread on the next buffer event or definition request.
+The file stores settings only: no shell commands, linker commands, or executable
+hooks are run by the server. The current native target remains Linux x86-64 SysV.

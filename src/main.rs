@@ -61,7 +61,113 @@ fn arguments_json_mode() -> bool {
     JSON_DIAGNOSTICS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+fn output_identity(path: &Path) -> PathBuf {
+    if let Ok(path) = path.canonicalize() {
+        return path;
+    }
+    if let (Some(parent), Some(name)) = (path.parent(), path.file_name()) {
+        if let Ok(parent) = parent.canonicalize() {
+            return parent.join(name);
+        }
+    }
+    let absolute = env::current_dir().unwrap_or_default().join(path);
+    let mut normalized = PathBuf::new();
+    for part in absolute.components() {
+        match part {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
 fn run_main(mut arguments: Vec<String>) -> ExitCode {
+    let mut destination = None;
+    let mut index = 0;
+    while index < arguments.len() {
+        if arguments[index] == "--write-lsp-config" {
+            if destination.is_some() || index + 1 >= arguments.len() {
+                eprintln!("lim: --write-lsp-config requires one output path");
+                return ExitCode::FAILURE;
+            }
+            destination = Some(PathBuf::from(arguments.remove(index + 1)));
+            arguments.remove(index);
+        } else {
+            index += 1;
+        }
+    }
+    let Some(destination) = destination else {
+        return run_main_inner(arguments);
+    };
+    let mut settings = arguments.clone();
+    settings.retain(|arg| !arg.starts_with("--diagnostic-format="));
+    match settings.first().map(String::as_str) {
+        Some("--check") => {
+            settings.remove(0);
+        }
+        Some("--emit-asm") if settings.len() >= 3 => {
+            settings.remove(0);
+            settings.insert(1, "-o".into());
+        }
+        Some(command) if !command.starts_with('-') && !matches!(command, "lsp" | "fmt") => {}
+        _ => {
+            eprintln!("lim: --write-lsp-config is supported for compile, --check, and --emit-asm");
+            return ExitCode::FAILURE;
+        }
+    }
+    let (entry, output, config, target, _) = match binary_arguments(&settings) {
+        Ok(settings) => settings,
+        Err(error) => {
+            eprintln!("lim: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if output_identity(&destination) == output_identity(&output) {
+        eprintln!("lim: LSP context must not replace compilation output");
+        return ExitCode::FAILURE;
+    }
+    let context = lim::lsp_context::LspContext {
+        entry: entry.into(),
+        target,
+        config,
+    };
+    if destination
+        .extension()
+        .is_none_or(|extension| extension != "lsp")
+    {
+        eprintln!("lim: LSP context output must have a .lsp extension");
+        return ExitCode::FAILURE;
+    }
+    if output.exists() {
+        if let Err(error) = lim::reject_source_output_collision(&output, &destination) {
+            eprintln!("lim: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
+    if let Err(error) = lim::reject_source_output_collision(&context.entry, &destination) {
+        eprintln!("lim: {error}");
+        return ExitCode::FAILURE;
+    }
+    let status = run_main_inner(arguments);
+    if status == ExitCode::SUCCESS {
+        if output.exists() {
+            if let Err(error) = lim::reject_source_output_collision(&output, &destination) {
+                eprintln!("lim: {error}");
+                return ExitCode::FAILURE;
+            }
+        }
+        if let Err(error) = context.write(&destination) {
+            eprintln!("lim: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
+    status
+}
+
+fn run_main_inner(mut arguments: Vec<String>) -> ExitCode {
     let json = arguments
         .iter()
         .any(|arg| arg == "--diagnostic-format=json");
@@ -70,6 +176,7 @@ fn run_main(mut arguments: Vec<String>) -> ExitCode {
     if matches!(arguments.first().map(String::as_str), Some("-h" | "--help")) {
         println!("usage: lim INPUT [-o OUTPUT] [--target TARGET] [--cfg KEY=VALUE]... [--link-lib NAME]... [--link-object PATH]... [--timings]\n       lim --check INPUT [--cfg KEY=VALUE]... [--target TARGET] [--timings]\n       lim --emit-asm INPUT OUTPUT [--target TARGET] [--cfg KEY=VALUE]... [--timings]\n       lim --stack-usage INPUT [--target TARGET] [--cfg KEY=VALUE]...\n       lim fmt INPUT\n       lim --format INPUT [OUTPUT]\n       lim --collect-cfgs INPUT\n       lim --check-examples [DIRECTORY]\n\nCompiles Lim source to a native binary by default.");
         println!("Language server: lim lsp [--cfg KEY=VALUE]... [--module-path PATH]...\nUse --diagnostic-format=json for structured diagnostics on stderr.");
+        println!("Add --write-lsp-config PATH to compile, --check, or --emit-asm to record the effective entry and compilation settings for the language server.");
         return ExitCode::SUCCESS;
     }
     if matches!(

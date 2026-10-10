@@ -28,6 +28,7 @@ mod gensym;
 mod instruction_encoder;
 mod linearcheck;
 pub mod lsp;
+pub mod lsp_context;
 mod native_assembly;
 mod native_linker;
 mod output;

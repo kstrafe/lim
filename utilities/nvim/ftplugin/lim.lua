@@ -4,7 +4,7 @@
 if vim.g.lim_lsp_autostart == false then return end
 if vim.b.lim_lsp_started then return end
 vim.b.lim_lsp_started = true
-local root = vim.fs.root(0, { 'lim.project', '.git' }) or vim.fn.getcwd()
+local root = vim.fs.root(0, { 'lim.lsp', 'lim.project', '.git' }) or vim.fn.getcwd()
 vim.lsp.start({
   name = 'lim',
   cmd = vim.g.lim_lsp_cmd or { 'lim', 'lsp' },

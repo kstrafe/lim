@@ -367,6 +367,209 @@ fn generated_definition_uses_unsaved_imports_and_rejects_invalid_expansions() {
 }
 
 #[test]
+fn compilation_context_resolves_entry_symbols_from_an_unsaved_external_module() {
+    let base =
+        std::env::temp_dir().join(format!("lim-lsp-entry-navigation-{}", std::process::id()));
+    let external =
+        std::env::temp_dir().join(format!("lim-lsp-entry-external-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    std::fs::create_dir_all(&external).unwrap();
+    let entry = base.join("main.lim");
+    let child = external.join("child.lim");
+    std::fs::write(&entry, format!("(#type Number #u64)\n(#fn target () Number (#return 42u64))\n(#import {})\n(@optional (: type #u64 : name Maybe))\n(#fn main () Number (#return (#call child ())))", diagnostic_json::quoted(child.to_str().unwrap()))).unwrap();
+    lim::lsp_context::LspContext {
+        entry: entry.clone(),
+        target: lim::TargetDescription::X86_64_SYSTEM_V,
+        config: CompileConfig::default(),
+    }
+    .write(&base.join("lim.lsp"))
+    .unwrap();
+    let uri = format!("file://{}", child.display());
+    let root = format!("file://{}", base.display());
+    let source = "(#fn child () Number (#return (#call target ()))) (#fn wrap () Maybe (#return (#call Maybe-construct (: value 42u64))))";
+    let mut messages = vec![request(1, "initialize", &format!("{{\"rootUri\":{},\"capabilities\":{{\"workspace\":{{\"didChangeWatchedFiles\":{{\"dynamicRegistration\":true}}}}}}}}", diagnostic_json::quoted(&root))), notify("initialized", "{}")];
+    messages.push("{\"jsonrpc\":\"2.0\",\"id\":\"lim-context-watch\",\"result\":null}".into());
+    messages.push(open(&uri, 1, source));
+    for (id, symbol) in [(2, "target"), (3, "Number"), (4, "Maybe-construct")] {
+        let character = source.find(symbol).unwrap();
+        messages.push(request(id, "textDocument/definition", &format!("{{\"textDocument\":{{\"uri\":{}}},\"position\":{{\"line\":0,\"character\":{character}}}}}", diagnostic_json::quoted(&uri))));
+    }
+    messages.push(notify(
+        "workspace/didChangeWatchedFiles",
+        &format!(
+            "{{\"changes\":[{{\"uri\":{},\"type\":2}}]}}",
+            diagnostic_json::quoted(&format!("file://{}", base.join("lim.lsp").display()))
+        ),
+    ));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    assert!(replies
+        .iter()
+        .any(|r| r.get("method").and_then(Json::string) == Some("client/registerCapability")));
+    for id in [2, 3] {
+        assert_eq!(
+            reply(&replies, id)
+                .get("result")
+                .unwrap()
+                .get("uri")
+                .unwrap()
+                .string(),
+            Some(format!("file://{}", entry.display()).as_str())
+        );
+    }
+    for report in replies.iter().filter(|r| {
+        r.get("method").and_then(Json::string) == Some("textDocument/publishDiagnostics")
+    }) {
+        assert!(report
+            .get("params")
+            .unwrap()
+            .get("diagnostics")
+            .unwrap()
+            .array()
+            .unwrap()
+            .is_empty());
+    }
+    assert!(!child.exists());
+    assert!(!base.join(".lim").exists());
+    let generated_uri = reply(&replies, 4)
+        .get("result")
+        .unwrap()
+        .get("uri")
+        .unwrap()
+        .string()
+        .unwrap();
+    let generated_path = lsp::uri_to_path(generated_uri).unwrap();
+    let generated = std::fs::read_to_string(generated_path).unwrap();
+    let mut messages = vec![
+        request(
+            1,
+            "initialize",
+            &format!("{{\"rootUri\":{}}}", diagnostic_json::quoted(&root)),
+        ),
+        notify("initialized", "{}"),
+    ];
+    messages.push(open(&uri, 1, source));
+    messages.push(open(generated_uri, 1, &generated));
+    finish(&mut messages);
+    let (_, replies) = session(messages);
+    for report in replies.iter().filter(|r| {
+        r.get("method").and_then(Json::string) == Some("textDocument/publishDiagnostics")
+    }) {
+        assert!(report
+            .get("params")
+            .unwrap()
+            .get("diagnostics")
+            .unwrap()
+            .array()
+            .unwrap()
+            .is_empty());
+    }
+}
+
+#[test]
+fn watched_context_switch_rechecks_open_documents_without_buffer_changes() {
+    struct SwitchingInput {
+        input: Cursor<Vec<u8>>,
+        boundary: u64,
+        replacement: Option<(std::path::PathBuf, String)>,
+    }
+    impl SwitchingInput {
+        fn update(&mut self) {
+            if self.input.position() >= self.boundary {
+                if let Some((path, text)) = self.replacement.take() {
+                    std::fs::write(path, text).unwrap();
+                }
+            }
+        }
+    }
+    impl std::io::Read for SwitchingInput {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.update();
+            std::io::Read::read(&mut self.input, buffer)
+        }
+    }
+    impl std::io::BufRead for SwitchingInput {
+        fn fill_buf(&mut self) -> std::io::Result<&[u8]> {
+            self.update();
+            std::io::BufRead::fill_buf(&mut self.input)
+        }
+        fn consume(&mut self, amount: usize) {
+            std::io::BufRead::consume(&mut self.input, amount);
+        }
+    }
+    let base = std::env::temp_dir().join(format!("lim-lsp-watch-context-{}", std::process::id()));
+    std::fs::create_dir_all(&base).unwrap();
+    let entry = base.join("main.lim");
+    let source = "(#cfg-if (#cfg-is #feature good) (#type Number #u64) (#cfg-else (#type Number #bool))) (#import \"child.lim\") (#fn main () #u64 (#return 0u64))";
+    std::fs::write(&entry, source).unwrap();
+    let mut config = CompileConfig::default();
+    config.set("feature", "good");
+    let path = base.join("lim.lsp");
+    lim::lsp_context::LspContext {
+        entry,
+        config,
+        target: lim::TargetDescription::X86_64_SYSTEM_V,
+    }
+    .write(&path)
+    .unwrap();
+    let replacement = std::fs::read_to_string(&path)
+        .unwrap()
+        .replace("feature=good", "feature=bad");
+    let uri = format!("file://{}", base.join("child.lim").display());
+    let mut input = Vec::new();
+    for message in
+        start()
+            .into_iter()
+            .chain([open(&uri, 1, "(#fn child () Number (#return 42u64))")])
+    {
+        json::write_frame(&mut input, &message).unwrap();
+    }
+    let boundary = input.len() as u64;
+    let mut messages = vec![notify(
+        "workspace/didChangeWatchedFiles",
+        &format!(
+            "{{\"changes\":[{{\"uri\":{},\"type\":2}}]}}",
+            diagnostic_json::quoted(&format!("file://{}", path.display()))
+        ),
+    )];
+    finish(&mut messages);
+    for message in messages {
+        json::write_frame(&mut input, &message).unwrap();
+    }
+    let mut output = Vec::new();
+    lsp::serve(
+        SwitchingInput {
+            input: Cursor::new(input),
+            boundary,
+            replacement: Some((path, replacement)),
+        },
+        &mut output,
+        &CompileConfig::default(),
+    )
+    .unwrap();
+    let mut output = Cursor::new(output);
+    let mut lengths = Vec::new();
+    while let Some(body) = json::read_frame(&mut output).unwrap() {
+        let response = json::parse(&body).unwrap();
+        if response.get("method").and_then(Json::string) == Some("textDocument/publishDiagnostics")
+        {
+            lengths.push(
+                response
+                    .get("params")
+                    .unwrap()
+                    .get("diagnostics")
+                    .unwrap()
+                    .array()
+                    .unwrap()
+                    .len(),
+            );
+        }
+    }
+    assert_eq!(lengths.first(), Some(&0));
+    assert!(lengths.iter().any(|length| *length > 0));
+}
+
+#[test]
 fn unknown_methods_invalid_types_and_json_recover() {
     let mut messages = start();
     messages.extend([

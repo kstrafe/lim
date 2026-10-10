@@ -37,6 +37,8 @@ pub fn serve(
         initialized: false,
         ready: false,
         shutdown: false,
+        context_watch: false,
+        root: None,
     };
     while let Some(body) = json::read_frame(&mut input)? {
         let message = match json::parse(&body) {
@@ -47,6 +49,14 @@ pub fn serve(
             }
         };
         let id = message.get("id");
+        if server.context_watch
+            && id.and_then(Json::string) == Some("lim-context-watch")
+            && message.get("jsonrpc").and_then(Json::string) == Some("2.0")
+            && message.get("method").is_none()
+            && (message.get("result").is_some() || message.get("error").is_some())
+        {
+            continue;
+        }
         let valid_id = id
             .is_none_or(|id| matches!(id, Json::Null | Json::String(_)) || id.integer().is_some());
         let method = message.get("method").and_then(Json::string);
@@ -69,6 +79,18 @@ pub fn serve(
                     continue;
                 }
                 server.initialized = true;
+                server.root = params
+                    .get("rootUri")
+                    .and_then(Json::string)
+                    .and_then(uri_to_path);
+                server.context_watch = matches!(
+                    params
+                        .get("capabilities")
+                        .and_then(|p| p.get("workspace"))
+                        .and_then(|p| p.get("didChangeWatchedFiles"))
+                        .and_then(|p| p.get("dynamicRegistration")),
+                    Some(Json::Bool(true))
+                );
                 result(
                     &mut output,
                     id,
@@ -93,7 +115,15 @@ pub fn serve(
             }
         } else if server.initialized && !server.shutdown {
             if method == "initialized" && matches!(params, Json::Object(_)) {
-                server.ready = true;
+                if !server.ready {
+                    server.ready = true;
+                    if server.context_watch {
+                        json::write_frame(
+                            &mut output,
+                            r#"{"jsonrpc":"2.0","id":"lim-context-watch","method":"client/registerCapability","params":{"registrations":[{"id":"lim-context-watch","method":"workspace/didChangeWatchedFiles","registerOptions":{"watchers":[{"globPattern":"**/lim.lsp","kind":7}]}}]}}"#,
+                        )?;
+                    }
+                }
             } else if server.ready && server.notification(method, params) {
                 server.diagnostics(&mut output)?;
             }
@@ -129,12 +159,37 @@ struct Server<'a> {
     initialized: bool,
     ready: bool,
     shutdown: bool,
+    context_watch: bool,
+    root: Option<PathBuf>,
 }
 fn text_document(params: &Json) -> Option<&str> {
     params.get("textDocument")?.get("uri")?.string()
 }
 impl Server<'_> {
+    fn context_file(&self, doc: &Document) -> Option<PathBuf> {
+        crate::lsp_context::discover(&doc.path).or_else(|| {
+            self.root
+                .as_ref()
+                .and_then(|root| crate::lsp_context::discover(&root.join("__lsp_root__.lim")))
+        })
+    }
     fn notification(&mut self, method: &str, params: &Json) -> bool {
+        if method == "workspace/didChangeWatchedFiles" {
+            return params
+                .get("changes")
+                .and_then(Json::array)
+                .is_some_and(|changes| {
+                    changes.iter().any(|change| {
+                        change
+                            .get("uri")
+                            .and_then(Json::string)
+                            .and_then(uri_to_path)
+                            .is_some_and(|path| {
+                                path.file_name().is_some_and(|name| name == "lim.lsp")
+                            })
+                    })
+                });
+        }
         let Some(uri) = text_document(params) else {
             return false;
         };
@@ -229,9 +284,13 @@ impl Server<'_> {
         let mut docs = self.documents.iter().collect::<Vec<_>>();
         docs.sort_by_key(|(uri, _)| *uri);
         for (root_uri, doc) in docs {
-            if let Err(diagnostic) =
-                crate::check_source_for_editor(&doc.text, &doc.path, self.config, &overlays)
-            {
+            if let Err(diagnostic) = crate::editor::checked_program_in_context(
+                &doc.text,
+                &doc.path,
+                self.config,
+                &overlays,
+                self.context_file(doc).as_deref(),
+            ) {
                 let (path, source, span) = primary_location(&diagnostic, doc, &overlays);
                 let uri = self
                     .documents
@@ -335,6 +394,18 @@ impl Server<'_> {
         let callee = crate::parse(&doc.text)
             .ok()
             .and_then(|tree| call_callee(&tree, byte));
+        if self.context_file(doc).is_some() {
+            let name = callee.clone().or_else(|| {
+                crate::parse(&doc.text)
+                    .ok()
+                    .and_then(|tree| type_reference(&tree, byte))
+            });
+            if let Some(name) = name {
+                return Ok(self
+                    .generated_definition(doc, &name)
+                    .unwrap_or_else(|| "null".into()));
+            }
+        }
         if callee.is_none() {
             if let Some(name) = crate::parse(&doc.text)
                 .ok()
@@ -382,25 +453,25 @@ impl Server<'_> {
             .values()
             .map(|d| (d.path.clone(), d.text.clone()))
             .collect();
-        let program =
-            crate::editor::checked_program_for_editor(&doc.text, &doc.path, self.config, &overlays)
-                .ok()?;
+        let program = crate::editor::checked_program_in_context(
+            &doc.text,
+            &doc.path,
+            self.config,
+            &overlays,
+            self.context_file(doc).as_deref(),
+        )
+        .ok()?;
         let expression = program.declaration_expressions.get(name)?;
         let span = expression.children.get(1)?.span;
-        let invocation = program.generated_source_invocations.get(&span.source_id)?;
         let file = program.source_files.get(span.source_id as usize)?;
-        let origin = program.source_files.get(invocation.source_id as usize)?;
-        let header = format!(
-            "; Generated definition invoked at {}:{}\n",
-            origin
-                .path
-                .display()
-                .to_string()
-                .replace('\n', "\\n")
-                .replace('\r', "\\r"),
-            invocation.line
-        );
-        let source = format!("{header}{}", file.source);
+        if let Some(path) = file_source_path(&file.path.to_string_lossy()) {
+            return Some(format!(
+                "{{\"uri\":{},\"range\":{}}}",
+                quoted(&path_to_uri(&path)?),
+                span_range(&file.source, Some(span))
+            ));
+        }
+        let (source, prefix) = generated_snapshot(&program, span.source_id)?;
         let hash = crate::generator::stable_hash(source.as_bytes());
         let directory = doc.path.parent()?.join(".lim/generated");
         let path = directory.join(format!("editor-{hash:032x}.lim"));
@@ -423,9 +494,30 @@ impl Server<'_> {
         Some(format!(
             "{{\"uri\":{},\"range\":{}}}",
             quoted(&uri),
-            byte_range(&source, header.len() + span.start, header.len() + span.end)
+            byte_range(&source, prefix + span.start, prefix + span.end)
         ))
     }
+}
+
+pub(crate) fn generated_snapshot(
+    program: &crate::Program,
+    source_id: u32,
+) -> Option<(String, usize)> {
+    let file = program.source_files.get(source_id as usize)?;
+    let invocation = program.generated_source_invocations.get(&source_id)?;
+    let origin = program.source_files.get(invocation.source_id as usize)?;
+    let header = format!(
+        "; Generated definition invoked at {}:{}\n",
+        origin
+            .path
+            .display()
+            .to_string()
+            .replace('\n', "\\n")
+            .replace('\r', "\\r"),
+        invocation.line
+    );
+    let prefix = header.len();
+    Some((format!("{header}{}", file.source), prefix))
 }
 
 fn file_source_path(name: &str) -> Option<PathBuf> {
