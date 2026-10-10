@@ -30,6 +30,7 @@ impl LspContext {
         let mut config = CompileConfig {
             values: Default::default(),
             module_paths: Vec::new(),
+            explicit_keys: HashSet::new(),
         };
         let mut seen = HashSet::new();
         let mut cfg_seen = HashSet::new();

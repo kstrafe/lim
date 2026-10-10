@@ -70,19 +70,20 @@ pub use typecheck::{check_types, type_has_thread_property, CheckedProgram};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetArchitecture {
     X86_64,
+    Aarch64,
 }
 
 /// Calling conventions understood by the native backend.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetAbi {
     SystemV,
+    Aapcs64,
 }
 
 /// Explicit target information carried through native code generation.
 ///
-/// The current backend implements only x86-64 System V, but keeping the target
-/// explicit prevents code generation from silently acquiring host-dependent
-/// ABI behavior as more backends are added.
+/// Target selection is independent of the host and is carried through
+/// configuration, instruction encoding and native image construction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TargetDescription {
     pub architecture: TargetArchitecture,
@@ -94,13 +95,19 @@ impl TargetDescription {
         architecture: TargetArchitecture::X86_64,
         abi: TargetAbi::SystemV,
     };
+    pub const AARCH64_LINUX: Self = Self {
+        architecture: TargetArchitecture::Aarch64,
+        abi: TargetAbi::Aapcs64,
+    };
 
     pub fn host() -> Result<Self, String> {
         if env::consts::ARCH == "x86_64" && env::consts::OS == "linux" {
             Ok(Self::X86_64_SYSTEM_V)
+        } else if env::consts::ARCH == "aarch64" && env::consts::OS == "linux" {
+            Ok(Self::AARCH64_LINUX)
         } else {
             Err(format!(
-                "host '{}-{}' is not supported by the native backend; supported targets: x86_64-sysv (Linux ELF)",
+                "host '{}-{}' is not supported by the native backend; supported targets: x86_64-sysv, aarch64-linux (Linux ELF)",
                 env::consts::ARCH,
                 env::consts::OS
             ))
@@ -110,8 +117,9 @@ impl TargetDescription {
     pub fn parse(name: &str) -> Result<Self, String> {
         match name {
             "x86_64-sysv" | "x86_64-unknown-linux-gnu" => Ok(Self::X86_64_SYSTEM_V),
+            "aarch64-linux" | "aarch64-unknown-linux-gnu" => Ok(Self::AARCH64_LINUX),
             other => Err(format!(
-                "unsupported target '{other}'; supported targets: x86_64-sysv"
+                "unsupported target '{other}'; supported targets: x86_64-sysv, aarch64-linux"
             )),
         }
     }
@@ -1733,11 +1741,19 @@ pub(crate) struct SourceFile {
 }
 
 /// Compile-time key/value settings used by `#cfg-*` forms.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct CompileConfig {
     values: HashMap<String, String>,
     module_paths: Vec<PathBuf>,
+    explicit_keys: HashSet<String>,
 }
+
+impl PartialEq for CompileConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.values == other.values && self.module_paths == other.module_paths
+    }
+}
+impl Eq for CompileConfig {}
 
 /// Versioned project settings consumed by the command-line build driver.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1893,6 +1909,7 @@ impl Default for CompileConfig {
         let architecture = env::consts::ARCH;
         let target = match (architecture, platform) {
             ("x86_64", "linux") => "x86_64-unknown-linux-gnu",
+            ("aarch64", "linux") => "aarch64-unknown-linux-gnu",
             _ => "unknown",
         };
         Self {
@@ -1903,6 +1920,7 @@ impl Default for CompileConfig {
                 ("target".into(), target.into()),
             ]),
             module_paths: Vec::new(),
+            explicit_keys: HashSet::new(),
         }
     }
 }
@@ -1911,7 +1929,30 @@ impl CompileConfig {
     /// Set or override a configuration key, such as `feature=sorting` or
     /// `platform=linux`.
     pub fn set(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.values.insert(key.into(), value.into());
+        let key = key.into();
+        self.explicit_keys.insert(key.clone());
+        self.values.insert(key, value.into());
+    }
+
+    /// Derive builtin defaults from the selected target, preserving explicit
+    /// `--cfg` overrides regardless of command-line argument order.
+    pub fn with_target(&self, target: TargetDescription) -> Self {
+        let mut config = self.clone();
+        let (arch, triple) = match target.architecture {
+            TargetArchitecture::X86_64 => ("x86_64", "x86_64-unknown-linux-gnu"),
+            TargetArchitecture::Aarch64 => ("aarch64", "aarch64-unknown-linux-gnu"),
+        };
+        for (key, value) in [
+            ("platform", "linux"),
+            ("os", "linux"),
+            ("arch", arch),
+            ("target", triple),
+        ] {
+            if !config.explicit_keys.contains(key) {
+                config.values.insert(key.into(), value.into());
+            }
+        }
+        config
     }
 
     /// Add a stable search root for string paths in `#import` forms.
@@ -2118,6 +2159,8 @@ fn compile_source_with_artifacts(
     generated_directory: Option<&Path>,
     executable: bool,
 ) -> Result<String, Diagnostic> {
+    let config = config.with_target(target);
+    let config = &config;
     // Import loading lexes and parses the root source, preserving its spans.
     let _stage = timing::stage("prepare_imports_parse_cfg");
     let prepared = prepare_program_syntax(
@@ -8967,24 +9010,38 @@ mod tests {
     }
 
     #[test]
-    fn native_target_matrix_accepts_only_linux_x86_64_system_v() {
+    fn native_target_matrix_accepts_linux_targets_only() {
         for alias in ["x86_64-sysv", "x86_64-unknown-linux-gnu"] {
             let target = TargetDescription::parse(alias).unwrap();
             assert_eq!(target, TargetDescription::X86_64_SYSTEM_V);
             let program = parse_program("(#fn main () #u64 (#return 42))").unwrap();
             assert!(generate_assembly_for_target(&program, target).is_ok());
         }
-        for unsupported in [
-            "aarch64-unknown-linux-gnu",
-            "x86_64-apple-darwin",
-            "x86_64-pc-windows-msvc",
-        ] {
+        for unsupported in ["x86_64-apple-darwin", "x86_64-pc-windows-msvc"] {
             assert!(TargetDescription::parse(unsupported)
                 .unwrap_err()
                 .contains("supported targets: x86_64-sysv"));
         }
         let program = parse_program("(#fn main () #u64 (#return 42))").unwrap();
         assert!(generate_assembly_for_target(&program, TargetDescription::X86_64_SYSTEM_V).is_ok());
+        for alias in ["aarch64-linux", "aarch64-unknown-linux-gnu"] {
+            assert_eq!(
+                TargetDescription::parse(alias).unwrap(),
+                TargetDescription::AARCH64_LINUX
+            );
+        }
+    }
+
+    #[test]
+    fn selected_target_defaults_preserve_explicit_cfg_overrides() {
+        let config = CompileConfig::default().with_target(TargetDescription::AARCH64_LINUX);
+        assert_eq!(config.values["arch"], "aarch64");
+        assert_eq!(config.values["target"], "aarch64-unknown-linux-gnu");
+        let mut explicit = CompileConfig::default();
+        explicit.set("arch", "x86_64");
+        let explicit = explicit.with_target(TargetDescription::AARCH64_LINUX);
+        assert_eq!(explicit.values["arch"], "x86_64");
+        assert_eq!(explicit.values["target"], "aarch64-unknown-linux-gnu");
     }
 
     #[test]

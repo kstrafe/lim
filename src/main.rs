@@ -411,6 +411,7 @@ fn check_command(arguments: &[String]) -> ExitCode {
         return ExitCode::FAILURE;
     };
     let mut config = lim::CompileConfig::default();
+    let mut selected_target = None;
     let mut index = 2;
     while index < arguments.len() {
         match arguments[index].as_str() {
@@ -431,10 +432,13 @@ fn check_command(arguments: &[String]) -> ExitCode {
                     eprintln!("lim: --target requires a target name");
                     return ExitCode::FAILURE;
                 };
-                if let Err(error) = lim::TargetDescription::parse(value) {
-                    eprintln!("lim: {error}");
-                    return ExitCode::FAILURE;
-                }
+                selected_target = match lim::TargetDescription::parse(value) {
+                    Ok(target) => Some(target),
+                    Err(error) => {
+                        eprintln!("lim: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                };
             }
             "--module-path" => {
                 index += 1;
@@ -460,10 +464,15 @@ fn check_command(arguments: &[String]) -> ExitCode {
         }
     };
     if let Some(metadata) = metadata {
+        selected_target = selected_target.or(metadata.target);
         config.add_module_path(&metadata.source_root);
         for path in metadata.module_paths {
             config.add_module_path(path);
         }
+    }
+
+    if let Some(target) = selected_target {
+        config = config.with_target(target);
     }
 
     let _input_timing = lim::timing_stage("input_read");
@@ -572,6 +581,7 @@ fn stack_usage_command(arguments: &[String]) -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
+    config = config.with_target(target);
     let source = match fs::read_to_string(input_path) {
         Ok(source) => source,
         Err(error) => {
@@ -827,7 +837,7 @@ fn binary_arguments(
         result.push(stem);
         result
     });
-    Ok((input, output, config, target, links))
+    Ok((input, output, config.with_target(target), target, links))
 }
 
 fn project_for_input(input: &str) -> Result<Option<lim::ProjectMetadata>, String> {
@@ -875,6 +885,8 @@ fn compile_with_links(
     target: lim::TargetDescription,
     links: &LinkOptions,
 ) -> ExitCode {
+    let config = config.with_target(target);
+    let config = &config;
     if let Err(error) = lim::reject_source_output_collision(Path::new(input_path), output_path) {
         eprintln!("lim: {error}");
         return ExitCode::FAILURE;
