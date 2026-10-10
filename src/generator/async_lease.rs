@@ -5,9 +5,9 @@
 //! Copy leaf load or resolved call without reference-bearing results, after
 //! pure address formation in the same executable block.
 //! Other whole-binding exclusive reads materialize an ordinary checked
-//! reborrow in a value cell at the original evaluation point. Projected
-//! holders currently require an immediate window; retained projected reads
-//! remain unsupported rather than moving the holder or delaying evaluation.
+//! reborrow in a value cell at the original evaluation point. Checked pure
+//! field/tuple projections retain the same evaluated child handle without
+//! moving its holder or delaying evaluation.
 //! The parent is not moved or copied,
 //! and its pointer is never reevaluated after an effect or suspension.
 //! This is an emission proof, not borrow permission:
@@ -45,6 +45,7 @@ pub(crate) struct Lease {
 pub(crate) struct Plan {
     leases: HashMap<ValueId, Lease>,
     snapshots: HashMap<ValueId, BindingId>,
+    projected_snapshots: HashMap<ValueId, PlaceId>,
     snapshot_bindings: HashSet<BindingId>,
 }
 
@@ -73,10 +74,12 @@ impl Plan {
         graph.validate()?;
         let mut leases = HashMap::new();
         let mut snapshots = HashMap::new();
+        let mut projected_snapshots = HashMap::new();
         let Some(accesses) = accesses else {
             return Ok(Self {
                 leases,
                 snapshots,
+                projected_snapshots,
                 snapshot_bindings: HashSet::new(),
             });
         };
@@ -159,11 +162,21 @@ impl Plan {
                 ) {
                     continue;
                 }
+                let projected_path = !descriptor.projections.is_empty()
+                    && descriptor.checks().is_empty()
+                    && descriptor.projections.iter().all(|projection| {
+                        matches!(
+                            projection,
+                            AddressProjection::Field(_) | AddressProjection::Tuple(_)
+                        )
+                    });
                 // Whole-binding reads have a checked reborrow adapter.
-                // Projected holders can only elide certified windows below;
-                // do not mistake a field read for a whole-binding snapshot.
+                // Projected holders use a child-handle adapter; do not mistake
+                // a field read for a whole-binding snapshot.
                 if descriptor.projections.is_empty() {
                     snapshots.insert(dst, binding);
+                } else if projected_path {
+                    projected_snapshots.insert(dst, place);
                 }
                 let mut consumer = None;
                 let mut valid = !escapes[dst.0];
@@ -230,12 +243,14 @@ impl Plan {
                     },
                 );
                 snapshots.remove(&dst);
+                projected_snapshots.remove(&dst);
             }
         }
         let snapshot_bindings = snapshots.values().copied().collect();
         Ok(Self {
             leases,
             snapshots,
+            projected_snapshots,
             snapshot_bindings,
         })
     }
@@ -246,6 +261,10 @@ impl Plan {
 
     pub(crate) fn snapshot(&self, value: ValueId) -> Option<BindingId> {
         self.snapshots.get(&value).copied()
+    }
+
+    pub(crate) fn projected_snapshot(&self, value: ValueId) -> Option<PlaceId> {
+        self.projected_snapshots.get(&value).copied()
     }
 
     pub(crate) fn snapshots_binding(&self, binding: BindingId) -> bool {
@@ -389,9 +408,43 @@ mod tests {
             ));
             let plan = effectful.plan();
             assert!(plan.leases.is_empty());
-            // A projected holder has no whole-binding snapshot adapter.
-            // Never fall back to moving or reevaluating the field after later().
+            let (value, place) = plan.projected_snapshots.iter().next().unwrap();
+            assert_eq!(plan.projected_snapshots.len(), 1);
+            assert_eq!(plan.projected_snapshot(*value), Some(*place));
+            assert!(!effectful.graph.places[place.0].projections.is_empty());
             assert!(plan.snapshots.is_empty());
+        }
+    }
+
+    #[test]
+    fn projected_snapshots_require_checked_pure_paths_and_retain_escapes() {
+        let mut retained = Checked::new(
+            "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+             (#fn read (: view (#ref-mut #u64) : amount #u64) #u64 (#return amount))
+             (#fn later () #u64 (#return 1u64))
+             (#fn work (: owner Holder) #u64
+               (#let answer #u64 (#call read (: view (#get owner view) : amount (#call later ()))))
+               (#forget owner) (#return answer))",
+        );
+        let original = retained.plan();
+        let (value, place) = original.projected_snapshots.iter().next().unwrap();
+        let value = *value;
+        let place = *place;
+        retained.graph.blocks[retained.graph.entry.0].terminator =
+            crate::generator::async_exec::Terminator::Return(Some(value));
+        retained.graph.validate().unwrap();
+        let plan = retained.plan();
+        assert!(plan.leases.is_empty());
+        assert_eq!(plan.projected_snapshot(value), Some(place));
+
+        for source in [
+            "(#fn work (: view (#ref-mut (#array #u64 1))) #u64
+               (#return (#index (#deref view) 0usize)))",
+            "(#struct Holder (: view (#ref #u64)))
+             (#fn work (: owner Holder) #u64 (#return (#deref (#get owner view))))",
+        ] {
+            let plan = Checked::new(source).plan();
+            assert!(plan.projected_snapshots.is_empty(), "{source}");
         }
     }
 

@@ -17,6 +17,48 @@ use crate::{Expr, Function, Item, Program, Statement};
 
 #[cfg(test)]
 #[test]
+fn returned_exclusive_children_from_owned_slots_keep_the_immediate_parent() {
+    for (ty, constructor, projection) in [
+        (
+            "Holder",
+            "(#struct-literal Holder (: view view))",
+            "(#get owner view)",
+        ),
+        (
+            "(#tuple (#ref-mut #u64) #u64)",
+            "(#tuple view 0u64)",
+            "(#get owner 0)",
+        ),
+    ] {
+        let source = format!(
+            "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+          (#fn capture (: view (#ref-mut #u64)) {ty} (#return {constructor}))
+          (#fn echo (: view (#ref-mut #u64)) (#ref-mut #u64) (#return view))
+          (#fn work (: view (#ref-mut #u64)) #u64
+            (#let owner {ty} (#call capture (: view view)))
+            (#let child (#ref-mut #u64) (#call echo (: view {projection})))
+            (#let answer #u64 (#deref child)) (#drop child)
+            (#forget owner) (#drop view) (#return answer))"
+        );
+        crate::CheckedProgram::validate(&crate::parse_program(&source).unwrap()).unwrap();
+        for invalid in ["(#deref view)", &format!("(#deref {projection})")] {
+            let invalid = source.replace(
+                "(#let answer #u64",
+                &format!("(#let conflict #u64 {invalid}) (#let answer #u64"),
+            );
+            let program = crate::parse_program(&invalid).unwrap();
+            let error = crate::CheckedProgram::validate_with_span(&program)
+                .err()
+                .unwrap();
+            assert_eq!(error.1, crate::DiagnosticCode::Borrow, "{}", error.0);
+            let span = error.2.unwrap();
+            assert_eq!(&invalid[span.start..span.end], "#deref");
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
 fn typed_symbol_assignment_replaces_reference_provenance() {
     let source = "(#fn main () #u64
       (#let-mut left #u64 1u64)

@@ -397,13 +397,18 @@ impl<'a> Emitter<'a> {
     }
 
     fn slot_definitions(&self) -> String {
-        let lenders = self
+        let mut lenders = self
             .bindings
             .iter()
             .filter_map(|(binding, index)| {
                 self.leases.snapshots_binding(*binding).then_some(*index)
             })
             .collect::<HashSet<_>>();
+        lenders.extend(
+            self.values.iter().filter_map(|(value, index)| {
+                self.leases.projected_snapshot(*value).map(|_| *index)
+            }),
+        );
         self.slots.iter().enumerate().map(|(index, slot)| {
             let ty = crate::type_source(&slot.ty);
             let lend = if lenders.contains(&index) {
@@ -1275,6 +1280,16 @@ impl<'a> Emitter<'a> {
                     if self.leases.get(*dst).is_some() {
                         self.owned_projection_address(descriptor, true)?;
                         return Ok(String::new());
+                    }
+                    if self.leases.projected_snapshot(*dst) == Some(*place) {
+                        // Lend the stored handle at its original evaluation
+                        // point. The child value cell holds this actual checked
+                        // reborrow through later effects and Pending edges.
+                        let read = self.owned_projection_address(descriptor, true)?.0;
+                        let slot = &self.slots[self.values[dst]];
+                        let reborrow =
+                            format!("(#call {} (: {} {read}))", slot.lend, slot.lend_argument);
+                        return Ok(self.put_value(*dst, &reborrow));
                     }
                     let read = self.owned_projection_read(descriptor)?;
                     let read = if *kind == LoadKind::Clone {
@@ -2832,6 +2847,110 @@ mod tests {
                     "{} at {}",
                     error.0,
                     &proposed.source_files[span.source_id as usize].source[span.start..span.end]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn projected_exclusive_arguments_snapshot_before_later_suspension() {
+        let declarations = "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+          (#fn capture (: view (#ref-mut #u64)) Holder
+            (#return (#struct-literal Holder (: view view))))
+          (#fn capture-tuple (: view (#ref-mut #u64)) (#tuple (#ref-mut #u64) #u64)
+            (#return (#tuple view 0u64)))
+          (#fn read (: view (#ref-mut #u64) : amount #u64) #u64
+            (#return (#u64.+.wrap (#deref view) amount)))
+          (#fn echo (: view (#ref-mut #u64) : amount #u64) (#ref-mut #u64)
+            (#deref-set view (#u64.+.wrap (#deref view) amount)) (#return view))";
+        let main = "(#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
+            (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
+            (#let-mut running (#pin-ref-mut work-frame) (#pin-borrow-mut task))
+            (#let-mut retries #u64 0u64) (#let-mut answer #u64 0u64)
+            (#loop (#match (#call work-poll (: task running : waker (#borrow waker)))
+              (#case (work-pending next) (#block (#set running next)
+                (#set retries (#u64.+.wrap retries 1u64)) ()))
+              (#case (work-ready result) (#block (#set answer result) (#break) (#unreachable)))))
+            (#drop running) (#forget task) (#set value 99u64)
+            (#assert (#u64.== retries 1u64)) (#return answer))";
+        for (ty, constructor, projected) in [
+            (
+                "Holder",
+                "(#call capture (: view view))",
+                "(#get owner view)",
+            ),
+            (
+                "(#tuple (#ref-mut #u64) #u64)",
+                "(#call capture-tuple (: view view))",
+                "(#get owner 0)",
+            ),
+        ] {
+            for (body, retries) in [
+                (
+                    format!(
+                        "(#let answer #u64 (#call read (: view {projected} : amount
+                    (#await Child ChildPending ChildReady child-poll (Start 2u64)))))"
+                    ),
+                    1,
+                ),
+                (
+                    format!(
+                        "(#let child (#ref-mut #u64) (#call echo (: view {projected} : amount
+                    (#await Child ChildPending ChildReady child-poll (Start 2u64)))))
+                    (#let later #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+                    (#let answer #u64 (#u64.+.wrap (#deref child) later)) (#drop child)"
+                    ),
+                    2,
+                ),
+            ] {
+                let function = format!(
+                    "(#fn work (: view (#ref-mut #u64)) #u64
+                    (#let owner {ty} {constructor}) {body}
+                    (#forget owner) (#drop view) (#return answer))"
+                );
+                let planning = prepare_generator(
+                    "async-fn-pinned",
+                    &function,
+                    &format!(
+                        "{declarations}\n{}",
+                        main.replace(
+                            "(#u64.== retries 1u64)",
+                            &format!("(#u64.== retries {retries}u64)")
+                        )
+                    ),
+                );
+                let generated = generate(&planning).unwrap();
+                let proposed = program(&planning, &generated).unwrap();
+                if let Err((message, code, span, _)) =
+                    crate::CheckedProgram::validate_with_span(&proposed)
+                {
+                    let span = span.unwrap();
+                    panic!(
+                        "{function}\n{code:?}: {message} at {}",
+                        &proposed.source_files[span.source_id as usize].source
+                            [span.start..span.end]
+                    );
+                }
+                runtime_generated(planning, generated, 42);
+                let invalid = function.replace(
+                    "(#let answer #u64",
+                    "(#deref-set view 99u64) (#let answer #u64",
+                );
+                let planning = prepare_generator(
+                    "async-fn-pinned",
+                    &invalid,
+                    &format!("{declarations}\n{main}"),
+                );
+                let generated = generate(&planning).unwrap();
+                let proposed = program(&planning, &generated).unwrap();
+                let error = crate::CheckedProgram::validate_with_span(&proposed)
+                    .err()
+                    .unwrap();
+                assert_eq!(error.1, DiagnosticCode::Borrow, "{}", error.0);
+                let span = error.2.unwrap();
+                assert_eq!(
+                    &proposed.source_files[span.source_id as usize].source[span.start..span.end],
+                    "#deref-set"
                 );
             }
         }

@@ -10560,8 +10560,9 @@ fn apply_parameter_loan_summary(
 
 /// A direct reference argument is lent for the call. If a result retains that
 /// lent referent, its immediate parent is the caller's handle, not the parent
-/// that originally produced that handle. Loaded pointer slots and by-value
-/// aggregates instead transfer their existing provenance unchanged.
+/// that originally produced that handle. A safe reference lent from a checked
+/// owned field/tuple slot similarly retains its immediate containing binding.
+/// By-value aggregates transfer their existing provenance unchanged.
 fn apply_return_loan_summary(
     body: &Body,
     argument: NodeId,
@@ -10581,6 +10582,56 @@ fn apply_return_loan_summary(
             continue;
         }
         match &body.nodes[value.0].kind {
+            NodeKind::Form {
+                head, callee: None, ..
+            } if head == "get"
+                && matches!(
+                    body.nodes[value.0].ty,
+                    Some(Type::Reference { .. } | Type::PinnedReference { .. })
+                ) =>
+            {
+                let Some(place) = Place::from_expression(body, value) else {
+                    continue;
+                };
+                let PlaceRoot::Local(binding) = place.root else {
+                    continue;
+                };
+                if place.segments.is_empty()
+                    || !place
+                        .segments
+                        .iter()
+                        .all(|segment| matches!(segment, Segment::Field(_) | Segment::Tuple(_)))
+                {
+                    continue;
+                }
+                let matches = |state: &LoanState| {
+                    state[binding.0].iter().any(|held| {
+                        if held.storage.len() != place.segments.len()
+                            || !held
+                                .storage
+                                .iter()
+                                .zip(&place.segments)
+                                .all(|(slot, path)| storage_slot_matches(slot, path))
+                        {
+                            return false;
+                        }
+                        let mut loaded = held.clone();
+                        loaded.drain_storage(place.segments.len());
+                        loaded == origin
+                    })
+                };
+                if (matches(state)
+                    || events.is_some_and(|(flow, before)| {
+                        before.events_by_value[value.0].iter().any(|&index| {
+                            flow_action_has_value(&flow.nodes[index].action, value)
+                                && before[index].as_ref().is_some_and(matches)
+                        })
+                    }))
+                    && !parents.contains(&binding)
+                {
+                    parents.push(binding);
+                }
+            }
             NodeKind::Symbol {
                 binding: Some(binding),
                 ..
