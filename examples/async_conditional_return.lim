@@ -7,7 +7,7 @@
     (#case (Waiting value) (ChildPending (Resume value)))
     (#case (Resume value) (ChildReady value)))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((early #bool)) #u64
     (#if early
       (#block
@@ -18,12 +18,12 @@
     (#return result))))
 
 (#fn run ((early #bool) (waker (#ref #u64))) #u64
-  (#let first Poll (#call poll (: task (#call work (: early early)) : waker waker)))
-  (#let-else (Pending task) Poll first (#unreachable))
-  (#let second Poll (#call poll (: task task : waker waker)))
+  (#let first work-poll-result (#call work-poll (: task (#call work (: early early)) : waker waker)))
+  (#let-else (work-pending task) work-poll-result first (#unreachable))
+  (#let second work-poll-result (#call work-poll (: task task : waker waker)))
   (#return (#match second
-    (#case (Ready value) value)
-    (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    (#case (work-ready value) value)
+    (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)

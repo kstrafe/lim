@@ -1,5 +1,5 @@
 ; Each condition awaits a factory, then awaits the task returned by it.
-; Task construction increments total once, never again on a Pending retry.
+; Task construction increments total once, never again on a work-pending retry.
 (#enum ConditionTask ((Check #u64) (Recheck #u64)))
 (#linear ConditionTask)
 (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady #bool)))
@@ -24,7 +24,7 @@
     (#case (Start value) (BodyPending (Resume value)))
     (#case (Resume value) (BodyReady value)))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut index #u64 0u64)
     (#let-mut total #u64 0u64)
@@ -41,11 +41,11 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task Frame (#call work ()))
+  (#let-mut task work-task (#call work ()))
   (#for-range (attempt #u64) 0u64 10u64
-    (#let polled Poll (#call poll (: task task : waker (#borrow waker))))
+    (#let polled work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
     (#match polled
-      (#case (Pending next) (#block (#set task next) ()))
-      (#case (Ready result) (#block (#return result)))))
+      (#case (work-pending next) (#block (#set task next) ()))
+      (#case (work-ready result) (#block (#return result)))))
   (#forget task)
   (#return 0u64))

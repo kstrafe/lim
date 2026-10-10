@@ -15,7 +15,7 @@
     (#case (Start value) (BodyPending (Resume value)))
     (#case (Resume value) (BodyReady value)))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut index #u64 0u64)
     (#while (#await #bool ConditionTask ConditionPending ConditionReady condition-poll (Check index))
@@ -27,13 +27,13 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Poll (#call poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (Pending first-condition) Poll first (#unreachable))
-  (#let second Poll (#call poll (: task first-condition : waker (#borrow waker))))
-  (#let-else (Pending second-condition) Poll second (#unreachable))
-  (#let third Poll (#call poll (: task second-condition : waker (#borrow waker))))
-  (#let-else (Pending body) Poll third (#unreachable))
-  (#let fourth Poll (#call poll (: task body : waker (#borrow waker))))
+  (#let first work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
+  (#let-else (work-pending first-condition) work-poll-result first (#unreachable))
+  (#let second work-poll-result (#call work-poll (: task first-condition : waker (#borrow waker))))
+  (#let-else (work-pending second-condition) work-poll-result second (#unreachable))
+  (#let third work-poll-result (#call work-poll (: task second-condition : waker (#borrow waker))))
+  (#let-else (work-pending body) work-poll-result third (#unreachable))
+  (#let fourth work-poll-result (#call work-poll (: task body : waker (#borrow waker))))
   (#return (#match fourth
-    (#case (Ready value) value)
-    (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    (#case (work-ready value) value)
+    (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))

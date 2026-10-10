@@ -321,7 +321,7 @@ The emitted Lim is cached in `.lim/cache` and undergoes normal type, borrow,
 linearity, and code generation checks:
 
 ```lisp syntax
-(@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset #u64)) #u64
+(@async-fn (: protocol WorkAwait : waker LocalWaker : function (#fn work ((offset #u64)) #u64
     (#let child Step (Waiting 1u64))
     (#let value #u64
       (#await Step StepPending StepReady step-poll child))
@@ -354,12 +354,11 @@ repeating the result type. Declare a bundle for a handwritten task, or let
 (#let value #u64 (#await WorkAwait (#call work (($ offset)))))
 ```
 
-The default names are `work-task`, `work-poll-result`, `work-pending`,
-`work-ready`, and `work-poll`. A pinned function uses `work-frame` instead
-of `work-task`, and its bundle requires `(#pin-ref-mut work-frame)`; pinning
-remains explicit. The optional `: names` argument is an explicit override.
-Existing explicit-name invocations export `work-await` unless `: protocol`
-selects a different name. Generated protocols are available across internal
+The generated names come from the source function name: `work-task`,
+`work-poll-result`, `work-pending`, `work-ready`, and `work-poll`. A pinned
+function uses `work-frame` instead of `work-task`, and its bundle requires
+`(#pin-ref-mut work-frame)`; pinning remains explicit. Supply `: protocol`
+to name the exported bundle. Generated protocols are available across internal
 and external imports, including forward references, and are inspectable in
 the function's cached `.lim/generated/` file. Cancellation handlers remain
 explicit. See `examples/async_composition.lim` for a parent task awaiting a
@@ -476,11 +475,11 @@ the handler that consumes its payload:
 
 ```lisp
 (@async-fn
-  (: names (Work WorkPoll WorkPending WorkReady work-poll)
+  (: protocol WorkAwait
    : waker LocalWaker
    : cancel (cancel-work
-     ((Work-start cancel-work-start)
-      (Work-await-0 cancel-work-await)))
+     ((work-task-start cancel-work-start)
+      (work-task-await-0 cancel-work-await)))
    : function
    (#fn work ((input #u64)) #u64
      ...)))

@@ -14,7 +14,7 @@
 (#enum Choice ((Number NumberPayload) (Other #u64)))
 (#struct Owner ((choice Choice)))
 
-(@async-fn-pinned (: names (EnumFrame EnumPoll EnumPending EnumReady enum-poll)
+(@async-fn-pinned ( : protocol ReadAfterAwaitAwait
                    : waker #u64
                    : function
   (#fn read-after-await ((owner Owner)) #u64
@@ -25,30 +25,30 @@
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap (#deref view) result)))))
 
-(#fn cancel-enum-state ((task EnumFrame-state)) ()
+(#fn cancel-enum-state ((task read-after-await-frame-state)) ()
   (#match task
-    (#case EnumFrame-start ())
-    (#case (EnumFrame-await-0 view child)
+    (#case read-after-await-frame-start ())
+    (#case (read-after-await-frame-await-0 view child)
       (#call cancel-child (: task child)))
-    (#case EnumFrame-done ()))
+    (#case read-after-await-frame-done ()))
   (#return ()))
 
 (#fn main () #u64
-  (#let-mut frame EnumFrame
+  (#let-mut frame read-after-await-frame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((choice (Number (#struct-literal NumberPayload ((value 40u64))))))))))
   (#let waker #u64 0u64)
-  (#let first EnumPoll
-    (#call enum-poll
+  (#let first read-after-await-poll-result
+    (#call read-after-await-poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (EnumPending pending-frame) EnumPoll first (#unreachable))
-  (#let second EnumPoll
-    (#call enum-poll (: task pending-frame : waker (#borrow waker))))
+  (#let-else (read-after-await-pending pending-frame) read-after-await-poll-result first (#unreachable))
+  (#let second read-after-await-poll-result
+    (#call read-after-await-poll (: task pending-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (EnumReady value) value)
-      (#case (EnumPending unexpected)
+      (#case (read-after-await-ready value) value)
+      (#case (read-after-await-pending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
   (#forget frame)
   (#forget waker)

@@ -225,7 +225,7 @@ mod tests {
     fn work(body: &str) -> String {
         format!(
             "{CONTEXT}\n
-          (@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64
+          (@async-fn (: protocol work-await : waker #u64
             : function (#fn work ((choose #bool)) #u64 {body})))"
         )
     }
@@ -256,7 +256,7 @@ mod tests {
             .iter()
             .any(|block| matches!(block.terminator, Terminator::Await { .. })));
         assert!(!planning.program.items.iter().any(|item|
-            matches!(item, Item::Struct { name, .. } | Item::Enum { name, .. } if name == "Frame")));
+            matches!(item, Item::Struct { name, .. } | Item::Enum { name, .. } if name == "work-task")));
         assert!(!planning.declarations.bodies.contains_key("work"));
         assert!(!planning.declarations.bodies.contains_key("step-poll"));
         assert!(planning
@@ -287,22 +287,23 @@ mod tests {
     fn async_calls_use_deferred_interfaces_not_fake_definitions() {
         let text = format!(
             "{CONTEXT}
-          (@async-fn (: names (First FirstPoll FirstPending FirstReady first-poll)
-            : waker #u64 : function (#fn first ((seed #u64)) #u64
+          (@async-fn (: protocol FirstAwait : waker #u64 : function (#fn first ((seed #u64)) #u64
               (#return (#await Child ChildPending ChildReady step-poll (Waiting seed))))))
-          (@async-fn (: names (Second SecondPoll SecondPending SecondReady second-poll)
-            : waker #u64 : function (#fn second ((seed #u64)) #u64
-              (#return (#await First FirstPending FirstReady first-poll
+          (@async-fn (: protocol SecondAwait : waker #u64 : function (#fn second ((seed #u64)) #u64
+              (#return (#await first-task first-pending first-ready first-poll
                 (#call first (: seed seed)))))))"
         );
         let planning = prepare(&syntax(&text)).unwrap();
         assert_eq!(planning.functions.len(), 2);
         assert_eq!(
             planning.functions[1].graph.awaits[0].child_type,
-            Type::Named("First".into())
+            Type::Named("first-task".into())
         );
         assert_eq!(planning.functions[1].graph.awaits[0].result_type, Type::U64);
-        assert!(planning.declarations.deferred_layouts.contains_key("First"));
+        assert!(planning
+            .declarations
+            .deferred_layouts
+            .contains_key("first-task"));
         assert!(!planning.declarations.bodies.contains_key("first-poll"));
     }
 
@@ -310,10 +311,8 @@ mod tests {
     fn deferred_frame_has_no_fields_until_physical_layout_exists() {
         let text = format!(
             "{CONTEXT}
-          (@async-fn (: names (First FirstPoll FirstPending FirstReady first-poll)
-            : waker #u64 : function (#fn first () #u64 (#return 1u64))))
-          (@async-fn (: names (Second SecondPoll SecondPending SecondReady second-poll)
-            : waker #u64 : function (#fn second ((child First)) #u64
+          (@async-fn (: protocol FirstAwait : waker #u64 : function (#fn first () #u64 (#return 1u64))))
+          (@async-fn (: protocol SecondAwait : waker #u64 : function (#fn second ((child first-task)) #u64
               (#return (#get child state)))))"
         );
         let error = prepare(&syntax(&text)).err().unwrap();
@@ -324,7 +323,7 @@ mod tests {
     #[test]
     fn rejects_generated_name_conflicting_with_non_async_builtin() {
         let text = format!(
-            "(@optional (: type #u64 : name Frame)) {}",
+            "(@optional (: type #u64 : name work-task)) {}",
             work("(#return 1u64)")
         );
         let error = prepare(&syntax(&text)).err().unwrap();
@@ -358,7 +357,8 @@ mod tests {
 
     #[test]
     fn duplicate_async_interfaces_fail_before_any_body_is_emitted() {
-        let second = work("(#return 2u64)");
+        let second =
+            work("(#return 2u64)").replace(": protocol work-await", ": protocol work-await-2");
         let text = format!("{}\n{}", work("(#return 1u64)"), &second[CONTEXT.len()..]);
         let error = prepare(&syntax(&text)).err().unwrap();
         assert!(error.message.contains("conflict"), "{error:?}");
@@ -372,7 +372,7 @@ mod tests {
             "{CONTEXT}
           (#gn produce ()
             `( (@async-fn
-              (: names (Frame Poll Pending Ready poll) : waker #u64
+              (: protocol work-await : waker #u64
                : function (#fn work ((seed #u64)) #u64
                  (#return (#await Child ChildPending ChildReady step-poll (Waiting seed)))))) ))
           (@produce)"

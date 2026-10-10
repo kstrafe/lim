@@ -47,7 +47,7 @@
 
 (#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
 
-(@async-fn (: protocol WorkAwait : names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset #u64)) #u64
+(@async-fn (: protocol WorkAwait : waker LocalWaker : function (#fn work ((offset #u64)) #u64
     (#let started-text (#array #char 14) "work: started\n")
     (#call print-text (: text (#slice-of (#borrow started-text))))
     (#let step Step (Waiting 1u64))
@@ -63,10 +63,10 @@
     (#case (Waiting remaining) (#forget remaining)))
   (#return ()))
 
-(#fn cancel-work ((task Work)) ()
+(#fn cancel-work ((task work-task)) ()
   (#match task
-    (#case (Work-start offset) (#forget offset))
-    (#case (Work-await-0 total offset child)
+    (#case (work-task-start offset) (#forget offset))
+    (#case (work-task-await-0 total offset child)
       (#block
         (#forget total)
         (#forget offset)
@@ -80,17 +80,17 @@
       (#call CellU64-create (: value 0u64))))))
   (#let waker LocalWaker
     (#call local-waker-create (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
-  (#let first WorkPoll
+  (#let first work-poll-result
     (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
-  (#let-else (WorkPending pending) WorkPoll first (#unreachable))
+  (#let-else (work-pending pending) work-poll-result first (#unreachable))
   (#let pending-text (#array #char 16) "poll 1: pending\n")
   (#call print-text (: text (#slice-of (#borrow pending-text))))
-  (#let second WorkPoll
+  (#let second work-poll-result
     (#call work-poll (: task pending : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (WorkReady value) value)
-      (#case (WorkPending task)
+      (#case (work-ready value) value)
+      (#case (work-pending task)
         (#block (#forget task) (#unreachable)))))
   (#let ready-text (#array #char 14) "poll 2: ready\n")
   (#call print-text (: text (#slice-of (#borrow ready-text))))

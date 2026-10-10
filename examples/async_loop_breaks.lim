@@ -9,7 +9,7 @@
     (#case (Resuming value) (StepReady value)))))
 
 (#fn identity ((value #u64)) #u64 (#return value))
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choose #bool)) #u64
     (#let result #u64
       (#call identity (: value
@@ -22,13 +22,13 @@
     (#return result))))
 
 (#fn run ((choose #bool) (waker (#ref #u64))) #u64
-  (#let first Poll
-    (#call poll (: task (#call work (: choose choose)) : waker waker)))
-  (#let-else (Pending pending) Poll first (#unreachable))
-  (#let second Poll (#call poll (: task pending : waker waker)))
+  (#let first work-poll-result
+    (#call work-poll (: task (#call work (: choose choose)) : waker waker)))
+  (#let-else (work-pending pending) work-poll-result first (#unreachable))
+  (#let second work-poll-result (#call work-poll (: task pending : waker waker)))
   (#return (#match second
-    (#case (Ready value) value)
-    (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    (#case (work-ready value) value)
+    (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
 
 (#fn main () #u64
   (#let waker #u64 0u64)

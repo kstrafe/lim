@@ -11581,7 +11581,7 @@ pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
         "async names",
     )?;
     if !matches!(names.len(), 5 | 6) {
-        return Err("@async-fn names must be (Frame Poll Pending Ready poll)".into());
+        return Err("invalid async function interface metadata".into());
     }
     let function = list(
         parts.get(4).ok_or("async invocation requires a function")?,
@@ -11747,7 +11747,7 @@ fn generated_source_with_capture_selection(
         || !matches!(invocation[0], Expr::At)
         || !matches!(&invocation[1], Expr::Symbol(name) if name == "async-fn" || name == "async-fn-pinned")
     {
-        return Err(format!("{generator_name} requires (@{} (: names (Frame Poll Pending Ready poll) : waker Waker : function (#fn name ((arg Type) ...) Result ...) : cancel (cancel-function ((State-variant handler) ...))))", generator_name.trim_start_matches('@')).into());
+        return Err(format!("{generator_name} requires (@{} (: protocol Protocol : waker Waker : function (#fn name ((arg Type) ...) Result ...) : cancel (cancel-function ((State-variant handler) ...))))", generator_name.trim_start_matches('@')).into());
     }
     let cancel_config = invocation
         .get(5)
@@ -11755,7 +11755,7 @@ fn generated_source_with_capture_selection(
         .transpose()?;
     let names = list(&invocation[2], "generated names")?;
     if !matches!(names.len(), 5 | 6) {
-        return Err("@async-fn names must be (Frame Poll Pending Ready poll)".into());
+        return Err("invalid async function interface metadata".into());
     }
     let names = names
         .iter()

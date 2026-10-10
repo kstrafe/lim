@@ -28,7 +28,7 @@
         (StepReady 0u64)
         (StepPending (Waiting (#u64.-.wrap count 1u64))))))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work (: pointer (#ptr-mut Holder) : source (#ref #u64)) #u64
     (#let first-step #u64 (#await Step StepPending StepReady step-poll (Waiting 1u64)))
     (#let owner (#pin-own Holder)
@@ -46,13 +46,13 @@
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#assert (#usize.< (#ptr-address pointer) 18446744073709547521usize))
   (#let waker #u64 0u64)
-  (#let first Poll (#call poll
+  (#let first work-poll-result (#call work-poll
     (: task (#call work (: pointer pointer : source (#borrow source)))
      : waker (#borrow waker))))
-  (#let-else (Pending next) Poll first (#unreachable))
-  (#let second Poll (#call poll (: task next : waker (#borrow waker))))
-  (#let-else (Pending last) Poll second (#unreachable))
-  (#let third Poll (#call poll (: task last : waker (#borrow waker))))
+  (#let-else (work-pending next) work-poll-result first (#unreachable))
+  (#let second work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+  (#let-else (work-pending last) work-poll-result second (#unreachable))
+  (#let third work-poll-result (#call work-poll (: task last : waker (#borrow waker))))
   (#return (#match third
-    (#case (Ready answer) answer)
-    (#case (Pending unfinished) (#block (#forget unfinished) (#unreachable))))))
+    (#case (work-ready answer) answer)
+    (#case (work-pending unfinished) (#block (#forget unfinished) (#unreachable))))))

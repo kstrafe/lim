@@ -27,9 +27,9 @@
               1u64)))
           (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
 
-; @async-fn generates TwoSteps, TwoStepsPoll, and the start/poll functions.
+; @async-fn generates two-steps-task, two-steps-poll-result, and the start/poll functions.
 ; #async-fn infers which locals must live across each suspension point.
-(@async-fn (: names (TwoSteps TwoStepsPoll TwoStepsPending TwoStepsReady two-steps-poll) : waker Wake : function (#fn two-steps ((extra #u64)) #u64
+(@async-fn ( : protocol TwoStepsAwait : waker Wake : function (#fn two-steps ((extra #u64)) #u64
     (#let first Step (Waiting 1u64))
     (#let left #u64
       (#await Step StepPending StepReady step-poll first))
@@ -43,22 +43,22 @@
   (#call print-text (: text (#slice-of (#borrow start))))
   (#let wake Wake (#struct-literal Wake ((notifications
     (#call CellU64-create (: value 0u64))))))
-  (#let first TwoStepsPoll
+  (#let first two-steps-poll-result
     (#call two-steps-poll (: task (#call two-steps (: extra 0u64)) : waker (#borrow wake))))
-  (#let-else (TwoStepsPending state1) TwoStepsPoll first (#unreachable))
+  (#let-else (two-steps-pending state1) two-steps-poll-result first (#unreachable))
   (#let first-pending (#array #char 16) "poll 1: pending\n")
   (#call print-text (: text (#slice-of (#borrow first-pending))))
-  (#let second TwoStepsPoll
+  (#let second two-steps-poll-result
     (#call two-steps-poll (: task state1 : waker (#borrow wake))))
-  (#let-else (TwoStepsPending state2) TwoStepsPoll second (#unreachable))
+  (#let-else (two-steps-pending state2) two-steps-poll-result second (#unreachable))
   (#let second-pending (#array #char 16) "poll 2: pending\n")
   (#call print-text (: text (#slice-of (#borrow second-pending))))
-  (#let third TwoStepsPoll
+  (#let third two-steps-poll-result
     (#call two-steps-poll (: task state2 : waker (#borrow wake))))
   (#let result #u64
     (#match third
-      (#case (TwoStepsReady value) value)
-      (#case (TwoStepsPending state)
+      (#case (two-steps-ready value) value)
+      (#case (two-steps-pending state)
         (#block (#forget state) (#unreachable)))))
   (#let ready (#array #char 14) "poll 3: ready\n")
   (#call print-text (: text (#slice-of (#borrow ready))))

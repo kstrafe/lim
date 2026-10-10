@@ -7,7 +7,7 @@
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choice Choice)) #u64
     (#return (#match choice
       (#case (Chosen (#tuple value bias))
@@ -18,12 +18,12 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task Frame
+  (#let-mut task work-task
     (#call work (: choice (Chosen (#tuple (#tuple #u64 #u64) 20u64 22u64)))))
   (#for-range (attempt #u64) 0u64 3u64
-    (#let result Poll (#call poll (: task task : waker (#borrow waker))))
+    (#let result work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
     (#match result
-      (#case (Pending next) (#block (#set task next) ()))
-      (#case (Ready value) (#block (#return value)))))
+      (#case (work-pending next) (#block (#set task next) ()))
+      (#case (work-ready value) (#block (#return value)))))
   (#forget task)
   (#return (#unreachable)))

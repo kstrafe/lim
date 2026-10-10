@@ -18,7 +18,7 @@
     (#case (Start value) (BodyPending (Resume value)))
     (#case (Resume value) (BodyReady value)))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut counter #u64 0u64)
     (#let-mut total #u64 0u64)
@@ -30,11 +30,11 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Poll (#call poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (Pending first-task) Poll first (#unreachable))
-  (#let second Poll (#call poll (: task first-task : waker (#borrow waker))))
-  (#let-else (Pending second-task) Poll second (#unreachable))
-  (#let third Poll (#call poll (: task second-task : waker (#borrow waker))))
+  (#let first work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
+  (#let-else (work-pending first-task) work-poll-result first (#unreachable))
+  (#let second work-poll-result (#call work-poll (: task first-task : waker (#borrow waker))))
+  (#let-else (work-pending second-task) work-poll-result second (#unreachable))
+  (#let third work-poll-result (#call work-poll (: task second-task : waker (#borrow waker))))
   (#return (#match third
-    (#case (Ready value) value)
-    (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    (#case (work-ready value) value)
+    (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))

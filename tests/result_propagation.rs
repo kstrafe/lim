@@ -653,7 +653,7 @@ fn preserves_failure_pattern_after_async_suspension() {
           (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
             (#return (#match task (#case (Waiting remaining)
               (#if (#u64.== remaining 0u64) (StepReady 0u64) (StepPending (Waiting 0u64)))))))
-          (@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+          (@async-fn (: protocol convert-await : waker #u64 : function
             (#fn convert (: value Input) Output
               (#let waited #u64 (#await Step StepPending StepReady step-poll (Waiting 1u64)))
               (#forget waited)
@@ -662,13 +662,13 @@ fn preserves_failure_pattern_after_async_suspension() {
                   (#return (#call Output-err (: error error)))))
               (#return (#call Output-ok (: value (#u64.== number 42u64)))))))
           (#fn main () #u64 (#let waker #u64 0u64)
-            (#let first Poll (#call poll (: task (#call convert (: value {constructor}))
+            (#let first convert-poll-result (#call convert-poll (: task (#call convert (: value {constructor}))
               : waker (#borrow waker))))
-            (#let-else (Pending waiting) Poll first (#unreachable))
-            (#let second Poll (#call poll (: task waiting : waker (#borrow waker))))
+            (#let-else (convert-pending waiting) convert-poll-result first (#unreachable))
+            (#let second convert-poll-result (#call convert-poll (: task waiting : waker (#borrow waker))))
             (#return (#match second
-              (#case (Pending task) (#block (#forget task) 0u64))
-              (#case (Ready result) (#match result
+              (#case (convert-pending task) (#block (#forget task) 0u64))
+              (#case (convert-ready result) (#match result
                 (#case (Output-ok-value yes) (#if yes 42u64 0u64))
                 (#case (Output-err-value error) (#as error #u64)))))))"
             ),

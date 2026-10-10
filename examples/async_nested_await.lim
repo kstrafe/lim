@@ -15,7 +15,7 @@
     (#case MakeOuter (InnerPending ResumeOuter))
     (#case ResumeOuter (InnerReady (Waiting 42u64))))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let result #u64
       (#u64.+.wrap 0u64
@@ -25,17 +25,17 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Poll
-    (#call poll (: task (#call work (:)) : waker (#borrow waker))))
-  (#let-else (Pending inner-pending) Poll first (#unreachable))
-  (#let second Poll
-    (#call poll (: task inner-pending : waker (#borrow waker))))
-  (#let-else (Pending outer-pending) Poll second (#unreachable))
-  (#let third Poll
-    (#call poll (: task outer-pending : waker (#borrow waker))))
+  (#let first work-poll-result
+    (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+  (#let-else (work-pending inner-pending) work-poll-result first (#unreachable))
+  (#let second work-poll-result
+    (#call work-poll (: task inner-pending : waker (#borrow waker))))
+  (#let-else (work-pending outer-pending) work-poll-result second (#unreachable))
+  (#let third work-poll-result
+    (#call work-poll (: task outer-pending : waker (#borrow waker))))
   (#let result #u64
     (#match third
-      (#case (Ready value) value)
-      (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+      (#case (work-ready value) value)
+      (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
   (#forget waker)
   (#return result))

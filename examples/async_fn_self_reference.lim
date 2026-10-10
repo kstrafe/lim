@@ -13,7 +13,7 @@
 (#struct Payload ((left #u64) (right #u64)))
 (#struct Owner ((payload Payload)))
 
-(@async-fn-pinned (: names (SelfRefFrame SelfRefPoll SelfRefPending SelfRefReady self-ref-poll) : waker #u64 : function
+(@async-fn-pinned ( : protocol ReadAfterAwaitAwait : waker #u64 : function
   (#fn read-after-await ((owner Owner)) #u64
     (#let view (#pin-ref #u64)
       (#pin-borrow (#get (#get owner payload) left)))
@@ -23,47 +23,47 @@
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result)))))
 
-(#fn cancel-self-ref-state ((task SelfRefFrame-state)) ()
+(#fn cancel-self-ref-state ((task read-after-await-frame-state)) ()
   (#match task
-    (#case SelfRefFrame-start ())
-    (#case (SelfRefFrame-await-0 view right-view child)
+    (#case read-after-await-frame-start ())
+    (#case (read-after-await-frame-await-0 view right-view child)
       (#call cancel-child (: task child)))
-    (#case SelfRefFrame-done ()))
+    (#case read-after-await-frame-done ()))
   (#return ()))
 
 (#fn main () #u64
-  (#let-mut frame SelfRefFrame
+  (#let-mut frame read-after-await-frame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((payload (#struct-literal Payload ((left 40u64) (right 5u64)))))))))
   (#let waker #u64 0u64)
-  (#let first SelfRefPoll
-    (#call self-ref-poll
+  (#let first read-after-await-poll-result
+    (#call read-after-await-poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (SelfRefPending pending-frame) SelfRefPoll first (#unreachable))
-  (#let second SelfRefPoll
-    (#call self-ref-poll (: task pending-frame : waker (#borrow waker))))
+  (#let-else (read-after-await-pending pending-frame) read-after-await-poll-result first (#unreachable))
+  (#let second read-after-await-poll-result
+    (#call read-after-await-poll (: task pending-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (SelfRefReady value) value)
-      (#case (SelfRefPending unexpected)
+      (#case (read-after-await-ready value) value)
+      (#case (read-after-await-pending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
   (#set-field frame owner
     (#struct-literal Owner
       ((payload (#struct-literal Payload ((left 41u64) (right 5u64)))))))
   (#forget frame)
 
-  (#let-mut cancelled SelfRefFrame
+  (#let-mut cancelled read-after-await-frame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((payload (#struct-literal Payload ((left 10u64) (right 7u64)))))))))
-  (#let first-cancel SelfRefPoll
-    (#call self-ref-poll
+  (#let first-cancel read-after-await-poll-result
+    (#call read-after-await-poll
       (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
-  (#let-else (SelfRefPending cancel-pin) SelfRefPoll first-cancel (#unreachable))
+  (#let-else (read-after-await-pending cancel-pin) read-after-await-poll-result first-cancel (#unreachable))
   (#block
-    (#let state SelfRefFrame-state
-      (#call self-ref-poll-cancel (: task cancel-pin)))
+    (#let state read-after-await-frame-state
+      (#call read-after-await-poll-cancel (: task cancel-pin)))
     (#call cancel-self-ref-state (: task state)))
   (#set-field cancelled owner
     (#struct-literal Owner

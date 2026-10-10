@@ -8,7 +8,7 @@
     (#case Start (StepPending Resume))
     (#case Resume (StepReady ())))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut keep-going #bool true)
     (#for () keep-going
@@ -18,12 +18,12 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Poll
-    (#call poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (Pending task) Poll first (#unreachable))
-  (#let second Poll
-    (#call poll (: task task : waker (#borrow waker))))
+  (#let first work-poll-result
+    (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
+  (#let-else (work-pending task) work-poll-result first (#unreachable))
+  (#let second work-poll-result
+    (#call work-poll (: task task : waker (#borrow waker))))
   (#return (#match second
-    (#case (Ready value) value)
-    (#case (Pending unexpected)
+    (#case (work-ready value) value)
+    (#case (work-pending unexpected)
       (#block (#forget unexpected) (#unreachable))))))

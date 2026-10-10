@@ -6543,7 +6543,7 @@ fn normalize_builtin_generator_invocation(expression: &Expr) -> Result<Expr, Str
             "destroy",
         ],
         "vec-sort" => &["element", "vector", "comparator"],
-        "async-fn" | "async-fn-pinned" => &["names", "waker", "function", "cancel", "protocol"],
+        "async-fn" | "async-fn-pinned" => &["protocol", "waker", "function", "cancel"],
         _ => return Ok(expression.clone()),
     };
     let Some(Expr::List(arguments)) = items.get(2) else {
@@ -6570,58 +6570,42 @@ fn normalize_builtin_generator_invocation(expression: &Expr) -> Result<Expr, Str
         }
     }
     let mut normalized = vec![Expr::At, Expr::Symbol(kind.clone())];
-    let optional_async_cancel = matches!(kind.as_str(), "async-fn" | "async-fn-pinned");
-    if optional_async_cancel {
-        let function = expect_list(
+    if matches!(kind.as_str(), "async-fn" | "async-fn-pinned") {
+        let protocol = values
+            .remove("protocol")
+            .ok_or_else(|| format!("@{kind} is missing argument 'protocol'"))?;
+        let name = expect_symbol(Some(&protocol), "async protocol name")?;
+        if name.starts_with('#') || name.starts_with('@') || name == "$" {
+            return Err("async protocol names must be user-defined identifiers".into());
+        }
+        let function = values
+            .remove("function")
+            .ok_or_else(|| format!("@{kind} is missing argument 'function'"))?;
+        let declaration = expect_list(&function, "async function")?;
+        let start = expect_symbol(declaration.get(1), "async function name")?;
+        let frame_suffix = if kind == "async-fn-pinned" {
+            "frame"
+        } else {
+            "task"
+        };
+        let mut names = [frame_suffix, "poll-result", "pending", "ready", "poll"]
+            .iter()
+            .map(|suffix| Expr::Symbol(format!("{start}-{suffix}")))
+            .collect::<Vec<_>>();
+        names.push(protocol);
+        normalized.push(Expr::List(names));
+        normalized.push(
             values
-                .get("function")
-                .ok_or_else(|| format!("@{kind} is missing argument 'function'"))?,
-            "async function",
-        )?;
-        let start = expect_symbol(function.get(1), "async function name")?.to_owned();
-        let protocol = values.remove("protocol");
-        if let Some(protocol) = &protocol {
-            let name = expect_symbol(Some(protocol), "async protocol name")?;
-            if name.starts_with('#') || name.starts_with('@') || name == "$" {
-                return Err("async protocol names must be user-defined identifiers".into());
-            }
+                .remove("waker")
+                .ok_or_else(|| format!("@{kind} is missing argument 'waker'"))?,
+        );
+        normalized.push(function);
+        if let Some(cancel) = values.remove("cancel") {
+            normalized.push(cancel);
         }
-        if !values.contains_key("names") {
-            if protocol.is_none() {
-                return Err(format!("@{kind} is missing argument 'protocol'"));
-            }
-            let frame_suffix = if kind == "async-fn-pinned" {
-                "frame"
-            } else {
-                "task"
-            };
-            values.insert(
-                "names",
-                Expr::List(
-                    [frame_suffix, "poll-result", "pending", "ready", "poll"]
-                        .iter()
-                        .map(|suffix| Expr::Symbol(format!("{start}-{suffix}")))
-                        .collect(),
-                ),
-            );
-        }
-        if let Some(protocol) = protocol {
-            let names = values.get_mut("names").unwrap();
-            let Expr::List(names) = names else {
-                return Err("@async-fn names must be (Frame Poll Pending Ready poll)".into());
-            };
-            if names.len() != 5 {
-                return Err("@async-fn names must be (Frame Poll Pending Ready poll)".into());
-            }
-            names.push(protocol);
-        }
+        return Ok(Expr::List(normalized));
     }
     for key in keys {
-        if optional_async_cancel
-            && (*key == "protocol" || (*key == "cancel" && !values.contains_key(key)))
-        {
-            continue;
-        }
         normalized.push(
             values
                 .remove(key)
@@ -12852,7 +12836,7 @@ mod tests {
 
         for generator in ["async-fn", "async-fn-pinned"] {
             let source = format!(
-                "{declarations} (@{generator} (: names (Frame Poll Pending Ready poll) : waker #u64 : function (#fn work () #u64 (#return 1u64))))"
+                "{declarations} (@{generator} (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 1u64))))"
             );
             let asynchronous = prepare(&source);
             assert_eq!(
@@ -12918,10 +12902,6 @@ mod tests {
             (
                 "(@vec-alloc (: destroy drop-item : dealloc release : grow grow : alloc allocate : alloc-error AllocError : alloc-result AllocResult : vector VecU64 : allocator Arena : element #u64))",
                 "(@ vec-alloc #u64 Arena VecU64 AllocResult AllocError allocate grow release drop-item)",
-            ),
-            (
-                "(@async-fn (: function (#fn work () #u64 (#return 1)) : waker Wake : names (Frame Poll Pending Ready poll)))",
-                "(@ async-fn (Frame Poll Pending Ready poll) Wake (#fn work () #u64 (#return 1)))",
             ),
             (
                 "(@async-fn (: function (#fn work () #u64 (#return 1)) : protocol WorkAwait : waker Wake))",

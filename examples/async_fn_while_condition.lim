@@ -1,5 +1,5 @@
-; Await a boolean condition. Pending resumes before the loop decides whether
-; the body runs; Ready(false) skips it and Ready(true) advances the capture.
+; Await a boolean condition. work-pending resumes before the loop decides whether
+; the body runs; work-ready(false) skips it and work-ready(true) advances the capture.
 (#enum ConditionTask ((Waiting #u64)))
 (#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady #bool)))
 (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
@@ -11,7 +11,7 @@
           (ConditionReady true)
           (ConditionReady false)))))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work () #u64
     (#let-mut iteration #u64 0u64)
     (#while (#await ConditionTask ConditionPending ConditionReady
@@ -20,13 +20,13 @@
     (#return iteration))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first Poll
-    (#call poll (: task (#call work (:)) : waker (#borrow waker))))
-  (#let-else (Pending pending) Poll first (#unreachable))
-  (#let second Poll (#call poll (: task pending : waker (#borrow waker))))
+  (#let first work-poll-result
+    (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
+  (#let-else (work-pending pending) work-poll-result first (#unreachable))
+  (#let second work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
   (#let result #u64 (#match second
-    (#case (Ready value) value)
-    (#case (Pending pending-again)
+    (#case (work-ready value) value)
+    (#case (work-pending pending-again)
       (#block (#forget pending-again) 0u64))))
   (#forget waker)
   (#return (#if (#u64.== result 2u64) 42u64 0u64)))

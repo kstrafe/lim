@@ -958,9 +958,8 @@ For `work`, the generated names are `work-task`, `work-poll-result`,
 `@async-fn-pinned` instead generates `work-frame` and exports
 `(#syntax WorkAwait (#u64 (#pin-ref-mut work-frame) work-pending work-ready work-poll))`.
 Callers must pin a frame explicitly before awaiting that protocol.
-An optional `: names (Frame Poll Pending Ready poll)` overrides those five
-names. If only explicit names are supplied, the protocol defaults to
-`work-await`. A supplied `: protocol` always selects the bundle name.
+Generated task, result, variant, and poll names come from the source function
+name. Supply `: protocol` to select the exported bundle name.
 Protocols are collected after imports, generators and cfg selection, before
 await expansion, so functions can refer forward to one another's protocols.
 Duplicate bundles and declaration collisions are rejected. The bundle appears

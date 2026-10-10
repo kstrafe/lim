@@ -1,6 +1,6 @@
 ; @async-fn-pinned returns a movable frame value that must be pinned before
-; polling. While a poll is Pending, the returned PinRefMut keeps the frame at
-; its storage location and is passed into the next poll. One generated poll
+; polling. While a work-poll is work-pending, the returned PinRefMut keeps the frame at
+; its storage location and is passed into the next work-poll. One generated work-poll
 ; loop dispatches on the state tag. See async_single_poll.lim for opaque pins
 ; with privately owned stationary storage and async_fn_self_reference.lim for the
 ; supported internal-reference form.
@@ -15,40 +15,40 @@
         (ChildReady value))))))
 (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
 
-(@async-fn-pinned (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn-pinned ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((offset #u64)) #u64
     (#let value #u64
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap value offset)))))
 
-(#fn cancel-frame ((task Frame-state)) ()
+(#fn cancel-frame ((task work-frame-state)) ()
   (#match task
-    (#case (Frame-start offset) (#forget offset))
-    (#case (Frame-await-0 offset child)
+    (#case (work-frame-start offset) (#forget offset))
+    (#case (work-frame-await-0 offset child)
       (#block (#forget offset) (#call cancel-child (: task child))))
-    (#case Frame-done ()))
+    (#case work-frame-done ()))
   (#return ()))
 
 (#fn main () #u64
-  (#let-mut frame Frame (#call work (: offset 40u64)))
+  (#let-mut frame work-frame (#call work (: offset 40u64)))
   (#let waker #u64 0u64)
-  (#let first Poll
-    (#call poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (Pending pinned-frame) Poll first (#unreachable))
-  (#let second Poll
-    (#call poll (: task pinned-frame : waker (#borrow waker))))
+  (#let first work-poll-result
+    (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+  (#let-else (work-pending pinned-frame) work-poll-result first (#unreachable))
+  (#let second work-poll-result
+    (#call work-poll (: task pinned-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
-      (#case (Ready value) value)
-      (#case (Pending unexpected)
+      (#case (work-ready value) value)
+      (#case (work-pending unexpected)
         (#block (#forget unexpected) (#unreachable)))))
   (#forget frame)
 
-  (#let-mut cancelled-frame Frame (#call work (: offset 90u64)))
-  (#let first-cancel Poll
-    (#call poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
-  (#let-else (Pending cancel-pin) Poll first-cancel (#unreachable))
-  (#let state-to-cancel Frame-state (#call poll-cancel (: task cancel-pin)))
+  (#let-mut cancelled-frame work-frame (#call work (: offset 90u64)))
+  (#let first-cancel work-poll-result
+    (#call work-poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
+  (#let-else (work-pending cancel-pin) work-poll-result first-cancel (#unreachable))
+  (#let state-to-cancel work-frame-state (#call work-poll-cancel (: task cancel-pin)))
   (#call cancel-frame (: task state-to-cancel))
   (#forget cancelled-frame)
   (#forget waker)

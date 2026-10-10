@@ -11,7 +11,7 @@
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+(@async-fn ( : protocol WorkAwait : waker #u64 : function
   (#fn work ((choice Choice)) #u64
     (#while-let (Chosen value)
       (#await Choice ChoiceTask ChoicePending ChoiceReady choice-poll (ChoiceStart choice))
@@ -20,19 +20,19 @@
       (#return second))
     (#return 5u64))))
 (#fn run ((choice Choice) (waker (#ref #u64))) #u64
-  (#let first Poll (#call poll (: task (#call work (: choice choice)) : waker waker)))
-  (#let-else (Pending after-condition) Poll first (#unreachable))
-  (#let second Poll (#call poll (: task after-condition : waker waker)))
+  (#let first work-poll-result (#call work-poll (: task (#call work (: choice choice)) : waker waker)))
+  (#let-else (work-pending after-condition) work-poll-result first (#unreachable))
+  (#let second work-poll-result (#call work-poll (: task after-condition : waker waker)))
   (#return (#match second
-    (#case (Ready value) value)
-    (#case (Pending after-first)
+    (#case (work-ready value) value)
+    (#case (work-pending after-first)
       (#block
-        (#let third Poll (#call poll (: task after-first : waker waker)))
-        (#let-else (Pending after-second) Poll third (#unreachable))
-        (#let fourth Poll (#call poll (: task after-second : waker waker)))
+        (#let third work-poll-result (#call work-poll (: task after-first : waker waker)))
+        (#let-else (work-pending after-second) work-poll-result third (#unreachable))
+        (#let fourth work-poll-result (#call work-poll (: task after-second : waker waker)))
         (#match fourth
-          (#case (Ready value) value)
-          (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))))
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))))))
 (#fn main () #u64
   (#let waker #u64 0u64)
   (#let chosen #u64 (#call run (: choice (Chosen 37u64) : waker (#borrow waker))))

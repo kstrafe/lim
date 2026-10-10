@@ -10548,7 +10548,7 @@ mod async_planning_tests {
 
     fn context(body: &str) -> (Program, crate::async_interfaces::Registry) {
         let source = format!(
-            "(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64
+            "(@async-fn (: protocol start-await : waker #u64
                 : function (#fn start () #u64 (#return 1u64)))) {body}"
         );
         let prepared = crate::prepare_program_syntax(
@@ -10576,23 +10576,26 @@ mod async_planning_tests {
     #[test]
     fn selected_deferred_pointer_and_slice_operations_require_layout() {
         for (parameters, operation) in [
-            ("(ptr (#ptr Frame))", "(#unsafe (#ptr-read ptr))"),
-            ("(ptr (#ptr Frame))", "(#unsafe (#ptr-offset ptr 1usize))"),
+            ("(ptr (#ptr start-task))", "(#unsafe (#ptr-read ptr))"),
             (
-                "(ptr (#ptr-mut Frame)) (value Frame)",
+                "(ptr (#ptr start-task))",
+                "(#unsafe (#ptr-offset ptr 1usize))",
+            ),
+            (
+                "(ptr (#ptr-mut start-task)) (value start-task)",
                 "(#unsafe (#ptr-write ptr value))",
             ),
-            ("(items (#slice Frame))", "(#slice-idx items 0usize)"),
+            ("(items (#slice start-task))", "(#slice-idx items 0usize)"),
             (
-                "(items (#slice Frame))",
+                "(items (#slice start-task))",
                 "(#slice-range items 0usize 1usize)",
             ),
             (
-                "(items (#slice-mut Frame))",
+                "(items (#slice-mut start-task))",
                 "(#slice-mut-idx items 0usize)",
             ),
             (
-                "(items (#slice-mut Frame))",
+                "(items (#slice-mut start-task))",
                 "(#slice-mut-split items 0usize)",
             ),
         ] {
@@ -10607,12 +10610,12 @@ mod async_planning_tests {
     #[test]
     fn deferred_handle_operations_and_poll_matching_need_no_frame_layout() {
         plan(
-            "(#fn main ((ptr (#ptr Frame)) (items (#slice Frame)) (result Poll)) #u64
+            "(#fn main ((ptr (#ptr start-task)) (items (#slice start-task)) (result start-poll-result)) #u64
                 (#let address #usize (#ptr-address ptr))
                 (#let length #usize (#slice-len items))
                 (#return (#match result
-                    (#case (Pending child) 0u64)
-                    (#case (Ready value) value))))",
+                    (#case (start-pending child) 0u64)
+                    (#case (start-ready value) value))))",
         )
         .unwrap();
     }
@@ -10665,7 +10668,7 @@ mod async_planning_tests {
         let selected = HashSet::from(["main".into()]);
         let mut declarations = resolve_async_planning(&program, &registry, &selected).unwrap();
         assert!(declarations.planning_only);
-        assert!(declarations.deferred_layouts.contains_key("Frame"));
+        assert!(declarations.deferred_layouts.contains_key("start-task"));
         let types = crate::linearcheck::LinearTypes::from_program(&program);
         assert!(matches!(
             declarations.check_referent_entry_contracts(&types),
@@ -16980,23 +16983,23 @@ mod typed_ownership_tests {
             (
                 "async_fn_local_self_reference",
                 "local-self-ref-poll",
-                "LocalSelfRefPoll",
-                "LocalSelfRefReady",
-                "LocalSelfRefPending",
+                "local-self-ref-poll-result",
+                "local-self-ref-ready",
+                "local-self-ref-pending",
             ),
             (
                 "async_fn_self_reference",
-                "self-ref-poll",
-                "SelfRefPoll",
-                "SelfRefReady",
-                "SelfRefPending",
+                "read-after-await-poll",
+                "read-after-await-poll-result",
+                "read-after-await-ready",
+                "read-after-await-pending",
             ),
             (
                 "async_fn_enum_self_reference",
-                "enum-poll",
-                "EnumPoll",
-                "EnumReady",
-                "EnumPending",
+                "read-after-await-poll",
+                "read-after-await-poll-result",
+                "read-after-await-ready",
+                "read-after-await-pending",
             ),
         ] {
             let path = root.join("examples").join(format!("{example}.lim"));
@@ -23009,8 +23012,8 @@ mod typed_ownership_tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         for (name, poll) in [
             ("async_fn_local_self_reference", "local-self-ref-poll"),
-            ("async_fn_self_reference", "self-ref-poll"),
-            ("async_fn_enum_self_reference", "enum-poll"),
+            ("async_fn_self_reference", "read-after-await-poll"),
+            ("async_fn_enum_self_reference", "read-after-await-poll"),
         ] {
             let path = root.join("examples").join(format!("{name}.lim"));
             let source = std::fs::read_to_string(&path).unwrap();
@@ -23089,12 +23092,12 @@ mod typed_ownership_tests {
             ),
             (
                 "async_fn_self_reference",
-                "self-ref-poll",
+                "read-after-await-poll",
                 "unresolved call inputs",
             ),
             (
                 "async_fn_enum_self_reference",
-                "enum-poll",
+                "read-after-await-poll",
                 "unresolved call inputs",
             ),
         ] {
