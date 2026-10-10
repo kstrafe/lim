@@ -12507,6 +12507,18 @@ mod typed_ownership_tests {
             if *callee == declarations.function_id("initialize").unwrap() {
                 let (mapped, unknown) =
                     flow.map_referent_call_restorations(body, event, value, initializer, &restored);
+                let origins = flow.loan_origins(body);
+                assert_eq!(
+                    (mapped.clone(), unknown),
+                    flow.map_referent_call_restorations_with_origins(
+                        body,
+                        event,
+                        value,
+                        initializer,
+                        &restored,
+                        &origins,
+                    ),
+                );
                 assert!(!unknown);
                 restorations.push((event, mapped));
                 let (mapped, unknown) = flow.map_referent_call_consumed_entry(
@@ -12515,6 +12527,17 @@ mod typed_ownership_tests {
                     value,
                     initializer,
                     &required_consumed,
+                );
+                assert_eq!(
+                    (mapped.clone(), unknown),
+                    flow.map_referent_call_consumed_entry_with_origins(
+                        body,
+                        event,
+                        value,
+                        initializer,
+                        &required_consumed,
+                        &origins,
+                    ),
                 );
                 consumed_inputs.push((event, mapped, unknown));
             } else {

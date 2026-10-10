@@ -5272,6 +5272,7 @@ impl FlowGraph {
 
     /// Map consumed-entry restoration postconditions without transferring
     /// state or proving the callee's write-entry preconditions.
+    #[cfg(test)]
     pub fn map_referent_call_restorations(
         &self,
         body: &Body,
@@ -5279,6 +5280,27 @@ impl FlowGraph {
         call: NodeId,
         callee_body: &Body,
         restored: &[Place],
+    ) -> (Vec<Place>, bool) {
+        let origins = self.loan_origins(body);
+        self.map_referent_call_restorations_with_origins(
+            body,
+            event,
+            call,
+            callee_body,
+            restored,
+            &origins,
+        )
+    }
+
+    /// Reuse the divergence-adjusted caller snapshot for every call contract.
+    pub fn map_referent_call_restorations_with_origins(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        callee_body: &Body,
+        restored: &[Place],
+        origins: &FlowLoanOrigins,
     ) -> (Vec<Place>, bool) {
         let summary = ReferentFunctionEffects {
             has_normal_return: true,
@@ -5308,7 +5330,8 @@ impl FlowGraph {
         };
         // The definite flag here requests exact destination substitution,
         // not a consumption effect. Never pass this adapter to move flow.
-        let (mapped, unknown) = self.map_referent_call_effects(body, event, call, &summary);
+        let (mapped, unknown) =
+            self.map_referent_call_effects_with_origins(body, event, call, &summary, origins);
         (
             mapped
                 .into_iter()
@@ -5321,6 +5344,7 @@ impl FlowGraph {
 
     /// Entry obligations apply to every possible destination, unlike a
     /// restoration guarantee which needs one exact definite destination.
+    #[cfg(test)]
     pub fn map_referent_call_consumed_entry(
         &self,
         body: &Body,
@@ -5328,6 +5352,27 @@ impl FlowGraph {
         call: NodeId,
         callee_body: &Body,
         required: &[Place],
+    ) -> (Vec<Place>, bool) {
+        let origins = self.loan_origins(body);
+        self.map_referent_call_consumed_entry_with_origins(
+            body,
+            event,
+            call,
+            callee_body,
+            required,
+            &origins,
+        )
+    }
+
+    /// Entry obligations use the same evaluated inputs as outgoing effects.
+    pub fn map_referent_call_consumed_entry_with_origins(
+        &self,
+        body: &Body,
+        event: FlowNodeId,
+        call: NodeId,
+        callee_body: &Body,
+        required: &[Place],
+        origins: &FlowLoanOrigins,
     ) -> (Vec<Place>, bool) {
         let reads = required
             .iter()
@@ -5343,13 +5388,15 @@ impl FlowGraph {
                 }
             })
             .collect::<Vec<_>>();
-        let (mapped, unknown) = self.map_referent_call_reads(body, event, call, &reads);
+        let (mapped, unknown) =
+            self.map_referent_call_reads_with_origins(body, event, call, &reads, origins);
         (mapped.into_iter().map(|read| read.place).collect(), unknown)
     }
 
     /// Staged call mapping only; does not yet mutate caller ownership state.
     /// Map read identities without transferring ownership or treating these
     /// facts as complete entry requirements.
+    #[cfg(test)]
     pub fn map_referent_call_reads(
         &self,
         body: &Body,
@@ -5451,6 +5498,7 @@ impl FlowGraph {
     }
 
     /// Staged outgoing consumption mapping; no state transfer on its own.
+    #[cfg(test)]
     pub fn map_referent_call_effects(
         &self,
         body: &Body,

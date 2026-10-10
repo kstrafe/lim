@@ -1264,32 +1264,35 @@ impl Declarations {
                         Some(summary) => {
                             if let Some(callee_name) = names_by_id.get(callee) {
                                 if infer_entry_contracts {
-                                    let (mapped, unknown) = flow.map_referent_call_consumed_entry(
+                                    let (mapped, unknown) = flow.map_referent_call_consumed_entry_with_origins(
                                         body,
                                         event,
                                         value,
                                         &self.bodies[callee_name],
                                         &summary.consumed_entry,
+                                        &origins,
                                     );
                                     consumed_inputs.push((event, mapped, unknown));
-                                    let (mapped, unknown) = flow.map_referent_call_consumed_entry(
+                                    let (mapped, unknown) = flow.map_referent_call_consumed_entry_with_origins(
                                         body,
                                         event,
                                         value,
                                         &self.bodies[callee_name],
                                         &summary.possibly_initialized_inputs(),
+                                        &origins,
                                     );
                                     possible_restorations.push((event, mapped));
                                     if unknown {
                                         unresolved_reads.push(event);
                                     }
                                 }
-                                let (mapped, unknown) = flow.map_referent_call_restorations(
+                                let (mapped, unknown) = flow.map_referent_call_restorations_with_origins(
                                     body,
                                     event,
                                     value,
                                     &self.bodies[callee_name],
                                     &summary.restored_from_consumed_entry,
+                                    &origins,
                                 );
                                 if !unknown {
                                     restorations.push((event, mapped));
