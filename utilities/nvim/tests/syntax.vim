@@ -1,0 +1,64 @@
+" Run from any directory: nvim --headless -u NONE -i NONE -n -S <this file>
+let s:root = fnamemodify(expand('<sfile>:p'), ':h:h')
+execute 'source ' . fnameescape(s:root . '/syntax/lim.vim')
+syntax sync fromstart
+
+function! s:check(token, expected) abort
+  " Test every byte, including punctuation and the leading sigil, at multiple
+  " nesting depths (the rainbow delimiter groups cycle after six levels).
+  for depth in [0, 1, 2, 6, 7, 12]
+    call setline(1, repeat('(', depth) . a:token . repeat(')', depth))
+    " Restart the syntax scan after replacing the fixture line.
+    call synID(1, 1, 1)
+    for column in range(depth + 1, depth + strlen(a:token))
+      call assert_equal(a:expected, synIDattr(synID(1, column, 1), 'name'),
+            \ a:token . ' at depth ' . depth . ', column ' . column)
+    endfor
+  endfor
+endfunction
+
+for s:type in ['bool', 'char', 'u8', 'u16', 'u32', 'u64', 'u128', 'usize',
+      \ 'i8', 'i16', 'i32', 'i64', 'i128', 'isize', 'f32', 'f64']
+  call s:check('#' . s:type, 'limType')
+  call s:check(s:type, '')
+endfor
+for [s:token, s:group] in [
+      \ ['#ref-mut', 'limTypeForm'], ['#slice', 'limTypeForm'],
+      \ ['#u64.+.wrap', 'limOperator'], ['#u128./', 'limOperator'],
+      \ ['#u128.%', 'limOperator'], ['#i8.*.saturate', 'limOperator'],
+      \ ['#u64.==', 'limOperator'], ['#u32.&', 'limOperator'],
+      \ ['#bool.||', 'limOperator'], ['#fn', 'limDeclaration'],
+      \ ['#let-mut', 'limDeclaration'], ['#case', 'limConditional'],
+      \ ['#let-else', 'limConditional'], ['#while', 'limRepeat'],
+      \ ['#return', 'limControl'], ['#unsafe', 'limUnsafe'],
+      \ ['#gn', 'limGeneratorKeyword'], ['#gn-for-each', 'limGeneratorKeyword'],
+      \ ['#cfg-if', 'limCfg'], ['@vec', 'limGenerated'],
+      \ ['#call', 'limKeyword'], ['#u64-custom', 'limKeyword'],
+      \ ['#return-value', 'limKeyword'], ['42u64', 'limNumber'],
+      \ ['u64-value', ''], ['"#u64 #return"', 'limString'],
+      \ ['; #u64 #return', 'limComment'], ['#\newline', 'limCharacter']]
+  " Comments must not swallow the closing delimiters in the nesting fixture.
+  if s:group ==# 'limComment'
+    call setline(1, s:token)
+    call assert_equal(s:group, synIDattr(synID(1, 3, 1), 'name'))
+  else
+    call s:check(s:token, s:group)
+  endif
+endfor
+
+call setline(1, '(#fn example (: value #u64) #u64 (#return (#u64.+.wrap value 1)))')
+for [s:token, s:group] in [['#fn', 'limDeclaration'], ['#u64', 'limType'],
+      \ ['#return', 'limControl'], ['#u64.+.wrap', 'limOperator']]
+  let s:column = stridx(getline(1), s:token) + 1
+  call assert_equal(s:group, synIDattr(synID(1, s:column, 1), 'name'))
+endfor
+call assert_equal('Type', synIDattr(synIDtrans(hlID('limType')), 'name'))
+call assert_equal('Operator', synIDattr(synIDtrans(hlID('limOperator')), 'name'))
+
+if !empty(v:errors)
+  for s:error in v:errors
+    echomsg s:error
+  endfor
+  cquit
+endif
+qa!

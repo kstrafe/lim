@@ -16,11 +16,21 @@ syn match limEscape "\\\\[nrt\\\\\"]\|\\\\u{[[:xdigit:]]\+}" contained
 syn match limCharacter "#\\\%(u{[[:xdigit:]]\+}\|[[:alpha:]][[:alnum:]_-]*\|.\)"
 
 " Lim forms, operators, and generator operations use a leading #.
-syn match limKeyword "#[[:alpha:]_][[:alnum:]_+*.<>!?-]*"
-syn match limGenerated "@[[:alpha:]_][[:alnum:]_+*.<>!?-]*"
+syn match limKeyword +#[[:alpha:]_][^[:space:]();"'`,@#]*+
+syn match limGenerated +@[[:alpha:]_][^[:space:]();"'`,@#]*+
 
-" Explicit scalar types.
-syn keyword limType bool char u8 u16 u32 u64 u128 usize i8 i16 i32 i64 i128 isize f32 f64
+" Match complete tokens, including the sigil. In particular, #u64 is a type
+" but #u64.+.wrap is an operator and an unprefixed u64 is a user identifier.
+syn match limType +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|tuple\|pin-ref\|pin-ref-mut\|pin-own\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\.[^[:space:]();"'`,@#]\++
+syn match limDeclaration +#\%(fn\|extern-fn\|struct\|enum\|type\|static\|let\|let-mut\|const\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limConditional +#\%(if\|if-let\|match\|case\|let-else\|else\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limUnsafe +#\%(unsafe\|unsafe-fn\|unsafe-impl\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limGeneratorKeyword +#gn\%(-[^[:space:]();"'`,@#]\+\)\?\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limCfg +#cfg-[^[:space:]();"'`,@#]\++
 syn match limNumber "\<\d[[:alnum:]_]*\>"
 syn match limNumber "\<\d[[:digit:]_]*\.\d[[:digit:]_]*\([eE][+-]\?[[:digit:]_]*\)\?[fF]\?\(32\|64\)\?\>"
 
@@ -32,12 +42,13 @@ syn match limParen3 "[()]" contained
 syn match limParen4 "[()]" contained
 syn match limParen5 "[()]" contained
 syn match limParen6 "[()]" contained
-syn region limNest1 transparent start="(" end=")" contains=limKeyword,limGenerated,limType,limNumber,limString,limCharacter,limComment,limNest2,limParen1
-syn region limNest2 transparent start="(" end=")" contained contains=limKeyword,limGenerated,limType,limNumber,limString,limCharacter,limComment,limNest3,limParen2
-syn region limNest3 transparent start="(" end=")" contained contains=limKeyword,limGenerated,limType,limNumber,limString,limCharacter,limComment,limNest4,limParen3
-syn region limNest4 transparent start="(" end=")" contained contains=limKeyword,limGenerated,limType,limNumber,limString,limCharacter,limComment,limNest5,limParen4
-syn region limNest5 transparent start="(" end=")" contained contains=limKeyword,limGenerated,limType,limNumber,limString,limCharacter,limComment,limNest6,limParen5
-syn region limNest6 transparent start="(" end=")" contained contains=limKeyword,limGenerated,limType,limNumber,limString,limCharacter,limComment,limNest1,limParen1
+syn cluster limForms contains=limKeyword,limGenerated,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
+syn region limNest2 transparent start="(" end=")" contained contains=@limForms,limNest3,limParen2
+syn region limNest3 transparent start="(" end=")" contained contains=@limForms,limNest4,limParen3
+syn region limNest4 transparent start="(" end=")" contained contains=@limForms,limNest5,limParen4
+syn region limNest5 transparent start="(" end=")" contained contains=@limForms,limNest6,limParen5
+syn region limNest6 transparent start="(" end=")" contained contains=@limForms,limNest1,limParen1
 
 hi def link limComment Comment
 hi def link limString String
@@ -46,6 +57,15 @@ hi def link limCharacter Character
 hi def link limKeyword Keyword
 hi def link limGenerated Special
 hi def link limType Type
+hi def link limTypeForm Type
+hi def link limOperator Operator
+hi def link limDeclaration StorageClass
+hi def link limConditional Conditional
+hi def link limRepeat Repeat
+hi def link limControl Statement
+hi def link limUnsafe Exception
+hi def link limGeneratorKeyword PreProc
+hi def link limCfg PreProc
 hi def link limNumber Number
 hi def link limParen1 Delimiter
 hi def link limParen2 Identifier
