@@ -1,7 +1,7 @@
 (#import "../library/tasks.lim")
 
-(@task (CountTask CountPoll CountPending CountReady) u64
-  ((Counting u64)))
+(@task (CountTask CountPoll CountPending CountReady) #u64
+  ((Counting #u64)))
 
 (#fn count-poll ((task CountTask)) CountPoll
   (#return
@@ -12,10 +12,10 @@
           (CountPending (Counting (#u64.-.wrap remaining 1u64))))))))
 
 (@executor run-counts Counts
-  ((first CountTask CountPoll CountPending CountReady count-poll u64 first-input)
-   (second CountTask CountPoll CountPending CountReady count-poll u64 second-input)))
+  ((first CountTask CountPoll CountPending CountReady count-poll #u64 first-input)
+   (second CountTask CountPoll CountPending CountReady count-poll #u64 second-input)))
 
-(#fn main () u64
+(#fn main () #u64
   (#let results Counts
     (#call run-counts
       (: first-input (Counting 2u64) : second-input (Counting 3u64))))

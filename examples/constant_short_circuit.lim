@@ -1,12 +1,12 @@
-(#const FalseAnd bool
+(#const FalseAnd #bool
   (#bool.&& false
     (#u64.== (#u64./.wrap 1 0) 0)))
 
-(#const TrueOr bool
+(#const TrueOr #bool
   (#bool.|| true
     (#u64.== (#u64./.wrap 1 0) 0)))
 
-(#fn main () u64
+(#fn main () #u64
   (#return
     (#if (#bool.&& (#bool.! FalseAnd) TrueOr)
       42

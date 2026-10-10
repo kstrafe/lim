@@ -78,14 +78,14 @@ fn allocation_failures_are_explicit_and_empty_owners_need_no_allocation() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("malloc", "failing-malloc"), ("free", "unexpected-free")]),
-        "(#fn failing-malloc (: size usize) (#ptr-mut u8)
-           (#return (#ptr-null (#ptr-mut u8))))
-         (#fn unexpected-free (: pointer (#ptr-mut u8)) ()
+        "(#fn failing-malloc (: size #usize) (#ptr-mut #u8)
+           (#return (#ptr-null (#ptr-mut #u8))))
+         (#fn unexpected-free (: pointer (#ptr-mut #u8)) ()
            (#panic) (#return ()))"
     );
     execute(
         &allocator,
-        r#"(#fn main () u64
+        r#"(#fn main () #u64
           (#let-mut empty String (#call String-new ()))
           (#assert (#call String-is-empty (: string (#borrow empty))))
           (#assert (#usize.== (#call String-capacity (: string (#borrow empty))) 0usize))
@@ -98,7 +98,7 @@ fn allocation_failures_are_explicit_and_empty_owners_need_no_allocation() {
           (#assert (#match (#call String-with-capacity (: capacity 1usize))
             (#case (StringCreateFailed error) (#match error (#case StringOutOfMemory true) (#case _ false)))
             (#case (StringCreated unexpected) (#block (#call String-free (: string unexpected)) false))))
-          (#let text (#array char 1) "a")
+          (#let text (#array #char 1) "a")
           (#assert (#match (#call String-from-chars (: text (#slice-of (#borrow text))))
             (#case (StringCreateFailed error) (#match error (#case StringOutOfMemory true) (#case _ false)))
             (#case (StringCreated unexpected) (#block (#call String-free (: string unexpected)) false))))
@@ -115,23 +115,23 @@ fn failed_growth_and_invalid_append_preserve_contents_and_capacity() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("realloc", "failing-realloc")]),
-        "(#fn failing-realloc (: pointer (#ptr-mut u8) : size usize) (#ptr-mut u8)
-           (#return (#ptr-null (#ptr-mut u8))))"
+        "(#fn failing-realloc (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+           (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
         &allocator,
-        r#"(#fn main () u64
+        r#"(#fn main () #u64
           (#let-mut text String (#call String-new ()))
-          (#let prefix (#array char 3) "abc")
+          (#let prefix (#array #char 3) "abc")
           (#assert (#match (#call String-push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow prefix))))
             (#case StringOk true) (#case _ false)))
-          (#let capacity usize (#call String-capacity (: string (#borrow text))))
-          (#let appended (#array char 9) "123456789")
+          (#let capacity #usize (#call String-capacity (: string (#borrow text))))
+          (#let appended (#array #char 9) "123456789")
           (#assert (#match (#call String-push-chars (: string (#borrow-mut text) : text (#slice-of (#borrow appended))))
             (#case (StringErr StringOutOfMemory) true) (#case _ false)))
           (#assert (#match (#call String-reserve (: string (#borrow-mut text) : additional 18446744073709551615usize))
             (#case (StringErr StringCapacityOverflow) true) (#case _ false)))
-          (#let invalid (#array u8 2) (#array-of (#array u8 2) 192u8 175u8))
+          (#let invalid (#array #u8 2) (#array-of (#array #u8 2) 192u8 175u8))
           (#assert (#match (#call String-push-utf8 (: string (#borrow-mut text) : bytes (#slice-of (#borrow invalid))))
             (#case (StringErr StringInvalidUtf8) true) (#case _ false)))
           (#assert (#usize.== (#call String-len (: string (#borrow text))) 3usize))
@@ -149,19 +149,19 @@ fn failed_string_append_preserves_both_owners() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("realloc", "failing-realloc")]),
-        "(#fn failing-realloc (: pointer (#ptr-mut u8) : size usize) (#ptr-mut u8)
-          (#return (#ptr-null (#ptr-mut u8))))"
+        "(#fn failing-realloc (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+          (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
         &allocator,
-        r#"(#fn main () u64
-      (#let prefix (#array char 3) "abc")
-      (#let suffix (#array char 9) "123456789")
+        r#"(#fn main () #u64
+      (#let prefix (#array #char 3) "abc")
+      (#let suffix (#array #char 9) "123456789")
       (#let-mut target String (#match (#call String-from-chars (: text (#slice-of (#borrow prefix))))
         (#case (StringCreated created-target) created-target) (#case _ (#panic))))
       (#let source String (#match (#call String-from-chars (: text (#slice-of (#borrow suffix))))
         (#case (StringCreated created-source) created-source) (#case _ (#panic))))
-      (#let capacity usize (#call String-capacity (: string (#borrow target))))
+      (#let capacity #usize (#call String-capacity (: string (#borrow target))))
       (#assert (#match (#call String-push-string (: string (#borrow-mut target) : text (#borrow source)))
         (#case (StringErr StringOutOfMemory) true) (#case _ false)))
       (#assert (#usize.== (#call String-len (: string (#borrow target))) 3usize))
@@ -182,13 +182,13 @@ fn failed_deep_clone_preserves_the_original_owner() {
     let allocator = format!(
         "{}\n{}",
         allocator_with_calls(&[("malloc", "selective-malloc")]),
-        "(#fn selective-malloc (: size usize) (#ptr-mut u8)
+        "(#fn selective-malloc (: size #usize) (#ptr-mut #u8)
            (#return (#if (#usize.== size 8usize)
-             (#ptr-null (#ptr-mut u8)) (#unsafe (#call malloc (: size size))))))"
+             (#ptr-null (#ptr-mut #u8)) (#unsafe (#call malloc (: size size))))))"
     );
     execute(
         &allocator,
-        r#"(#fn main () u64
+        r#"(#fn main () #u64
           (#let-mut text String (#call String-new ()))
           (#assert (#match (#call String-reserve (: string (#borrow-mut text) : additional 16usize))
             (#case StringOk true) (#case _ false)))
@@ -215,21 +215,21 @@ fn zero_and_oversize_raw_requests_are_rejected_before_libc() {
             ("malloc", "unexpected-malloc"),
             ("realloc", "unexpected-realloc")
         ]),
-        "(#fn unexpected-malloc (: size usize) (#ptr-mut u8)
-           (#panic) (#return (#ptr-null (#ptr-mut u8))))
-         (#fn unexpected-realloc (: pointer (#ptr-mut u8) : size usize) (#ptr-mut u8)
-           (#panic) (#return (#ptr-null (#ptr-mut u8))))"
+        "(#fn unexpected-malloc (: size #usize) (#ptr-mut #u8)
+           (#panic) (#return (#ptr-null (#ptr-mut #u8))))
+         (#fn unexpected-realloc (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8)
+           (#panic) (#return (#ptr-null (#ptr-mut #u8))))"
     );
     execute(
         &allocator,
-        r#"(#fn main () u64
+        r#"(#fn main () #u64
           (#assert (#match (#call system-allocate (: size 0usize))
             (#case (SystemAllocationFailed error) (#match error (#case SystemAllocationInvalidSize true) (#case _ false)))
             (#case (SystemAllocated pointer) false)))
           (#assert (#match (#call system-allocate (: size 18446744073709551615usize))
             (#case (SystemAllocationFailed error) (#match error (#case SystemAllocationInvalidSize true) (#case _ false)))
             (#case (SystemAllocated pointer) false)))
-          (#assert (#match (#unsafe (#call system-reallocate (: pointer (#ptr-null (#ptr-mut u8)) : size 0usize)))
+          (#assert (#match (#unsafe (#call system-reallocate (: pointer (#ptr-null (#ptr-mut #u8)) : size 0usize)))
             (#case (SystemAllocationFailed error) (#match error (#case SystemAllocationInvalidSize true) (#case _ false)))
             (#case (SystemAllocated pointer) false)))
           (#return 42u64))"#,

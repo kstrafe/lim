@@ -14,17 +14,17 @@ fn pinned_payload_projection_evaluates_a_computed_receiver_once() {
                 ""
             };
             let source = format!(
-                "(#enum Choice ((Number {discriminant} u64) (Empty 0)))
-          (#fn main () u64
-            (#let-mut counter u64 0u64)
+                "(#enum Choice ((Number {discriminant} #u64) (Empty 0)))
+          (#fn main () #u64
+            (#let-mut counter #u64 0u64)
             (#let-mut owner (#array Choice 1)
               (#array-of (#array Choice 1) (Number 42u64)))
-            (#let payload (#pin-ref{suffix} u64)
+            (#let payload (#pin-ref{suffix} #u64)
               (#pin-get-payload{suffix}
                 (#pin-borrow{suffix} (#index owner
                   (#block (#set counter (#u64.+.wrap counter 1u64)) 0usize))) Number 0))
             {write}
-            (#let result u64 (#deref payload))
+            (#let result #u64 (#deref payload))
             (#drop payload)
             (#assert (#u64.== counter 1u64))
             (#forget owner) (#return result))"
@@ -58,9 +58,9 @@ fn check(source: &str) -> Result<(), String> {
 
 #[test]
 fn a_pinned_shared_reference_can_read_its_referent() {
-    let source = "(#fn main () u64
-      (#let owner u64 7u64)
-      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+    let source = "(#fn main () #u64
+      (#let owner #u64 7u64)
+      (#let pinned (#pin-ref #u64) (#pin-borrow owner))
       (#return (#deref pinned)))";
     check(source).unwrap();
 }
@@ -96,7 +96,7 @@ fn returned_projections_through_stored_references_keep_the_actual_pointee_borrow
 fn returned_stored_reference_projections_outlive_their_pointer_container_natively() {
     for pinned in [false, true] {
         let source = include_str!("ui/stored-reference-projection-replacement.lim").replace(
-            "  (#set values (#tuple (#tuple u64 u64) 99u64 100u64))\n",
+            "  (#set values (#tuple (#tuple #u64 #u64) 99u64 100u64))\n",
             "",
         );
         let source = if pinned {
@@ -129,18 +129,18 @@ fn returned_stored_reference_projections_outlive_their_pointer_container_nativel
 
 #[test]
 fn projected_borrow_receivers_are_snapshotted_before_effectful_indices_natively() {
-    let source = "(#struct Holder (: view (#pin-ref (#array u64 2))))
-      (#fn select-element (: holder (#pin-ref-mut Holder) : replacement (#pin-ref (#array u64 2))) (#pin-ref u64)
+    let source = "(#struct Holder (: view (#pin-ref (#array #u64 2))))
+      (#fn select-element (: holder (#pin-ref-mut Holder) : replacement (#pin-ref (#array #u64 2))) (#pin-ref #u64)
         (#return (#pin-borrow (#index (#get holder view)
           (#block (#pin-set-field holder view replacement) 1usize)))))
-      (#fn main () u64
-        (#let-mut original (#array u64 2) (#array-of (#array u64 2) 40u64 42u64))
-        (#let-mut replacement (#array u64 2) (#array-of (#array u64 2) 99u64 100u64))
+      (#fn main () #u64
+        (#let-mut original (#array #u64 2) (#array-of (#array #u64 2) 40u64 42u64))
+        (#let-mut replacement (#array #u64 2) (#array-of (#array #u64 2) 99u64 100u64))
         (#let-mut holder Holder (#struct-literal Holder (: view (#pin-borrow original))))
-        (#let selected (#pin-ref u64) (#call select-element
+        (#let selected (#pin-ref #u64) (#call select-element
           (: holder (#pin-borrow-mut holder) : replacement (#pin-borrow replacement))))
         (#forget holder)
-        (#set replacement (#array-of (#array u64 2) 7u64 8u64))
+        (#set replacement (#array-of (#array #u64 2) 7u64 8u64))
         (#return (#deref selected)))";
     check(source).unwrap();
     let scratch = support::Scratch::new("projected-borrow-receiver-snapshot");
@@ -176,16 +176,16 @@ fn projected_borrow_receivers_are_snapshotted_before_effectful_indices_natively(
 
 #[test]
 fn mutable_pinned_reference_and_shared_waker_can_be_passed_together() {
-    let source = "(#struct Payload ((value u64)))
-      (#fn update ((view (#pin-ref-mut Payload)) (waker (#ref u64))) ()
+    let source = "(#struct Payload ((value #u64)))
+      (#fn update ((view (#pin-ref-mut Payload)) (waker (#ref #u64))) ()
         (#pin-set-field view value 42u64)
         (#return ()))
-      (#fn main () u64
+      (#fn main () #u64
         (#let-mut payload Payload (#struct-literal Payload ((value 0u64))))
         (#let view (#pin-ref-mut Payload) (#pin-borrow-mut payload))
-        (#let waker u64 0u64)
+        (#let waker #u64 0u64)
         (#call update (: view view : waker (#borrow waker)))
-        (#let result u64 (#get (#unsafe (#pin-read view)) value))
+        (#let result #u64 (#get (#unsafe (#pin-read view)) value))
         (#drop view)
         (#forget payload)
         (#forget waker)
@@ -195,15 +195,15 @@ fn mutable_pinned_reference_and_shared_waker_can_be_passed_together() {
 
 #[test]
 fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
-    let source = "(#struct Payload ((value u64)))
+    let source = "(#struct Payload ((value #u64)))
       (#enum State (Ready))
       (#linear State)
       (#struct Frame ((state State) (owner Payload)))
-      (#fn advance ((state State) (view (#pin-ref-mut Payload)) (waker (#ref u64))) ()
+      (#fn advance ((state State) (view (#pin-ref-mut Payload)) (waker (#ref #u64))) ()
         (#forget state)
         (#pin-set-field view value 42u64)
         (#return ()))
-      (#fn poll ((task (#pin-ref-mut Frame)) (waker (#ref u64))) ()
+      (#fn poll ((task (#pin-ref-mut Frame)) (waker (#ref #u64))) ()
         (#let state-slot (#pin-ref-mut State)
           (#pin-borrow-mut (#get task state)))
         (#let state State (#unsafe (#pin-read state-slot)))
@@ -217,7 +217,7 @@ fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
         (#let-mut frame Frame
           (#struct-literal Frame ((state Ready) (owner (#struct-literal Payload ((value 0u64)))))))
         (#let view (#pin-ref-mut Frame) (#pin-borrow-mut frame))
-        (#let waker u64 0u64)
+        (#let waker #u64 0u64)
         (#call poll (: task view : waker (#borrow waker)))
         (#drop view)
         (#forget frame)
@@ -228,18 +228,18 @@ fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
 
 #[test]
 fn unsafe_pin_read_and_write_preserve_a_stable_aggregate_location() {
-    let source = "(#struct Pair ((left u64) (right u64)))
-      (#fn main () u64
+    let source = "(#struct Pair ((left #u64) (right #u64)))
+      (#fn main () #u64
         (#let-mut owner Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut owner))
         (#let previous Pair (#unsafe (#pin-read pinned)))
-        (#let previous-sum u64
+        (#let previous-sum #u64
           (#u64.+.wrap (#get previous left) (#get previous right)))
         (#unsafe
           (#pin-write pinned
             (#struct-literal Pair ((left 10u64) (right 20u64)))))
         (#let current Pair (#unsafe (#pin-read pinned)))
-        (#let current-sum u64
+        (#let current-sum #u64
           (#u64.+.wrap (#get current left) (#get current right)))
         (#drop pinned)
         (#forget owner)
@@ -267,9 +267,9 @@ fn unsafe_pin_read_and_write_preserve_a_stable_aggregate_location() {
 fn pin_storage_reads_and_writes_require_unsafe() {
     for expression in ["(#pin-read pinned)", "(#pin-write pinned 2u64)"] {
         let source = format!(
-            "(#fn main () u64
-              (#let-mut owner u64 1u64)
-              (#let pinned (#pin-ref-mut u64) (#pin-borrow-mut owner))
+            "(#fn main () #u64
+              (#let-mut owner #u64 1u64)
+              (#let pinned (#pin-ref-mut #u64) (#pin-borrow-mut owner))
               {expression}
               (#drop pinned)
               (#return owner))"
@@ -281,11 +281,11 @@ fn pin_storage_reads_and_writes_require_unsafe() {
 
 #[test]
 fn pin_write_cannot_invalidate_a_live_projected_reference() {
-    let source = "(#struct Pair ((left u64) (right u64)))
+    let source = "(#struct Pair ((left #u64) (right #u64)))
       (#fn main () ()
         (#let-mut owner Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut owner))
-        (#let view (#pin-ref u64) (#borrow (#get pinned left)))
+        (#let view (#pin-ref #u64) (#borrow (#get pinned left)))
         (#unsafe
           (#pin-write pinned
             (#struct-literal Pair ((left 10u64) (right 20u64)))))
@@ -302,16 +302,16 @@ fn pin_write_cannot_invalidate_a_live_projected_reference() {
 
 #[test]
 fn pin_set_field_initializes_and_releases_a_self_reference_in_place() {
-    let source = "(#struct Link ((value u64) (view (#pin-ref u64))))
-      (#fn main () u64
-        (#let-mut outside u64 3u64)
-        (#let external (#pin-ref u64) (#pin-borrow outside))
+    let source = "(#struct Link ((value #u64) (view (#pin-ref #u64))))
+      (#fn main () #u64
+        (#let-mut outside #u64 3u64)
+        (#let external (#pin-ref #u64) (#pin-borrow outside))
         (#let-mut link Link
           (#struct-literal Link ((value 42u64) (view external))))
         (#let pinned (#pin-ref-mut Link) (#pin-borrow-mut link))
-        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#let view (#pin-ref #u64) (#pin-borrow (#get pinned value)))
         (#pin-set-field pinned view view)
-        (#let observed u64 (#deref view))
+        (#let observed #u64 (#deref view))
         (#pin-set-field pinned view external)
         (#drop view)
         (#drop pinned)
@@ -340,19 +340,19 @@ fn pin_set_field_initializes_and_releases_a_self_reference_in_place() {
 
 #[test]
 fn pin_set_field_updates_disjoint_copy_state_while_a_field_is_borrowed() {
-    let source = "(#struct Pair ((value u64) (state u32)))
-      (#fn main () u64
+    let source = "(#struct Pair ((value #u64) (state #u32)))
+      (#fn main () #u64
         (#let-mut pair Pair
           (#struct-literal Pair ((value 40u64) (state 0u32))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
-        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#let view (#pin-ref #u64) (#pin-borrow (#get pinned value)))
         (#pin-set-field pinned state 2u32)
-        (#let observed u64 (#deref view))
+        (#let observed #u64 (#deref view))
         (#drop view)
-        (#let state u32 (#get pinned state))
+        (#let state #u32 (#get pinned state))
         (#drop pinned)
         (#forget pair)
-        (#return (#u64.+.wrap observed (#as state u64))))";
+        (#return (#u64.+.wrap observed (#as state #u64))))";
     let scratch = support::Scratch::new("pin-state-field-write");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -374,12 +374,12 @@ fn pin_set_field_updates_disjoint_copy_state_while_a_field_is_borrowed() {
 
 #[test]
 fn pin_set_field_cannot_write_the_referent_of_a_live_pin() {
-    let source = "(#struct Pair ((value u64) (state u32)))
+    let source = "(#struct Pair ((value #u64) (state #u32)))
       (#fn main () ()
         (#let-mut pair Pair
           (#struct-literal Pair ((value 40u64) (state 0u32))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
-        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#let view (#pin-ref #u64) (#pin-borrow (#get pinned value)))
         (#pin-set-field pinned value 41u64)
         (#drop view)
         (#drop pinned)
@@ -395,19 +395,19 @@ fn pin_set_field_cannot_write_the_referent_of_a_live_pin() {
 #[test]
 fn pin_set_field_updates_a_fieldless_enum_state_in_place() {
     let source = "(#enum State (Idle Running))
-      (#struct Pair ((value u64) (state State)))
-      (#fn main () u64
+      (#struct Pair ((value #u64) (state State)))
+      (#fn main () #u64
         (#let-mut pair Pair
           (#struct-literal Pair ((value 40u64) (state Idle))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
-        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#let view (#pin-ref #u64) (#pin-borrow (#get pinned value)))
         (#pin-set-field pinned state Running)
-        (#let observed u64 (#deref view))
+        (#let observed #u64 (#deref view))
         (#drop view)
         (#let state State (#get pinned state))
         (#drop pinned)
         (#forget pair)
-        (#return (#u64.+.wrap observed (#as state u64))))";
+        (#return (#u64.+.wrap observed (#as state #u64))))";
     let scratch = support::Scratch::new("pin-enum-state-field-write");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -429,14 +429,14 @@ fn pin_set_field_updates_a_fieldless_enum_state_in_place() {
 
 #[test]
 fn pin_set_field_rejects_replacing_a_borrowed_reference_field() {
-    let source = "(#struct Link ((value u64) (view (#pin-ref u64))))
+    let source = "(#struct Link ((value #u64) (view (#pin-ref #u64))))
       (#fn main () ()
-        (#let-mut outside u64 3u64)
-        (#let external (#pin-ref u64) (#pin-borrow outside))
+        (#let-mut outside #u64 3u64)
+        (#let external (#pin-ref #u64) (#pin-borrow outside))
         (#let-mut link Link
           (#struct-literal Link ((value 42u64) (view external))))
         (#let pinned (#pin-ref-mut Link) (#pin-borrow-mut link))
-        (#let view (#pin-ref (#pin-ref u64)) (#borrow (#get pinned view)))
+        (#let view (#pin-ref (#pin-ref #u64)) (#borrow (#get pinned view)))
         (#pin-set-field pinned view external)
         (#drop view)
         (#drop pinned)
@@ -453,10 +453,10 @@ fn pin_set_field_rejects_replacing_a_borrowed_reference_field() {
 
 #[test]
 fn pin_set_field_does_not_duplicate_mutable_references() {
-    let source = "(#struct Link ((view (#pin-ref-mut u64))))
+    let source = "(#struct Link ((view (#pin-ref-mut #u64))))
       (#fn main () ()
-        (#let-mut target u64 3u64)
-        (#let replacement (#pin-ref-mut u64) (#pin-borrow-mut target))
+        (#let-mut target #u64 3u64)
+        (#let replacement (#pin-ref-mut #u64) (#pin-borrow-mut target))
         (#let-mut link Link (#struct-literal Link ((view replacement))))
         (#let pinned (#pin-ref-mut Link) (#pin-borrow-mut link))
         (#pin-set-field pinned view replacement)
@@ -474,14 +474,14 @@ fn pin_set_field_does_not_duplicate_mutable_references() {
 
 #[test]
 fn a_stored_self_reference_keeps_its_pinned_owner_borrowed() {
-    let source = "(#struct Link ((value u64) (view (#pin-ref u64))))
+    let source = "(#struct Link ((value #u64) (view (#pin-ref #u64))))
       (#fn main () ()
-        (#let-mut outside u64 3u64)
-        (#let external (#pin-ref u64) (#pin-borrow outside))
+        (#let-mut outside #u64 3u64)
+        (#let external (#pin-ref #u64) (#pin-borrow outside))
         (#let-mut link Link
           (#struct-literal Link ((value 42u64) (view external))))
         (#let pinned (#pin-ref-mut Link) (#pin-borrow-mut link))
-        (#let view (#pin-ref u64) (#pin-borrow (#get pinned value)))
+        (#let view (#pin-ref #u64) (#pin-borrow (#get pinned value)))
         (#pin-set-field pinned view view)
         (#drop view)
         (#drop pinned)
@@ -498,10 +498,10 @@ fn a_stored_self_reference_keeps_its_pinned_owner_borrowed() {
 
 #[test]
 fn a_pinned_referent_cannot_be_copied_while_the_pin_is_live() {
-    let source = "(#fn main () u64
-      (#let owner u64 7u64)
-      (#let pinned (#pin-ref u64) (#pin-borrow owner))
-      (#let snapshot u64 owner)
+    let source = "(#fn main () #u64
+      (#let owner #u64 7u64)
+      (#let pinned (#pin-ref #u64) (#pin-borrow owner))
+      (#let snapshot #u64 owner)
       (#return (#u64.+.wrap snapshot (#deref pinned))))";
     let error = check(source).unwrap_err();
     assert!(error.contains("pinned referent"), "{error}");
@@ -509,9 +509,9 @@ fn a_pinned_referent_cannot_be_copied_while_the_pin_is_live() {
 
 #[test]
 fn a_pinned_linear_referent_cannot_be_moved() {
-    let source = "(#struct Resource ((value u64)))
+    let source = "(#struct Resource ((value #u64)))
       (#linear Resource)
-      (#fn main () u64
+      (#fn main () #u64
         (#let owner Resource (#struct-literal Resource ((value 7u64))))
         (#let pinned (#pin-ref Resource) (#pin-borrow owner))
         (#let moved Resource owner)
@@ -527,8 +527,8 @@ fn a_pinned_linear_referent_cannot_be_moved() {
 #[test]
 fn a_pinned_mutable_reference_cannot_replace_its_referent() {
     let source = "(#fn main () ()
-      (#let-mut owner u64 7u64)
-      (#let pinned (#pin-ref-mut u64) (#pin-borrow-mut owner))
+      (#let-mut owner #u64 7u64)
+      (#let pinned (#pin-ref-mut #u64) (#pin-borrow-mut owner))
       (#deref-set pinned 8u64)
       (#return ()))";
     let error = check(source).unwrap_err();
@@ -537,8 +537,8 @@ fn a_pinned_mutable_reference_cannot_replace_its_referent() {
 
 #[test]
 fn fields_of_a_pinned_referent_cannot_be_replaced_implicitly() {
-    let source = "(#struct Pair ((left u64)))
-      (#fn main () u64
+    let source = "(#struct Pair ((left #u64)))
+      (#fn main () #u64
         (#let-mut pair Pair (#struct-literal Pair ((left 7u64))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
         (#set-field pinned left 8u64)
@@ -552,9 +552,9 @@ fn fields_of_a_pinned_referent_cannot_be_replaced_implicitly() {
 
 #[test]
 fn a_live_pin_prevents_mutating_the_original_owner() {
-    let source = "(#fn main () u64
-      (#let-mut owner u64 7u64)
-      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+    let source = "(#fn main () #u64
+      (#let-mut owner #u64 7u64)
+      (#let pinned (#pin-ref #u64) (#pin-borrow owner))
       (#set owner 8u64)
       (#return (#deref pinned)))";
     let error = check(source).unwrap_err();
@@ -566,9 +566,9 @@ fn a_live_pin_prevents_mutating_the_original_owner() {
 
 #[test]
 fn dropping_the_pin_releases_the_referent() {
-    let source = "(#fn main () u64
-      (#let-mut owner u64 7u64)
-      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+    let source = "(#fn main () #u64
+      (#let-mut owner #u64 7u64)
+      (#let pinned (#pin-ref #u64) (#pin-borrow owner))
       (#drop pinned)
       (#set owner 8u64)
       (#return owner))";
@@ -577,8 +577,8 @@ fn dropping_the_pin_releases_the_referent() {
 
 #[test]
 fn a_stack_pin_cannot_escape_its_owner_function() {
-    let source = "(#fn make-pin () (#pin-ref u64)
-      (#let owner u64 7u64)
+    let source = "(#fn make-pin () (#pin-ref #u64)
+      (#let owner #u64 7u64)
       (#return (#pin-borrow owner)))";
     let error = check(source).unwrap_err();
     assert!(
@@ -589,10 +589,10 @@ fn a_stack_pin_cannot_escape_its_owner_function() {
 
 #[test]
 fn a_stack_pin_cannot_escape_inside_an_aggregate() {
-    let source = "(#struct Holder ((value (#pin-ref u64))))
+    let source = "(#struct Holder ((value (#pin-ref #u64))))
       (#fn make-holder () Holder
-        (#let owner u64 7u64)
-        (#let pinned (#pin-ref u64) (#pin-borrow owner))
+        (#let owner #u64 7u64)
+        (#let pinned (#pin-ref #u64) (#pin-borrow owner))
         (#return (#struct-literal Holder ((value pinned)))))";
     let error = check(source).unwrap_err();
     assert!(
@@ -603,9 +603,9 @@ fn a_stack_pin_cannot_escape_inside_an_aggregate() {
 
 #[test]
 fn a_pinned_owner_cannot_be_destroyed_until_its_pin_is_dropped() {
-    let source = "(#struct Resource ((value u64)))
+    let source = "(#struct Resource ((value #u64)))
       (#linear Resource)
-      (#fn main () u64
+      (#fn main () #u64
         (#let owner Resource (#struct-literal Resource ((value 7u64))))
         (#let pinned (#pin-ref Resource) (#pin-borrow owner))
         (#drop owner)
@@ -620,9 +620,9 @@ fn a_pinned_owner_cannot_be_destroyed_until_its_pin_is_dropped() {
 
 #[test]
 fn dropping_a_pin_allows_its_linear_owner_to_be_destroyed() {
-    let source = "(#struct Resource ((value u64)))
+    let source = "(#struct Resource ((value #u64)))
       (#linear Resource)
-      (#fn main () u64
+      (#fn main () #u64
         (#let owner Resource (#struct-literal Resource ((value 7u64))))
         (#let pinned (#pin-ref Resource) (#pin-borrow owner))
         (#drop pinned)
@@ -633,11 +633,11 @@ fn dropping_a_pin_allows_its_linear_owner_to_be_destroyed() {
 
 #[test]
 fn an_unsafe_pinned_pointer_borrow_keeps_the_anchor_loan() {
-    let source = "(#fn main () u64
-      (#let owner u64 42u64)
-      (#let pointer (#ptr u64) (#unsafe (#addr-of owner)))
-      (#let anchor (#pin-ref u64) (#pin-borrow owner))
-      (#let pinned (#pin-ref u64)
+    let source = "(#fn main () #u64
+      (#let owner #u64 42u64)
+      (#let pointer (#ptr #u64) (#unsafe (#addr-of owner)))
+      (#let anchor (#pin-ref #u64) (#pin-borrow owner))
+      (#let pinned (#pin-ref #u64)
         (#unsafe (#pin-ptr-borrow anchor pointer)))
       (#return (#deref pinned)))";
     let scratch = support::Scratch::new("pinned-pointer-borrow");
@@ -661,11 +661,11 @@ fn an_unsafe_pinned_pointer_borrow_keeps_the_anchor_loan() {
 
 #[test]
 fn a_pinned_pointer_borrow_rejects_mutating_its_anchor() {
-    let source = "(#fn main () u64
-      (#let-mut owner u64 7u64)
-      (#let pointer (#ptr-mut u64) (#unsafe (#addr-of-mut owner)))
-      (#let anchor (#pin-ref-mut u64) (#pin-borrow-mut owner))
-      (#let pinned (#pin-ref-mut u64)
+    let source = "(#fn main () #u64
+      (#let-mut owner #u64 7u64)
+      (#let pointer (#ptr-mut #u64) (#unsafe (#addr-of-mut owner)))
+      (#let anchor (#pin-ref-mut #u64) (#pin-borrow-mut owner))
+      (#let pinned (#pin-ref-mut #u64)
         (#unsafe (#pin-ptr-borrow-mut anchor pointer)))
       (#set owner 9u64)
       (#return (#deref pinned)))";
@@ -678,10 +678,10 @@ fn a_pinned_pointer_borrow_rejects_mutating_its_anchor() {
 
 #[test]
 fn pinned_pointer_borrows_require_pinned_anchors() {
-    let source = "(#fn main () u64
-      (#let value u64 7u64)
-      (#let pointer (#ptr u64) (#unsafe (#addr-of value)))
-      (#let pinned (#pin-ref u64)
+    let source = "(#fn main () #u64
+      (#let value #u64 7u64)
+      (#let pointer (#ptr #u64) (#unsafe (#addr-of value)))
+      (#let pinned (#pin-ref #u64)
         (#unsafe (#pin-ptr-borrow (#borrow value) pointer)))
       (#return (#deref pinned)))";
     let error = check(source).unwrap_err();
@@ -693,11 +693,11 @@ fn pinned_pointer_borrows_require_pinned_anchors() {
 
 #[test]
 fn pinned_pointer_borrows_require_unsafe_context() {
-    let source = "(#fn main () u64
-      (#let value u64 7u64)
-      (#let anchor (#pin-ref u64) (#pin-borrow value))
-      (#let pointer (#ptr u64) (#unsafe (#addr-of value)))
-      (#let pinned (#pin-ref u64) (#pin-ptr-borrow anchor pointer))
+    let source = "(#fn main () #u64
+      (#let value #u64 7u64)
+      (#let anchor (#pin-ref #u64) (#pin-borrow value))
+      (#let pointer (#ptr #u64) (#unsafe (#addr-of value)))
+      (#let pinned (#pin-ref #u64) (#pin-ptr-borrow anchor pointer))
       (#return (#deref pinned)))";
     let error = check(source).unwrap_err();
     assert!(
@@ -708,10 +708,10 @@ fn pinned_pointer_borrows_require_unsafe_context() {
 
 #[test]
 fn a_pinned_pointer_borrow_cannot_escape_its_stack_anchor() {
-    let source = "(#fn make-pin () (#pin-ref u64)
-      (#let owner u64 7u64)
-      (#let pointer (#ptr u64) (#unsafe (#addr-of owner)))
-      (#let anchor (#pin-ref u64) (#pin-borrow owner))
+    let source = "(#fn make-pin () (#pin-ref #u64)
+      (#let owner #u64 7u64)
+      (#let pointer (#ptr #u64) (#unsafe (#addr-of owner)))
+      (#let anchor (#pin-ref #u64) (#pin-borrow owner))
       (#return (#unsafe (#pin-ptr-borrow anchor pointer))))";
     let error = check(source).unwrap_err();
     assert!(
@@ -722,12 +722,12 @@ fn a_pinned_pointer_borrow_cannot_escape_its_stack_anchor() {
 
 #[test]
 fn a_pin_stays_effective_when_stored_in_an_aggregate() {
-    let source = "(#fn main () u64
-      (#let owner u64 7u64)
-      (#let pinned (#pin-ref u64) (#pin-borrow owner))
-      (#let holder (#tuple (#pin-ref u64))
-        (#tuple (#tuple (#pin-ref u64)) pinned))
-      (#let snapshot u64 owner)
+    let source = "(#fn main () #u64
+      (#let owner #u64 7u64)
+      (#let pinned (#pin-ref #u64) (#pin-borrow owner))
+      (#let holder (#tuple (#pin-ref #u64))
+        (#tuple (#tuple (#pin-ref #u64)) pinned))
+      (#let snapshot #u64 owner)
       (#return (#u64.+.wrap snapshot (#deref (#get holder 0)))))";
     let error = check(source).unwrap_err();
     assert!(error.contains("pinned referent"), "{error}");
@@ -735,13 +735,13 @@ fn a_pin_stays_effective_when_stored_in_an_aggregate() {
 
 #[test]
 fn a_pin_stays_effective_across_a_reference_returning_function() {
-    let source = "(#fn retain ((value (#pin-ref u64))) (#pin-ref u64)
+    let source = "(#fn retain ((value (#pin-ref #u64))) (#pin-ref #u64)
         (#return value))
-      (#fn main () u64
-        (#let owner u64 7u64)
-        (#let pinned (#pin-ref u64) (#pin-borrow owner))
-        (#let retained (#pin-ref u64) (#call retain (: value pinned)))
-        (#let snapshot u64 owner)
+      (#fn main () #u64
+        (#let owner #u64 7u64)
+        (#let pinned (#pin-ref #u64) (#pin-borrow owner))
+        (#let retained (#pin-ref #u64) (#call retain (: value pinned)))
+        (#let snapshot #u64 owner)
         (#return (#u64.+.wrap snapshot (#deref retained))))";
     let error = check(source).unwrap_err();
     assert!(error.contains("pinned referent"), "{error}");
@@ -749,12 +749,12 @@ fn a_pin_stays_effective_across_a_reference_returning_function() {
 
 #[test]
 fn field_reborrows_preserve_the_pin() {
-    let source = "(#struct Pair ((left u64) (right u64)))
-      (#fn main () u64
+    let source = "(#struct Pair ((left #u64) (right #u64)))
+      (#fn main () #u64
         (#let pair Pair (#struct-literal Pair ((left 7u64) (right 8u64))))
         (#let pinned (#pin-ref Pair) (#pin-borrow pair))
-        (#let left-pin (#pin-ref u64) (#borrow (#get pinned left)))
-        (#let copied u64 (#get pair left))
+        (#let left-pin (#pin-ref #u64) (#borrow (#get pinned left)))
+        (#let copied #u64 (#get pair left))
         (#return (#u64.+.wrap copied (#deref left-pin))))";
     let error = check(source).unwrap_err();
     assert!(error.contains("pinned referent"), "{error}");
@@ -762,9 +762,9 @@ fn field_reborrows_preserve_the_pin() {
 
 #[test]
 fn a_pinned_reference_runs_through_the_native_backend() {
-    let source = "(#fn main () u64
-      (#let owner u64 42u64)
-      (#let pinned (#pin-ref u64) (#pin-borrow owner))
+    let source = "(#fn main () #u64
+      (#let owner #u64 42u64)
+      (#let pinned (#pin-ref #u64) (#pin-borrow owner))
       (#return (#deref pinned)))";
     let scratch = support::Scratch::new("pinned-reference");
     let input = scratch.path().join("main.lim");
@@ -787,19 +787,19 @@ fn a_pinned_reference_runs_through_the_native_backend() {
 
 #[test]
 fn a_callee_can_update_disjoint_storage_with_an_internal_owner_reference() {
-    let source = "(#struct Link (: value u64 : state u32 : view (#pin-ref u64)))
+    let source = "(#struct Link (: value #u64 : state #u32 : view (#pin-ref #u64)))
       (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-        (#let view (#pin-ref u64) (#pin-borrow (#get target value)))
+        (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
         (#pin-set-field target view view) (#return target))
       (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
         (#pin-set-field target state 2u32) (#return target))
-      (#fn main () u64
-        (#let outside u64 0u64)
-        (#let external (#pin-ref u64) (#pin-borrow outside))
+      (#fn main () #u64
+        (#let outside #u64 0u64)
+        (#let external (#pin-ref #u64) (#pin-borrow outside))
         (#let-mut link Link (#struct-literal Link (: value 42u64 : state 0u32 : view external)))
         (#let running (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
         (#let updated (#pin-ref-mut Link) (#call tick (: target running)))
-        (#let answer u64 (#deref (#get updated view)))
+        (#let answer #u64 (#deref (#get updated view)))
         (#assert (#u32.== (#get updated state) 2u32))
         (#pin-set-field updated view external) (#drop updated) (#forget link)
         (#drop external) (#forget outside) (#return answer))";
@@ -859,11 +859,11 @@ fn ordinary_calls_reject_overwriting_an_internally_borrowed_owner() {
 
 #[test]
 fn a_pinned_field_reborrow_runs_through_the_native_backend() {
-    let source = "(#struct Pair ((left u64) (right u64)))
-      (#fn main () u64
+    let source = "(#struct Pair ((left #u64) (right #u64)))
+      (#fn main () #u64
         (#let pair Pair (#struct-literal Pair ((left 40u64) (right 2u64))))
         (#let pinned (#pin-ref Pair) (#pin-borrow pair))
-        (#let left-pin (#pin-ref u64) (#borrow (#get pinned left)))
+        (#let left-pin (#pin-ref #u64) (#borrow (#get pinned left)))
         (#return (#deref left-pin)))";
     let scratch = support::Scratch::new("pinned-field-reborrow");
     let input = scratch.path().join("main.lim");
@@ -886,12 +886,12 @@ fn a_pinned_field_reborrow_runs_through_the_native_backend() {
 
 #[test]
 fn a_pinned_reference_can_cross_a_function_boundary_natively() {
-    let source = "(#fn retain ((value (#pin-ref u64))) (#pin-ref u64)
+    let source = "(#fn retain ((value (#pin-ref #u64))) (#pin-ref #u64)
         (#return value))
-      (#fn main () u64
-        (#let owner u64 42u64)
-        (#let pinned (#pin-ref u64) (#pin-borrow owner))
-        (#let retained (#pin-ref u64) (#call retain (: value pinned)))
+      (#fn main () #u64
+        (#let owner #u64 42u64)
+        (#let pinned (#pin-ref #u64) (#pin-borrow owner))
+        (#let retained (#pin-ref #u64) (#call retain (: value pinned)))
         (#return (#deref retained)))";
     let scratch = support::Scratch::new("pinned-function-return");
     let input = scratch.path().join("main.lim");

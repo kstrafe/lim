@@ -2,11 +2,11 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #let-mut
     values
-    (#array u64 3)
+    (#array #u64 3)
     (#array 1 2 3)
   )
   (#set-index values 1 40)

@@ -705,12 +705,12 @@ mod tests {
     #[test]
     fn named_calls_restore_signature_order_without_evaluating_arguments() {
         let declarations_source = "
-          (#fn effect () u32 (#return 7))
-          (#fn combine ((first u32) (second u32)) u32
+          (#fn effect () #u32 (#return 7))
+          (#fn combine ((first #u32) (second #u32)) #u32
             (#return (#u32.+.saturate first second)))";
         let source = format!(
             "{declarations_source}
-          (#fn main () u32 (#return (#call combine
+          (#fn main () #u32 (#return (#call combine
             (: second (#call effect (:)) : first 3))))"
         );
         let (declarations, graph) = prepare(&source, "main");
@@ -736,7 +736,7 @@ mod tests {
         );
         assert!(!text(&rendered).contains("effect"));
         check(&format!(
-            "{declarations_source} (#fn again ((stored0 u32) (stored1 u32)) u32 (#return {}))",
+            "{declarations_source} (#fn again ((stored0 #u32) (stored1 #u32)) #u32 (#return {}))",
             text(&rendered)
         ));
         values.clear();
@@ -765,8 +765,8 @@ mod tests {
     fn assembly_replaces_nested_operands_and_keeps_static_data() {
         let (declarations, graph) = prepare(
             "
-          (#fn effect () u64 (#return 7u64))
-          (#fn main () u64 (#return (#unsafe (#asm u64
+          (#fn effect () #u64 (#return 7u64))
+          (#fn main () #u64 (#return (#unsafe (#asm #u64
             ((rax (#call effect (:))) (rdi 4u64)) \"add rax, rdi\"))))",
             "main",
         );
@@ -778,10 +778,10 @@ mod tests {
             .unwrap();
         assert_eq!(
             text(&rendered),
-            "(#asm u64 ((rax stored0) (rdi stored1)) \"add rax, rdi\")"
+            "(#asm #u64 ((rax stored0) (rdi stored1)) \"add rax, rdi\")"
         );
         check(&format!(
-            "(#fn again ((stored0 u64) (stored1 u64)) u64 (#return (#unsafe {})))",
+            "(#fn again ((stored0 #u64) (stored1 #u64)) #u64 (#return (#unsafe {})))",
             text(&rendered)
         ));
     }
@@ -790,17 +790,17 @@ mod tests {
     fn static_layout_forms_and_checked_numeric_spelling_are_canonical() {
         let (declarations, graph) = prepare(
             "
-          (#fn main ((count usize)) usize
-            (#return (#usize.+.wrap count (#size-of (#tuple u64 (#ref u32))))))",
+          (#fn main ((count #usize)) #usize
+            (#return (#usize.+.wrap count (#size-of (#tuple #u64 (#ref #u32))))))",
             "main",
         );
         let context =
             RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
         let layout = operation(&graph, "size-of");
         let rendered = context.render_compute(layout, &HashMap::new()).unwrap();
-        assert_eq!(text(&rendered), "(#size-of (#tuple u64 (#ref u32)))");
+        assert_eq!(text(&rendered), "(#size-of (#tuple #u64 (#ref #u32)))");
         check(&format!(
-            "(#fn again () usize (#return {}))",
+            "(#fn again () #usize (#return {}))",
             text(&rendered)
         ));
         let numeric = operation(&graph, "usize.+.wrap");
@@ -816,7 +816,7 @@ mod tests {
 
     #[test]
     fn contextual_literals_keep_their_checked_type_in_a_different_context() {
-        let (declarations, graph) = prepare("(#fn main () u32 (#return 42))", "main");
+        let (declarations, graph) = prepare("(#fn main () #u32 (#return 42))", "main");
         let context =
             RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
         let atom = graph
@@ -836,17 +836,20 @@ mod tests {
             })
             .unwrap();
         let rendered = context.render_compute(atom, &HashMap::new()).unwrap();
-        assert_eq!(text(&rendered), "(#literal u32 42)");
-        let source = format!("(#fn again () u64 (#return (#as {} u64)))", text(&rendered));
+        assert_eq!(text(&rendered), "(#literal #u32 42)");
+        let source = format!(
+            "(#fn again () #u64 (#return (#as {} #u64)))",
+            text(&rendered)
+        );
         let (again, _) = prepare(&source, "again");
         assert!(again.bodies["again"].nodes.iter().any(|node| matches!(
             &node.kind,
             NodeKind::Literal(Expr::Integer(42))
         ) && node.ty == Some(Type::U32)));
-        let (other, _) = prepare("(#fn main () u64 (#return 42))", "main");
+        let (other, _) = prepare("(#fn main () #u64 (#return 42))", "main");
         assert!(RenderContext::new(&other.bodies["main"], &other, &graph).is_err());
 
-        let (declarations, graph) = prepare("(#fn main () f32 (#return 1.5))", "main");
+        let (declarations, graph) = prepare("(#fn main () #f32 (#return 1.5))", "main");
         let context =
             RenderContext::new(&declarations.bodies["main"], &declarations, &graph).unwrap();
         let atom = graph
@@ -867,14 +870,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             text(&context.render_compute(atom, &HashMap::new()).unwrap()),
-            "(#literal f32 1.5)"
+            "(#literal #f32 1.5)"
         );
     }
 
     #[test]
     fn normalized_structs_render_explicit_keyed_literals_and_variants_stay_direct() {
         let declarations_source =
-            "(#struct Pair ((left u32) (right u64))) (#enum Choice ((Some Pair) Empty))";
+            "(#struct Pair ((left #u32) (right #u64))) (#enum Choice ((Some Pair) Empty))";
         let source = format!(
             "{declarations_source}
           (#fn main () Choice (#return (Some
@@ -892,7 +895,7 @@ mod tests {
             "(#struct-literal Pair ((left stored0) (right stored1)))"
         );
         check(&format!(
-            "{declarations_source} (#fn again ((stored0 u32) (stored1 u64)) Pair (#return {}))",
+            "{declarations_source} (#fn again ((stored0 #u32) (stored1 #u64)) Pair (#return {}))",
             text(&rendered)
         ));
         let compute = operation(&graph, "Some");
@@ -910,8 +913,8 @@ mod tests {
     fn patterns_rename_even_unused_checked_binding_ids_without_preview_copies() {
         let (declarations, graph) = prepare(
             "
-          (#enum Choice ((Some u64) Empty))
-          (#fn main ((choice Choice)) u64 (#return (#match choice
+          (#enum Choice ((Some #u64) Empty))
+          (#fn main ((choice Choice)) #u64 (#return (#match choice
             (#case (Some unused) 1u64) (#case Empty 0u64))))",
             "main",
         );
@@ -944,12 +947,12 @@ mod tests {
     #[test]
     fn aggregate_constructor_aliases_render_the_checked_concrete_type() {
         for (ty, constructor, head, canonical) in [
-            ("(#tuple u64 u64)", "#tuple", "tuple", "#tuple"),
-            ("(#array u64 2)", "#array-of", "array", "#array-of"),
+            ("(#tuple #u64 #u64)", "#tuple", "tuple", "#tuple"),
+            ("(#array #u64 2)", "#array-of", "array", "#array-of"),
         ] {
             let source = format!(
                 "(#type Pair {ty})
-              (#fn make ((a u64) (b u64)) Pair
+              (#fn make ((a #u64) (b #u64)) Pair
                 (#return ({constructor} Pair a b)))"
             );
             let (declarations, graph) = prepare(&source, "make");
@@ -963,7 +966,7 @@ mod tests {
             assert_eq!(rendered, format!("({canonical} {ty} stored0 stored1)"));
             check(&format!(
                 "{source}
-              (#fn again ((stored0 u64) (stored1 u64)) Pair (#return {rendered}))"
+              (#fn again ((stored0 #u64) (stored1 #u64)) Pair (#return {rendered}))"
             ));
         }
     }
@@ -971,8 +974,8 @@ mod tests {
     #[test]
     fn enum_tag_test_replaces_only_the_handle_and_retains_variant_identity() {
         let (declarations, graph) = prepare(
-            "(#enum Choice ((Some u64) Empty)) (#linear Choice)
-             (#fn inspect ((value (#pin-ref Choice))) bool
+            "(#enum Choice ((Some #u64) Empty)) (#linear Choice)
+             (#fn inspect ((value (#pin-ref Choice))) #bool
                (#return (#variant-is value Some)))",
             "inspect",
         );
@@ -988,8 +991,8 @@ mod tests {
             .unwrap();
         assert_eq!(text(&rendered), "(#variant-is stored0 Some)");
         check(&format!(
-            "(#enum Choice ((Some u64) Empty)) (#linear Choice)
-          (#fn again ((stored0 (#pin-ref Choice))) bool (#return {}))",
+            "(#enum Choice ((Some #u64) Empty)) (#linear Choice)
+          (#fn again ((stored0 (#pin-ref Choice))) #bool (#return {}))",
             text(&rendered)
         ));
     }
@@ -998,8 +1001,8 @@ mod tests {
     fn executable_literal_metadata_fails_closed_instead_of_replaying_a_call() {
         let (declarations, graph) = prepare(
             "
-          (#fn effect () u64 (#return 7u64))
-          (#fn main () u64 (#return (#literal u64 (#call effect (:)))))",
+          (#fn effect () #u64 (#return 7u64))
+          (#fn main () #u64 (#return (#literal #u64 (#call effect (:)))))",
             "main",
         );
         let context =

@@ -4,10 +4,10 @@
 ; loop dispatches on the state tag. See async_single_poll.lim for opaque pins
 ; with privately owned stationary storage and async_fn_self_reference.lim for the
 ; supported internal-reference form.
-(#enum Child ((Waiting u64)))
+(#enum Child ((Waiting #u64)))
 (#linear Child)
-(#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
-(#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+(#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+(#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
   (#return (#match task
     (#case (Waiting value)
       (#if (#u64.== value 0u64)
@@ -15,9 +15,9 @@
         (ChildReady value))))))
 (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
 
-(@async-fn-pinned (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work ((offset u64)) u64
-    (#let value u64
+(@async-fn-pinned (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work ((offset #u64)) #u64
+    (#let value #u64
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap value offset)))))
 
@@ -29,15 +29,15 @@
     (#case Frame-done ()))
   (#return ()))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut frame Frame (#call work (: offset 40u64)))
-  (#let waker u64 0u64)
+  (#let waker #u64 0u64)
   (#let first Poll
     (#call poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
   (#let-else (Pending pinned-frame) Poll first (#unreachable))
   (#let second Poll
     (#call poll (: task pinned-frame : waker (#borrow waker))))
-  (#let result u64
+  (#let result #u64
     (#match second
       (#case (Ready value) value)
       (#case (Pending unexpected)

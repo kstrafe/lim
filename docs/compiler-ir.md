@@ -631,7 +631,7 @@ expressions without checked nodes still use the compatibility parser.
 Emission also checks that a numeric node's retained result type matches its
 typed opcode, including boolean results from comparisons and logical forms.
 Each checked operand must retain the opcode's scalar type, except logical
-`&&`/`||`, whose operands are `bool` under the current source semantics.
+`&&`/`||`, whose operands are `#bool` under the current source semantics.
 Direct checked scalar and aggregate-specialized calls select their ABI and
 canonical source assembly symbol by retained `FunctionId`; the reconstructed
 name remains available for diagnostics. Aggregate dispatch guards use the

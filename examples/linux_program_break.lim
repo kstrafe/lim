@@ -1,18 +1,18 @@
 (#import "../library/linux_x86_64.lim")
 
 ; Standalone, single-threaded executable: no other allocator owns the break.
-(#fn main () u64
-  (#let persona i64 (#unsafe (#call linux-personality (: persona 4294967295u32))))
+(#fn main () #u64
+  (#let persona #i64 (#unsafe (#call linux-personality (: persona 4294967295u32))))
   (#assert (#i64.>= persona 0i64))
-  (#assert (#i64.== (#unsafe (#call linux-personality (: persona (#as persona u32)))) persona))
+  (#assert (#i64.== (#unsafe (#call linux-personality (: persona (#as persona #u32)))) persona))
   (#assert (#i64.== (#unsafe (#call linux-personality (: persona 4294967295u32))) persona))
-  (#let initial usize (#unsafe (#call linux-brk (: address 0usize))))
+  (#let initial #usize (#unsafe (#call linux-brk (: address 0usize))))
   (#assert (#usize.> initial 0usize))
-  (#let requested usize (#usize.+.wrap initial 8192usize))
+  (#let requested #usize (#usize.+.wrap initial 8192usize))
   (#assert (#usize.> requested initial))
   (#assert (#usize.== (#unsafe (#call linux-brk (: address requested))) requested))
-  (#let memory (#ptr-mut u8)
-    (#unsafe (#asm (#ptr-mut u8) ((rdi initial)) "mov rax, rdi")))
+  (#let memory (#ptr-mut #u8)
+    (#unsafe (#asm (#ptr-mut #u8) ((rdi initial)) "mov rax, rdi")))
   (#unsafe (#ptr-write memory 72u8))
   (#unsafe (#ptr-write (#ptr-offset memory 1usize) 10u8))
   (#unsafe (#ptr-write (#ptr-offset memory 8191usize) 90u8))
@@ -20,11 +20,11 @@
   ; Impossible growth leaves the break unchanged; there is no -ENOMEM result.
   (#assert (#usize.== (#unsafe (#call linux-brk (: address 18446744073709551615usize))) requested))
   (#assert (#usize.== (#unsafe (#call linux-brk (: address 0usize))) requested))
-  (#let middle usize (#usize.+.wrap initial 4096usize))
+  (#let middle #usize (#usize.+.wrap initial 4096usize))
   (#assert (#usize.== (#unsafe (#call linux-brk (: address middle))) middle))
   ; The first page remains usable after shrinking by one page.
   (#assert (#u8.== (#unsafe (#ptr-read memory)) 72u8))
-  (#let written i64 (#unsafe (#call linux-write (: fd 1i64 : source memory : count 2usize))))
+  (#let written #i64 (#unsafe (#call linux-write (: fd 1i64 : source memory : count 2usize))))
   (#assert (#usize.== (#unsafe (#call linux-brk (: address initial))) initial))
   (#assert (#usize.== (#unsafe (#call linux-brk (: address 0usize))) initial))
   ; Do not access memory after restoring the original break.

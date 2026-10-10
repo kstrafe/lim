@@ -1,10 +1,10 @@
 (#enum LargePayload
-  ((Big u64 u64 u64 u64 u64 u64 u64) Empty))
+  ((Big #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty))
 
-(#fn make ((last u64)) LargePayload
+(#fn make ((last #u64)) LargePayload
   (#return (Big 1u64 2u64 3u64 4u64 5u64 6u64 last)))
 
-(#fn main () u64
+(#fn main () #u64
   (#return
     (#match (#call make (: last 42u64))
       (#case (Big first second third fourth fifth sixth seventh) seventh)

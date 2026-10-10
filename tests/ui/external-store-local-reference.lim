@@ -1,6 +1,6 @@
-(#struct Holder (: view (#ref u64)))
+(#struct Holder (: view (#ref #u64)))
 (#fn bad (: target (#ref-mut Holder)) ()
-  (#let local u64 7u64)
+  (#let local #u64 7u64)
   (#let temporary Holder (#struct-literal Holder (: view (#borrow local))))
   (#deref-set target temporary)
   (#forget temporary)

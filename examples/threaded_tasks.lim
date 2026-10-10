@@ -1,16 +1,16 @@
 (#import "../library/tasks.lim")
 
-(@task (NumberTask NumberPoll NumberPending NumberReady) u64
-  ((Number u64)))
+(@task (NumberTask NumberPoll NumberPending NumberReady) #u64
+  ((Number #u64)))
 
 (#fn number-poll ((task NumberTask)) NumberPoll
   (#return (#match task (#case (Number value) (NumberReady value)))))
 
 (@threaded-executor run-worker WorkerResults
-  ((number NumberTask NumberPoll NumberPending NumberReady number-poll u64 number-input))
+  ((number NumberTask NumberPoll NumberPending NumberReady number-poll #u64 number-input))
   Worker)
 
-(#fn main () u64
+(#fn main () #u64
   (#return
     (#match (#call Worker-spawn (: number-input (Number 42u64)))
       (#case (Worker-spawn-ok thread)

@@ -1,8 +1,8 @@
 (#import "../library/linux_x86_64.lim")
 
 ; Requires mseal support. Only this short-lived program's mapping is sealed.
-(#fn main () u64
-  (#let memory (#ptr-mut u8) (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+(#fn main () #u64
+  (#let memory (#ptr-mut #u8) (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   (#unsafe (#ptr-write memory 77u8))
   (#unsafe (#ptr-write (#ptr-offset memory 1usize) 10u8))
   (#assert (#i64.== (#unsafe (#call linux-mseal (: address memory : length 4096usize : flags 1usize))) -22i64))

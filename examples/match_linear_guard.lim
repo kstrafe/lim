@@ -1,23 +1,23 @@
-(#struct Token ((value u64)))
+(#struct Token ((value #u64)))
 (#linear Token)
 (#enum Choice ((Owned Token) Empty))
 
-(#fn exceeds (: token (#ref Token) : limit u64) bool
+(#fn exceeds (: token (#ref Token) : limit #u64) #bool
   (#return (#u64.> (#get token value) limit)))
 
-(#fn main () u64
+(#fn main () #u64
   (#let choice Choice (Owned (#struct-literal Token ((value 7u64)))))
   (#return
     (#match choice
       (#case (Owned first)
         (#when (#call exceeds (: token (#borrow first) : limit 99u64)))
         (#block
-          (#let first-value u64 (#get first value))
+          (#let first-value #u64 (#get first value))
           (#forget first)
           first-value))
       (#case (Owned second)
         (#block
-          (#let second-value u64 (#get second value))
+          (#let second-value #u64 (#get second value))
           (#forget second)
           second-value))
       (#case Empty 0u64))))

@@ -6,7 +6,7 @@
 
 (#struct WakeExecutor ((queue WakeReady4)))
 (#struct WakeMetadata ((token WakeToken4)))
-(#struct WakeWaitContext ((sources (#slice AsyncPollSource4)) (waits u64)))
+(#struct WakeWaitContext ((sources (#slice AsyncPollSource4)) (waits #u64)))
 (#linear WakeMetadata)
 
 (#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref WakeMetadata))) ()
@@ -28,8 +28,8 @@
   (WakeExecutor WakeMetadata)
   (notify clone-metadata destroy-metadata))
 
-(@task (JobTask JobPoll JobPending JobReady) u64
-  ((First u64) (Second u64)))
+(@task (JobTask JobPoll JobPending JobReady) #u64
+  ((First #u64) (Second #u64)))
 
 (#fn job-poll ((task JobTask) (waker (#ref LocalWaker))) JobPoll
   (#return (#match task
@@ -46,7 +46,7 @@
         (JobPending (Second (#u64.-.wrap remaining 1u64))))))))
 
 (#fn wait-ready ((context (#ref-mut WakeWaitContext))) WaitResult
-  (#let waits (#ref-mut u64) (#borrow-mut (#get context waits)))
+  (#let waits (#ref-mut #u64) (#borrow-mut (#get context waits)))
   (#deref-set waits (#u64.+.wrap (#deref waits) 1u64))
   (#drop waits)
   (#let waited AsyncPoll4Result
@@ -68,14 +68,14 @@
 (@wake-executor run-jobs
   (JobResults JobOutcome JobLifecycle JobRunning
     JobComplete JobCancelling JobStopped)
-  (JobTask JobPoll JobPending JobReady u64 job-poll LocalWaker)
-  (WaitResult WaitReady WaitStopped i64 wait-ready
+  (JobTask JobPoll JobPending JobReady #u64 job-poll LocalWaker)
+  (WaitResult WaitReady WaitStopped #i64 wait-ready
     (context (#ref-mut WakeWaitContext)))
   cancel-job-poll
   ((first-state first-task first-waker first 0u32)
    (second-state second-task second-waker second 1u32)))
 
-(#fn main () u64
+(#fn main () #u64
   (#let timer-created TimerCreate1
     (#call timer-reactor1-create (: nanoseconds 20000000u64)))
   (#let-else (TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
@@ -102,7 +102,7 @@
     (#call local-waker-create
       (: executor executor-ref
        : metadata (#struct-literal WakeMetadata ((token second-token))))))
-  (#let-mut wait-count u64 0u64)
+  (#let-mut wait-count #u64 0u64)
   (#let outcome JobOutcome
     (#block
       (#let first-source AsyncPollSource4
@@ -130,9 +130,9 @@
   (#let result JobResults (#match outcome
     (#case (JobComplete results) results)
     (#case (JobStopped reason) (#block (#forget reason) (#unreachable)))))
-  (#let total u64 (#u64.+.wrap (#get result first) (#get result second)))
+  (#let total #u64 (#u64.+.wrap (#get result first) (#get result second)))
   (#call local-waker-destroy (: waker first-waker))
   (#call local-waker-destroy (: waker second-waker))
-  (#let timer-closed i64 (#call timer-reactor1-cancel (: timer timer)))
+  (#let timer-closed #i64 (#call timer-reactor1-cancel (: timer timer)))
   (#forget executor)
   (#return (#if (#i64.== timer-closed 0i64) total 0u64)))

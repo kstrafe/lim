@@ -2,11 +2,11 @@
   #fn
   main
   ()
-  u64
-  (#let-mut total u64 0)
+  #u64
+  (#let-mut total #u64 0)
   (
     #for-range
-    (i u64)
+    (i #u64)
     0
     10
     (

@@ -1,8 +1,8 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let paths (#ptr-mut u8)
-    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+(#fn main () #u64
+  (#let paths (#ptr-mut #u8)
+    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let paths-initialized ()
     (#unsafe
@@ -27,28 +27,28 @@
         (#ptr-write (#ptr-offset paths 37usize) 101u8)
         (#ptr-write (#ptr-offset paths 38usize) 100u8)
         ())))
-  (#let source-fd i64
+  (#let source-fd #i64
     (#unsafe (#call linux-openat (: directory -100i64 : path paths : flags 524481i32 : mode 384u32))))
-  (#let target-fd i64
+  (#let target-fd #i64
     (#unsafe (#call linux-openat (: directory -100i64 : path (#ptr-offset paths 16usize) : flags 524481i32 : mode 384u32))))
-  (#let source-closed i64 (#call linux-close (: fd source-fd)))
-  (#let target-closed i64 (#call linux-close (: fd target-fd)))
-  (#let no-replace-result i64
+  (#let source-closed #i64 (#call linux-close (: fd source-fd)))
+  (#let target-closed #i64 (#call linux-close (: fd target-fd)))
+  (#let no-replace-result #i64
     (#unsafe (#call linux-renameat2 (: old-directory -100i64 : old-path paths : new-directory -100i64 : new-path (#ptr-offset paths 16usize) : flags 1u32))))
-  (#let target-removed i64
+  (#let target-removed #i64
     (#unsafe (#call linux-unlinkat (: directory -100i64 : path (#ptr-offset paths 16usize) : flags 0i32))))
-  (#let rename-result i64
+  (#let rename-result #i64
     (#unsafe (#call linux-renameat2 (: old-directory -100i64 : old-path paths : new-directory -100i64 : new-path (#ptr-offset paths 32usize) : flags 0u32))))
-  (#let old-open i64
+  (#let old-open #i64
     (#unsafe (#call linux-openat (: directory -100i64 : path paths : flags 0i32 : mode 0u32))))
-  (#let renamed-open i64
+  (#let renamed-open #i64
     (#unsafe (#call linux-openat (: directory -100i64 : path (#ptr-offset paths 32usize) : flags 0i32 : mode 0u32))))
-  (#let renamed-closed i64 (#call linux-close (: fd renamed-open)))
-  (#let renamed-removed i64
+  (#let renamed-closed #i64 (#call linux-close (: fd renamed-open)))
+  (#let renamed-removed #i64
     (#unsafe (#call linux-unlinkat (: directory -100i64 : path (#ptr-offset paths 32usize) : flags 0i32))))
-  (#let source-cleaned i64
+  (#let source-cleaned #i64
     (#unsafe (#call linux-unlinkat (: directory -100i64 : path paths : flags 0i32))))
-  (#let rename-ok bool
+  (#let rename-ok #bool
     (#bool.&& (#i64.>= source-fd 0i64)
       (#bool.&& (#i64.>= target-fd 0i64)
         (#bool.&& (#i64.== source-closed 0i64)
@@ -62,33 +62,33 @@
                           (#bool.&& (#i64.== renamed-removed 0i64)
                             (#bool.|| (#i64.== source-cleaned 0i64)
                               (#i64.== source-cleaned -2i64))))))))))))))
-  (#let directory-created i64
+  (#let directory-created #i64
     (#unsafe (#call linux-mkdir (: path paths : mode 448u32))))
-  (#let directory-created-again i64
+  (#let directory-created-again #i64
     (#unsafe (#call linux-mkdir (: path paths : mode 448u32))))
-  (#let directory-removed i64
+  (#let directory-removed #i64
     (#unsafe (#call linux-rmdir (: path paths))))
-  (#let file-created i64
+  (#let file-created #i64
     (#unsafe (#call linux-creat (: path paths : mode 384u32))))
-  (#let file-closed i64
+  (#let file-closed #i64
     (#call linux-close (: fd file-created)))
-  (#let hard-link-created i64
+  (#let hard-link-created #i64
     (#unsafe (#call linux-link (: source paths : destination (#ptr-offset paths 16usize)))))
-  (#let hard-link-renamed i64
+  (#let hard-link-renamed #i64
     (#unsafe (#call linux-rename (: source (#ptr-offset paths 16usize) : destination (#ptr-offset paths 32usize)))))
-  (#let old-hard-link-exists i64
+  (#let old-hard-link-exists #i64
     (#unsafe (#call linux-access (: path (#ptr-offset paths 16usize) : mode 0i32))))
-  (#let renamed-hard-link-exists i64
+  (#let renamed-hard-link-exists #i64
     (#unsafe (#call linux-access (: path (#ptr-offset paths 32usize) : mode 0i32))))
-  (#let source-unlinked i64
+  (#let source-unlinked #i64
     (#unsafe (#call linux-unlink (: path paths))))
-  (#let remaining-hard-link-exists i64
+  (#let remaining-hard-link-exists #i64
     (#unsafe (#call linux-access (: path (#ptr-offset paths 32usize) : mode 0i32))))
-  (#let hard-link-unlinked i64
+  (#let hard-link-unlinked #i64
     (#unsafe (#call linux-unlink (: path (#ptr-offset paths 32usize)))))
-  (#let final-hard-link-exists i64
+  (#let final-hard-link-exists #i64
     (#unsafe (#call linux-access (: path (#ptr-offset paths 32usize) : mode 0i32))))
-  (#let legacy-path-ok bool
+  (#let legacy-path-ok #bool
     (#bool.&& (#i64.== directory-created 0i64)
       (#bool.&& (#i64.== directory-created-again -17i64)
         (#bool.&& (#i64.== directory-removed 0i64)
@@ -102,52 +102,52 @@
                         (#bool.&& (#i64.== remaining-hard-link-exists 0i64)
                           (#bool.&& (#i64.== hard-link-unlinked 0i64)
                             (#i64.== final-hard-link-exists -2i64))))))))))))))
-  (#let at-file-created i64
+  (#let at-file-created #i64
     (#unsafe (#call linux-creat (: path paths : mode 384u32))))
-  (#let at-file-closed i64
+  (#let at-file-closed #i64
     (#call linux-close (: fd at-file-created)))
-  (#let at-mode-changed i64
+  (#let at-mode-changed #i64
     (#unsafe (#call linux-fchmodat (: directory -100i64 : path paths : mode 256u32))))
-  (#let at-stat-memory (#ptr-mut u64)
-    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+  (#let at-stat-memory (#ptr-mut #u64)
+    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let at-stat-result i64
+  (#let at-stat-result #i64
     (#unsafe (#call linux-stat (: path paths : metadata at-stat-memory))))
   ; x86-64 kernel stat has st_mode at byte offset 24.
-  (#let at-mode-word u64
+  (#let at-mode-word #u64
     (#unsafe (#ptr-read (#ptr-offset at-stat-memory 3usize))))
-  (#let at-owner-unchanged i64
+  (#let at-owner-unchanged #i64
     (#unsafe (#call linux-fchownat (: directory -100i64 : path paths : owner 4294967295u32 : group 4294967295u32 : flags 0i32))))
-  (#let at-times-updated i64
-    (#unsafe (#call linux-utimensat (: directory -100i64 : path paths : times (#ptr-null (#ptr-mut i64)) : flags 0i32))))
-  (#let at-hard-link-created i64
+  (#let at-times-updated #i64
+    (#unsafe (#call linux-utimensat (: directory -100i64 : path paths : times (#ptr-null (#ptr-mut #i64)) : flags 0i32))))
+  (#let at-hard-link-created #i64
     (#unsafe (#call linux-linkat (: old-directory -100i64 : old-path paths : new-directory -100i64 : new-path (#ptr-offset paths 16usize) : flags 0i32))))
-  (#let at-hard-link-renamed i64
+  (#let at-hard-link-renamed #i64
     (#unsafe (#call linux-renameat (: old-directory -100i64 : old-path (#ptr-offset paths 16usize) : new-directory -100i64 : new-path (#ptr-offset paths 32usize)))))
-  (#let at-old-link-absent i64
+  (#let at-old-link-absent #i64
     (#unsafe (#call linux-access (: path (#ptr-offset paths 16usize) : mode 0i32))))
-  (#let at-renamed-link-present i64
+  (#let at-renamed-link-present #i64
     (#unsafe (#call linux-access (: path (#ptr-offset paths 32usize) : mode 0i32))))
-  (#let at-symbolic-link-created i64
+  (#let at-symbolic-link-created #i64
     (#unsafe (#call linux-symlinkat (: target paths : directory -100i64 : link-path (#ptr-offset paths 16usize)))))
-  (#let at-symbolic-link-read i64
+  (#let at-symbolic-link-read #i64
     (#unsafe (#call linux-readlinkat (: directory -100i64 : path (#ptr-offset paths 16usize) : destination (#ptr-offset paths 64usize) : size 32usize))))
-  (#let at-target-first-byte u8
+  (#let at-target-first-byte #u8
     (#unsafe (#ptr-read (#ptr-offset paths 64usize))))
-  (#let at-target-last-byte u8
+  (#let at-target-last-byte #u8
     (#unsafe (#ptr-read (#ptr-offset paths 69usize))))
-  (#let at-symbolic-link-unlinked i64
+  (#let at-symbolic-link-unlinked #i64
     (#unsafe (#call linux-unlinkat (: directory -100i64 : path (#ptr-offset paths 16usize) : flags 0i32))))
-  (#let at-source-unlinked i64
+  (#let at-source-unlinked #i64
     (#unsafe (#call linux-unlink (: path paths))))
-  (#let at-renamed-link-still-present i64
+  (#let at-renamed-link-still-present #i64
     (#unsafe (#call linux-access (: path (#ptr-offset paths 32usize) : mode 0i32))))
-  (#let at-renamed-link-unlinked i64
+  (#let at-renamed-link-unlinked #i64
     (#unsafe (#call linux-unlink (: path (#ptr-offset paths 32usize)))))
-  (#let at-stat-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP
+  (#let at-stat-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP
       (at-stat-memory 4096usize))))
-  (#let at-path-ok bool
+  (#let at-path-ok #bool
     (#bool.&& (#i64.>= at-file-created 0i64)
       (#bool.&& (#i64.== at-file-closed 0i64)
         (#bool.&& (#i64.== at-mode-changed 0i64)
@@ -168,8 +168,8 @@
                                   (#bool.&& (#i64.== at-renamed-link-still-present 0i64)
                                     (#bool.&& (#i64.== at-renamed-link-unlinked 0i64)
                                       (#i64.== at-stat-unmapped 0i64)))))))))))))))))))))
-  (#let paths-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (paths 4096usize))))
+  (#let paths-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (paths 4096usize))))
   (#return
     (#if (#bool.&& rename-ok
       (#bool.&& legacy-path-ok

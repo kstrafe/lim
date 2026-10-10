@@ -1,4 +1,4 @@
-(#struct Resource ((number u64)))
+(#struct Resource ((number #u64)))
 (#linear Resource)
 (#fn inspect ((reference (#pin-ref-mut Resource))) ()
   (#let moved Resource (#deref reference))

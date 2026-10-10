@@ -1,5 +1,5 @@
-(#fn main () u64
+(#fn main () #u64
   (#return
-    (#match (#array (#array u64 3) 10 32 12)
+    (#match (#array (#array #u64 3) 10 32 12)
       (#case (#array 10 middle _) middle)
       (#case _ 0))))

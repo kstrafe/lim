@@ -1,5 +1,5 @@
-(#fn math.add-one () u64
+(#fn math.add-one () #u64
   (#return 41))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#u64.+.wrap (#call math.add-one (:)) 1)))

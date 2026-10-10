@@ -1,2 +1,2 @@
-(#gn emit () `((#type ,(#gn-gensym "#let") u64)))
+(#gn emit () `((#type ,(#gn-gensym "#let") #u64)))
 (@emit)

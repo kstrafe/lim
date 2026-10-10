@@ -1,39 +1,39 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let event i64 (#call linux-eventfd (: initial-value 7u32)))
+(#fn main () #u64
+  (#let event #i64 (#call linux-eventfd (: initial-value 7u32)))
   (#assert (#bool.&& (#i64.>= event 0i64) (#i64.< event 64i64)))
-  (#let epoll i64 (#call linux-epoll-create (: size 1i32)))
+  (#let epoll #i64 (#call linux-epoll-create (: size 1i32)))
   (#assert (#i64.>= epoll 0i64))
   (#assert (#i64.== (#call linux-epoll-create (: size 0i32)) -22i64))
-  (#let inotify i64 (#call linux-inotify-init (:)))
+  (#let inotify #i64 (#call linux-inotify-init (:)))
   (#assert (#i64.>= inotify 0i64))
   (#assert (#i64.== (#unsafe (#call linux-fcntl (: fd epoll : command 1i32 : argument 0usize))) 0i64))
   (#assert (#i64.== (#unsafe (#call linux-fcntl (: fd inotify : command 1i32 : argument 0usize))) 0i64))
-  (#let memory (#ptr-mut u8)
-    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+  (#let memory (#ptr-mut #u8)
+    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   ; Zeroed mmap provides timeval/timespec {0,0} at offset zero, and an
   ; empty kernel signal mask at offset 48. The pselect6 argument at offset
   ; 32 is a pointer to that mask followed by its byte size (8 on x86-64).
-  (#let timeout (#ptr-mut i64)
-    (#unsafe (#asm (#ptr-mut i64) ((rdi memory)) "mov rax, rdi")))
-  (#let mask-argument (#ptr-mut u8) (#unsafe (#ptr-offset memory 32usize)))
+  (#let timeout (#ptr-mut #i64)
+    (#unsafe (#asm (#ptr-mut #i64) ((rdi memory)) "mov rax, rdi")))
+  (#let mask-argument (#ptr-mut #u8) (#unsafe (#ptr-offset memory 32usize)))
   (#unsafe (#asm () ((rdi memory))
     "lea rax, [rdi+48]\nmov QWORD PTR [rdi+32], rax\nmov QWORD PTR [rdi+40], 8"))
-  (#let bit u64 (#u64.<< 1u64 (#as event u64)))
-  (#let-mut read-set u64 bit)
-  (#let count i32 (#i32.+.wrap (#as event i32) 1i32))
-  (#let no-set (#ptr-mut u64) (#ptr-null (#ptr-mut u64)))
+  (#let bit #u64 (#u64.<< 1u64 (#as event #u64)))
+  (#let-mut read-set #u64 bit)
+  (#let count #i32 (#i32.+.wrap (#as event #i32) 1i32))
+  (#let no-set (#ptr-mut #u64) (#ptr-null (#ptr-mut #u64)))
   (#assert (#i64.==
     (#unsafe (#call linux-select (: count count : read-set (#addr-of-mut read-set) : write-set no-set : except-set no-set : timeout timeout))) 1i64))
   (#assert (#u64.== read-set bit))
   (#assert (#i64.==
     (#unsafe (#call linux-pselect6 (: count count : read-set (#addr-of-mut read-set) : write-set no-set : except-set no-set : timeout timeout : signal-mask-argument mask-argument))) 1i64))
   (#assert (#u64.== read-set bit))
-  (#let received (#ptr-mut u8) (#unsafe (#ptr-offset memory 64usize)))
+  (#let received (#ptr-mut #u8) (#unsafe (#ptr-offset memory 64usize)))
   (#assert (#i64.== (#unsafe (#call linux-read (: fd event : destination received : count 8usize))) 8i64))
-  (#let counter u64
-    (#unsafe (#asm u64 ((rdi received)) "mov rax, QWORD PTR [rdi]")))
+  (#let counter #u64
+    (#unsafe (#asm #u64 ((rdi received)) "mov rax, QWORD PTR [rdi]")))
   (#assert (#u64.== counter 7u64))
   (#assert (#i64.==
     (#unsafe (#call linux-select (: count count : read-set (#addr-of-mut read-set) : write-set no-set : except-set no-set : timeout timeout))) 0i64))
@@ -49,8 +49,8 @@
   (#assert (#i64.== (#call linux-close (: fd epoll)) 0i64))
   (#assert (#i64.== (#call linux-close (: fd inotify)) 0i64))
   (#assert (#i64.== (#unsafe (#call linux-munmap (: address memory : length 4096usize))) 0i64))
-  (#let letter u8 82u8)
-  (#let newline u8 10u8)
+  (#let letter #u8 82u8)
+  (#let newline #u8 10u8)
   (#assert (#i64.== (#call linux-write-byte (: source (#borrow letter))) 1i64))
   (#assert (#i64.== (#call linux-write-byte (: source (#borrow newline))) 1i64))
   (#return 42u64))

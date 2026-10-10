@@ -1,13 +1,13 @@
 (#fn add-inner-and-tail
-  ((value (#tuple (#tuple u64 u64) u64)))
-  u64
+  ((value (#tuple (#tuple #u64 #u64) #u64)))
+  #u64
   (#return
     (#u64.+.wrap
       (#u64.+.wrap (#get (#get value 0) 1) (#get value 1))
       (#get (#get value 0) 0))))
 
-(#fn main () u64
+(#fn main () #u64
   (#return
-    (#call add-inner-and-tail (: value (#tuple (#tuple (#tuple u64 u64) u64)
-        (#tuple (#tuple u64 u64) 10 20)
+    (#call add-inner-and-tail (: value (#tuple (#tuple (#tuple #u64 #u64) #u64)
+        (#tuple (#tuple #u64 #u64) 10 20)
         32)))))

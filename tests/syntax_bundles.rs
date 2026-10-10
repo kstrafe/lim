@@ -4,13 +4,13 @@ mod support;
 #[test]
 fn bundles_expand_parameters_calls_and_nested_forward_references() {
     let source = r#"
-        (#syntax Parameters ((value u64)))
+        (#syntax Parameters ((value #u64)))
         (#syntax Arguments ((value (#syntax-splice Value))))
         (#syntax Value ((#syntax-splice Number)))
         (#syntax Number (42u64))
         (#syntax Empty ())
-        (#fn identity ((#syntax-splice Parameters)) u64 (#return value))
-        (#fn main ((#syntax-splice Empty)) u64
+        (#fn identity ((#syntax-splice Parameters)) #u64 (#return value))
+        (#fn main ((#syntax-splice Empty)) #u64
           (#return (#call identity ((#syntax-splice Arguments)))))
     "#;
     parse_program(source).unwrap();
@@ -40,7 +40,7 @@ fn rejects_invalid_bundles_even_when_unused() {
             "only allowed at top level",
         ),
         (
-            "(#syntax Value ()) (#fn main ((Value u64)) u64 (#return Value))",
+            "(#syntax Value ()) (#fn main ((Value #u64)) #u64 (#return Value))",
             "shadowing is not allowed",
         ),
     ] {
@@ -54,9 +54,9 @@ fn generated_templates_can_emit_bundles() {
     parse_program(
         r#"
       (#gn emit () `((#syntax Value (42u64))
-        (#fn generated () u64 (#return (#syntax-splice Value)))))
+        (#fn generated () #u64 (#return (#syntax-splice Value)))))
       (@emit)
-      (#fn main () u64 (#return (#call generated ())))
+      (#fn main () #u64 (#return (#call generated ())))
     "#,
     )
     .unwrap();
@@ -66,10 +66,10 @@ fn generated_templates_can_emit_bundles() {
 fn bundles_expand_literal_generator_arguments() {
     parse_program(
         r#"
-      (#syntax Arguments (Answer u64))
+      (#syntax Arguments (Answer #u64))
       (#gn make (name ty) `((#type ,name ,ty)))
       (@make (#syntax-splice Arguments))
-      (#fn main () u64 (#return 42u64))
+      (#fn main () #u64 (#return 42u64))
     "#,
     )
     .unwrap();
@@ -80,12 +80,12 @@ fn imported_bundles_are_prefixed_and_checked_at_the_use() {
     let scratch = support::Scratch::new("syntax-bundles");
     std::fs::write(
         scratch.path().join("library.lim"),
-        "(#syntax Value (42u64)) (#fn answer () u64 (#return (#syntax-splice Value)))",
+        "(#syntax Value (42u64)) (#fn answer () #u64 (#return (#syntax-splice Value)))",
     )
     .unwrap();
-    let source = "(#import-external \"library.lim\" ext-)\n(#fn main () u64 (#return (#syntax-splice ext-Value)))";
+    let source = "(#import-external \"library.lim\" ext-)\n(#fn main () #u64 (#return (#syntax-splice ext-Value)))";
     lim::parse_program_from_path(source, &scratch.path().join("main.lim")).unwrap();
-    let source = "(#syntax Bad (false))\n(#fn main () u64 (#return (#syntax-splice Bad)))";
+    let source = "(#syntax Bad (false))\n(#fn main () #u64 (#return (#syntax-splice Bad)))";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),
@@ -131,9 +131,9 @@ fn changing_a_bundle_invalidates_generated_code_cache() {
         let source = format!(
             r#"
           (#syntax Value ({value}u64))
-          (#gn emit (value) `((#fn answer () u64 (#return ,value))))
+          (#gn emit (value) `((#fn answer () #u64 (#return ,value))))
           (@emit (#syntax-splice Value))
-          (#fn main () u64 (#return (#call answer ())))
+          (#fn main () #u64 (#return (#call answer ())))
         "#
         );
         lim::compile_source_to_assembly(
@@ -159,7 +159,7 @@ fn cfg_selection_precedes_bundle_collection() {
       (#cfg-if (#cfg-is #backend asm)
         (#syntax Value (42u64))
         (#cfg-else (#syntax Value ((#syntax-splice Missing)))))
-      (#fn main () u64 (#return (#syntax-splice Value)))
+      (#fn main () #u64 (#return (#syntax-splice Value)))
     "#,
         &config,
     )

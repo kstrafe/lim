@@ -6,32 +6,32 @@
 fn u16_at(bytes: &[u8], offset: usize) -> Result<u16, String> {
     let data: [u8; 2] = bytes
         .get(offset..offset.checked_add(2).ok_or("ELF offset overflow")?)
-        .ok_or("truncated ELF u16")?
+        .ok_or("truncated ELF #u16")?
         .try_into()
-        .map_err(|_| "invalid ELF u16")?;
+        .map_err(|_| "invalid ELF #u16")?;
     Ok(u16::from_le_bytes(data))
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> Result<u32, String> {
     let data: [u8; 4] = bytes
         .get(offset..offset.checked_add(4).ok_or("ELF offset overflow")?)
-        .ok_or("truncated ELF u32")?
+        .ok_or("truncated ELF #u32")?
         .try_into()
-        .map_err(|_| "invalid ELF u32")?;
+        .map_err(|_| "invalid ELF #u32")?;
     Ok(u32::from_le_bytes(data))
 }
 
 fn u64_at(bytes: &[u8], offset: usize) -> Result<u64, String> {
     let data: [u8; 8] = bytes
         .get(offset..offset.checked_add(8).ok_or("ELF offset overflow")?)
-        .ok_or("truncated ELF u64")?
+        .ok_or("truncated ELF #u64")?
         .try_into()
-        .map_err(|_| "invalid ELF u64")?;
+        .map_err(|_| "invalid ELF #u64")?;
     Ok(u64::from_le_bytes(data))
 }
 
 fn usize_at(bytes: &[u8], offset: usize) -> Result<usize, String> {
-    usize::try_from(u64_at(bytes, offset)?).map_err(|_| "ELF size exceeds host usize".into())
+    usize::try_from(u64_at(bytes, offset)?).map_err(|_| "ELF size exceeds host #usize".into())
 }
 
 fn section_header(

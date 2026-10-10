@@ -1,6 +1,6 @@
-(#enum Pair ((Pair u64 u64) Empty))
+(#enum Pair ((Pair #u64 #u64) Empty))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut value Pair (Pair 20 22))
   (#set-payload value Pair 1 30)
   (#return

@@ -55,7 +55,7 @@ pub(crate) fn executable(text: &[u8], entry_offset: usize) -> Result<Vec<u8>, St
     let file_size = CODE_OFFSET
         .checked_add(text.len())
         .ok_or("ELF image size overflow")?;
-    let file_size_u64 = u64::try_from(file_size).map_err(|_| "ELF image size exceeds u64")?;
+    let file_size_u64 = u64::try_from(file_size).map_err(|_| "ELF image size exceeds #u64")?;
     let entry = BASE_ADDRESS
         .checked_add(u64::try_from(CODE_OFFSET + entry_offset).map_err(|_| "ELF entry overflow")?)
         .ok_or("ELF entry overflow")?;
@@ -314,7 +314,7 @@ pub(crate) fn dynamic_executable(
     for reference in &linked.foreign_absolute {
         if let Some(offset) = copy_offsets.get(&reference.symbol) {
             let value = (data_address(*offset)? as i128) + (reference.addend as i128);
-            let value = u64::try_from(value).map_err(|_| "COPY address addend overflows u64")?;
+            let value = u64::try_from(value).map_err(|_| "COPY address addend overflows #u64")?;
             let end = reference
                 .offset
                 .checked_add(8)
@@ -429,7 +429,7 @@ pub(crate) fn dynamic_executable(
     code.extend_from_slice(&1u32.to_le_bytes()); // one bucket
     code.extend_from_slice(
         &u32::try_from(chains)
-            .map_err(|_| "ELF symbol count exceeds u32")?
+            .map_err(|_| "ELF symbol count exceeds #u32")?
             .to_le_bytes(),
     );
     code.extend_from_slice(&(if chains == 1 { 0u32 } else { 1u32 }).to_le_bytes());
@@ -441,7 +441,7 @@ pub(crate) fn dynamic_executable(
         };
         code.extend_from_slice(
             &u32::try_from(next)
-                .map_err(|_| "ELF hash chain exceeds u32")?
+                .map_err(|_| "ELF hash chain exceeds #u32")?
                 .to_le_bytes(),
         );
     }

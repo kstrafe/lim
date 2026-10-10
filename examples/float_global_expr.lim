@@ -1,16 +1,16 @@
 (
   #const
   Scale
-  f32
+  #f32
   (#f32.*  Base 2.0)
 )
 
-(#const Base f32 1.5)
+(#const Base #f32 1.5)
 
 (
   #const
   Pi
-  f64
+  #f64
   (#f64.+  3.0 0.25)
 )
 
@@ -18,7 +18,7 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #return
     (

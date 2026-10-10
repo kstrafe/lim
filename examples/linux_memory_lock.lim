@@ -1,21 +1,21 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let memory (#ptr-mut u8)
-    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  (#let locked i64
+(#fn main () #u64
+  (#let memory (#ptr-mut #u8)
+    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+  (#let locked #i64
     (#unsafe (#call linux-mlock (: address memory : length 4096usize))))
-  (#let unlocked i64
+  (#let unlocked #i64
     (#unsafe (#call linux-munlock (: address memory : length 4096usize))))
-  (#let locked-on-fault i64
+  (#let locked-on-fault #i64
     (#unsafe (#call linux-mlock2 (: address memory : length 4096usize : flags 1i32))))
-  (#let invalid-lock-flags i64
+  (#let invalid-lock-flags #i64
     (#unsafe (#call linux-mlock2 (: address memory : length 4096usize : flags 2i32))))
-  (#let invalid-all-flags i64
+  (#let invalid-all-flags #i64
     (#call linux-mlockall (: flags 8i32)))
-  (#let all-unlocked i64
+  (#let all-unlocked #i64
     (#call linux-munlockall (:)))
-  (#let unmapped i64
+  (#let unmapped #i64
     (#unsafe (#call linux-munmap (: address memory : length 4096usize))))
   (#return
     (#if (#bool.&& (#i64.== locked 0i64)
@@ -26,11 +26,11 @@
                   (#bool.&& (#i64.== all-unlocked 0i64)
                     (#i64.== unmapped 0i64)))))))
       (#block
-        (#let letter u8 77u8)
-        (#let newline u8 10u8)
-        (#let first-write i64
+        (#let letter #u8 77u8)
+        (#let newline #u8 10u8)
+        (#let first-write #i64
           (#call linux-write-byte (: source (#borrow letter))))
-        (#let second-write i64
+        (#let second-write #i64
           (#call linux-write-byte (: source (#borrow newline))))
         (#if (#bool.&& (#i64.== first-write 1i64)
                      (#i64.== second-write 1i64))

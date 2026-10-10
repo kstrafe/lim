@@ -2480,10 +2480,10 @@ mod tests {
 
     fn source(args: &str) -> String {
         format!(
-            "(#fn inspect ((left (#ref-mut u64)) (right (#ref u64))) u64
+            "(#fn inspect ((left (#ref-mut #u64)) (right (#ref #u64))) #u64
                (#forget left) (#forget right) (#return 0u64))
-             (#fn main () u64
-               (#let-mut value u64 1u64)
+             (#fn main () #u64
+               (#let-mut value #u64 1u64)
                (#return (#call inspect ( {args}))))"
         )
     }
@@ -2491,9 +2491,9 @@ mod tests {
     #[test]
     fn borrow_checks_share_one_function_local_provenance_result() {
         let program = crate::parse_program(
-            "(#fn read ((input (#ref u64))) u64 (#return (#deref input)))
-             (#fn main () u64
-               (#let owner u64 42u64)
+            "(#fn read ((input (#ref #u64))) #u64 (#return (#deref input)))
+             (#fn main () #u64
+               (#let owner #u64 42u64)
                (#return (#call read (: input (#borrow owner)))))",
         )
         .unwrap();
@@ -2586,17 +2586,17 @@ mod tests {
             ("#pin-ref-mut", "#pin-borrow-mut"),
         ] {
             let source = format!(
-                "(#struct Source (: amount u64))
+                "(#struct Source (: amount #u64))
               (#struct Holder (: view (#ref Source)))
-              (#fn project (: input (#ref Source)) (#ref u64)
+              (#fn project (: input (#ref Source)) (#ref #u64)
                 (#return (#borrow (#get input amount))))
-              (#fn read (: holder ({handle} Holder)) u64
-                (#let selected (#ref u64) (#call project (: input (#get holder view))))
+              (#fn read (: holder ({handle} Holder)) #u64
+                (#let selected (#ref #u64) (#call project (: input (#get holder view))))
                 (#return (#deref selected)))
-              (#fn main () u64
+              (#fn main () #u64
                 (#let-mut owner Source (#struct-literal Source (: amount 42u64)))
                 (#let-mut holder Holder (#struct-literal Holder (: view (#borrow owner))))
-                (#let answer u64 (#call read (: holder ({borrow} holder))))
+                (#let answer #u64 (#call read (: holder ({borrow} holder))))
                 (#forget holder) (#forget owner) (#return answer))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -2623,10 +2623,10 @@ mod tests {
             ("#pin-ref-mut", "#pin-ref", "#pin-ref-mut"),
         ] {
             let source = format!(
-                "(#struct Source (: amount u64 : other u64))
-              (#fn read (: input ({handle} Source)) u64
-                (#let selected ({shared} u64) (#borrow (#get input amount)))
-                (#let conflicting ({exclusive} u64) (#borrow-mut (#get input amount)))
+                "(#struct Source (: amount #u64 : other #u64))
+              (#fn read (: input ({handle} Source)) #u64
+                (#let selected ({shared} #u64) (#borrow (#get input amount)))
+                (#let conflicting ({exclusive} #u64) (#borrow-mut (#get input amount)))
                 (#return (#deref selected)))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -2651,15 +2651,15 @@ mod tests {
         for (operator, handle) in [("#borrow", "#ref"), ("#pin-borrow", "#pin-ref")] {
             for external in [true, false] {
                 let (parameter, initializer) = if external {
-                    ("(outside (#ref u64))", "outside")
+                    ("(outside (#ref #u64))", "outside")
                 } else {
-                    ("(seed u64)", "(#borrow seed)")
+                    ("(seed #u64)", "(#borrow seed)")
                 };
                 let source = format!(
-                    "(#struct Holder ((view (#ref u64))))
-                     (#fn read ({parameter}) (#ref u64)
+                    "(#struct Holder ((view (#ref #u64))))
+                     (#fn read ({parameter}) (#ref #u64)
                        (#let owner Holder (#struct-literal Holder (: view {initializer})))
-                       (#let view ({handle} (#ref u64)) ({operator} (#get owner view)))
+                       (#let view ({handle} (#ref #u64)) ({operator} (#get owner view)))
                        (#return (#deref view)))"
                 );
                 let program = crate::parse_program(&source).unwrap();
@@ -2704,7 +2704,7 @@ mod tests {
 
     #[test]
     fn skipped_borrow_checks_do_not_solve_provenance() {
-        let program = crate::parse_program("(#fn main () u64 (#return 42u64))").unwrap();
+        let program = crate::parse_program("(#fn main () #u64 (#return 42u64))").unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["main"];
         let flow = &checked.declarations().flows["main"];
@@ -2825,7 +2825,7 @@ mod tests {
     #[test]
     fn absent_scoped_loans_have_empty_facts_at_every_event() {
         let program =
-            crate::parse_program("(#fn main () u64 (#let value u64 1u64) (#return value))")
+            crate::parse_program("(#fn main () #u64 (#let value #u64 1u64) (#return value))")
                 .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let flow = &checked.declarations().flows["main"];
@@ -2836,11 +2836,11 @@ mod tests {
 
     #[test]
     fn scope_escape_analysis_accepts_references_that_stay_with_their_owner() {
-        let source = "(#fn main () u64
-          (#let result u64
+        let source = "(#fn main () #u64
+          (#let result #u64
             (#block
-              (#let owner u64 41u64)
-              (#let view (#ref u64) (#borrow owner))
+              (#let owner #u64 41u64)
+              (#let view (#ref #u64) (#borrow owner))
               (#deref view)))
           (#return result))";
         let program = crate::parse_program(source).unwrap();
@@ -2852,9 +2852,9 @@ mod tests {
 
     #[test]
     fn call_scope_analysis_accepts_arguments_borrowed_from_live_locals() {
-        let source = "(#fn read ((input (#ref u64))) u64 (#return (#deref input)))
-          (#fn main () u64
-            (#let owner u64 42u64)
+        let source = "(#fn read ((input (#ref #u64))) #u64 (#return (#deref input)))
+          (#fn main () #u64
+            (#let owner #u64 42u64)
             (#return (#call read (: input (#borrow owner)))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -2865,11 +2865,11 @@ mod tests {
 
     #[test]
     fn live_reference_conflict_uses_checked_places_and_origin_spans() {
-        let source = "(#fn main () u64
-            (#let-mut left u64 1u64)
-            (#let-mut right u64 2u64)
-            (#let view (#ref-mut u64) (#borrow-mut left))
-            (#let other (#ref u64) (#borrow right))
+        let source = "(#fn main () #u64
+            (#let-mut left #u64 1u64)
+            (#let-mut right #u64 2u64)
+            (#let view (#ref-mut #u64) (#borrow-mut left))
+            (#let other (#ref #u64) (#borrow right))
             (#return (#deref view)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -2905,7 +2905,7 @@ mod tests {
 
     #[test]
     fn moving_a_borrowed_owner_into_a_by_value_call_is_rejected() {
-        let source = "(#struct Token ((value u64)))
+        let source = "(#struct Token ((value #u64)))
           (#linear Token)
           (#fn consume ((token Token)) () (#drop token) (#return ()))
           (#fn main () ()
@@ -2924,7 +2924,7 @@ mod tests {
 
     #[test]
     fn enum_returned_reference_payload_remains_a_live_borrow() {
-        let source = "(#struct Token ((value u64)))
+        let source = "(#struct Token ((value #u64)))
           (#struct RefBox ((value (#ref Token))))
           (#opaque RefBox)
           (#enum Maybe ((Some RefBox) None))
@@ -2953,10 +2953,10 @@ mod tests {
 
     #[test]
     fn dereference_reads_rebase_to_the_referent() {
-        let source = "(#fn main () u64
-            (#let-mut value u64 1u64)
-            (#let parent (#ref u64) (#borrow value))
-            (#let observed u64 (#deref parent))
+        let source = "(#fn main () #u64
+            (#let-mut value #u64 1u64)
+            (#let parent (#ref #u64) (#borrow value))
+            (#let observed #u64 (#deref parent))
             (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -2999,12 +2999,12 @@ mod tests {
 
     #[test]
     fn static_returned_loans_are_checked_without_local_borrow_events() {
-        let source = "(#static VALUE u64 1u64)
-          (#fn obtain () (#ref u64) (#return (#unsafe (#borrow VALUE))))
-          (#fn inspect () u64
-            (#let view (#ref u64) (#call obtain ()))
+        let source = "(#static VALUE #u64 1u64)
+          (#fn obtain () (#ref #u64) (#return (#unsafe (#borrow VALUE))))
+          (#fn inspect () #u64
+            (#let view (#ref #u64) (#call obtain ()))
             (#forget view)
-            (#let observed u64 (#unsafe VALUE)) (#return observed))";
+            (#let observed #u64 (#unsafe VALUE)) (#return observed))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
         let body = &checked.declarations().bodies["inspect"];
@@ -3052,11 +3052,11 @@ mod tests {
 
     #[test]
     fn parameter_loans_are_checked_without_local_borrow_events() {
-        let source = "(#struct Point ((x u64) (y u64)))
-          (#fn field ((parent (#ref-mut Point))) (#ref u64)
+        let source = "(#struct Point ((x #u64) (y #u64)))
+          (#fn field ((parent (#ref-mut Point))) (#ref #u64)
             (#return (#borrow (#get parent x))))
           (#fn inspect ((parent (#ref-mut Point))) ()
-            (#let child (#ref u64) (#call field (: parent parent)))
+            (#let child (#ref #u64) (#call field (: parent parent)))
             (#forget child)
             (#deref-set parent (#struct-literal Point ((x 3u64) (y 4u64))))
             (#return ()))";
@@ -3100,13 +3100,13 @@ mod tests {
 
     #[test]
     fn reference_returning_call_writes_conflict_with_live_child_borrows() {
-        let source = "(#struct Point ((x u64) (y u64)))
+        let source = "(#struct Point ((x #u64) (y #u64)))
             (#fn identity ((value (#ref-mut Point))) (#ref-mut Point)
               (#return value))
-            (#fn main () u64
+            (#fn main () #u64
               (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))
               (#let parent (#ref-mut Point) (#borrow-mut point))
-              (#let child (#ref u64) (#borrow (#get parent x)))
+              (#let child (#ref #u64) (#borrow (#get parent x)))
               (#forget child)
               (#deref-set (#call identity (: value parent))
                 (#struct-literal Point ((x 3u64) (y 4u64))))
@@ -3160,11 +3160,11 @@ mod tests {
 
     #[test]
     fn dereference_writes_conflict_with_live_child_borrows() {
-        let source = "(#struct Point ((x u64) (y u64)))
-            (#fn main () u64
+        let source = "(#struct Point ((x #u64) (y #u64)))
+            (#fn main () #u64
               (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))
               (#let parent (#ref-mut Point) (#borrow-mut point))
-              (#let child (#ref u64) (#borrow (#get parent x)))
+              (#let child (#ref #u64) (#borrow (#get parent x)))
               (#forget child)
               (#deref-set parent (#struct-literal Point ((x 3u64) (y 4u64))))
               (#return 0u64))";
@@ -3232,11 +3232,11 @@ mod tests {
 
     #[test]
     fn split_slice_writes_use_distinct_typed_half_places() {
-        let source = "(#fn main () u64
-            (#let-mut values (#array u64 4)
-              (#array-of (#array u64 4) 1u64 2u64 3u64 4u64))
-            (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
-            (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64))
+        let source = "(#fn main () #u64
+            (#let-mut values (#array #u64 4)
+              (#array-of (#array #u64 4) 1u64 2u64 3u64 4u64))
+            (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values)))
+            (#let (#tuple left right) (#tuple (#slice-mut #u64) (#slice-mut #u64))
               (#slice-mut-split view 2usize))
             (#deref-set (#slice-mut-idx left 0usize) 10u64)
             (#deref-set (#slice-mut-idx right 0usize) 20u64)
@@ -3277,13 +3277,13 @@ mod tests {
 
     #[test]
     fn nested_split_slice_writes_keep_the_full_partition_path() {
-        let source = "(#fn main () u64
-            (#let-mut values (#array u64 8)
-              (#array-of (#array u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 8u64))
-            (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values)))
-            (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64))
+        let source = "(#fn main () #u64
+            (#let-mut values (#array #u64 8)
+              (#array-of (#array #u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 8u64))
+            (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values)))
+            (#let (#tuple left right) (#tuple (#slice-mut #u64) (#slice-mut #u64))
               (#slice-mut-split view 4usize))
-            (#let (#tuple first second) (#tuple (#slice-mut u64) (#slice-mut u64))
+            (#let (#tuple first second) (#tuple (#slice-mut #u64) (#slice-mut #u64))
               (#slice-mut-split left 2usize))
             (#deref-set (#slice-mut-idx first 0usize) 10u64)
             (#deref-set (#slice-mut-idx second 0usize) 20u64)
@@ -3323,8 +3323,8 @@ mod tests {
 
     #[test]
     fn scoped_borrow_conflicts_are_checked_on_typed_control_flow() {
-        let source = "(#fn main () u64
-            (#let-mut value u64 1u64)
+        let source = "(#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#return (#borrow value (#borrow-mut value 2u64))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
@@ -3333,8 +3333,8 @@ mod tests {
 
     #[test]
     fn typed_scoped_borrow_ends_before_following_accesses() {
-        let source = "(#fn main () u64
-            (#let-mut value u64 1u64)
+        let source = "(#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#borrow value 2u64)
             (#borrow-mut value 3u64)
             (#return value))";
@@ -3344,8 +3344,8 @@ mod tests {
 
     #[test]
     fn mutable_scoped_borrow_authorizes_access_within_its_region() {
-        let source = "(#fn main () u64
-            (#let-mut value u64 1u64)
+        let source = "(#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#borrow-mut value (#block (#set value 2u64) value))
             (#return value))";
         let program = crate::parse_program(source).unwrap();
@@ -3354,8 +3354,8 @@ mod tests {
 
     #[test]
     fn scoped_loan_remains_active_on_each_branch() {
-        let source = "(#fn main () u64
-            (#let-mut value u64 1u64)
+        let source = "(#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#return (#borrow value
               (#if true (#borrow-mut value 2u64) 3u64))))";
         let program = crate::parse_program(source).unwrap();
@@ -3365,8 +3365,8 @@ mod tests {
 
     #[test]
     fn scoped_loan_is_ended_at_a_branch_join() {
-        let source = "(#fn main () u64
-            (#let-mut value u64 1u64)
+        let source = "(#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#if true (#borrow value 2u64) 3u64)
             (#borrow-mut value 4u64)
             (#return value))";
@@ -3376,13 +3376,13 @@ mod tests {
 
     #[test]
     fn scoped_field_reborrow_conflicts_on_the_referent_projection() {
-        let source = "(#struct Pair ((left u64) (right u64)))
-          (#fn main () u64
+        let source = "(#struct Pair ((left #u64) (right #u64)))
+          (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let parent (#ref-mut Pair) (#borrow-mut pair))
             (#borrow-mut (#get parent left)
               (#block
-                (#let view (#ref u64) (#borrow (#get parent left)))
+                (#let view (#ref #u64) (#borrow (#get parent left)))
                 3u64))
             (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
@@ -3392,13 +3392,13 @@ mod tests {
 
     #[test]
     fn scoped_field_reborrow_keeps_disjoint_siblings_available() {
-        let source = "(#struct Pair ((left u64) (right u64)))
-          (#fn main () u64
+        let source = "(#struct Pair ((left #u64) (right #u64)))
+          (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let parent (#ref-mut Pair) (#borrow-mut pair))
             (#borrow-mut (#get parent left)
               (#block
-                (#let view (#ref u64) (#borrow (#get parent right)))
+                (#let view (#ref #u64) (#borrow (#get parent right)))
                 (#drop view)
                 3u64))
             (#return 0u64))";
@@ -3408,8 +3408,8 @@ mod tests {
 
     #[test]
     fn escaping_loop_exit_ends_the_scoped_loan() {
-        let source = "(#fn main () u64
-            (#let-mut value u64 1u64)
+        let source = "(#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#label outer
               (#loop (#borrow-mut value (#block (#break-to outer) ()))))
             (#borrow-mut value 2u64)
@@ -3421,7 +3421,7 @@ mod tests {
     #[test]
     fn return_inside_scoped_borrow_runs_typed_scope_cleanup() {
         let source = "(#fn main () ()
-            (#let-mut value u64 1u64)
+            (#let-mut value #u64 1u64)
             (#borrow-mut value (#block (#return ())))
             (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -3453,9 +3453,9 @@ mod tests {
 
     #[test]
     fn scoped_loan_is_released_on_every_loop_iteration() {
-        let source = "(#fn main () u64
-            (#let-mut value u64 1u64)
-            (#for-range (iteration u64) 0u64 3u64
+        let source = "(#fn main () #u64
+            (#let-mut value #u64 1u64)
+            (#for-range (iteration #u64) 0u64 3u64
               (#borrow value 2u64))
             (#borrow-mut value 4u64)
             (#return value))";
@@ -3465,14 +3465,14 @@ mod tests {
 
     #[test]
     fn projected_reborrow_suspends_parent_access_but_preserves_disjoint_fields() {
-        let overlapping = "(#struct Inner ((value u64)))
-          (#struct Outer ((inner Inner) (other u64)))
-          (#fn main () u64
+        let overlapping = "(#struct Inner ((value #u64)))
+          (#struct Outer ((inner Inner) (other #u64)))
+          (#fn main () #u64
             (#let-mut owner Outer (#struct-literal Outer
               ((inner (#struct-literal Inner ((value 7u64)))) (other 9u64))))
             (#let outer-ref (#ref-mut Outer) (#borrow-mut owner))
             (#let inner-ref (#ref-mut Inner) (#borrow-mut (#get outer-ref inner)))
-            (#let observed u64 (#get outer-ref other))
+            (#let observed #u64 (#get outer-ref other))
             (#drop inner-ref)
             (#drop outer-ref)
             (#forget owner)
@@ -3515,12 +3515,12 @@ mod tests {
         let span = error.span.unwrap();
         assert_eq!(&overlapping[span.start..span.end], "(#get outer-ref other)");
 
-        let disjoint = "(#struct Outer ((left u64) (right u64)))
-          (#fn main () u64
+        let disjoint = "(#struct Outer ((left #u64) (right #u64)))
+          (#fn main () #u64
             (#let-mut owner Outer (#struct-literal Outer ((left 7u64) (right 9u64))))
             (#let outer-ref (#ref-mut Outer) (#borrow-mut owner))
-            (#let left-ref (#ref-mut u64) (#borrow-mut (#get outer-ref left)))
-            (#let right u64 (#get outer-ref right))
+            (#let left-ref (#ref-mut #u64) (#borrow-mut (#get outer-ref left)))
+            (#let right #u64 (#get outer-ref right))
             (#drop left-ref)
             (#drop outer-ref)
             (#forget owner)
@@ -3533,11 +3533,11 @@ mod tests {
 
     #[test]
     fn reference_parameter_reborrows_distinguish_overlapping_and_disjoint_fields() {
-        let prefix = "(#struct Pair (: left u64 : right u64))\n";
+        let prefix = "(#struct Pair (: left #u64 : right #u64))\n";
         let overlapping = format!(
             "{prefix}(#fn bad (: target (#ref-mut Pair)) ()
-              (#let left (#ref-mut u64) (#borrow-mut (#get target left)))
-              (#let child (#ref u64) (#borrow (#get target left)))
+              (#let left (#ref-mut #u64) (#borrow-mut (#get target left)))
+              (#let child (#ref #u64) (#borrow (#get target left)))
               (#drop child) (#drop left) (#return ()))"
         );
         let error =
@@ -3552,8 +3552,8 @@ mod tests {
 
         let disjoint = format!(
             "{prefix}(#fn valid (: target (#ref-mut Pair)) ()
-              (#let left (#ref-mut u64) (#borrow-mut (#get target left)))
-              (#let child (#ref u64) (#borrow (#get target right)))
+              (#let left (#ref-mut #u64) (#borrow-mut (#get target left)))
+              (#let child (#ref #u64) (#borrow (#get target right)))
               (#drop child) (#drop left) (#return ()))"
         );
         crate::CheckedProgram::validate(&crate::parse_program(&disjoint).unwrap())
@@ -3562,14 +3562,14 @@ mod tests {
 
     #[test]
     fn aggregate_held_loan_conflicts_with_checked_borrow_event() {
-        let source = "(#struct Holder ((view (#ref-mut u64))))
-          (#fn main () u64
-            (#let-mut left u64 1u64)
-            (#let-mut right u64 2u64)
+        let source = "(#struct Holder ((view (#ref-mut #u64))))
+          (#fn main () #u64
+            (#let-mut left #u64 1u64)
+            (#let-mut right #u64 2u64)
             (#let holder Holder
               (#struct-literal Holder ((view (#borrow-mut left)))))
-            (#let other (#ref u64) (#borrow right))
-            (#let result u64 (#deref (#get holder view)))
+            (#let other (#ref #u64) (#borrow right))
+            (#let result #u64 (#deref (#get holder view)))
             (#forget holder)
             (#return result))";
         let program = crate::parse_program(source).unwrap();
@@ -3606,13 +3606,13 @@ mod tests {
 
     #[test]
     fn explicit_release_keeps_aggregate_loan_live() {
-        let source = "(#struct Holder ((view (#ref-mut u64))))
-          (#fn main () u64
-            (#let-mut left u64 1u64)
-            (#let-mut right u64 2u64)
+        let source = "(#struct Holder ((view (#ref-mut #u64))))
+          (#fn main () #u64
+            (#let-mut left #u64 1u64)
+            (#let-mut right #u64 2u64)
             (#let holder Holder
               (#struct-literal Holder ((view (#borrow-mut left)))))
-            (#let other (#ref u64) (#borrow right))
+            (#let other (#ref #u64) (#borrow right))
             (#forget holder)
             (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
@@ -3655,10 +3655,10 @@ mod tests {
 
     #[test]
     fn write_conflict_uses_checked_place_and_loan_origin() {
-        let source = "(#fn main () u64
-            (#let-mut left u64 1u64)
-            (#let-mut right u64 2u64)
-            (#let view (#ref u64) (#borrow left))
+        let source = "(#fn main () #u64
+            (#let-mut left #u64 1u64)
+            (#let-mut right #u64 2u64)
+            (#let view (#ref #u64) (#borrow left))
             (#set right 3u64)
             (#return (#deref view)))";
         let program = crate::parse_program(source).unwrap();
@@ -3695,10 +3695,10 @@ mod tests {
 
     #[test]
     fn explicit_release_conflict_uses_checked_place_and_loan_origin() {
-        let source = "(#fn main () u64
-            (#let left u64 1u64)
-            (#let right u64 2u64)
-            (#let view (#ref u64) (#borrow left))
+        let source = "(#fn main () #u64
+            (#let left #u64 1u64)
+            (#let right #u64 2u64)
+            (#let view (#ref #u64) (#borrow left))
             (#forget right)
             (#return (#deref view)))";
         let program = crate::parse_program(source).unwrap();
@@ -3735,11 +3735,11 @@ mod tests {
 
     #[test]
     fn clone_conflict_uses_checked_place_and_mutable_loan_origin() {
-        let source = "(#fn main () u64
-            (#let-mut left u64 1u64)
-            (#let-mut right u64 2u64)
-            (#let view (#ref-mut u64) (#borrow-mut left))
-            (#let copy u64 (#clone right))
+        let source = "(#fn main () #u64
+            (#let-mut left #u64 1u64)
+            (#let-mut right #u64 2u64)
+            (#let view (#ref-mut #u64) (#borrow-mut left))
+            (#let copy #u64 (#clone right))
             (#return (#u64.+.wrap (#deref view) copy)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -3775,11 +3775,11 @@ mod tests {
 
     #[test]
     fn symbol_read_conflict_uses_checked_binding_identity() {
-        let source = "(#fn main () u64
-            (#let-mut left u64 1u64)
-            (#let-mut right u64 2u64)
-            (#let view (#ref-mut u64) (#borrow-mut left))
-            (#let value u64 right)
+        let source = "(#fn main () #u64
+            (#let-mut left #u64 1u64)
+            (#let-mut right #u64 2u64)
+            (#let view (#ref-mut #u64) (#borrow-mut left))
+            (#let value #u64 right)
             (#return (#deref view)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -3805,12 +3805,12 @@ mod tests {
 
     #[test]
     fn disjoint_field_read_does_not_read_entire_base() {
-        let source = "(#struct Pair ((left u64) (right u64)))
-          (#fn main () u64
+        let source = "(#struct Pair ((left #u64) (right #u64)))
+          (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
-            (#let view (#ref-mut u64) (#borrow-mut (#get pair-ref left)))
-            (#let right u64 (#get pair-ref right))
+            (#let view (#ref-mut #u64) (#borrow-mut (#get pair-ref left)))
+            (#let right #u64 (#get pair-ref right))
             (#return (#u64.+.wrap (#deref view) right)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -3835,10 +3835,10 @@ mod tests {
 
     #[test]
     fn two_shared_direct_borrows_are_allowed() {
-        let source = "(#fn inspect ((left (#ref u64)) (right (#ref u64))) u64
+        let source = "(#fn inspect ((left (#ref #u64)) (right (#ref #u64))) #u64
             (#return (#u64.+.wrap (#deref left) (#deref right))))
-          (#fn main () u64
-            (#let value u64 1u64)
+          (#fn main () #u64
+            (#let value #u64 1u64)
             (#return (#call inspect (: left (#borrow value) : right (#borrow value)))))";
         let program = crate::parse_program(source).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
@@ -3846,10 +3846,10 @@ mod tests {
 
     #[test]
     fn disjoint_struct_fields_can_be_borrowed_together() {
-        let source = "(#struct Pair ((left u64) (right u64)))
-          (#fn inspect ((left (#ref-mut u64)) (right (#ref u64))) u64
+        let source = "(#struct Pair ((left #u64) (right #u64)))
+          (#fn inspect ((left (#ref-mut #u64)) (right (#ref #u64))) #u64
             (#forget left) (#forget right) (#return 0u64))
-          (#fn main () u64
+          (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
             (#return (#call inspect (: left (#borrow-mut (#get pair-ref left)) : right (#borrow (#get pair-ref right))))))";
@@ -3867,12 +3867,12 @@ mod tests {
 
     #[test]
     fn borrow_inside_struct_argument_conflicts_with_another_argument() {
-        let source = "(#struct Holder ((item (#ref u64))))
-          (#fn inspect ((holder Holder) (right (#ref-mut u64))) u64
+        let source = "(#struct Holder ((item (#ref #u64))))
+          (#fn inspect ((holder Holder) (right (#ref-mut #u64))) #u64
             (#let (Holder item) Holder holder)
             (#drop item) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#return (#call inspect (: holder (#struct-literal Holder ((item (#borrow value)))) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
@@ -3885,11 +3885,11 @@ mod tests {
 
     #[test]
     fn bound_reference_aggregate_conflicts_with_another_call_argument() {
-        let source = "(#struct Holder ((item (#ref u64))))
-          (#fn inspect ((holder Holder) (right (#ref-mut u64))) u64
+        let source = "(#struct Holder ((item (#ref #u64))))
+          (#fn inspect ((holder Holder) (right (#ref-mut #u64))) #u64
             (#forget holder) (#forget right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#let holder Holder (#struct-literal Holder ((item (#borrow value)))))
             (#return (#call inspect (: holder holder : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
@@ -3905,15 +3905,15 @@ mod tests {
 
     #[test]
     fn projected_bound_reference_aggregate_conflicts_with_call_argument() {
-        let source = "(#struct Holder ((item (#ref u64)) (other (#ref u64))))
-          (#fn inspect ((item (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#struct Holder ((item (#ref #u64)) (other (#ref #u64))))
+          (#fn inspect ((item (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#forget item) (#forget right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
-            (#let-mut other u64 2u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
+            (#let-mut other #u64 2u64)
             (#let holder Holder (#struct-literal Holder
               ((item (#borrow value)) (other (#borrow other)))))
-            (#let result u64 (#call inspect
+            (#let result #u64 (#call inspect
               (: item (#get holder item) : right (#borrow-mut value))))
             (#return result))";
         let program = crate::parse_program(source).unwrap();
@@ -3928,8 +3928,8 @@ mod tests {
 
         let disjoint = source
             .replace(
-                "(#struct Holder ((item (#ref u64)) (other (#ref u64))))",
-                "(#struct Holder ((item (#ref u64)) (other u64)))",
+                "(#struct Holder ((item (#ref #u64)) (other (#ref #u64))))",
+                "(#struct Holder ((item (#ref #u64)) (other #u64)))",
             )
             .replace("(other (#borrow other))", "(other other)")
             .replace("(#borrow-mut value))))", "(#borrow-mut other))))");
@@ -3941,14 +3941,14 @@ mod tests {
     #[test]
     fn array_constructors_expose_borrowed_call_arguments() {
         for constructor in [
-            "(#array-of (#array (#ref u64) 1) (#borrow value))",
+            "(#array-of (#array (#ref #u64) 1) (#borrow value))",
             "(#array-repeat (#borrow value))",
         ] {
             let source = format!(
-                "(#fn inspect ((values (#array (#ref u64) 1)) (other (#ref-mut u64))) u64
+                "(#fn inspect ((values (#array (#ref #u64) 1)) (other (#ref-mut #u64))) #u64
                    (#forget values) (#forget other) (#return 0u64))
-                 (#fn main () u64
-                   (#let-mut value u64 1u64)
+                 (#fn main () #u64
+                   (#let-mut value #u64 1u64)
                    (#return (#call inspect (: values {constructor} : other (#borrow-mut value)))))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -3967,10 +3967,10 @@ mod tests {
 
     #[test]
     fn empty_repeated_array_does_not_retain_a_call_argument_borrow() {
-        let source = "(#fn inspect ((values (#array (#ref u64) 0)) (other (#ref-mut u64))) u64
+        let source = "(#fn inspect ((values (#array (#ref #u64) 0)) (other (#ref-mut #u64))) #u64
              (#forget values) (#forget other) (#return 0u64))
-          (#fn main () u64
-             (#let-mut value u64 1u64)
+          (#fn main () #u64
+             (#let-mut value #u64 1u64)
              (#return (#call inspect
                (: values (#array-repeat (#borrow value))
                 : other (#borrow-mut value)))))";
@@ -3980,11 +3980,11 @@ mod tests {
 
     #[test]
     fn conditional_alternatives_do_not_conflict_with_each_other() {
-        let source = "(#fn inspect ((left (#ref-mut u64)) (right (#ref u64))) u64
+        let source = "(#fn inspect ((left (#ref-mut #u64)) (right (#ref #u64))) #u64
             (#forget left) (#forget right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut first u64 1u64)
-            (#let-mut second u64 2u64)
+          (#fn main () #u64
+            (#let-mut first #u64 1u64)
+            (#let-mut second #u64 2u64)
             (#return (#call inspect (: left (#if true (#borrow-mut first) (#borrow-mut second)) : right (#borrow second)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
@@ -3992,8 +3992,8 @@ mod tests {
 
         let disjoint = source
             .replace(
-                "(#let-mut second u64 2u64)",
-                "(#let-mut second u64 2u64) (#let-mut third u64 3u64)",
+                "(#let-mut second #u64 2u64)",
+                "(#let-mut second #u64 2u64) (#let-mut third #u64 3u64)",
             )
             .replace(": right (#borrow second)", ": right (#borrow third)");
         let program = crate::parse_program(&disjoint).unwrap();
@@ -4002,11 +4002,11 @@ mod tests {
 
     #[test]
     fn borrow_inside_tuple_argument_conflicts_with_another_argument() {
-        let source = "(#fn inspect ((left (#tuple (#ref u64))) (right (#ref-mut u64))) u64
-            (#let (#tuple item) (#tuple (#ref u64)) left)
+        let source = "(#fn inspect ((left (#tuple (#ref #u64))) (right (#ref-mut #u64))) #u64
+            (#let (#tuple item) (#tuple (#ref #u64)) left)
             (#drop item) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#return (#call inspect (: left (#tuple (#borrow value)) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
@@ -4020,8 +4020,8 @@ mod tests {
 
         let disjoint = source
             .replace(
-                "(#let-mut value u64 1u64)",
-                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+                "(#let-mut value #u64 1u64)",
+                "(#let-mut value #u64 1u64) (#let-mut other #u64 2u64)",
             )
             .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
@@ -4030,12 +4030,12 @@ mod tests {
 
     #[test]
     fn borrow_inside_array_argument_conflicts_with_another_argument() {
-        let source = "(#fn inspect ((left (#array (#ref u64) 1)) (right (#ref-mut u64))) u64
-            (#let (#array item) (#array (#ref u64) 1) left)
+        let source = "(#fn inspect ((left (#array (#ref #u64) 1)) (right (#ref-mut #u64))) #u64
+            (#let (#array item) (#array (#ref #u64) 1) left)
             (#drop item) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
-            (#return (#call inspect (: left (#array (#array (#ref u64) 1) (#borrow value)) : right (#borrow-mut value)))))";
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
+            (#return (#call inspect (: left (#array (#array (#ref #u64) 1) (#borrow value)) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
             .err()
@@ -4048,8 +4048,8 @@ mod tests {
 
         let disjoint = source
             .replace(
-                "(#let-mut value u64 1u64)",
-                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+                "(#let-mut value #u64 1u64)",
+                "(#let-mut value #u64 1u64) (#let-mut other #u64 2u64)",
             )
             .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
@@ -4058,12 +4058,12 @@ mod tests {
 
     #[test]
     fn borrow_inside_enum_argument_conflicts_with_another_argument() {
-        let source = "(#enum Holder ((Has (#ref u64))))
-          (#fn inspect ((left Holder) (right (#ref-mut u64))) u64
+        let source = "(#enum Holder ((Has (#ref #u64))))
+          (#fn inspect ((left Holder) (right (#ref-mut #u64))) #u64
             (#let-else (Has item) Holder left (#return 0u64))
             (#drop item) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#return (#call inspect (: left (Has (#borrow value)) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate(&program).err().unwrap();
@@ -4072,11 +4072,11 @@ mod tests {
 
     #[test]
     fn match_result_borrows_are_checked_per_arm() {
-        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut first u64 1u64)
-            (#let-mut second u64 2u64)
+          (#fn main () #u64
+            (#let-mut first #u64 1u64)
+            (#let-mut second #u64 2u64)
             (#return (#call inspect (: left (#match true
                 (#case true (#borrow first))
                 (#case false (#borrow second))) : right (#borrow-mut first)))))";
@@ -4087,11 +4087,11 @@ mod tests {
 
     #[test]
     fn immutable_block_binding_retains_borrow_origin() {
-        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
-            (#return (#call inspect (: left (#block (#let view (#ref u64) (#borrow value)) view) : right (#borrow-mut value)))))";
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
+            (#return (#call inspect (: left (#block (#let view (#ref #u64) (#borrow value)) view) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
             .err()
@@ -4104,8 +4104,8 @@ mod tests {
 
         let disjoint = source
             .replace(
-                "(#let-mut value u64 1u64)",
-                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+                "(#let-mut value #u64 1u64)",
+                "(#let-mut value #u64 1u64) (#let-mut other #u64 2u64)",
             )
             .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
@@ -4114,14 +4114,14 @@ mod tests {
 
     #[test]
     fn destructured_block_reference_retains_aggregate_loan_origin() {
-        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#return (#call inspect
               (: left (#block
-                  (#let (#tuple view) (#tuple (#ref u64))
-                    (#tuple (#tuple (#ref u64)) (#borrow value)))
+                  (#let (#tuple view) (#tuple (#ref #u64))
+                    (#tuple (#tuple (#ref #u64)) (#borrow value)))
                   view)
                : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
@@ -4137,16 +4137,16 @@ mod tests {
 
     #[test]
     fn destructured_sibling_references_keep_distinct_loan_origins() {
-        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut first u64 1u64)
-            (#let-mut second u64 2u64)
-            (#let pair (#tuple (#ref u64) (#ref-mut u64))
-              (#tuple (#tuple (#ref u64) (#ref-mut u64))
+          (#fn main () #u64
+            (#let-mut first #u64 1u64)
+            (#let-mut second #u64 2u64)
+            (#let pair (#tuple (#ref #u64) (#ref-mut #u64))
+              (#tuple (#tuple (#ref #u64) (#ref-mut #u64))
                 (#borrow first) (#borrow-mut second)))
             (#let (#tuple left right)
-              (#tuple (#ref u64) (#ref-mut u64))
+              (#tuple (#ref #u64) (#ref-mut #u64))
               pair)
             (#return (#call inspect (: left left : right right))))";
         let program = crate::parse_program(source).unwrap();
@@ -4155,15 +4155,15 @@ mod tests {
 
     #[test]
     fn array_destructuring_retains_element_loan_paths() {
-        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut first u64 1u64)
-            (#let-mut second u64 2u64)
-            (#let pair (#array (#ref u64) 2)
-              (#array (#array (#ref u64) 2)
+          (#fn main () #u64
+            (#let-mut first #u64 1u64)
+            (#let-mut second #u64 2u64)
+            (#let pair (#array (#ref #u64) 2)
+              (#array (#array (#ref #u64) 2)
                 (#borrow first) (#borrow second)))
-            (#let (#array left right) (#array (#ref u64) 2) pair)
+            (#let (#array left right) (#array (#ref #u64) 2) pair)
             (#return (#call inspect (: left left : right (#borrow-mut second)))))";
         let program = crate::parse_program(source).unwrap();
         crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
@@ -4179,12 +4179,12 @@ mod tests {
 
     #[test]
     fn struct_destructuring_retains_field_loan_paths() {
-        let source = "(#struct Pair ((left (#ref u64)) (right (#ref u64))))
-          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#struct Pair ((left (#ref #u64)) (right (#ref #u64))))
+          (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut first u64 1u64)
-            (#let-mut second u64 2u64)
+          (#fn main () #u64
+            (#let-mut first #u64 1u64)
+            (#let-mut second #u64 2u64)
             (#let pair Pair (#struct-literal Pair
               ((left (#borrow first)) (right (#borrow second)))))
             (#let (Pair left right) Pair pair)
@@ -4201,12 +4201,12 @@ mod tests {
 
     #[test]
     fn enum_payload_destructuring_retains_loan_paths() {
-        let source = "(#enum Holder ((Held (#ref u64)) (Empty)))
-          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#enum Holder ((Held (#ref #u64)) (Empty)))
+          (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
-            (#let-mut other u64 2u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
+            (#let-mut other #u64 2u64)
             (#let holder Holder (Held (#borrow value)))
             (#let-else (Held left) Holder holder (#return 0u64))
             (#return (#call inspect
@@ -4222,12 +4222,12 @@ mod tests {
 
     #[test]
     fn enum_match_binding_retains_payload_loan_path() {
-        let source = "(#enum Holder ((Held (#ref u64)) (Empty)))
-          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#enum Holder ((Held (#ref #u64)) (Empty)))
+          (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
-            (#let-mut other u64 2u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
+            (#let-mut other #u64 2u64)
             (#let holder Holder (Held (#borrow value)))
             (#return (#match holder
               (#case (Held left)
@@ -4244,13 +4244,13 @@ mod tests {
 
     #[test]
     fn nested_struct_patterns_retain_full_loan_path() {
-        let source = "(#struct Inner ((item (#ref u64))))
+        let source = "(#struct Inner ((item (#ref #u64))))
           (#struct Outer ((inner Inner)))
-          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+          (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
-            (#let-mut other u64 2u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
+            (#let-mut other #u64 2u64)
             (#let inner Inner (#struct-literal Inner ((item (#borrow value)))))
             (#let outer Outer (#struct-literal Outer ((inner inner))))
             (#let (Outer (Inner left)) Outer outer)
@@ -4267,10 +4267,10 @@ mod tests {
 
     #[test]
     fn loop_break_reference_retains_call_argument_origin() {
-        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#return (#call inspect
               (: left (#loop (#break (#borrow value)))
                : right (#borrow-mut value)))))";
@@ -4286,8 +4286,8 @@ mod tests {
 
         let disjoint = source
             .replace(
-                "(#let-mut value u64 1u64)",
-                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+                "(#let-mut value #u64 1u64)",
+                "(#let-mut value #u64 1u64) (#let-mut other #u64 2u64)",
             )
             .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
@@ -4304,12 +4304,12 @@ mod tests {
 
     #[test]
     fn mutable_block_binding_retains_initial_borrow_origin() {
-        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#return (#call inspect (: left (#block
-                (#let-mut view (#ref u64) (#borrow value))
+                (#let-mut view (#ref #u64) (#borrow value))
                 view) : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
@@ -4321,8 +4321,8 @@ mod tests {
 
         let disjoint = source
             .replace(
-                "(#let-mut value u64 1u64)",
-                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+                "(#let-mut value #u64 1u64)",
+                "(#let-mut value #u64 1u64) (#let-mut other #u64 2u64)",
             )
             .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
@@ -4390,11 +4390,11 @@ mod tests {
 
     #[test]
     fn reference_binding_as_call_argument_retains_its_direct_origin() {
-        let source = "(#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+        let source = "(#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
-            (#let view (#ref u64) (#borrow value))
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
+            (#let view (#ref #u64) (#borrow value))
             (#return (#call inspect (: left view : right (#borrow-mut value)))))";
         let program = crate::parse_program(source).unwrap();
         let error = crate::CheckedProgram::validate_with_span(&program)
@@ -4408,8 +4408,8 @@ mod tests {
 
         let disjoint = source
             .replace(
-                "(#let-mut value u64 1u64)",
-                "(#let-mut value u64 1u64) (#let-mut other u64 2u64)",
+                "(#let-mut value #u64 1u64)",
+                "(#let-mut value #u64 1u64) (#let-mut other #u64 2u64)",
             )
             .replace(": right (#borrow-mut value)", ": right (#borrow-mut other)");
         let program = crate::parse_program(&disjoint).unwrap();
@@ -4418,12 +4418,12 @@ mod tests {
 
     #[test]
     fn reference_returning_call_preserves_argument_origin() {
-        let source = "(#fn identity ((source (#ref u64))) (#ref u64)
+        let source = "(#fn identity ((source (#ref #u64))) (#ref #u64)
             (#return source))
-          (#fn inspect ((left (#ref u64)) (right (#ref-mut u64))) u64
+          (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
-          (#fn main () u64
-            (#let-mut value u64 1u64)
+          (#fn main () #u64
+            (#let-mut value #u64 1u64)
             (#return (#call inspect
               (: left (#call identity (: source (#borrow value)))
                : right (#borrow-mut value)))))";
@@ -4483,8 +4483,8 @@ mod tests {
         assert!(combine(alternatives.clone(), shared(0), "inspect", None).is_err());
         assert!(combine(alternatives, shared(2), "inspect", None).is_ok());
 
-        let source = "(#enum Choice ((First (#ref-mut u64)) (Second (#ref-mut u64))))
-            (#fn inspect ((choice Choice)) u64
+        let source = "(#enum Choice ((First (#ref-mut #u64)) (Second (#ref-mut #u64))))
+            (#fn inspect ((choice Choice)) #u64
               (#return (#match choice
                 (#case (First first) (#block (#drop first) 0u64))
                 (#case (Second second) (#block (#drop second) 0u64)))))";
@@ -4532,15 +4532,15 @@ mod tests {
         assert_eq!(coexisting.len(), 1);
         assert_eq!(coexisting[0].len(), 2);
 
-        let source = "(#fn inspect ((first (#ref-mut u64)) (second (#ref u64))) u64
+        let source = "(#fn inspect ((first (#ref-mut #u64)) (second (#ref #u64))) #u64
             (#drop first) (#drop second) (#return 0u64))
-          (#fn main () u64
-            (#let-mut left u64 1u64)
-            (#let-mut right u64 2u64)
-            (#let flag bool true)
-            (#let view (#ref-mut u64)
+          (#fn main () #u64
+            (#let-mut left #u64 1u64)
+            (#let-mut right #u64 2u64)
+            (#let flag #bool true)
+            (#let view (#ref-mut #u64)
               (#if flag (#borrow-mut left) (#borrow-mut right)))
-            (#let-mut third u64 3u64)
+            (#let-mut third #u64 3u64)
             (#return (#call inspect (: first view : second (#borrow third)))))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -4567,11 +4567,11 @@ mod tests {
 
     #[test]
     fn projected_borrow_uses_reference_bindings_referent_place() {
-        let source = "(#struct Pair ((left u64) (right u64)))
-          (#fn main () u64
+        let source = "(#struct Pair ((left #u64) (right #u64)))
+          (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
-            (#let field-ref (#ref u64) (#borrow (#get pair-ref left)))
+            (#let field-ref (#ref #u64) (#borrow (#get pair-ref left)))
             (#drop field-ref)
             (#drop pair-ref)
             (#forget pair)
@@ -4633,15 +4633,15 @@ mod tests {
 
     #[test]
     fn projected_borrow_follows_two_known_reference_bindings() {
-        let source = "(#struct Inner ((x u64)))
+        let source = "(#struct Inner ((x #u64)))
           (#struct Outer ((inner Inner)))
-          (#fn main () u64
+          (#fn main () #u64
             (#let-mut owner Outer (#struct-literal Outer
               ((inner (#struct-literal Inner ((x 3u64)))))))
             (#let outer-ref (#ref-mut Outer) (#borrow-mut owner))
             (#let inner-ref (#ref-mut Inner)
               (#borrow-mut (#get outer-ref inner)))
-            (#let value-ref (#ref u64) (#borrow (#get inner-ref x)))
+            (#let value-ref (#ref #u64) (#borrow (#get inner-ref x)))
             (#drop value-ref)
             (#drop inner-ref)
             (#drop outer-ref)

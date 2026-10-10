@@ -135,7 +135,7 @@ fn unsupported_target_preserves_linux_wrapper_signatures() {
 fn linux_library_emits_without_external_declarations() {
     let scratch = support::Scratch::new("syscall-library-emission");
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source = "(#import \"library/linux_x86_64.lim\")\n(#fn main () u64 (#return 0u64))";
+    let source = "(#import \"library/linux_x86_64.lim\")\n(#fn main () #u64 (#return 0u64))";
     let mut config = lim::CompileConfig::default();
     config.set("os", "linux");
     config.set("arch", "x86_64");
@@ -304,9 +304,9 @@ fn library_sources_only_declare_the_standard_allocator_ffi() {
     // not a general exemption for FFI elsewhere or in generated templates.
     let allocator = Path::new(env!("CARGO_MANIFEST_DIR")).join("library/system_allocator.lim");
     let expected: BTreeMap<_, _> = lim::parse(
-        "(#extern-fn #abi-c malloc (: size usize) (#ptr-mut u8))
-         (#extern-fn #abi-c realloc (: pointer (#ptr-mut u8) : size usize) (#ptr-mut u8))
-         (#extern-fn #abi-c free (: pointer (#ptr-mut u8)) ())",
+        "(#extern-fn #abi-c malloc (: size #usize) (#ptr-mut #u8))
+         (#extern-fn #abi-c realloc (: pointer (#ptr-mut #u8) : size #usize) (#ptr-mut #u8))
+         (#extern-fn #abi-c free (: pointer (#ptr-mut #u8)) ())",
     )
     .unwrap()
     .into_iter()

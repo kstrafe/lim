@@ -3,17 +3,17 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #let
     greeting
-    (#array char 5)
+    (#array #char 5)
     "Hello"
   )
   (
     #let
     suffix
-    (#array char 9)
+    (#array #char 9)
     ", world 🙂"
   )
   (
@@ -84,7 +84,7 @@
         #println
         (#borrow message)
       )
-      (#literal i64 0)
+      (#literal #i64 0)
     )
   )
   (
@@ -97,5 +97,5 @@
     (: string message)  )
   (
     #return
-    (#literal u64 42)
+    (#literal #u64 42)
   ))

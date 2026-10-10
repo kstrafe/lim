@@ -1,8 +1,8 @@
-(#const Maximum u64 18446744073709551615)
-(#const Wrapped u64 (#u64.*.wrap Maximum 2))
-(#const Saturated u64 (#u64.*.saturate Maximum 2))
+(#const Maximum #u64 18446744073709551615)
+(#const Wrapped #u64 (#u64.*.wrap Maximum 2))
+(#const Saturated #u64 (#u64.*.saturate Maximum 2))
 
-(#fn main () u64
+(#fn main () #u64
   (#return
     (#if (#u64.&&
            (#u64.== Wrapped 18446744073709551614)

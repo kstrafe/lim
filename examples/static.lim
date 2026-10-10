@@ -1,10 +1,10 @@
-(#static BuildId u64 7)
+(#static BuildId #u64 7)
 
 (
   #fn
   main
   ()
-  u64
+  #u64
   (
     #return
     (#u64.+.wrap  (#unsafe BuildId) 35)

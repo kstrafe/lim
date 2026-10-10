@@ -6,17 +6,17 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
     let scratch = support::Scratch::new("float-constants");
     let root = scratch.path();
     let source = "
-      (#const Rounded f32 (#f32.- (#f32.+ 16777216.0f32 1.0f32) 16777216.0f32))
-      (#const Forward f64 (#f64.+ Base 0.5f64))
-      (#const Base f64 1.5f64)
-      (#const NegativeZero f64 -0.0f64)
-      (#const Infinity f64 (#f64./ 1.0f64 0.0f64))
-      (#const Nan f64 (#f64./ 0.0f64 0.0f64))
-      (#struct Floats ((small f32) (large f64)))
+      (#const Rounded #f32 (#f32.- (#f32.+ 16777216.0f32 1.0f32) 16777216.0f32))
+      (#const Forward #f64 (#f64.+ Base 0.5f64))
+      (#const Base #f64 1.5f64)
+      (#const NegativeZero #f64 -0.0f64)
+      (#const Infinity #f64 (#f64./ 1.0f64 0.0f64))
+      (#const Nan #f64 (#f64./ 0.0f64 0.0f64))
+      (#struct Floats ((small #f32) (large #f64)))
       (#static Pair Floats (#struct-literal Floats ((large Forward) (small Rounded))))
-      (#static Values (#array f64 2) (#array-of (#array f64 2) NegativeZero Infinity))
-      (#fn main () u64
-        (#let rounded f32 (#f32.- (#f32.+ 16777216.0f32 1.0f32) 16777216.0f32))
+      (#static Values (#array #f64 2) (#array-of (#array #f64 2) NegativeZero Infinity))
+      (#fn main () #u64
+        (#let rounded #f32 (#f32.- (#f32.+ 16777216.0f32 1.0f32) 16777216.0f32))
         (#assert (#f32.== Rounded rounded))
         (#assert (#f32.== Rounded 0.0f32))
         (#assert (#f64.== Forward 2.0f64))
@@ -50,8 +50,8 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
         Some(42)
     );
     for invalid in [
-        "(#const A f64 B) (#const B f64 A)",
-        "(#fn value () f64 (#return 1.0f64)) (#const A f64 (#call value (:)))",
+        "(#const A #f64 B) (#const B #f64 A)",
+        "(#fn value () #f64 (#return 1.0f64)) (#const A #f64 (#call value (:)))",
     ] {
         let error = lim::compile_source_to_assembly(
             invalid,

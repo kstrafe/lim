@@ -1,11 +1,11 @@
-(#struct SharedValue ((value u64)))
-(#struct Pair ((left u64) (right u64)))
-(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64)))
+(#struct SharedValue ((value #u64)))
+(#struct Pair ((left #u64) (right #u64)))
+(#struct Large ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64)))
 
-(#fn read-value ((value (#ref SharedValue))) u64
+(#fn read-value ((value (#ref SharedValue))) #u64
   (#return (#get value value)))
 
-(#fn scale ((value f64)) f64
+(#fn scale ((value #f64)) #f64
   (#return (#f64.* value 2.0f64)))
 
 (#fn noop () ()
@@ -17,7 +17,7 @@
 (#fn pass-large ((value Large)) Large
   (#return value))
 
-(#fn sum-seven ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64)) u64
+(#fn sum-seven ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64)) #u64
   (#return (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#u64.+.wrap a b) c) d) e) f) g)))
 
 (@thread-spawn (: task ReadValueTask : worker read-value))
@@ -27,7 +27,7 @@
 (@thread-spawn (: task LargeTask : worker pass-large))
 (@thread-spawn (: task SumSevenTask : worker sum-seven))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut shared SharedValue (#struct-literal SharedValue ((value 42))))
   (#return
     (#match (#call ReadValueTask-spawn (: value (#borrow shared)))

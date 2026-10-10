@@ -1,2 +1,2 @@
-(#fn main () u128
+(#fn main () #u128
   (#return (#u128./.wrap 1 0)))

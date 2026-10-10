@@ -58,7 +58,7 @@ fn wake_aware_pipeline_is_generated_and_runs() {
 
 #[test]
 fn pending_task_cannot_export_a_borrowed_waker() {
-    let source = "(#struct Executor ((count u64)))
+    let source = "(#struct Executor ((count #u64)))
         (#struct Waker ((executor (#ref Executor))))
         (#enum State ((Waiting (#ref Waker))))
         (#fn escape () State

@@ -14,10 +14,10 @@ fn binding_lines(dump: &str) -> Vec<&str> {
 
 #[test]
 fn same_spelled_match_payloads_have_distinct_typed_bindings_and_stable_ids() {
-    let source = "(#enum Value ((Small u32) (Large u64)))
-      (#fn inspect ((value Value)) u64
+    let source = "(#enum Value ((Small #u32) (Large #u64)))
+      (#fn inspect ((value Value)) #u64
         (#return (#match value
-          (#case (Small item) (#as item u64))
+          (#case (Small item) (#as item #u64))
           (#case (Large item) item))))";
 
     let dump = checked_dump(source);
@@ -62,8 +62,8 @@ fn same_spelled_match_payloads_have_distinct_typed_bindings_and_stable_ids() {
 
 #[test]
 fn unused_destructured_names_are_recorded_as_bindings() {
-    let source = "(#struct Pair ((left u32) (right u64)))
-      (#fn main ((pair Pair)) u64
+    let source = "(#struct Pair ((left #u32) (right #u64)))
+      (#fn main ((pair Pair)) #u64
         (#let (Pair unused_left unused_right) Pair pair)
         (#return 0u64))";
 
@@ -101,12 +101,12 @@ fn unused_destructured_names_are_recorded_as_bindings() {
 
 #[test]
 fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate() {
-    let source = "(#static TOTAL u64 0u64)
-      (#fn main () u64
-        (#let-mut local u64 1u64)
+    let source = "(#static TOTAL #u64 0u64)
+      (#fn main () #u64
+        (#let-mut local #u64 1u64)
         (#set local 2u64)
-        (#block (#let inside u32 4u32) inside)
-        (#loop (#let iteration u32 5u32) (#break))
+        (#block (#let inside #u32 4u32) inside)
+        (#loop (#let iteration #u32 5u32) (#break))
         (#return (#u64.+.wrap local (#unsafe TOTAL))))";
 
     let dump = checked_dump(source);
@@ -141,14 +141,14 @@ fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate(
 
 #[test]
 fn let_else_bindings_are_available_after_success_and_not_in_the_failure_body() {
-    let source = "(#enum Maybe ((Some u64) None))
-      (#fn success ((value Maybe)) u64
+    let source = "(#enum Maybe ((Some #u64) None))
+      (#fn success ((value Maybe)) #u64
         (#let-else (Some payload) Maybe value (#return 0u64))
         (#return payload))
-      (#fn failure ((value Maybe)) u64
+      (#fn failure ((value Maybe)) #u64
         (#let-else (Some payload) Maybe value
-          (#let payload u32 7u32)
-          (#return (#as payload u64)))
+          (#let payload #u32 7u32)
+          (#return (#as payload #u64)))
         (#return payload))";
 
     let dump = checked_dump(source);

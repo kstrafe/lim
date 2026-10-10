@@ -123,7 +123,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
                     ));
                 }
                 let alignment =
-                    usize::try_from(parse_u64(value)?).map_err(|_| "alignment exceeds usize")?;
+                    usize::try_from(parse_u64(value)?).map_err(|_| "alignment exceeds #usize")?;
                 if alignment == 0 || !alignment.is_power_of_two() || alignment > 4096 {
                     return Err(format!(
                         "assembly line {}: unsupported alignment",
@@ -1127,7 +1127,7 @@ mod tests {
 
     #[test]
     fn assembles_a_checked_lim_function_and_keeps_symbol_identity() {
-        let source = "(#fn main () u64 (#return 42u64))";
+        let source = "(#fn main () #u64 (#return 42u64))";
         let program = crate::parse_program(source).unwrap();
         let assembly = crate::generate_assembly(&program).unwrap();
         let assembled = assemble(&assembly).unwrap();

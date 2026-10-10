@@ -2,13 +2,13 @@
 (#syntax-collection Values)
 (#syntax-contribute Values second 22u64)
 (#syntax-contribute Values first 20u64)
-(@distributed-slice (#syntax-distribute Values) Table u64)
+(@distributed-slice (#syntax-distribute Values) Table #u64)
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#unsafe (#block
-    (#let values (#slice u64) (#slice-of (#borrow Table)))
+    (#let values (#slice #u64) (#slice-of (#borrow Table)))
     (#assert (#usize.== (#slice-len values) 2usize))
-    (#let tail (#slice u64) (#slice-range values 1usize 2usize))
+    (#let tail (#slice #u64) (#slice-range values 1usize 2usize))
     (#assert (#u64.== (#deref (#slice-idx tail 0usize)) 22u64))
     (#u64.+.wrap
       (#deref (#slice-idx values 0usize))

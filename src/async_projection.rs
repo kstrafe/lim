@@ -242,7 +242,7 @@ mod tests {
         Declarations,
         crate::linearcheck::LinearTypes,
     ) {
-        fixture_with_scalar(handle, "u64")
+        fixture_with_scalar(handle, "#u64")
     }
 
     fn fixture_with_scalar(
@@ -255,7 +255,7 @@ mod tests {
         crate::linearcheck::LinearTypes,
     ) {
         let source = format!(
-            "(#struct Owner (: value u64)) (#linear Owner) (#type Scalar {scalar})
+            "(#struct Owner (: value #u64)) (#linear Owner) (#type Scalar {scalar})
           (#struct Outer (: pair (#tuple Scalar Scalar)))
           (#type View ({handle} Outer))
           (#fn project (: input View) ({handle} Scalar)
@@ -303,7 +303,7 @@ mod tests {
                 .declaration("generated", "input")
                 .contains("(#get (#get input pair) 1)"));
             let source = format!(
-                "(#type Scalar u64) (#struct Outer (: pair (#tuple Scalar Scalar)))
+                "(#type Scalar #u64) (#struct Outer (: pair (#tuple Scalar Scalar)))
               (#type View ({handle} Outer)) {}",
                 projection.declaration("generated", "input")
             );
@@ -388,7 +388,7 @@ mod tests {
             let write = Write::new(&graph, &place, &declarations, &types).unwrap();
             assert_eq!(write.value, Type::U64);
             let source = format!(
-                "(#type Scalar u64) (#struct Outer (: pair (#tuple Scalar Scalar)))
+                "(#type Scalar #u64) (#struct Outer (: pair (#tuple Scalar Scalar)))
               (#type View ({handle} Outer)) {}",
                 write.declaration("generated", "input", "value")
             );
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn writes_do_not_invent_restoration_for_owners_or_reference_bearing_leaves() {
-        for scalar in ["Owner", "(#ref u64)", "(#ref-mut u64)"] {
+        for scalar in ["Owner", "(#ref #u64)", "(#ref-mut #u64)"] {
             let (graph, place, declarations, types) = fixture_with_scalar("#ref-mut", scalar);
             let error = Write::new(&graph, &place, &declarations, &types)
                 .err()

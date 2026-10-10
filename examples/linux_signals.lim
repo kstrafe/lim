@@ -1,8 +1,8 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let memory (#ptr-mut i64)
-    (#unsafe (#linux-syscall (#ptr-mut i64) LINUX-SYS-MMAP
+(#fn main () #u64
+  (#let memory (#ptr-mut #i64)
+    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let action-initialized ()
     (#unsafe
@@ -12,34 +12,34 @@
         (#ptr-write (#ptr-offset memory 2usize) 0i64)
         (#ptr-write (#ptr-offset memory 3usize) 0i64)
         ())))
-  (#let action-installed i64
+  (#let action-installed #i64
     (#unsafe (#call linux-rt-sigaction (: signal 10i64 : action memory : old-action (#ptr-offset memory 4usize) : sigset-size 8usize))))
-  (#let mask-initial-query i64
-    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-null (#ptr-mut i64)) : old-set (#ptr-offset memory 8usize) : sigset-size 8usize))))
-  (#let original-mask i64
+  (#let mask-initial-query #i64
+    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-null (#ptr-mut #i64)) : old-set (#ptr-offset memory 8usize) : sigset-size 8usize))))
+  (#let original-mask #i64
     (#unsafe (#ptr-read (#ptr-offset memory 8usize))))
   (#let requested-mask-set ()
     (#unsafe (#ptr-write (#ptr-offset memory 9usize)
-      (#as (#u64.| (#as original-mask u64) 512u64) i64))))
-  (#let mask-blocked i64
-    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-offset memory 9usize) : old-set (#ptr-null (#ptr-mut i64)) : sigset-size 8usize))))
-  (#let current-mask-query i64
-    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-null (#ptr-mut i64)) : old-set (#ptr-offset memory 10usize) : sigset-size 8usize))))
-  (#let current-mask u64
-    (#as (#unsafe (#ptr-read (#ptr-offset memory 10usize))) u64))
-  (#let pending-query i64
+      (#as (#u64.| (#as original-mask #u64) 512u64) #i64))))
+  (#let mask-blocked #i64
+    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-offset memory 9usize) : old-set (#ptr-null (#ptr-mut #i64)) : sigset-size 8usize))))
+  (#let current-mask-query #i64
+    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-null (#ptr-mut #i64)) : old-set (#ptr-offset memory 10usize) : sigset-size 8usize))))
+  (#let current-mask #u64
+    (#as (#unsafe (#ptr-read (#ptr-offset memory 10usize))) #u64))
+  (#let pending-query #i64
     (#unsafe (#call linux-rt-sigpending (: signal-set (#ptr-offset memory 12usize) : sigset-size 8usize))))
-  (#let mask-restored i64
-    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-offset memory 8usize) : old-set (#ptr-null (#ptr-mut i64)) : sigset-size 8usize))))
-  (#let restored-mask-query i64
-    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-null (#ptr-mut i64)) : old-set (#ptr-offset memory 14usize) : sigset-size 8usize))))
-  (#let restored-mask i64
+  (#let mask-restored #i64
+    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-offset memory 8usize) : old-set (#ptr-null (#ptr-mut #i64)) : sigset-size 8usize))))
+  (#let restored-mask-query #i64
+    (#unsafe (#call linux-rt-sigprocmask (: how 2usize : signal-set (#ptr-null (#ptr-mut #i64)) : old-set (#ptr-offset memory 14usize) : sigset-size 8usize))))
+  (#let restored-mask #i64
     (#unsafe (#ptr-read (#ptr-offset memory 14usize))))
-  (#let action-restored i64
-    (#unsafe (#call linux-rt-sigaction (: signal 10i64 : action (#ptr-offset memory 4usize) : old-action (#ptr-null (#ptr-mut i64)) : sigset-size 8usize))))
-  (#let unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
-  (#let signals-ok bool
+  (#let action-restored #i64
+    (#unsafe (#call linux-rt-sigaction (: signal 10i64 : action (#ptr-offset memory 4usize) : old-action (#ptr-null (#ptr-mut #i64)) : sigset-size 8usize))))
+  (#let unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let signals-ok #bool
     (#bool.&& (#i64.== action-installed 0i64)
       (#bool.&& (#i64.== mask-initial-query 0i64)
         (#bool.&& (#i64.== mask-blocked 0i64)

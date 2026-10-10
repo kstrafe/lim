@@ -2,8 +2,8 @@
   #fn
   main
   ()
-  u64
-  (#let-mut value u64 0)
+  #u64
+  (#let-mut value #u64 0)
   (
     #loop
     (

@@ -1,14 +1,14 @@
-(#let scale f32 1.5)
+(#let scale #f32 1.5)
 
-(#let pi f64 3.25)
+(#let pi #f64 3.25)
 
-(#let letter char #\a)
+(#let letter #char #\a)
 
 (
   #fn
   main
   ()
-  u64
+  #u64
   (
     #return
     (

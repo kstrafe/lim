@@ -1,11 +1,11 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let memory (#ptr-mut u8)
-    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+(#fn main () #u64
+  (#let memory (#ptr-mut #u8)
+    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let offsets (#ptr-mut i64)
-    (#unsafe (#linux-syscall (#ptr-mut i64) LINUX-SYS-MMAP
+  (#let offsets (#ptr-mut #i64)
+    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let initialized ()
     (#unsafe
@@ -27,35 +27,35 @@
         (#ptr-write offsets 0i64)
         (#ptr-write (#ptr-offset offsets 1usize) 0i64)
         ())))
-  (#let source-fd i64
+  (#let source-fd #i64
     (#unsafe (#call linux-memfd-create (: name memory : flags 1u32))))
-  (#let destination-fd i64
+  (#let destination-fd #i64
     (#unsafe (#call linux-memfd-create (: name (#ptr-offset memory 8usize) : flags 1u32))))
-  (#let payload-written i64
+  (#let payload-written #i64
     (#unsafe (#call linux-write (: fd source-fd : source (#ptr-offset memory 32usize) : count 8usize))))
-  (#let copied i64
+  (#let copied #i64
     (#unsafe (#call linux-copy-file-range (: input source-fd : input-offset offsets : output destination-fd : output-offset (#ptr-offset offsets 1usize) : count 8usize : flags 0u32))))
-  (#let copied-input-offset i64 (#unsafe (#ptr-read offsets)))
-  (#let copied-output-offset i64
+  (#let copied-input-offset #i64 (#unsafe (#ptr-read offsets)))
+  (#let copied-output-offset #i64
     (#unsafe (#ptr-read (#ptr-offset offsets 1usize))))
-  (#let payload-read i64
+  (#let payload-read #i64
     (#unsafe (#call linux-read (: fd destination-fd : destination (#ptr-offset memory 64usize) : count 8usize))))
-  (#let byte-0 u8 (#unsafe (#ptr-read (#ptr-offset memory 64usize))))
-  (#let byte-1 u8 (#unsafe (#ptr-read (#ptr-offset memory 65usize))))
-  (#let byte-2 u8 (#unsafe (#ptr-read (#ptr-offset memory 66usize))))
-  (#let byte-3 u8 (#unsafe (#ptr-read (#ptr-offset memory 67usize))))
-  (#let byte-4 u8 (#unsafe (#ptr-read (#ptr-offset memory 68usize))))
-  (#let byte-5 u8 (#unsafe (#ptr-read (#ptr-offset memory 69usize))))
-  (#let byte-6 u8 (#unsafe (#ptr-read (#ptr-offset memory 70usize))))
-  (#let byte-7 u8 (#unsafe (#ptr-read (#ptr-offset memory 71usize))))
-  (#let source-closed i64 (#call linux-close (: fd source-fd)))
-  (#let destination-closed i64
+  (#let byte-0 #u8 (#unsafe (#ptr-read (#ptr-offset memory 64usize))))
+  (#let byte-1 #u8 (#unsafe (#ptr-read (#ptr-offset memory 65usize))))
+  (#let byte-2 #u8 (#unsafe (#ptr-read (#ptr-offset memory 66usize))))
+  (#let byte-3 #u8 (#unsafe (#ptr-read (#ptr-offset memory 67usize))))
+  (#let byte-4 #u8 (#unsafe (#ptr-read (#ptr-offset memory 68usize))))
+  (#let byte-5 #u8 (#unsafe (#ptr-read (#ptr-offset memory 69usize))))
+  (#let byte-6 #u8 (#unsafe (#ptr-read (#ptr-offset memory 70usize))))
+  (#let byte-7 #u8 (#unsafe (#ptr-read (#ptr-offset memory 71usize))))
+  (#let source-closed #i64 (#call linux-close (: fd source-fd)))
+  (#let destination-closed #i64
     (#call linux-close (: fd destination-fd)))
-  (#let memory-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
-  (#let offsets-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (offsets 4096usize))))
-  (#let copy-ok bool
+  (#let memory-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let offsets-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (offsets 4096usize))))
+  (#let copy-ok #bool
     (#bool.&& (#i64.>= source-fd 0i64)
       (#bool.&& (#i64.>= destination-fd 0i64)
         (#bool.&& (#i64.== payload-written 8i64)

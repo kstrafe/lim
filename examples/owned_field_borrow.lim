@@ -1,16 +1,16 @@
-(#struct Position ((x u64) (y u64)))
-(#struct Object ((marker u64) (position Position)))
+(#struct Position ((x #u64) (y #u64)))
+(#struct Object ((marker #u64) (position Position)))
 (#linear Object)
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut object Object
     (#struct-literal Object
       (: marker 7u64 : position (#struct-literal Position (: x 1u64 : y 2u64)))))
-  (#let y (#ref-mut u64) (#borrow-mut (#get (#get object position) y)))
+  (#let y (#ref-mut #u64) (#borrow-mut (#get (#get object position) y)))
   (#deref-set y 42u64)
-  (#let result u64 (#deref y))
+  (#let result #u64 (#deref y))
   (#drop y)
-  (#let pinned-x (#pin-ref u64) (#pin-borrow (#get (#get object position) x)))
+  (#let pinned-x (#pin-ref #u64) (#pin-borrow (#get (#get object position) x)))
   (#assert (#u64.== (#deref pinned-x) 1u64))
   (#drop pinned-x)
   (#forget object)

@@ -2,8 +2,8 @@
 ; leaving any kernel operation that could still access the destination.
 (#import "../library/async_stdin_byte.lim")
 
-(#fn main () i32
-  (#let-mut byte u8 0u8)
+(#fn main () #i32
+  (#let-mut byte #u8 0u8)
   (#assert (#i64.>=
     (#call async-byte-read1-enable-nonblocking (: fd 0i64)) 0i64))
   (#let created AsyncByteReadCreate1
@@ -13,7 +13,7 @@
     (#unreachable))
   (#let first AsyncByteReadPoll1
     (#call async-byte-read1-poll (: task (#borrow task))))
-  (#let destroyed i64 (#call async-byte-read1-destroy (: task task)))
+  (#let destroyed #i64 (#call async-byte-read1-destroy (: task task)))
   (#set byte 91u8)
   (#return (#if (#bool.&& (#i64.== destroyed 0i64)
     (#match first

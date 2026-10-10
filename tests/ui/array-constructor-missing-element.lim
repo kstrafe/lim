@@ -1,2 +1,2 @@
-(#fn main () (#array u64 2)
+(#fn main () (#array #u64 2)
   (#return (#array 1u64)))

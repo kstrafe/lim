@@ -1,12 +1,12 @@
-(#enum Value ((Number u64) Empty))
+(#enum Value ((Number #u64) Empty))
 (#linear Value)
 
-(#fn main () u64
+(#fn main () #u64
   (#let value Value (Number 42u64))
   (#let view (#pin-ref Value) (#pin-borrow value))
   (#assert (#variant-is view Number))
   (#assert (#bool.! (#variant-is view Empty)))
   (#drop view)
-  (#let result u64 (#get-payload value Number 0))
+  (#let result #u64 (#get-payload value Number 0))
   (#forget value)
   (#return result))

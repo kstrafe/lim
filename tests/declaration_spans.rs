@@ -24,7 +24,7 @@ fn declaration_failures_select_occurrences_deterministically() {
             "Value",
         ),
         (
-            "(#let COUNT u64 1u64)\n(#let COUNT u64 2u64)\n(#let COUNT u64 3u64)",
+            "(#let COUNT #u64 1u64)\n(#let COUNT #u64 2u64)\n(#let COUNT #u64 3u64)",
             "COUNT",
         ),
     ] {
@@ -65,7 +65,7 @@ fn declaration_failures_select_occurrences_deterministically() {
         source.match_indices("Value").nth(3).unwrap().0
     );
 
-    let source = "(#fn worker () u64 (#return 0u64))\n(@thread-spawn (: task First : worker worker))\n(@thread-spawn (: task Second : worker worker))\n(#struct Invalid ((Second First) (First Second)))";
+    let source = "(#fn worker () #u64 (#return 0u64))\n(@thread-spawn (: task First : worker worker))\n(@thread-spawn (: task Second : worker worker))\n(#struct Invalid ((Second First) (First Second)))";
     let expected = source.find("Second First").unwrap() + "Second ".len();
     for _ in 0..4 {
         let error = diagnostic(source, &path, &cache);

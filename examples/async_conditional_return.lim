@@ -1,23 +1,23 @@
 ; A returning branch and the common tail each have their own suspension.
-(#enum Child ((Waiting u64) (Resume u64)))
+(#enum Child ((Waiting #u64) (Resume #u64)))
 (#linear Child)
-(#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
-(#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+(#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+(#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
   (#return (#match task
     (#case (Waiting value) (ChildPending (Resume value)))
     (#case (Resume value) (ChildReady value)))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work ((early bool)) u64
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work ((early #bool)) #u64
     (#if early
       (#block
-        (#let first u64 (#await u64 Child ChildPending ChildReady child-poll (Waiting 7u64)))
+        (#let first #u64 (#await #u64 Child ChildPending ChildReady child-poll (Waiting 7u64)))
         (#return first))
       ())
-    (#let result u64 (#await u64 Child ChildPending ChildReady child-poll (Waiting 42u64)))
+    (#let result #u64 (#await #u64 Child ChildPending ChildReady child-poll (Waiting 42u64)))
     (#return result))))
 
-(#fn run ((early bool) (waker (#ref u64))) u64
+(#fn run ((early #bool) (waker (#ref #u64))) #u64
   (#let first Poll (#call poll (: task (#call work (: early early)) : waker waker)))
   (#let-else (Pending task) Poll first (#unreachable))
   (#let second Poll (#call poll (: task task : waker waker)))
@@ -25,8 +25,8 @@
     (#case (Ready value) value)
     (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))
 
-(#fn main () u64
-  (#let waker u64 0u64)
-  (#let early u64 (#call run (: early true : waker (#borrow waker))))
-  (#let later u64 (#call run (: early false : waker (#borrow waker))))
+(#fn main () #u64
+  (#let waker #u64 0u64)
+  (#let early #u64 (#call run (: early true : waker (#borrow waker))))
+  (#let later #u64 (#call run (: early false : waker (#borrow waker))))
   (#return (#u64.+.wrap early later)))

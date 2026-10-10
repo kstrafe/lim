@@ -1,9 +1,9 @@
-(#enum TypedPattern ((Some u64) None))
+(#enum TypedPattern ((Some #u64) None))
 
-(#fn main () u64
-  (#let value u64 42u64)
-  (#let pair (#tuple u64 u64)
-    (#tuple (#tuple u64 u64) 1u64 2u64))
+(#fn main () #u64
+  (#let value #u64 42u64)
+  (#let pair (#tuple #u64 #u64)
+    (#tuple (#tuple #u64 #u64) 1u64 2u64))
   (#let option TypedPattern (Some 42u64))
   (#return
     (#u64.+.wrap

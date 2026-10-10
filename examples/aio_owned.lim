@@ -1,17 +1,17 @@
 (#import "../library/linux_x86_64.lim")
 (#import "../library/aio_owned.lim")
 
-(#fn main () u64
-  (#let scratch (#ptr-mut u8)
+(#fn main () #u64
+  (#let scratch (#ptr-mut #u8)
     (#unsafe (#call linux-mmap
-      (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
+      (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
        : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  (#let name (#ptr-mut u8) scratch)
+  (#let name (#ptr-mut #u8) scratch)
   (#unsafe (#ptr-write name 0u8))
-  (#let fd i64 (#unsafe (#call linux-memfd-create
+  (#let fd #i64 (#unsafe (#call linux-memfd-create
     (: name name : flags 1u32))))
   (#assert (#i64.>= fd 0i64))
-  (#let input (#ptr-mut u8) (#unsafe (#ptr-offset scratch 32usize)))
+  (#let input (#ptr-mut #u8) (#unsafe (#ptr-offset scratch 32usize)))
   (#unsafe (#block
     (#ptr-write input 76u8)
     (#ptr-write (#ptr-offset (#clone input) 1usize) 73u8)
@@ -28,7 +28,7 @@
 
   ;; A readiness operation is cancelled asynchronously; the wrapper waits for
   ;; its completion acknowledgement before exposing a completed owner.
-  (#let poll-fd i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 526336i32)))
+  (#let poll-fd #i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 526336i32)))
   (#assert (#i64.>= poll-fd 0i64))
   (#let poll-submission AioOwnedSubmit
     (#call aio-owned-poll-submit
@@ -46,13 +46,13 @@
       (#case (AioOwnedCancelFailed failure)
         (#block
           (#let (#tuple still-pending error)
-            (#tuple AioOwnedPending i64) failure)
+            (#tuple AioOwnedPending #i64) failure)
           (#forget error)
           (#forget still-pending)
           (#unreachable)))))
   (#assert (#i64.== (#call aio-owned-completed-result
     (: operation (#borrow cancelled))) 0i64))
-  (#let cancel-unmapped i64
+  (#let cancel-unmapped #i64
     (#call aio-owned-completed-destroy (: operation cancelled)))
   (#assert (#i64.== cancel-unmapped 0i64))
   (#assert (#i64.== (#call linux-close (: fd poll-fd)) 0i64))
@@ -72,7 +72,7 @@
       (#case (AioOwnedWaitFailed failure)
         (#block
           (#let (#tuple still-pending error)
-            (#tuple AioOwnedPending i64) failure)
+            (#tuple AioOwnedPending #i64) failure)
           (#forget error)
           (#forget still-pending)
           (#unreachable)))))
@@ -86,10 +86,10 @@
     (: operation (#borrow completed) : index 2usize)) 77u8))
   (#assert (#u8.== (#call aio-owned-completed-byte
     (: operation (#borrow completed) : index 3usize)) 33u8))
-  (#let read-unmapped i64
+  (#let read-unmapped #i64
     (#call aio-owned-completed-destroy (: operation completed)))
   (#assert (#i64.== read-unmapped 0i64))
-  (#let context-destroyed i64
+  (#let context-destroyed #i64
     (#call aio-owned-context-destroy (: context context)))
   (#assert (#i64.== context-destroyed 0i64))
   (#assert (#i64.== (#call linux-close (: fd fd)) 0i64))

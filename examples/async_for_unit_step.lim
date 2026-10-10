@@ -3,21 +3,21 @@
 (#linear StepTask)
 (#enum StepPoll ((StepPending StepTask) (StepReady ())))
 
-(#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+(#fn step-poll ((task StepTask) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case Start (StepPending Resume))
     (#case Resume (StepReady ())))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work () u64
-    (#let-mut keep-going bool true)
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work () #u64
+    (#let-mut keep-going #bool true)
     (#for () keep-going
       (#await () StepTask StepPending StepReady step-poll Start)
       (#set keep-going false))
     (#return 42u64))))
 
-(#fn main () u64
-  (#let waker u64 0u64)
+(#fn main () #u64
+  (#let waker #u64 0u64)
   (#let first Poll
     (#call poll (: task (#call work ()) : waker (#borrow waker))))
   (#let-else (Pending task) Poll first (#unreachable))

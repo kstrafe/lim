@@ -1,8 +1,8 @@
-(#const Minimum i128 -170141183460469231731687303715884105728)
-(#const Quotient i128 (#i128./.wrap Minimum -1))
-(#const Remainder i128 (#i128.%.wrap Minimum -1))
+(#const Minimum #i128 -170141183460469231731687303715884105728)
+(#const Quotient #i128 (#i128./.wrap Minimum -1))
+(#const Remainder #i128 (#i128.%.wrap Minimum -1))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#if (#i128.== Quotient Minimum)
     (#if (#i128.== Remainder 0) 42 0)
     0)))

@@ -5,11 +5,11 @@
 ;; Names: (Created AllocationFailed create borrow borrow-mut destroy
 ;;         AllocOk AllocError allocate deallocate destroy-element).
 ;;
-;; allocate: ((allocator (#ref Allocator)) (layout usize) (alignment usize))
+;; allocate: ((allocator (#ref Allocator)) (layout #usize) (alignment #usize))
 ;;           -> AllocResult, where `(@result (: ok (#ptr-mut Element) :
 ;;           error AllocError : name AllocResult))` supplies the variants.
 ;; deallocate: ((allocator (#ref Allocator)) (pointer (#ptr-mut Element))
-;;              (layout usize) (alignment usize)) -> ()
+;;              (layout #usize) (alignment #usize)) -> ()
 ;; destroy-element: ((allocator (#ref Allocator)) (pin Pin)) -> ()
 ;;
 ;; The owner is movable; the allocation is stationary. Views retain the

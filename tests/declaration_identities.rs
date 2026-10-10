@@ -12,15 +12,15 @@ fn checked_dump(source: &str) -> String {
 
 #[test]
 fn declaration_ids_are_stable_across_independent_parses() {
-    let source = "(#struct Zebra ((shared u64)))
-      (#struct Alpha ((shared u32)))
-      (#enum Choice ((Item u64) Empty))
-      (#static TOTAL u64 40u64)
-      (#fn main () u64
+    let source = "(#struct Zebra ((shared #u64)))
+      (#struct Alpha ((shared #u32)))
+      (#enum Choice ((Item #u64) Empty))
+      (#static TOTAL #u64 40u64)
+      (#fn main () #u64
         (#let value Alpha (#struct-literal Alpha ((shared 2u32))))
         (#let other Zebra (#struct-literal Zebra ((shared 3u64))))
         (#return (#u64.+.wrap
-          (#u64.+.wrap (#as (#get value shared) u64) (#get other shared))
+          (#u64.+.wrap (#as (#get value shared) #u64) (#get other shared))
           (#unsafe TOTAL))))";
     let first = checked_dump(source);
     let second = checked_dump(source);
@@ -47,12 +47,12 @@ fn declaration_ids_are_stable_across_independent_parses() {
 
 #[test]
 fn aliases_and_references_resolve_field_identity_to_its_owner() {
-    let source = "(#struct Left ((value u64)))
-      (#struct Right ((value u64)))
+    let source = "(#struct Left ((value #u64)))
+      (#struct Right ((value #u64)))
       (#type LeftAlias Left)
-      (#fn read ((item (#ref LeftAlias))) u64 (#return (#get item value)))
-      (#fn read-right ((item (#ref Right))) u64 (#return (#get item value)))
-      (#fn main () u64
+      (#fn read ((item (#ref LeftAlias))) #u64 (#return (#get item value)))
+      (#fn read-right ((item (#ref Right))) #u64 (#return (#get item value)))
+      (#fn main () #u64
         (#let item LeftAlias (#struct-literal Left ((value 42u64))))
         (#let right Right (#struct-literal Right ((value 1u64))))
         (#return (#u64.+.wrap
@@ -71,12 +71,12 @@ fn aliases_and_references_resolve_field_identity_to_its_owner() {
 
 #[test]
 fn enum_constructor_match_and_payload_projection_share_variant_identity() {
-    let source = "(#enum Result ((Value u64) Empty))
-      (#fn main () u64
+    let source = "(#enum Result ((Value #u64) Empty))
+      (#fn main () #u64
         (#let-mut result Result (Value 40u64))
         (#set-payload result Value 0 41u64)
         (#let reference (#ref Result) (#borrow result))
-        (#let payload u64 (#get-payload reference Value 0))
+        (#let payload #u64 (#get-payload reference Value 0))
         (#return (#match result
           (#case (Value matched) (#u64.+.wrap payload 1u64))
           (#case Empty 0u64))))";
@@ -91,17 +91,17 @@ fn enum_constructor_match_and_payload_projection_share_variant_identity() {
 
 #[test]
 fn global_and_local_references_have_distinct_declaration_kinds() {
-    let source = "(#static TOTAL u64 40u64)
-      (#enum Maybe ((Some u64) None))
-      (#fn parameter ((argument u64)) u64 (#return argument))
-      (#fn local () u64
-        (#let local-total u64 42u64)
+    let source = "(#static TOTAL #u64 40u64)
+      (#enum Maybe ((Some #u64) None))
+      (#fn parameter ((argument #u64)) #u64 (#return argument))
+      (#fn local () #u64
+        (#let local-total #u64 42u64)
         (#return local-total))
-      (#fn pattern ((value Maybe)) u64
+      (#fn pattern ((value Maybe)) #u64
         (#return (#match value
           (#case (Some matched) matched)
           (#case None 0u64))))
-      (#fn main () u64
+      (#fn main () #u64
         (#return (#unsafe TOTAL)))";
     let dump = checked_dump(source);
     let parameter_dump = dump
@@ -138,15 +138,15 @@ fn global_and_local_references_have_distinct_declaration_kinds() {
 #[test]
 fn local_bindings_may_not_shadow_visible_names() {
     for source in [
-        "(#fn main () u64 (#let value u64 1u64) (#let value u64 2u64) (#return value))",
-        "(#fn main () u64 (#let value u64 1u64) (#return (#block (#let value u64 2u64) value)))",
-        "(#enum Maybe ((Some u64) None)) (#fn main ((value Maybe)) u64 (#return (#match value (#case (Some value) value) (#case None 0u64))))",
-        "(#static value u64 1u64) (#fn read ((value u64)) u64 (#return value))",
-        "(#fn main ((value u64)) u64 (#let (#tuple value) (#tuple u64) (#tuple 2u64)) (#return value))",
-        "(#enum Maybe ((Some u64) None)) (#fn main ((value u64) (maybe Maybe)) u64 (#return (#if-let (Some value) maybe value value)))",
-        "(#enum Maybe ((Some u64) None)) (#fn main ((value u64) (maybe Maybe)) u64 (#let-else (Some value) Maybe maybe (#return 0u64)) (#return value))",
-        "(#fn main ((counter u64)) u64 (#for (#let counter u64 0u64) true () (#break)) (#return counter))",
-        "(#fn main ((offset u64)) u64 (#for-range (offset u64) 0u64 2u64 ()) (#return offset))",
+        "(#fn main () #u64 (#let value #u64 1u64) (#let value #u64 2u64) (#return value))",
+        "(#fn main () #u64 (#let value #u64 1u64) (#return (#block (#let value #u64 2u64) value)))",
+        "(#enum Maybe ((Some #u64) None)) (#fn main ((value Maybe)) #u64 (#return (#match value (#case (Some value) value) (#case None 0u64))))",
+        "(#static value #u64 1u64) (#fn read ((value #u64)) #u64 (#return value))",
+        "(#fn main ((value #u64)) #u64 (#let (#tuple value) (#tuple #u64) (#tuple 2u64)) (#return value))",
+        "(#enum Maybe ((Some #u64) None)) (#fn main ((value #u64) (maybe Maybe)) #u64 (#return (#if-let (Some value) maybe value value)))",
+        "(#enum Maybe ((Some #u64) None)) (#fn main ((value #u64) (maybe Maybe)) #u64 (#let-else (Some value) Maybe maybe (#return 0u64)) (#return value))",
+        "(#fn main ((counter #u64)) #u64 (#for (#let counter #u64 0u64) true () (#break)) (#return counter))",
+        "(#fn main ((offset #u64)) #u64 (#for-range (offset #u64) 0u64 2u64 ()) (#return offset))",
     ] {
         let error = lim::parse_program(source).unwrap_err();
         assert!(
@@ -158,9 +158,9 @@ fn local_bindings_may_not_shadow_visible_names() {
 
 #[test]
 fn sibling_scopes_may_reuse_local_names() {
-    let source = "(#fn main () u64
-      (#let first u64 (#block (#let value u64 1u64) value))
-      (#let second u64 (#block (#let value u64 2u64) value))
+    let source = "(#fn main () #u64
+      (#let first #u64 (#block (#let value #u64 1u64) value))
+      (#let second #u64 (#block (#let value #u64 2u64) value))
       (#return (#u64.+.wrap first second)))";
     let program = lim::parse_program(source).unwrap();
     assert!(lim::check_types(&program).is_ok());
@@ -173,13 +173,13 @@ fn sibling_enum_patterns_with_the_same_name_have_distinct_typed_storage() {
     let executable = scratch.path().join("program");
     std::fs::write(
         &source,
-        "(#enum Small ((Number u64) Zero))
-      (#enum Wide ((Words (#tuple u64 u64 u64 u64)) Absent))
-      (#fn main () u64
+        "(#enum Small ((Number #u64) Zero))
+      (#enum Wide ((Words (#tuple #u64 #u64 #u64 #u64)) Absent))
+      (#fn main () #u64
         (#let small Small (Number 20u64))
-        (#let wide Wide (Words (#tuple (#tuple u64 u64 u64 u64) 22u64 3u64 4u64 5u64)))
-        (#let first u64 (#match small (#case (Number value) value) (#case Zero 0u64)))
-        (#let second u64 (#match wide (#case (Words value) (#get value 0)) (#case Absent 0u64)))
+        (#let wide Wide (Words (#tuple (#tuple #u64 #u64 #u64 #u64) 22u64 3u64 4u64 5u64)))
+        (#let first #u64 (#match small (#case (Number value) value) (#case Zero 0u64)))
+        (#let second #u64 (#match wide (#case (Words value) (#get value 0)) (#case Absent 0u64)))
         (#return (#u64.+.wrap first second)))",
     )
     .unwrap();
@@ -212,22 +212,22 @@ fn scoped_statement_destinations_do_not_alias_same_spelled_initializer_patterns(
     let scratch = support::Scratch::new("scoped-statement-destinations");
     let executable = scratch.path().join("program");
     for (index, source) in [
-        "(#enum Maybe ((Some u64) None))
-          (#fn main () u64
-            (#let answer u64 (#match (Some 41u64)
+        "(#enum Maybe ((Some #u64) None))
+          (#fn main () #u64
+            (#let answer #u64 (#match (Some 41u64)
               (#case (Some answer) answer) (#case None 0u64)))
             (#return (#u64.+.wrap answer 1u64)))",
-        "(#fn main () u64
-          (#let first u64 (#block (#let-mut value u64 20u64) (#set value 21u64) value))
-          (#let second u64 (#block (#let-mut value (#tuple u64 u64)
-            (#tuple (#tuple u64 u64) 20u64 9u64)) (#set-field value 0 21u64) (#get value 0)))
+        "(#fn main () #u64
+          (#let first #u64 (#block (#let-mut value #u64 20u64) (#set value 21u64) value))
+          (#let second #u64 (#block (#let-mut value (#tuple #u64 #u64)
+            (#tuple (#tuple #u64 #u64) 20u64 9u64)) (#set-field value 0 21u64) (#get value 0)))
           (#return (#u64.+.wrap first second)))",
-        "(#struct Pair (: first u64 : second u64))
-          (#fn main () u64
-            (#let first u64 (#block (#let-mut value Pair
+        "(#struct Pair (: first #u64 : second #u64))
+          (#fn main () #u64
+            (#let first #u64 (#block (#let-mut value Pair
               (#struct-literal Pair (: first 20u64 : second 9u64)))
               (#set-field value first 21u64) (#get value first)))
-            (#let second u64 (#block (#let-mut value u128 20u128) (#set value 21u128) (#as value u64)))
+            (#let second #u64 (#block (#let-mut value #u128 20u128) (#set value 21u128) (#as value #u64)))
             (#return (#u64.+.wrap first second)))",
     ].iter().enumerate() {
         let path = scratch.path().join(format!("main-{index}.lim"));
@@ -247,7 +247,7 @@ fn scoped_statement_destinations_do_not_alias_same_spelled_initializer_patterns(
 #[test]
 fn actual_static_access_still_requires_unsafe_and_points_at_its_name() {
     let scratch = support::Scratch::new("static-unsafe");
-    let source = "(#static TOTAL u64 40u64)\n(#fn main () u64 (#return TOTAL))";
+    let source = "(#static TOTAL #u64 40u64)\n(#fn main () #u64 (#return TOTAL))";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("static-unsafe.lim"),
@@ -264,9 +264,9 @@ fn actual_static_access_still_requires_unsafe_and_points_at_its_name() {
 #[test]
 fn imported_static_access_retains_its_imported_source_location() {
     let scratch = support::Scratch::new("imported-static-unsafe");
-    let module = "(#static TOTAL u64 40u64)\n(#fn read () u64 (#return TOTAL))";
+    let module = "(#static TOTAL #u64 40u64)\n(#fn read () #u64 (#return TOTAL))";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let root = "(#import \"module.lim\")\n(#fn main () u64 (#return (#call read (:))))";
+    let root = "(#import \"module.lim\")\n(#fn main () #u64 (#return (#call read (:))))";
     let error = lim::compile_source_to_assembly(
         root,
         &scratch.path().join("main.lim"),
@@ -289,9 +289,9 @@ fn imported_static_access_retains_its_imported_source_location() {
 fn generated_static_access_still_requires_unsafe() {
     let scratch = support::Scratch::new("generated-static-unsafe");
     let source =
-        "(#gn make (name) `((#static TOTAL u64 1u64) (#fn ,name () u64 (#return TOTAL))))\n\
+        "(#gn make (name) `((#static TOTAL #u64 1u64) (#fn ,name () #u64 (#return TOTAL))))\n\
       (@make read)\n\
-      (#fn main () u64 (#return (#call read (:))))";
+      (#fn main () #u64 (#return (#call read (:))))";
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("generated-static.lim"),
@@ -321,12 +321,12 @@ fn generated_static_access_still_requires_unsafe() {
 #[test]
 fn imported_declaration_nodes_retain_source_spans_and_deterministic_ids() {
     let scratch = support::Scratch::new("declaration-import-spans");
-    let module = "(#struct Record ((value u64)))\n\
-      (#static BASE u64 1u64)\n\
-      (#fn imported () u64\n\
+    let module = "(#struct Record ((value #u64)))\n\
+      (#static BASE #u64 1u64)\n\
+      (#fn imported () #u64\n\
         (#return (#u64.+.wrap (#get (#struct-literal Record ((value 40u64))) value) (#unsafe BASE))))";
     std::fs::write(scratch.path().join("module.lim"), module).unwrap();
-    let root = "(#import \"module.lim\")\n(#fn main () u64 (#return (#call imported (:))))";
+    let root = "(#import \"module.lim\")\n(#fn main () #u64 (#return (#call imported (:))))";
     let path = scratch.path().join("main.lim");
     let parse_dump = || {
         let program = lim::parse_program_from_path(root, &path).expect("parse imported source");
@@ -362,14 +362,14 @@ fn resolved_field_mutation_and_reference_projection_execute_correctly() {
     let executable = scratch.path().join("program");
     std::fs::write(
         &source,
-        "(#struct First ((value u64)))
-         (#struct Second ((value u64)))
-         (#fn main () u64
+        "(#struct First ((value #u64)))
+         (#struct Second ((value #u64)))
+         (#fn main () #u64
            (#let-mut first First (#struct-literal First ((value 1u64))))
            (#let-mut second Second (#struct-literal Second ((value 2u64))))
            (#set-field second value 7u64)
            (#let-mut first-ref (#ref-mut First) (#borrow-mut first))
-           (#let-mut value-ref (#ref-mut u64) (#borrow-mut (#get first-ref value)))
+           (#let-mut value-ref (#ref-mut #u64) (#borrow-mut (#get first-ref value)))
            (#deref-set value-ref 42u64)
            (#drop value-ref)
            (#drop first-ref)

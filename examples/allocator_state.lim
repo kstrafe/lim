@@ -1,18 +1,18 @@
 (#import "../library/cell.lim")
-(@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
 (#struct Arena ((cursor CellU64)))
-(#struct VecU64Arena ((allocator (#ref Arena)) (length u64)))
+(#struct VecU64Arena ((allocator (#ref Arena)) (length #u64)))
 
-(#fn VecU64Arena-reserve ((vector (#ref VecU64Arena)) (count u64)) u64
+(#fn VecU64Arena-reserve ((vector (#ref VecU64Arena)) (count #u64)) #u64
   (#let cell (#ref CellU64) (#borrow (#get (#get vector allocator) cursor)))
   (#call CellU64-set (: cell (#clone cell) : value (#u64.+.wrap (#call CellU64-get (: cell (#clone cell))) count)))
   (#return (#call CellU64-get (: cell cell))))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut arena Arena (#struct-literal Arena ((cursor
     (#call CellU64-create (: value 0u64))))))
   (#let-mut vector VecU64Arena (#struct-literal VecU64Arena ((allocator (#borrow arena)) (length 0))))
-  (#let reserved u64 (#call VecU64Arena-reserve (: vector (#borrow vector) : count 42)))
+  (#let reserved #u64 (#call VecU64Arena-reserve (: vector (#borrow vector) : count 42)))
   (#drop vector)
   (#forget arena)
   (#return reserved))

@@ -1,22 +1,22 @@
 ; Moving a call result preserves its conditional clearing contract.
-(#enum Choice ((Empty) (Full (#ref u64))))
+(#enum Choice ((Empty) (Full (#ref #u64))))
 (#enum Outcome ((Ready) (Pending)))
 
-(#fn step-choice (: target (#ref-mut Choice) : value (#ref u64) : complete bool) Outcome
+(#fn step-choice (: target (#ref-mut Choice) : value (#ref #u64) : complete #bool) Outcome
   (#return
     (#if complete
       (#block (#deref-set target (Empty)) (Ready))
       (#block (#deref-set target (Full value)) (Pending)))))
 
-(#fn main () u64
-  (#let old u64 7u64)
-  (#let-mut value u64 42u64)
+(#fn main () #u64
+  (#let old #u64 7u64)
+  (#let-mut value #u64 42u64)
   (#let-mut holder Choice (Full (#borrow old)))
   (#let target (#ref-mut Choice) (#borrow-mut holder))
   (#let first Outcome
     (#call step-choice (: target target : value (#borrow value) : complete false)))
   (#drop target)
-  (#let result u64
+  (#let result #u64
     (#match first
       (#case (Ready) 0u64)
       (#case (Pending)
@@ -29,7 +29,7 @@
   (#drop next-target)
   (#let forwarded Outcome second)
   (#let selected Outcome forwarded)
-  (#let output u64
+  (#let output #u64
     (#match selected
       (#case (Ready) (#block (#set value 1u64) result))
       (#case (Pending) (#unreachable))))

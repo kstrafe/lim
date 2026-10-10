@@ -1,8 +1,8 @@
-(#fn classify ((value (#tuple u64 u64))) u64
+(#fn classify ((value (#tuple #u64 #u64))) #u64
   (#return
     (#match value
       (#case (#tuple 40 second) second)
       (#case _ 0))))
 
-(#fn main () u64
-  (#return (#call classify (: value (#tuple (#tuple u64 u64) 40 2)))))
+(#fn main () #u64
+  (#return (#call classify (: value (#tuple (#tuple #u64 #u64) 40 2)))))

@@ -1,20 +1,20 @@
 ; A function installs a caller-supplied reference in caller-owned storage.
 ; The compiler retains that loan across the call until holder is released.
-(#struct Holder (: view (#ref u64)))
+(#struct Holder (: view (#ref #u64)))
 
-(#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
+(#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
   (#deref-set target (#struct-literal Holder (: view value)))
   (#return ()))
 
-(#fn main () u64
-  (#let old u64 7u64)
-  (#let-mut value u64 42u64)
+(#fn main () #u64
+  (#let old #u64 7u64)
+  (#let-mut value #u64 42u64)
   (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
   (#let target (#ref-mut Holder) (#borrow-mut holder))
   (#call replace (: target target : value (#borrow value)))
   (#drop target)
   ; Mutating value here would be rejected, even though target was dropped.
-  (#let result u64 (#deref (#get holder view)))
+  (#let result #u64 (#deref (#get holder view)))
   (#forget holder)
   (#set value 1u64)
   (#return result))

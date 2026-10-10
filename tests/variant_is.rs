@@ -30,19 +30,19 @@ fn run(source: &str) -> std::process::ExitStatus {
 
 #[test]
 fn variant_tests_borrow_linear_values_without_consuming_them() {
-    let source = "(#enum Choice ((Number 7 u64) (Other 19 u64)))
+    let source = "(#enum Choice ((Number 7 #u64) (Other 19 #u64)))
       (#linear Choice)
       (#type ChoiceAlias Choice)
-      (#fn main () u64
+      (#fn main () #u64
         (#let-mut value ChoiceAlias (Number 42u64))
         (#let shared (#ref Choice) (#borrow value))
-        (#let first bool (#variant-is shared Number))
-        (#let again bool (#variant-is shared Other))
+        (#let first #bool (#variant-is shared Number))
+        (#let again #bool (#variant-is shared Other))
         (#drop shared)
         (#let exclusive (#ref-mut Choice) (#borrow-mut value))
-        (#let selected bool (#variant-is exclusive Number))
+        (#let selected #bool (#variant-is exclusive Number))
         (#drop exclusive)
-        (#let payload u64 (#get-payload value Number 0))
+        (#let payload #u64 (#get-payload value Number 0))
         (#forget value)
         (#return (#if (#bool.&& first (#bool.&& (#bool.! again) selected))
           payload 0u64)))";
@@ -52,15 +52,15 @@ fn variant_tests_borrow_linear_values_without_consuming_them() {
 
 #[test]
 fn pinned_shared_and_exclusive_references_and_explicit_discriminants_work() {
-    let source = "(#enum Choice ((Number 7 u64) (Other 19 u64)))
-      (#fn main () u64
+    let source = "(#enum Choice ((Number 7 #u64) (Other 19 #u64)))
+      (#fn main () #u64
         (#let-mut value Choice (Other 42u64))
         (#let shared (#pin-ref Choice) (#pin-borrow value))
-        (#let wrong bool (#variant-is shared Number))
-        (#let right bool (#variant-is shared Other))
+        (#let wrong #bool (#variant-is shared Number))
+        (#let right #bool (#variant-is shared Other))
         (#drop shared)
         (#let exclusive (#pin-ref-mut Choice) (#pin-borrow-mut value))
-        (#let still-right bool (#variant-is exclusive Other))
+        (#let still-right #bool (#variant-is exclusive Other))
         (#drop exclusive)
         (#return (#if (#bool.&& (#bool.! wrong) (#bool.&& right still-right))
           (#get-payload value Other 0) 0u64)))";
@@ -70,14 +70,14 @@ fn pinned_shared_and_exclusive_references_and_explicit_discriminants_work() {
 
 #[test]
 fn computed_receiver_is_evaluated_once() {
-    let source = "(#enum Choice ((Yes u64) No))
-      (#fn counted ((counter (#ref-mut u64)) (value (#ref Choice))) (#ref Choice)
+    let source = "(#enum Choice ((Yes #u64) No))
+      (#fn counted ((counter (#ref-mut #u64)) (value (#ref Choice))) (#ref Choice)
         (#deref-set counter (#u64.+.wrap (#deref counter) 1u64))
         (#return value))
-      (#fn main () u64
-        (#let-mut counter u64 0u64)
+      (#fn main () #u64
+        (#let-mut counter #u64 0u64)
         (#let value Choice (Yes 42u64))
-        (#let result bool (#variant-is
+        (#let result #bool (#variant-is
           (#call counted (: counter (#borrow-mut counter) : value (#borrow value))) Yes))
         (#return (#if (#bool.&& result (#u64.== counter 1u64)) 42u64 0u64)))";
     check(source).unwrap();
@@ -87,8 +87,8 @@ fn computed_receiver_is_evaluated_once() {
 #[test]
 fn builtin_sigils_do_not_reserve_the_unprefixed_function_name() {
     let source = "(#enum Choice (Ready Stop))
-      (#fn variant-is ((number u64)) u64 (#return number))
-      (#fn main () u64
+      (#fn variant-is ((number #u64)) #u64 (#return number))
+      (#fn main () #u64
         (#let value Choice Ready)
         (#assert (#variant-is (#borrow value) Ready))
         (#return (#call variant-is (: number 42u64))))";
@@ -111,7 +111,7 @@ fn variant_test_rejects_invalid_operands_and_reports_the_expression_line() {
             "(#enum Choice (Yes No))\n\
              (#enum Other (Right))\n\
              (#struct Record ())\n\
-             (#fn main () bool\n  \
+             (#fn main () #bool\n  \
                (#let value Choice Yes)\n  \
                (#let record Record (#struct-literal Record ()))\n  \
                {expression}\n  \
@@ -137,10 +137,10 @@ fn variant_test_rejects_invalid_operands_and_reports_the_expression_line() {
 
 #[test]
 fn exclusive_handles_in_fields_and_computed_blocks_remain_usable() {
-    let source = "(#enum Choice ((Number u64) Empty)) (#linear Choice)
+    let source = "(#enum Choice ((Number #u64) Empty)) (#linear Choice)
       (#struct Holder ((view (#ref-mut Choice))))
       (#type Alias Choice)
-      (#fn main () u64
+      (#fn main () #u64
         (#let-mut value Choice (Number 42u64))
         (#let holder Holder (#struct-literal Holder (: view (#borrow-mut value))))
         (#assert (#variant-is (#get holder view) Number))
@@ -150,7 +150,7 @@ fn exclusive_handles_in_fields_and_computed_blocks_remain_usable() {
         (#assert (#variant-is (#block view) Number))
         (#assert (#variant-is view Number))
         (#drop view)
-        (#let result u64 (#get-payload value Number 0))
+        (#let result #u64 (#get-payload value Number 0))
         (#forget value) (#return result))";
     check(source).unwrap();
     assert_eq!(run(source).code(), Some(42));
@@ -161,13 +161,13 @@ fn tag_tests_do_not_bypass_live_mutable_child_loans() {
     for receiver in ["parent", "(#block parent)"] {
         let expression = format!("(#variant-is {receiver} Number)");
         let source = format!(
-            "(#enum Choice ((Number u64) Empty))
-          (#fn main () u64
+            "(#enum Choice ((Number #u64) Empty))
+          (#fn main () #u64
             (#let-mut value Choice (Number 42u64))
             (#let parent (#pin-ref-mut Choice) (#pin-borrow-mut value))
-            (#let child (#pin-ref-mut u64) (#pin-get-payload-mut parent Number 0))
+            (#let child (#pin-ref-mut #u64) (#pin-get-payload-mut parent Number 0))
             {expression}
-            (#let result u64 (#deref child))
+            (#let result #u64 (#deref child))
             (#drop child) (#drop parent) (#forget value) (#return result))"
         );
         let scratch = support::Scratch::new("variant-is-loan");

@@ -2,14 +2,14 @@
   #fn
   blend
   (
-    (small f32)
-    (large f64)
+    (small #f32)
+    (large #f64)
   )
-  f64
+  #f64
   (
     #return
     (#f64.+
-      (#as small f64)
+      (#as small #f64)
       large
     )
   )
@@ -19,7 +19,7 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #return
     (

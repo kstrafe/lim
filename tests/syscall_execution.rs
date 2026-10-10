@@ -86,7 +86,7 @@ fn implemented() -> BTreeMap<u32, String> {
         .lines()
         .filter_map(|line| {
             let rest = line.strip_prefix("(#const ")?;
-            let (name, value) = rest.split_once(" usize ").unwrap();
+            let (name, value) = rest.split_once(" #usize ").unwrap();
             let value = value
                 .strip_suffix("usize)")
                 .unwrap()

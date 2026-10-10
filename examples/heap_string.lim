@@ -4,11 +4,11 @@
   #fn
   main
   ()
-  i32
+  #i32
   (
     #let
     chars
-    (#array char 14)
+    (#array #char 14)
     "Heap: naïve 🙂\n"
   )
   (
@@ -27,8 +27,8 @@
           (
             #let-mut
             index
-            usize
-            (#literal usize 0)
+            #usize
+            (#literal #usize 0)
           )
           (
             #while
@@ -56,7 +56,7 @@
                       #call
                       linux-write-byte
                       (: source (#borrow byte))                    )
-                    (#literal i64 1)                  )                )              )
+                    (#literal #i64 1)                  )                )              )
               (
                 #case
                 StringByteOutOfBounds
@@ -68,7 +68,7 @@
               (
                 #usize.+.wrap
                 index
-                (#literal usize 1)
+                (#literal #usize 1)
               )
             )          )
           (

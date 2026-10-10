@@ -1,4 +1,4 @@
-(#struct Resource (: number u64))
+(#struct Resource (: number #u64))
 (#linear Resource)
 (#struct Container (: item Resource : other Resource))
 (#struct Views (: left (#ref Resource) : right (#ref Resource)))
@@ -20,19 +20,19 @@
   (#let refs (#array (#ref Resource) 2) (#call load-table (: table table)))
   (#return (#index refs 1usize)))
 
-(#fn read-left (: views Views) u64
+(#fn read-left (: views Views) #u64
   (#return (#get (#get views left) number)))
 
-(#fn choose-value (: first (#ref Resource) : second (#ref Resource) : selected bool) u64
+(#fn choose-value (: first (#ref Resource) : second (#ref Resource) : selected #bool) #u64
   (#return
     (#call read-left
       (: views (#struct-literal Views
         (: left (#if selected first second) : right second))))))
 
-(#fn read-repeated (: values (#array (#ref Resource) 2)) u64
+(#fn read-repeated (: values (#array (#ref Resource) 2)) #u64
   (#return (#get (#index values 1usize) number)))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut owner Container
     (#struct-literal Container
       (: item (#struct-literal Resource (: number 19u64))
@@ -52,10 +52,10 @@
         (#get loaded left) (#get loaded right)))))
   (#let second (#ref Resource)
     (#call select-second (: table (#borrow table))))
-  (#let repeated-value u64
+  (#let repeated-value #u64
     (#call read-repeated
       (: values (#array-repeat (#if #true (#get loaded left) second)))))
-  (#let result u64
+  (#let result #u64
     (#u64.+.wrap
       (#call choose-value
         (: first (#get loaded left) : second second

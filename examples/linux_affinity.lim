@@ -1,52 +1,52 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let before (#ptr-mut u64)
-    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+(#fn main () #u64
+  (#let before (#ptr-mut #u64)
+    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let after (#ptr-mut u64)
-    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+  (#let after (#ptr-mut #u64)
+    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let queried i64
+  (#let queried #i64
     (#unsafe (#call linux-sched-getaffinity (: pid 0i64 : size 128usize : mask before))))
-  (#let affinity-restored i64
+  (#let affinity-restored #i64
     (#unsafe (#call linux-sched-setaffinity (: pid 0i64 : size 128usize : mask before))))
-  (#let yielded i64 (#call linux-sched-yield (:)))
-  (#let queried-again i64
+  (#let yielded #i64 (#call linux-sched-yield (:)))
+  (#let queried-again #i64
     (#unsafe (#call linux-sched-getaffinity (: pid 0i64 : size 128usize : mask after))))
-  (#let word-0-before u64 (#unsafe (#ptr-read before)))
-  (#let word-0-after u64 (#unsafe (#ptr-read after)))
-  (#let word-1-before u64 (#unsafe (#ptr-read (#ptr-offset before 1usize))))
-  (#let word-1-after u64 (#unsafe (#ptr-read (#ptr-offset after 1usize))))
-  (#let word-2-before u64 (#unsafe (#ptr-read (#ptr-offset before 2usize))))
-  (#let word-2-after u64 (#unsafe (#ptr-read (#ptr-offset after 2usize))))
-  (#let word-3-before u64 (#unsafe (#ptr-read (#ptr-offset before 3usize))))
-  (#let word-3-after u64 (#unsafe (#ptr-read (#ptr-offset after 3usize))))
-  (#let word-4-before u64 (#unsafe (#ptr-read (#ptr-offset before 4usize))))
-  (#let word-4-after u64 (#unsafe (#ptr-read (#ptr-offset after 4usize))))
-  (#let word-5-before u64 (#unsafe (#ptr-read (#ptr-offset before 5usize))))
-  (#let word-5-after u64 (#unsafe (#ptr-read (#ptr-offset after 5usize))))
-  (#let word-6-before u64 (#unsafe (#ptr-read (#ptr-offset before 6usize))))
-  (#let word-6-after u64 (#unsafe (#ptr-read (#ptr-offset after 6usize))))
-  (#let word-7-before u64 (#unsafe (#ptr-read (#ptr-offset before 7usize))))
-  (#let word-7-after u64 (#unsafe (#ptr-read (#ptr-offset after 7usize))))
-  (#let word-8-before u64 (#unsafe (#ptr-read (#ptr-offset before 8usize))))
-  (#let word-8-after u64 (#unsafe (#ptr-read (#ptr-offset after 8usize))))
-  (#let word-9-before u64 (#unsafe (#ptr-read (#ptr-offset before 9usize))))
-  (#let word-9-after u64 (#unsafe (#ptr-read (#ptr-offset after 9usize))))
-  (#let word-10-before u64 (#unsafe (#ptr-read (#ptr-offset before 10usize))))
-  (#let word-10-after u64 (#unsafe (#ptr-read (#ptr-offset after 10usize))))
-  (#let word-11-before u64 (#unsafe (#ptr-read (#ptr-offset before 11usize))))
-  (#let word-11-after u64 (#unsafe (#ptr-read (#ptr-offset after 11usize))))
-  (#let word-12-before u64 (#unsafe (#ptr-read (#ptr-offset before 12usize))))
-  (#let word-12-after u64 (#unsafe (#ptr-read (#ptr-offset after 12usize))))
-  (#let word-13-before u64 (#unsafe (#ptr-read (#ptr-offset before 13usize))))
-  (#let word-13-after u64 (#unsafe (#ptr-read (#ptr-offset after 13usize))))
-  (#let word-14-before u64 (#unsafe (#ptr-read (#ptr-offset before 14usize))))
-  (#let word-14-after u64 (#unsafe (#ptr-read (#ptr-offset after 14usize))))
-  (#let word-15-before u64 (#unsafe (#ptr-read (#ptr-offset before 15usize))))
-  (#let word-15-after u64 (#unsafe (#ptr-read (#ptr-offset after 15usize))))
-  (#let masks-match bool
+  (#let word-0-before #u64 (#unsafe (#ptr-read before)))
+  (#let word-0-after #u64 (#unsafe (#ptr-read after)))
+  (#let word-1-before #u64 (#unsafe (#ptr-read (#ptr-offset before 1usize))))
+  (#let word-1-after #u64 (#unsafe (#ptr-read (#ptr-offset after 1usize))))
+  (#let word-2-before #u64 (#unsafe (#ptr-read (#ptr-offset before 2usize))))
+  (#let word-2-after #u64 (#unsafe (#ptr-read (#ptr-offset after 2usize))))
+  (#let word-3-before #u64 (#unsafe (#ptr-read (#ptr-offset before 3usize))))
+  (#let word-3-after #u64 (#unsafe (#ptr-read (#ptr-offset after 3usize))))
+  (#let word-4-before #u64 (#unsafe (#ptr-read (#ptr-offset before 4usize))))
+  (#let word-4-after #u64 (#unsafe (#ptr-read (#ptr-offset after 4usize))))
+  (#let word-5-before #u64 (#unsafe (#ptr-read (#ptr-offset before 5usize))))
+  (#let word-5-after #u64 (#unsafe (#ptr-read (#ptr-offset after 5usize))))
+  (#let word-6-before #u64 (#unsafe (#ptr-read (#ptr-offset before 6usize))))
+  (#let word-6-after #u64 (#unsafe (#ptr-read (#ptr-offset after 6usize))))
+  (#let word-7-before #u64 (#unsafe (#ptr-read (#ptr-offset before 7usize))))
+  (#let word-7-after #u64 (#unsafe (#ptr-read (#ptr-offset after 7usize))))
+  (#let word-8-before #u64 (#unsafe (#ptr-read (#ptr-offset before 8usize))))
+  (#let word-8-after #u64 (#unsafe (#ptr-read (#ptr-offset after 8usize))))
+  (#let word-9-before #u64 (#unsafe (#ptr-read (#ptr-offset before 9usize))))
+  (#let word-9-after #u64 (#unsafe (#ptr-read (#ptr-offset after 9usize))))
+  (#let word-10-before #u64 (#unsafe (#ptr-read (#ptr-offset before 10usize))))
+  (#let word-10-after #u64 (#unsafe (#ptr-read (#ptr-offset after 10usize))))
+  (#let word-11-before #u64 (#unsafe (#ptr-read (#ptr-offset before 11usize))))
+  (#let word-11-after #u64 (#unsafe (#ptr-read (#ptr-offset after 11usize))))
+  (#let word-12-before #u64 (#unsafe (#ptr-read (#ptr-offset before 12usize))))
+  (#let word-12-after #u64 (#unsafe (#ptr-read (#ptr-offset after 12usize))))
+  (#let word-13-before #u64 (#unsafe (#ptr-read (#ptr-offset before 13usize))))
+  (#let word-13-after #u64 (#unsafe (#ptr-read (#ptr-offset after 13usize))))
+  (#let word-14-before #u64 (#unsafe (#ptr-read (#ptr-offset before 14usize))))
+  (#let word-14-after #u64 (#unsafe (#ptr-read (#ptr-offset after 14usize))))
+  (#let word-15-before #u64 (#unsafe (#ptr-read (#ptr-offset before 15usize))))
+  (#let word-15-after #u64 (#unsafe (#ptr-read (#ptr-offset after 15usize))))
+  (#let masks-match #bool
     (#bool.&& (#u64.== word-0-before word-0-after)
       (#bool.&& (#u64.== word-1-before word-1-after)
         (#bool.&& (#u64.== word-2-before word-2-after)
@@ -63,10 +63,10 @@
                               (#bool.&& (#u64.== word-13-before word-13-after)
                                 (#bool.&& (#u64.== word-14-before word-14-after)
                                   (#u64.== word-15-before word-15-after)))))))))))))))))
-  (#let before-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (before 4096usize))))
-  (#let after-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (after 4096usize))))
+  (#let before-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (before 4096usize))))
+  (#let after-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (after 4096usize))))
   (#return
     (#if (#bool.&& (#i64.> queried 0i64)
       (#bool.&& (#i64.<= queried 128i64)

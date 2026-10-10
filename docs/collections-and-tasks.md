@@ -9,8 +9,8 @@ functions.
 
 ```lisp syntax
 (#syntax-collection ApplicationErrors)
-(#syntax-contribute ApplicationErrors filesystem (FileFailure u32))
-(#syntax-contribute ApplicationErrors parser (ParseFailure u64))
+(#syntax-contribute ApplicationErrors filesystem (FileFailure #u32))
+(#syntax-contribute ApplicationErrors parser (ParseFailure #u64))
 (#import "library/collections.lim")
 (@error-enum (#syntax-distribute ApplicationErrors) ApplicationError)
 ```
@@ -55,7 +55,7 @@ poll-result enum. The task generator emits `#linear` for the state type, so
 even an all-numeric state cannot be implicitly copied or silently abandoned.
 
 ```lisp syntax
-(@task (Count CountPoll CountPending CountReady) u64 ((Counting u64)))
+(@task (Count CountPoll CountPending CountReady) #u64 ((Counting #u64)))
 ```
 
 Write a free-standing poll function with exactly the named argument `task`:
@@ -73,8 +73,8 @@ layout or Send/Sync. Reference values themselves retain their existing rules.
 
 ```lisp syntax
 (@executor run-counts Counts
-  ((first Count CountPoll CountPending CountReady count-poll u64 first-input)
-   (second Count CountPoll CountPending CountReady count-poll u64 second-input)))
+  ((first Count CountPoll CountPending CountReady count-poll #u64 first-input)
+   (second Count CountPoll CountPending CountReady count-poll #u64 second-input)))
 ```
 
 Each job descriptor is
@@ -107,7 +107,7 @@ function, and variant name is an explicit literal argument, so multiple
 concrete queues can coexist. The final literal list fixes capacity; its
 entries identify slots for generation but are not runtime queue contents.
 `queue-create` makes an empty queue. `queue-enqueue` takes a mutable queue
-reference and a `u64` `task-id`, returning `QueueEnqueued` or `QueueFull`.
+reference and a `#u64` `task-id`, returning `QueueEnqueued` or `QueueFull`.
 `queue-dequeue` takes the mutable reference and returns `(QueueItem task-id)`
 or `QueueEmpty`. The queue is FIFO, fixed-size, and has no dynamic allocation.
 Its generated type is `#linear`: a queue owner must be consumed or explicitly
@@ -115,7 +115,7 @@ forgotten, and an implicit copy cannot duplicate its scheduling state.
 Its current aggregate-value update copies the fixed array on each operation,
 so this is a correctness foundation, not a constant-time scheduler queue.
 
-These `u64` values are not wake handles. There is no generation check, OS
+These `#u64` values are not wake handles. There is no generation check, OS
 readiness registration, non-busy wait, or cancellation acknowledgment yet;
 none of the safe asynchronous-I/O guarantees in ASYNC-02 are provided by this
 queue alone. See `examples/ready_queue.lim` for a runnable wraparound case.
@@ -158,7 +158,7 @@ handle with no function pointers:
 
 The generated linear `CounterWaker` owns a `WakeMetadata` and holds a
 `(#ref WakeCounter)`. Its reference cannot outlive the executor. The
-`#ptr u8` field is an unused marker that makes it neither Send nor Sync under
+`#ptr #u8` field is an unused marker that makes it neither Send nor Sync under
 the current structural rules; it is never dereferenced. `wake-by-ref` calls
 `counter-notify`, retaining the handle; `wake` calls it and then destroys the
 handle. `clone` calls `metadata-clone` to create independent owned metadata.
@@ -192,8 +192,8 @@ same concrete task, poll-result, output, and waker types:
 (@wake-executor run-jobs
   (JobResults JobOutcome JobLifecycle JobRunning
     JobComplete JobCancelling JobStopped)
-  (JobTask JobPoll JobPending JobReady u64 job-poll LocalWaker)
-  (WaitResult WaitReady WaitStopped i64 wait-ready
+  (JobTask JobPoll JobPending JobReady #u64 job-poll LocalWaker)
+  (WaitResult WaitReady WaitStopped #i64 wait-ready
     (sources (#slice AsyncPollSource4)))
   cancel-poll
   ((first-state first-task first-waker first 0u32)
@@ -239,7 +239,7 @@ a Pending state with an owned waker and an already-Ready result.
 ## Explicit async composition
 
 ```lisp syntax
-(@async (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) u64
+(@async (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
   ((Begin (#await Count CountPending CountReady count-poll)
      (#then Finish next-count))
    (Finish (#await Count CountPending CountReady count-poll)
@@ -277,7 +277,7 @@ concrete waker type:
 
 ```lisp syntax
 (@async-wake
-  (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) u64
+  (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
   ((Only (#await Step StepPending StepReady step-poll) (#return)))
   LocalWaker)
 ```
@@ -321,9 +321,9 @@ The emitted Lim is cached in `.lim/cache` and undergoes normal type, borrow,
 linearity, and code generation checks:
 
 ```lisp syntax
-(@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset u64)) u64
+(@async-fn (: names (Work WorkPoll WorkPending WorkReady work-poll) : waker LocalWaker : function (#fn work ((offset #u64)) #u64
     (#let child Step (Waiting 1u64))
-    (#let value u64
+    (#let value #u64
       (#await Step StepPending StepReady step-poll child))
     (#return (#u64.+.wrap value offset)))))
 ```
@@ -351,7 +351,7 @@ is lowered as a final stage.
 `#await` in a binding must still be the entire initializer of a top-level
 binding unless it is nested in a supported value expression such as the right
 hand side of `#set`; nested awaits require an explicit result type. For example,
-`(#set total (#await u64 Child Pending Ready child-poll task))` suspends before
+`(#set total (#await #u64 Child Pending Ready child-poll task))` suspends before
 assigning the result to the mutable local, whose value is retained in the frame.
 An `#if`, `#match`, or `#block` that contains no nested `#await` may
 run between stages. Awaited branches and loop bodies have explicit supported
@@ -367,13 +367,13 @@ lowered from a general typed CFG.
 Value-producing awaited `#loop` expressions can exit through conditional or
 match branches without a final direct `#break`. Result storage uses explicitly
 declared binding and function types, concrete constructors, casts, and builtin
-operation contracts; comparisons return `bool`, not their operand type. The
+operation contracts; comparisons return `#bool`, not their operand type. The
 ordinary checker still validates all break payloads and their ownership.
 `examples/async_loop_results.lim` passes a linear struct produced by a function
 call out of a suspended loop and consumes it explicitly. This does not remove
 the remaining general control-flow lowering restrictions.
 Conditional await continuations may likewise change result type: a branch can
-await a `u64` and then yield a `bool`, reference, or concrete linear aggregate.
+await a `#u64` and then yield a `#bool`, reference, or concrete linear aggregate.
 Its generated Ready payload uses the branch's declared expression contract,
 not the first awaited value's type. Returned and suspended references retain
 their source loans; explicitly consuming a cancelled frame releases those
@@ -458,7 +458,7 @@ the handler that consumes its payload:
      ((Work-start cancel-work-start)
       (Work-await-0 cancel-work-await)))
    : function
-   (#fn work ((input u64)) u64
+   (#fn work ((input #u64)) #u64
      ...)))
 ```
 
@@ -521,7 +521,7 @@ remains open.
 `(@threaded-executor run Result jobs Worker)` expands an executor plus
 `(@thread-spawn (: task Worker : worker run))`. Each job names both its result
 field/state binding and a distinct worker-input parameter, for example
-`(number NumberTask NumberPoll NumberPending NumberReady number-poll u64 number-input)`.
+`(number NumberTask NumberPoll NumberPending NumberReady number-poll #u64 number-input)`.
 The spawn call uses that worker-input name as its named argument; the result
 field keeps the first name (`number` in this example).
 Each explicit spawn transfers the fixed job set to one OS worker. Multiple

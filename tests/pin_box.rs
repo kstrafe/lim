@@ -72,7 +72,7 @@ fn derived_pin_prevents_destroying_its_box() {
     let input = scratch.path().join("main.lim");
     let source = example_source()
         .replace("          (#call pin-u64-destroy (: owner moved-owner))", "")
-        .replace("          (#let value u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))", "          (#call pin-u64-destroy (: owner moved-owner))\n          (#let value u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))");
+        .replace("          (#let value #u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))", "          (#call pin-u64-destroy (: owner moved-owner))\n          (#let value #u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))");
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(
         Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -98,7 +98,7 @@ fn a_pointee_view_retains_the_allocator_after_leaking_the_movable_owner() {
     let source = example_source()
         .replace("(#let arena Arena", "(#let-mut arena Arena")
         .replace("          (#call pin-u64-destroy (: owner moved-owner))", "")
-        .replace("          (#let value u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))", "          (#forget moved-owner)\n          (#set-field arena identity 2u64)\n          (#let value u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))");
+        .replace("          (#let value #u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))", "          (#forget moved-owner)\n          (#set-field arena identity 2u64)\n          (#let value #u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))");
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(
         Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -132,7 +132,7 @@ fn mutable_opaque_heap_pin_accessors_read_and_write_in_place() {
             "(#drop value-reference)
           (#let-mut pin PinnedU64 (#call pin-u64-borrow-mut (: owner (#borrow-mut moved-owner))))
           (#call PinnedU64-write (: pin (#borrow-mut pin) : value 43u64))
-          (#let changed u64 (#call PinnedU64-read (: pin (#borrow pin))))
+          (#let changed #u64 (#call PinnedU64-read (: pin (#borrow pin))))
           (#assert (#u64.== changed 43u64)) (#forget pin)",
         );
     fs::write(&input, source).unwrap();

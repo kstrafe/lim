@@ -1,8 +1,8 @@
-(#fn main () u64
-  (#let base u64 40u64)
-  (#let incremented u64 (#u64.+.wrap base 1u64))
+(#fn main () #u64
+  (#let base #u64 40u64)
+  (#let incremented #u64 (#u64.+.wrap base 1u64))
   (#return
     (#u64.+.wrap incremented
       (#block
-        (#let offset u64 1u64)
+        (#let offset #u64 1u64)
         (#u64.+.wrap offset 1u64)))))

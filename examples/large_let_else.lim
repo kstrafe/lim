@@ -1,10 +1,10 @@
-(#fn main () u64
-  (#let values (#array u64 7)
-    (#array (#array u64 7)
+(#fn main () #u64
+  (#let values (#array #u64 7)
+    (#array (#array #u64 7)
       1u64 2u64 3u64 4u64 5u64 6u64 42u64))
   (#let-else
     (#array first second third fourth fifth sixth last)
-    (#array u64 7)
+    (#array #u64 7)
     values
     (#return 0u64))
   (#return last))

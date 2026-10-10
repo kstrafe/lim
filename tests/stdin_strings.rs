@@ -55,11 +55,11 @@ fn run(
     let mut allocator = include_str!("../library/system_allocator.lim").to_owned();
     if fail_realloc {
         allocator = replace_call(&allocator, "realloc", "stdin-failing-realloc");
-        allocator.push_str("\n(#fn stdin-failing-realloc ((pointer (#ptr-mut u8)) (size usize)) (#ptr-mut u8)\n  (#return (#ptr-null (#ptr-mut u8))))\n");
+        allocator.push_str("\n(#fn stdin-failing-realloc ((pointer (#ptr-mut #u8)) (size #usize)) (#ptr-mut #u8)\n  (#return (#ptr-null (#ptr-mut #u8))))\n");
     }
     fs::write(scratch.path().join("system_allocator.lim"), allocator).unwrap();
     let source = format!(
-        "(#import {:?})\n(#import {:?})\n(#fn main () u64\n  (#let-mut text String (#call String-new ()))\n  {}\n  (#let-mut finished bool false)\n  (#while (#bool.== finished false)\n    (#let before usize (#call String-len (: string (#borrow text))))\n    (#match (#call std-read-line (: string (#borrow-mut text)))\n      (#case (StdLineRead count) (#block\n        (#assert (#usize.== (#usize.+.wrap before count) (#call String-len (: string (#borrow text)))))\n        (#assert (#i64.== (#println (#borrow text)) 0i64))\n        (#call String-clear (: string (#borrow-mut text)))\n        ()))\n      (#case StdEndOfInput (#block (#set finished true) ()))\n      (#case (StdReadFailed error) (#block\n        (#assert {})\n        (#assert (#i64.== (#println (#borrow text)) 0i64))\n        (#set finished true)\n        ()))))\n  (#call String-free (: string text))\n  (#return 42u64))",
+        "(#import {:?})\n(#import {:?})\n(#fn main () #u64\n  (#let-mut text String (#call String-new ()))\n  {}\n  (#let-mut finished #bool false)\n  (#while (#bool.== finished false)\n    (#let before #usize (#call String-len (: string (#borrow text))))\n    (#match (#call std-read-line (: string (#borrow-mut text)))\n      (#case (StdLineRead count) (#block\n        (#assert (#usize.== (#usize.+.wrap before count) (#call String-len (: string (#borrow text)))))\n        (#assert (#i64.== (#println (#borrow text)) 0i64))\n        (#call String-clear (: string (#borrow-mut text)))\n        ()))\n      (#case StdEndOfInput (#block (#set finished true) ()))\n      (#case (StdReadFailed error) (#block\n        (#assert {})\n        (#assert (#i64.== (#println (#borrow text)) 0i64))\n        (#set finished true)\n        ()))))\n  (#call String-free (: string text))\n  (#return 42u64))",
         library.display(),
         stdio.display(),
         seed,

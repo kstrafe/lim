@@ -24,10 +24,10 @@ fn cold_and_warm_builds_are_identical_across_relocated_workspaces() {
     let right = support::Scratch::new("repro-right");
     let mut expected = None;
     for root in [left.path(), right.path()] {
-        fs::write(root.join("module.lim"), "(#const Z u64 2u64) (#const A u64 20u64) (#const Float f64 1.5f64)\n(#gn alias (name) `((#type ,name u64)))\n(@alias Word)\n(@optional (: type u64 : name Maybe))").unwrap();
+        fs::write(root.join("module.lim"), "(#const Z #u64 2u64) (#const A #u64 20u64) (#const Float #f64 1.5f64)\n(#gn alias (name) `((#type ,name #u64)))\n(@alias Word)\n(@optional (: type #u64 : name Maybe))").unwrap();
         fs::write(
             root.join("main.lim"),
-            "(#import \"module.lim\") (#fn main () u64 (#return (#u64.+.wrap A Z)))",
+            "(#import \"module.lim\") (#fn main () #u64 (#return (#u64.+.wrap A Z)))",
         )
         .unwrap();
         for _ in 0..2 {

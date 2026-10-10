@@ -1,4 +1,4 @@
-(#struct Resource (: number u64))
+(#struct Resource (: number #u64))
 (#linear Resource)
 (#fn main () ()
   (#let-mut owner Resource (#struct-literal Resource (: number 1u64)))

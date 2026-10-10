@@ -1,11 +1,11 @@
 ; Oversized enum values use the native ABI's indirect return storage.
-(#enum LargeChoice ((Values (#array u64 8)) (Empty)))
+(#enum LargeChoice ((Values (#array #u64 8)) (Empty)))
 
 (#fn make-large-choice () LargeChoice
   (#return (Values
-    (#array-of (#array u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 42u64))))
+    (#array-of (#array #u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 42u64))))
 
-(#fn read-large-choice ((choice LargeChoice)) u64
+(#fn read-large-choice ((choice LargeChoice)) #u64
   (#return (#match choice
     (#case (Values values) (#index values 7usize))
     (#case Empty 0u64))))
@@ -15,7 +15,7 @@
     (#case (Values values) (Values values))
     (#case Empty Empty))))
 
-(#fn main () u64
+(#fn main () #u64
   (#let result LargeChoice
     (#call bounce-large-choice
       (: choice (#call make-large-choice (:)))))

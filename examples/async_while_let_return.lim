@@ -1,25 +1,25 @@
-(#enum Choice ((Chosen u64) Empty))
+(#enum Choice ((Chosen #u64) Empty))
 (#enum ChoiceTask ((ChoiceStart Choice) (ChoiceResume Choice)))
 (#enum ChoicePoll ((ChoicePending ChoiceTask) (ChoiceReady Choice)))
-(#fn choice-poll ((task ChoiceTask) (waker (#ref u64))) ChoicePoll
+(#fn choice-poll ((task ChoiceTask) (waker (#ref #u64))) ChoicePoll
   (#return (#match task
     (#case (ChoiceStart value) (ChoicePending (ChoiceResume value)))
     (#case (ChoiceResume value) (ChoiceReady value)))))
-(#enum Step ((Start u64) (Resume u64)))
-(#enum StepPoll ((StepPending Step) (StepReady u64)))
-(#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+(#enum Step ((Start #u64) (Resume #u64)))
+(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work ((choice Choice)) u64
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work ((choice Choice)) #u64
     (#while-let (Chosen value)
       (#await Choice ChoiceTask ChoicePending ChoiceReady choice-poll (ChoiceStart choice))
-      (#let first u64 (#await u64 Step StepPending StepReady step-poll (Start value)))
-      (#let second u64 (#await u64 Step StepPending StepReady step-poll (Start first)))
+      (#let first #u64 (#await #u64 Step StepPending StepReady step-poll (Start value)))
+      (#let second #u64 (#await #u64 Step StepPending StepReady step-poll (Start first)))
       (#return second))
     (#return 5u64))))
-(#fn run ((choice Choice) (waker (#ref u64))) u64
+(#fn run ((choice Choice) (waker (#ref #u64))) #u64
   (#let first Poll (#call poll (: task (#call work (: choice choice)) : waker waker)))
   (#let-else (Pending after-condition) Poll first (#unreachable))
   (#let second Poll (#call poll (: task after-condition : waker waker)))
@@ -33,8 +33,8 @@
         (#match fourth
           (#case (Ready value) value)
           (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))))
-(#fn main () u64
-  (#let waker u64 0u64)
-  (#let chosen u64 (#call run (: choice (Chosen 37u64) : waker (#borrow waker))))
-  (#let empty u64 (#call run (: choice Empty : waker (#borrow waker))))
+(#fn main () #u64
+  (#let waker #u64 0u64)
+  (#let chosen #u64 (#call run (: choice (Chosen 37u64) : waker (#borrow waker))))
+  (#let empty #u64 (#call run (: choice Empty : waker (#borrow waker))))
   (#return (#u64.+.wrap chosen empty)))

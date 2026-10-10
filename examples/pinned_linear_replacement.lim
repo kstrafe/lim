@@ -1,4 +1,4 @@
-(#struct Resource ((number u64)))
+(#struct Resource ((number #u64)))
 (#linear Resource)
 
 (#fn replace-resource ((target (#pin-ref-mut Resource))) ()
@@ -7,9 +7,9 @@
   (#unsafe (#pin-write target (#struct-literal Resource (: number 42u64))))
   (#return ()))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut owner Resource (#struct-literal Resource (: number 1u64)))
   (#call replace-resource (: target (#pin-borrow-mut owner)))
-  (#let result u64 (#get owner number))
+  (#let result #u64 (#get owner number))
   (#forget owner)
   (#return result))

@@ -1,5 +1,5 @@
-(#fn main () u64
-  (#let-mut owner u64 1u64)
-  (#let view (#ref u64) (#borrow owner))
+(#fn main () #u64
+  (#let-mut owner #u64 1u64)
+  (#let view (#ref #u64) (#borrow owner))
   (#forget view)
   (#return (#deref view)))

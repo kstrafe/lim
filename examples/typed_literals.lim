@@ -1,4 +1,4 @@
-(#const BYTE u8 255u8)
+(#const BYTE #u8 255u8)
 
-(#fn main () u64
-  (#return (#as (#u32.+.wrap 1u32 41u32) u64)))
+(#fn main () #u64
+  (#return (#as (#u32.+.wrap 1u32 41u32) #u64)))

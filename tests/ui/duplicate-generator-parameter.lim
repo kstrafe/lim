@@ -1,2 +1,2 @@
 (#gn make (x x) (#gn-list))
-(#fn main () u64 (#return 0u64))
+(#fn main () #u64 (#return 0u64))

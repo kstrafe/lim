@@ -314,6 +314,7 @@ exit 84 range_match.lim - -
 exit 109 ref_field_mutation.lim - -
 exit 42 references.lim - -
 exit 7 result_error.lim - -
+exit 42 result_propagation.lim - -
 exit 1 result.lim - -
 exit 42 saturating_division.lim - -
 exit 127 saturating_negation.lim - -

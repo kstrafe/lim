@@ -2,8 +2,8 @@
   #struct
   Point
   (
-    (x u64)
-    (y u64)
+    (x #u64)
+    (y #u64)
   )
 )
 
@@ -11,7 +11,7 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #return
     (
@@ -20,10 +20,10 @@
         (#size-of Point)
         (
           #size-of
-          (#array u32 2)
+          (#array #u32 2)
         )
       )
-      u64
+      #u64
     )
   )
 )

@@ -1,6 +1,6 @@
 (#import "../library/wake_ready4.lim")
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))
   (#let invalid WakeRegister4
     (#call wake-ready4-register (: queue (#borrow-mut queue) : slot 4usize)))

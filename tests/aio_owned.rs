@@ -73,7 +73,7 @@ fn one_aio_context_accepts_multiple_outstanding_operations() {
                (: context (#borrow context) : fd 0i64 : events 1u16)))
            (#forget second-submission)
            (#forget first-operation)
-           (#let destroyed i64
+           (#let destroyed #i64
              (#call aio-owned-context-destroy (: context context)))
            (#forget destroyed)
            (#return ()))",
@@ -101,7 +101,7 @@ fn native_aio_wait_routes_another_requests_completion() {
     let source = format!(
         r#"(#import "{}/linux_x86_64.lim")
            (#import "{}/aio_owned.lim")
-           (#fn main () u64
+           (#fn main () #u64
              (#let context-result AioOwnedContextCreate
                (#call aio-owned-context-create (:)))
              (#let-mut context AioOwnedContext
@@ -109,8 +109,8 @@ fn native_aio_wait_routes_another_requests_completion() {
                  (#case (AioOwnedContextCreated owner) owner)
                  (#case (AioOwnedContextCreateFailed error)
                    (#block (#forget error) (#unreachable)))))
-             (#let fd-b i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 0i32)))
-             (#let fd-a i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 0i32)))
+             (#let fd-b #i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 0i32)))
+             (#let fd-a #i64 (#call linux-eventfd2 (: initial-value 0u32 : flags 0i32)))
              (#assert (#i64.>= fd-a 0i64))
              (#assert (#i64.>= fd-b 0i64))
              (#let submission-b AioOwnedSubmit
@@ -129,15 +129,15 @@ fn native_aio_wait_routes_another_requests_completion() {
                  (#case (AioOwnedSubmitted operation) operation)
                  (#case (AioOwnedSubmitFailed error)
                    (#block (#forget error) (#unreachable)))))
-             (#let scratch (#ptr-mut u8)
+             (#let scratch (#ptr-mut #u8)
                (#unsafe (#call linux-mmap
-                 (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
+                 (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
                   : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-             (#let value (#ptr-mut u64)
-               (#unsafe (#asm (#ptr-mut u64) ((rdi scratch)) "lea rax, [rdi+256]")))
+             (#let value (#ptr-mut #u64)
+               (#unsafe (#asm (#ptr-mut #u64) ((rdi scratch)) "lea rax, [rdi+256]")))
              (#unsafe (#ptr-write value 1u64))
-             (#let bytes (#ptr-mut u8)
-               (#unsafe (#asm (#ptr-mut u8) ((rdi scratch)) "lea rax, [rdi+256]")))
+             (#let bytes (#ptr-mut #u8)
+               (#unsafe (#asm (#ptr-mut #u8) ((rdi scratch)) "lea rax, [rdi+256]")))
              (#assert (#i64.==
                (#unsafe (#call linux-write (: fd fd-b : source bytes : count 8usize)))
                8i64))
@@ -157,7 +157,7 @@ fn native_aio_wait_routes_another_requests_completion() {
                  (#case (AioOwnedWaitFailed failure)
                    (#block
                      (#let (#tuple still-pending error)
-                       (#tuple AioOwnedPending i64) failure)
+                       (#tuple AioOwnedPending #i64) failure)
                      (#forget still-pending)
                      (#forget error)
                      (#unreachable)))))
@@ -168,7 +168,7 @@ fn native_aio_wait_routes_another_requests_completion() {
                  (#case (AioOwnedWaitFailed failure)
                    (#block
                      (#let (#tuple still-pending error)
-                       (#tuple AioOwnedPending i64) failure)
+                       (#tuple AioOwnedPending #i64) failure)
                      (#forget still-pending)
                      (#forget error)
                      (#unreachable)))))

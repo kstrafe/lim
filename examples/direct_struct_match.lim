@@ -1,6 +1,6 @@
-(#struct Point ((x u64) (y u64)))
+(#struct Point ((x #u64) (y #u64)))
 
-(#fn main () u64
+(#fn main () #u64
   (#return
     (#match (#struct-literal Point ((x 10) (y 32)))
       (#case (Point 10 middle) middle)

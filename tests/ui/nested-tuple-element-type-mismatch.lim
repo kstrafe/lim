@@ -1,2 +1,2 @@
-(#fn main () (#tuple (#tuple u64) bool)
+(#fn main () (#tuple (#tuple #u64) #bool)
   (#return (#tuple (#tuple 1u64) 2u64)))

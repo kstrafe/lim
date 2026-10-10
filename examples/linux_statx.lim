@@ -1,11 +1,11 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let memory (#ptr-mut u8)
-    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+(#fn main () #u64
+  (#let memory (#ptr-mut #u8)
+    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let metadata (#ptr-mut u64)
-    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+  (#let metadata (#ptr-mut #u64)
+    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let initialized ()
     (#unsafe
@@ -24,14 +24,14 @@
         (#ptr-write (#ptr-offset memory 38usize) 111u8)
         (#ptr-write (#ptr-offset memory 39usize) 107u8)
         ())))
-  (#let fd i64
+  (#let fd #i64
     (#unsafe (#call linux-memfd-create (: name (#ptr-offset memory 8usize) : flags 1u32))))
-  (#let bytes-written i64
+  (#let bytes-written #i64
     (#unsafe (#call linux-write (: fd fd : source (#ptr-offset memory 32usize) : count 8usize))))
-  (#let statx-result i64
+  (#let statx-result #i64
     (#unsafe (#call linux-statx (: directory fd : path memory : flags 4096u32 : mask 2047u32 : metadata metadata))))
-  (#let returned-mask u64 (#unsafe (#ptr-read metadata)))
-  (#let returned-size u64
+  (#let returned-mask #u64 (#unsafe (#ptr-read metadata)))
+  (#let returned-size #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 5usize))))
   ; Keep an empty string at offset 4 for AT_EMPTY_PATH; use "." at offset 0.
   (#let path-set ()
@@ -39,36 +39,36 @@
       (#ptr-write memory 46u8)
       (#ptr-write (#ptr-offset memory 1usize) 0u8)
       ())))
-  (#let stat-result i64
+  (#let stat-result #i64
     (#unsafe (#call linux-stat (: path memory : metadata metadata))))
-  (#let stat-inode u64
+  (#let stat-inode #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 1usize))))
-  (#let lstat-result i64
+  (#let lstat-result #i64
     (#unsafe (#call linux-lstat (: path memory : metadata metadata))))
-  (#let lstat-inode u64
+  (#let lstat-inode #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 1usize))))
-  (#let fstatat-result i64
+  (#let fstatat-result #i64
     (#unsafe (#call linux-newfstatat (: directory fd : path (#ptr-offset memory 4usize) : metadata metadata : flags 4096i32))))
-  (#let fstatat-size u64
+  (#let fstatat-size #u64
     (#unsafe (#ptr-read (#ptr-offset metadata 6usize))))
-  (#let statfs-result i64
+  (#let statfs-result #i64
     (#unsafe (#call linux-statfs (: path memory : statistics metadata))))
-  (#let statfs-type u64 (#unsafe (#ptr-read metadata)))
-  (#let fstatfs-result i64
+  (#let statfs-type #u64 (#unsafe (#ptr-read metadata)))
+  (#let fstatfs-result #i64
     (#unsafe (#call linux-fstatfs (: fd fd : statistics metadata))))
-  (#let fstatfs-type u64 (#unsafe (#ptr-read metadata)))
-  (#let faccessat-result i64
+  (#let fstatfs-type #u64 (#unsafe (#ptr-read metadata)))
+  (#let faccessat-result #i64
     (#unsafe (#call linux-faccessat (: directory -100i64 : path memory : mode 0i32))))
-  (#let faccessat2-result i64
+  (#let faccessat2-result #i64
     (#unsafe (#call linux-faccessat2 (: directory -100i64 : path memory : mode 0i32 : flags 0i32))))
-  (#let invalid-access-flags i64
+  (#let invalid-access-flags #i64
     (#unsafe (#call linux-faccessat2 (: directory -100i64 : path memory : mode 0i32 : flags -1i32))))
-  (#let fd-closed i64 (#call linux-close (: fd fd)))
-  (#let memory-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
-  (#let metadata-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (metadata 4096usize))))
-  (#let statx-ok bool
+  (#let fd-closed #i64 (#call linux-close (: fd fd)))
+  (#let memory-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let metadata-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (metadata 4096usize))))
+  (#let statx-ok #bool
     (#bool.&& (#i64.>= fd 0i64)
       (#bool.&& (#i64.== bytes-written 8i64)
         (#bool.&& (#i64.== statx-result 0i64)
@@ -77,7 +77,7 @@
               (#bool.&& (#i64.== fd-closed 0i64)
                 (#bool.&& (#i64.== memory-unmapped 0i64)
                   (#i64.== metadata-unmapped 0i64)))))))))
-  (#let metadata-ok bool
+  (#let metadata-ok #bool
     (#bool.&& (#i64.== stat-result 0i64)
       (#bool.&& (#u64.> stat-inode 0u64)
         (#bool.&& (#i64.== lstat-result 0i64)

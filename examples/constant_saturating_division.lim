@@ -1,5 +1,5 @@
-(#const Minimum i8 -128)
-(#const Quotient i8 (#i8./.saturate Minimum -1))
+(#const Minimum #i8 -128)
+(#const Quotient #i8 (#i8./.saturate Minimum -1))
 
-(#fn main () u64
-  (#return (#as Quotient u64)))
+(#fn main () #u64
+  (#return (#as Quotient #u64)))

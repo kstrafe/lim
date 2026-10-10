@@ -1,5 +1,5 @@
-(#fn take ((value u64)) u64
+(#fn take ((value #u64)) #u64
   (#return value))
-(#fn main () u64
+(#fn main () #u64
   (#return (#call take (:)))
 )

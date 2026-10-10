@@ -1,8 +1,8 @@
-(#fn fib ((n u64)) u64
-  (#let-mut a u64 0)
-  (#let-mut b u64 1)
-  (#let-mut i u64 0)
-  (#let-mut next u64 0)
+(#fn fib ((n #u64)) #u64
+  (#let-mut a #u64 0)
+  (#let-mut b #u64 1)
+  (#let-mut i #u64 0)
+  (#let-mut next #u64 0)
   (#while (#u64.< (#clone i) (#clone n))
     (#set next (#u64.+.wrap (#clone a) (#clone b)))
     (#set a (#clone b))
@@ -10,5 +10,5 @@
     (#set i (#u64.+.wrap (#clone i) 1)))
   (#return a))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#call fib (: n 10))))

@@ -2,8 +2,8 @@
   #struct
   Point
   (
-    (x f64)
-    (y f32)
+    (x #f64)
+    (y #f32)
   )
 )
 
@@ -11,7 +11,7 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #let
     point
@@ -21,19 +21,19 @@
   (
     #let
     x
-    f64
+    #f64
     (#get point x)
   )
   (
     #let
     values
-    (#array f32 2)
+    (#array #f32 2)
     (#array 1.5 2.5)
   )
   (
     #let
     y
-    f32
+    #f32
     (#index values 1)
   )
   (

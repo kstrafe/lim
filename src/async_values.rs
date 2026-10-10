@@ -753,12 +753,12 @@ mod tests {
     use crate::typed_ir::Declarations;
 
     const CONTEXT: &str = "
-      (#fn first () u64 (#return 11u64))
-      (#fn second () u64 (#return 22u64))
-      (#fn await-a () u64 (#return 1u64))
-      (#fn await-b () u64 (#return 2u64))
-      (#fn await-value ((value u64)) u64 (#return value))
-      (#fn combine ((first u64) (second u64)) u64
+      (#fn first () #u64 (#return 11u64))
+      (#fn second () #u64 (#return 22u64))
+      (#fn await-a () #u64 (#return 1u64))
+      (#fn await-b () #u64 (#return 2u64))
+      (#fn await-value ((value #u64)) #u64 (#return value))
+      (#fn combine ((first #u64) (second #u64)) #u64
         (#return (#u64.+.wrap first second)))";
 
     fn prepare(source: &str) -> (crate::Program, Declarations) {
@@ -802,7 +802,7 @@ mod tests {
     #[test]
     fn named_calls_use_declaration_order_despite_written_order() {
         let (_, declarations) = prepare(
-            "(#fn work () u64
+            "(#fn work () #u64
           (#return (#call combine (: second (#call await-a (:)) : first (#call first (:))))))",
         );
         let body = &declarations.bodies["work"];
@@ -814,7 +814,7 @@ mod tests {
     #[test]
     fn constructors_and_builtins_keep_only_completed_earlier_operands() {
         let (_, declarations) = prepare(
-            "(#struct Pair ((left u64) (right u64)))
+            "(#struct Pair ((left #u64) (right #u64)))
           (#fn work () Pair (#return (#struct-literal Pair
             (: right (#u64.+.wrap (#call second (:)) (#call await-a (:)))
              : left (#call first (:))))))",
@@ -831,13 +831,13 @@ mod tests {
     #[test]
     fn linear_and_reference_bearing_call_results_are_value_snapshots() {
         let (_, declarations) = prepare(
-            "(#struct Token ((value u64))) (#linear Token)
-          (#struct Holder ((view (#ref u64))))
+            "(#struct Token ((value #u64))) (#linear Token)
+          (#struct Holder ((view (#ref #u64))))
           (#fn token () Token (#return (#struct-literal Token (: value 7u64))))
-          (#fn holder ((view (#ref u64))) Holder (#return (#struct-literal Holder (: view view))))
-          (#fn use-values ((owned Token) (borrowed Holder) (number u64)) u64
+          (#fn holder ((view (#ref #u64))) Holder (#return (#struct-literal Holder (: view view))))
+          (#fn use-values ((owned Token) (borrowed Holder) (number #u64)) #u64
             (#forget owned) (#forget borrowed) (#return number))
-          (#fn work ((view (#ref u64))) u64
+          (#fn work ((view (#ref #u64))) #u64
             (#return (#call use-values (: number (#call await-a (:))
               : borrowed (#call holder (: view view)) : owned (#call token (:))))))",
         );
@@ -858,7 +858,7 @@ mod tests {
     #[test]
     fn nested_await_results_reach_outer_and_later_sibling_calls() {
         let (_, declarations) = prepare(
-            "(#fn work () u64 (#return (#call combine
+            "(#fn work () #u64 (#return (#call combine
           (: first (#call await-value (: value (#call await-a (:))))
            : second (#call await-b (:))))))",
         );
@@ -875,7 +875,7 @@ mod tests {
     #[test]
     fn joined_branch_and_loop_results_replace_their_producer_operands() {
         let (_, declarations) = prepare(
-            "(#fn work ((choose bool)) u64
+            "(#fn work ((choose #bool)) #u64
           (#return (#call combine
             (: first (#if choose (#call first (:)) (#loop (#break (#call second (:)))))
              : second (#call await-a (:))))))",
@@ -895,10 +895,10 @@ mod tests {
     #[test]
     fn guards_retain_the_scrutinee_but_committed_arm_bodies_do_not() {
         let (_, declarations) = prepare(
-            "(#enum Choice ((Some u64) None))
+            "(#enum Choice ((Some #u64) None))
           (#fn make-choice () Choice (#return (Some 4u64)))
-          (#fn await-guard () bool (#return true))
-          (#fn work () u64 (#return (#call combine
+          (#fn await-guard () #bool (#return true))
+          (#fn work () #u64 (#return (#call combine
             (: first (#call first (:)) : second (#match (#call make-choice (:))
               (#case (Some value) (#when (#call await-guard (:))) (#call await-a (:)))
               (#case _ (#call await-b (:))))))))",
@@ -926,10 +926,10 @@ mod tests {
         prefix: &str,
     ) -> (crate::Program, Declarations) {
         prepare(&format!(
-            "(#struct Token ((value u64))) {annotation}
+            "(#struct Token ((value #u64))) {annotation}
           (#enum Choice ((Owned {payload}) Empty))
-          (#fn await-guard () bool (#return true))
-          (#fn work ((choice Choice) (selected bool)) u64
+          (#fn await-guard () #bool (#return true))
+          (#fn work ((choice Choice) (selected #bool)) #u64
             {prefix}
             (#return (#match choice
               (#case (Owned preview) (#when {guard})
@@ -976,14 +976,14 @@ mod tests {
 
     #[test]
     fn production_guards_reject_exclusive_preview_bindings_including_nested_fields() {
-        for payload in ["(#ref-mut u64)", "Token"] {
+        for payload in ["(#ref-mut #u64)", "Token"] {
             let source = if payload == "Token" {
                 // An exclusive field is move-only without an explicit linear
                 // annotation. Match the nested field, not the aggregate itself.
-                "(#struct Token ((value (#ref-mut u64))))
+                "(#struct Token ((value (#ref-mut #u64))))
                   (#enum Choice ((Owned Token) Empty))
-                  (#fn await-guard () bool (#return true))
-                  (#fn work ((choice Choice)) u64
+                  (#fn await-guard () #bool (#return true))
+                  (#fn work ((choice Choice)) #u64
                     (#return (#match choice
                       (#case (Owned (Token preview)) (#when (#call await-guard (:)))
                         (#block (#forget preview) 1u64))
@@ -1057,9 +1057,9 @@ mod tests {
     #[test]
     fn production_scalar_previews_can_suspend() {
         let (program, declarations) = prepare(
-            "(#enum Choice ((Some u64) None))
-          (#fn await-guard () bool (#return true))
-          (#fn work ((choice Choice)) u64 (#return (#match choice
+            "(#enum Choice ((Some #u64) None))
+          (#fn await-guard () #bool (#return true))
+          (#fn work ((choice Choice)) #u64 (#return (#match choice
             (#case (Some preview) (#when (#call await-guard (:))) preview)
             (#case _ 0u64))))",
         );
@@ -1076,11 +1076,11 @@ mod tests {
     #[test]
     fn place_bases_and_projection_metadata_are_not_moved_operands() {
         let (_, declarations) = prepare(
-            "(#struct Pair ((left u64) (right u64)))
-          (#fn work ((pair Pair) (array (#array u64 2))) u64
+            "(#struct Pair ((left #u64) (right #u64)))
+          (#fn work ((pair Pair) (array (#array #u64 2))) #u64
             (#let pair-view (#ref Pair) (#borrow pair))
-            (#let view (#ref u64) (#borrow (#get pair-view left)))
-            (#let result u64 (#index array (#call await-a (:))))
+            (#let view (#ref #u64) (#borrow (#get pair-view left)))
+            (#let result #u64 (#index array (#call await-a (:))))
             (#drop view) (#drop pair-view) (#forget pair) (#forget array) (#return result))",
         );
         let body = &declarations.bodies["work"];
@@ -1091,8 +1091,8 @@ mod tests {
     #[test]
     fn reference_field_load_survives_the_later_index_await() {
         let (_, declarations) = prepare(
-            "(#struct Holder ((values (#ref (#array u64 2)))))
-          (#fn work ((holder (#ref Holder))) u64
+            "(#struct Holder ((values (#ref (#array #u64 2)))))
+          (#fn work ((holder (#ref Holder))) #u64
             (#return (#index (#get holder values) (#call await-a (:)))))",
         );
         let body = &declarations.bodies["work"];
@@ -1121,8 +1121,8 @@ mod tests {
     fn nested_reference_index_load_replaces_its_completed_address_components() {
         let (_, declarations) = prepare(
             "(#struct Holder
-          ((links (#ref (#array (#ref (#array u64 2)) 2)))))
-          (#fn work ((holder (#ref Holder))) u64
+          ((links (#ref (#array (#ref (#array #u64 2)) 2)))))
+          (#fn work ((holder (#ref Holder))) #u64
             (#return (#u64.+.wrap (#call first (:))
               (#index (#index (#get holder links) 0usize) (#call await-a (:))))))",
         );
@@ -1145,8 +1145,8 @@ mod tests {
     #[test]
     fn replacing_holder_contents_keeps_the_previously_loaded_reference() {
         let (_, declarations) = prepare(
-            "(#struct Holder ((values (#ref (#array u64 2)))))
-          (#fn work ((holder (#ref-mut Holder)) (replacement (#ref (#array u64 2)))) u64
+            "(#struct Holder ((values (#ref (#array #u64 2)))))
+          (#fn work ((holder (#ref-mut Holder)) (replacement (#ref (#array #u64 2)))) #u64
             (#return (#index (#get holder values) (#block
               (#deref-set holder (#struct-literal Holder (: values replacement)))
               (#call await-a (:))))))",
@@ -1174,8 +1174,8 @@ mod tests {
     #[test]
     fn array_assignment_keeps_its_evaluated_index_across_rhs_suspension() {
         let (_, declarations) = prepare(
-            "(#fn work () u64
-          (#let-mut values (#array u64 2) (#array-of (#array u64 2) 3u64 4u64))
+            "(#fn work () #u64
+          (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 3u64 4u64))
           (#set-index values (#call first (:)) (#call await-a (:)))
           (#forget values) (#return 0u64))",
         );
@@ -1190,8 +1190,8 @@ mod tests {
     #[test]
     fn short_circuit_conditions_and_finished_statements_are_not_outstanding() {
         let (_, declarations) = prepare(
-            "(#fn await-bool () bool (#return true))
-          (#fn work ((choose bool)) bool
+            "(#fn await-bool () #bool (#return true))
+          (#fn work ((choose #bool)) #bool
             (#call first (:))
             (#return (#bool.&& choose (#call await-bool (:)))))",
         );
@@ -1203,7 +1203,7 @@ mod tests {
     #[test]
     fn flow_arena_permutation_and_collapsed_spans_do_not_change_the_plan() {
         let (_, mut declarations) = prepare(
-            "(#fn work () u64
+            "(#fn work () #u64
           (#return (#call combine (: first (#call first (:)) : second (#call await-a (:))))))",
         );
         let body = declarations.bodies.get_mut("work").unwrap();
@@ -1236,7 +1236,7 @@ mod tests {
     #[test]
     fn unreachable_calls_are_omitted_and_duplicate_events_are_rejected() {
         let (_, declarations) = prepare(
-            "(#fn work () u64
+            "(#fn work () #u64
           (#return 42u64) (#call await-a (:)) (#return 0u64))",
         );
         let body = &declarations.bodies["work"];
@@ -1244,7 +1244,7 @@ mod tests {
         let flow = &declarations.flows["work"];
         assert!(plan(body, flow, &[site]).unwrap().is_empty());
 
-        let (_, declarations) = prepare("(#fn work () u64 (#return (#call await-a (:))))");
+        let (_, declarations) = prepare("(#fn work () #u64 (#return (#call await-a (:))))");
         let body = &declarations.bodies["work"];
         let site = call(body, "await-a");
         let mut flow = declarations.flows["work"].clone();
@@ -1264,7 +1264,7 @@ mod tests {
     #[test]
     fn repeated_suspending_elements_need_a_multiplicity_model() {
         let (_, declarations) = prepare(
-            "(#fn work () (#array u64 2)
+            "(#fn work () (#array #u64 2)
           (#return (#array-repeat (#call await-a (:)))))",
         );
         let body = &declarations.bodies["work"];

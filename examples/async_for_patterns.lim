@@ -1,30 +1,30 @@
 ; The loop initializer destructures a struct into mutable, explicitly typed leaves.
-(#struct Bounds ((z (#tuple u64 u64)) (a u64)))
-(#enum Step ((Start u64) (Resume u64)))
-(#enum StepPoll ((StepPending Step) (StepReady u64)))
-(#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+(#struct Bounds ((z (#tuple #u64 #u64)) (a #u64)))
+(#enum Step ((Start #u64) (Resume #u64)))
+(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))
     (#case (Resume value) (StepReady value)))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work ((bounds Bounds)) u64
-    (#let-mut total u64 1u64)
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work ((bounds Bounds)) #u64
+    (#let-mut total #u64 1u64)
     (#for (#let-mut (Bounds (#tuple iteration limit) bias) Bounds bounds)
       (#u64.< iteration limit)
       (#set iteration (#u64.+.wrap iteration 1u64))
-      (#let value u64 (#await Step StepPending StepReady step-poll (Start iteration)))
+      (#let value #u64 (#await Step StepPending StepReady step-poll (Start iteration)))
       (#set total (#u64.+.wrap total (#u64.+.wrap value bias))))
     ; The initializer's scope has ended; this is an independent binding.
-    (#let iteration u64 42u64)
+    (#let iteration #u64 42u64)
     (#return (#u64.+.wrap total (#u64.-.wrap iteration 42u64))))))
 
-(#fn main () u64
-  (#let waker u64 0u64)
+(#fn main () #u64
+  (#let waker #u64 0u64)
   (#let-mut task Frame
     (#call work (: bounds
-      (#struct-literal Bounds (: a 20u64 : z (#tuple (#tuple u64 u64) 0u64 2u64))))))
-  (#for-range (attempt u64) 0u64 4u64
+      (#struct-literal Bounds (: a 20u64 : z (#tuple (#tuple #u64 #u64) 0u64 2u64))))))
+  (#for-range (attempt #u64) 0u64 4u64
     (#let outcome Poll (#call poll (: task task : waker (#borrow waker))))
     (#match outcome
       (#case (Pending next) (#block (#set task next) ()))

@@ -1615,13 +1615,13 @@ mod tests {
     use crate::typed_flow::FlowAction;
 
     const SOURCE: &str = "
-      (#struct Link (: value u64 : state u32 : view (#pin-ref u64)))
+      (#struct Link (: value #u64 : state #u32 : view (#pin-ref #u64)))
       (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-        (#let view (#pin-ref u64) (#pin-borrow (#get target value)))
+        (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
         (#pin-set-field target view view) (#return target))
       (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
         (#pin-set-field target state 2u32) (#return target))
-      (#fn driver (: outside (#pin-ref u64)) u64
+      (#fn driver (: outside (#pin-ref #u64)) #u64
         (#let-mut link Link (#struct-literal Link (: value 42u64 : state 0u32 : view outside)))
         (#let-mut running (#pin-ref-mut Link) (#pin-borrow-mut link))
         (#let installed (#pin-ref-mut Link) (#call install (: target running)))
@@ -1641,7 +1641,7 @@ mod tests {
 
     fn exclusive_source() -> String {
         SOURCE
-            .replace("#pin-ref u64", "#pin-ref-mut u64")
+            .replace("#pin-ref #u64", "#pin-ref-mut #u64")
             .replace(
                 "(#pin-borrow (#get target value))",
                 "(#pin-borrow-mut (#get target value))",
@@ -1680,10 +1680,10 @@ mod tests {
 
     #[test]
     fn parameter_contents_summary_preserves_the_selected_source_slot() {
-        let source = "(#struct Link (: view (#ref u64)))
-            (#fn read-link (: value (#ref Link)) u64
+        let source = "(#struct Link (: view (#ref #u64)))
+            (#fn read-link (: value (#ref Link)) #u64
               (#return (#deref (#get (#deref value) view))))
-            (#fn caller (: target (#ref Link)) u64
+            (#fn caller (: target (#ref Link)) #u64
               (#return (#call read-link (: value target))))";
         let declarations = fixture(source);
         let body = &declarations.bodies["caller"];
@@ -1736,17 +1736,17 @@ mod tests {
 
     #[test]
     fn enum_payload_owner_observation_is_not_hidden_by_a_missing_alias() {
-        let source = "(#enum View (NoView (HasView (#pin-ref-mut u64))))
-          (#struct Link (: value u64 : view View))
+        let source = "(#enum View (NoView (HasView (#pin-ref-mut #u64))))
+          (#struct Link (: value #u64 : view View))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-            (#let view (#pin-ref-mut u64) (#pin-borrow-mut (#get target value)))
+            (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view)))
             (#return target))
-          (#fn observe (: target (#pin-ref-mut Link)) u64 (#return (#get target value)))
-          (#fn driver () u64
+          (#fn observe (: target (#pin-ref-mut Link)) #u64 (#return (#get target value)))
+          (#fn driver () #u64
             (#let-mut link Link (#struct-literal Link (: value 42u64 : view NoView)))
             (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
-            (#let value u64 (#call observe (: target installed)))
+            (#let value #u64 (#call observe (: target installed)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get installed view)) NoView))
             (#drop installed) (#forget link) (#return value))";
         let declarations = fixture(source);
@@ -1768,10 +1768,12 @@ mod tests {
         );
         assert!(checked.is_err(), "{source}");
 
-        let shared = source.replace("#pin-ref-mut u64", "#pin-ref u64").replace(
-            "(#pin-borrow-mut (#get target value))",
-            "(#pin-borrow (#get target value))",
-        );
+        let shared = source
+            .replace("#pin-ref-mut #u64", "#pin-ref #u64")
+            .replace(
+                "(#pin-borrow-mut (#get target value))",
+                "(#pin-borrow (#get target value))",
+            );
         let declarations = fixture(&shared);
         let body = &declarations.bodies["driver"];
         let flow = &declarations.flows["driver"];
@@ -1789,18 +1791,18 @@ mod tests {
 
     #[test]
     fn unknown_enum_tag_retains_possible_mutable_payload_aliases() {
-        let source = "(#enum Value (Empty (Full u64)))
-          (#struct Link (: value Value : view (#pin-ref-mut u64)))
+        let source = "(#enum Value (Empty (Full #u64)))
+          (#struct Link (: value Value : view (#pin-ref-mut #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-            (#let view (#pin-ref-mut u64)
+            (#let view (#pin-ref-mut #u64)
               (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))
             (#return target))
           (#fn observe (: target (#pin-ref-mut Link)) ()
-            (#let payload (#pin-ref-mut u64)
+            (#let payload (#pin-ref-mut #u64)
               (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0))
             (#drop payload) (#return ()))
-          (#fn driver (: outside (#pin-ref-mut u64) : choose bool) ()
+          (#fn driver (: outside (#pin-ref-mut #u64) : choose #bool) ()
             (#let-mut link Link (#struct-literal Link
               (: value (#if choose (Full 42u64) Empty) : view outside)))
             (#if choose
@@ -1856,13 +1858,13 @@ mod tests {
 
     #[test]
     fn nested_dereference_payload_tag_proves_the_stored_reference_is_active() {
-        let source = "(#enum View (NoView (HasView (#pin-ref u64))))
-          (#struct Inner (: value u64 : view View))
+        let source = "(#enum View (NoView (HasView (#pin-ref #u64))))
+          (#struct Inner (: value #u64 : view View))
           (#struct Middle (: inner (#pin-ref-mut Inner)))
           (#struct Outer (: middle (#pin-ref-mut Middle)))
           (#struct Shell (: outer (#pin-ref-mut Outer)))
           (#fn touch-inner (: target (#pin-ref-mut Inner)) ()
-            (#let child (#pin-ref-mut u64) (#pin-borrow-mut (#get target value)))
+            (#let child (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
             (#drop child) (#return ()))
           (#fn observe (: target (#pin-ref-mut Shell)) ()
             (#let outer_ref (#pin-ref-mut Outer) (#get target outer))
@@ -1874,7 +1876,7 @@ mod tests {
           (#fn driver () ()
             (#let-mut inner Inner (#struct-literal Inner (: value 7u64 : view NoView)))
             (#let inner_ref (#pin-ref-mut Inner) (#pin-borrow-mut inner))
-            (#let view (#pin-ref u64) (#pin-borrow (#get inner_ref value)))
+            (#let view (#pin-ref #u64) (#pin-borrow (#get inner_ref value)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get inner_ref view)) (HasView view)))
             (#let-mut middle Middle (#struct-literal Middle (: inner inner_ref)))
             (#let middle_ref (#pin-ref-mut Middle) (#pin-borrow-mut middle))
@@ -1992,7 +1994,7 @@ mod tests {
     fn loaded_internal_child_can_survive_a_proven_disjoint_owner_call() {
         let source = SOURCE.replace(
             "(#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)",
-            "(#let held (#pin-ref u64) (#get running view))\n        (#let sibling u32 (#get running state)) (#forget sibling)\n        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)\n        (#let observed u64 (#deref held)) (#forget observed) (#drop held)",
+            "(#let held (#pin-ref #u64) (#get running view))\n        (#let sibling #u32 (#get running state)) (#forget sibling)\n        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)\n        (#let observed #u64 (#deref held)) (#forget observed) (#drop held)",
         );
         let declarations = fixture(&source);
         let body = &declarations.bodies["driver"];
@@ -2041,7 +2043,7 @@ mod tests {
             )
             .replace(
                 "(#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)",
-                "(#let held (#pin-ref u64) (#get running view))\n        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)\n        (#let observed u64 (#deref held)) (#forget observed) (#drop held)",
+                "(#let held (#pin-ref #u64) (#get running view))\n        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)\n        (#let observed #u64 (#deref held)) (#forget observed) (#drop held)",
             );
         let declarations = fixture(&source);
         let body = &declarations.bodies["driver"];
@@ -2069,7 +2071,7 @@ mod tests {
     fn loaded_internal_child_suspends_only_overlapping_parent_access() {
         let source = SOURCE.replace(
             "(#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)",
-            "(#let held (#pin-ref u64) (#get running view))\n        (#let forbidden u64 (#get running value)) (#forget forbidden)\n        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)\n        (#let observed u64 (#deref held)) (#forget observed) (#drop held)",
+            "(#let held (#pin-ref #u64) (#get running view))\n        (#let forbidden #u64 (#get running value)) (#forget forbidden)\n        (#let updated (#pin-ref-mut Link) (#call tick (: target running)))\n        (#set running updated)\n        (#let observed #u64 (#deref held)) (#forget observed) (#drop held)",
         );
         let program = crate::parse_program(&source).unwrap();
         let (_, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
@@ -2091,7 +2093,7 @@ mod tests {
 
     #[test]
     fn symbolic_nested_pointer_slots_do_not_imply_physical_self_aliases() {
-        let source = "(#struct Link (: value u64 : view (#pin-ref u64)))
+        let source = "(#struct Link (: value #u64 : view (#pin-ref #u64)))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link) (#return target))
           (#fn driver (: input (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#return (#call tick (: target input))))";
@@ -2138,7 +2140,7 @@ mod tests {
     fn disjoint_owner_writes_and_writes_through_the_child_are_not_rejected() {
         for operation in [
             "(#pin-set-field target state 2u32)",
-            "(#let observed u64 (#deref (#get target view))) (#forget observed)",
+            "(#let observed #u64 (#deref (#get target view))) (#forget observed)",
         ] {
             let source = SOURCE.replace("(#pin-set-field target state 2u32)", operation);
             let declarations = fixture(&source);
@@ -2175,10 +2177,10 @@ mod tests {
     #[test]
     fn exclusive_internal_loans_block_owner_reads_clones_and_reborrows() {
         for (operation, expected) in [
-            ("(#let observed u64 (#get target value)) (#forget observed)", "(#get target value)"),
-            ("(#let observed u64 (#clone (#get target value))) (#forget observed)", "(#clone (#get target value))"),
-            ("(#let another (#pin-ref u64) (#pin-borrow (#get target value))) (#drop another)", "(#pin-borrow (#get target value))"),
-            ("(#let another (#pin-ref-mut u64) (#pin-borrow-mut (#get target value))) (#drop another)", "(#pin-borrow-mut (#get target value))"),
+            ("(#let observed #u64 (#get target value)) (#forget observed)", "(#get target value)"),
+            ("(#let observed #u64 (#clone (#get target value))) (#forget observed)", "(#clone (#get target value))"),
+            ("(#let another (#pin-ref #u64) (#pin-borrow (#get target value))) (#drop another)", "(#pin-borrow (#get target value))"),
+            ("(#let another (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value))) (#drop another)", "(#pin-borrow-mut (#get target value))"),
         ] {
             let source = exclusive_source().replace("(#pin-set-field target state 2u32)", operation);
             let declarations = fixture(&source);
@@ -2194,9 +2196,9 @@ mod tests {
     #[test]
     fn shared_internal_loans_allow_shared_access_but_not_exclusive_reborrows() {
         for (operation, rejected) in [
-            ("(#let observed u64 (#get target value)) (#forget observed)", false),
-            ("(#let another (#pin-ref u64) (#pin-borrow (#get target value))) (#drop another)", false),
-            ("(#let another (#pin-ref-mut u64) (#pin-borrow-mut (#get target value))) (#drop another)", true),
+            ("(#let observed #u64 (#get target value)) (#forget observed)", false),
+            ("(#let another (#pin-ref #u64) (#pin-borrow (#get target value))) (#drop another)", false),
+            ("(#let another (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value))) (#drop another)", true),
         ] {
             let source = SOURCE.replace("(#pin-set-field target state 2u32)", operation);
             let declarations = fixture(&source);
@@ -2209,11 +2211,11 @@ mod tests {
     #[test]
     fn child_access_and_disjoint_owner_reads_preserve_their_pointer_permissions() {
         for operation in [
-            "(#let observed u32 (#get target state)) (#forget observed)",
-            "(#let observed u64 (#deref (#get target view))) (#forget observed)",
-            "(#let observed u64 (#call child-read (: pointer (#get target view)))) (#forget observed)",
+            "(#let observed #u32 (#get target state)) (#forget observed)",
+            "(#let observed #u64 (#deref (#get target view))) (#forget observed)",
+            "(#let observed #u64 (#call child-read (: pointer (#get target view)))) (#forget observed)",
         ] {
-            let source = format!("{} (#fn child-read (: pointer (#pin-ref-mut u64)) u64 (#return (#deref pointer)))",
+            let source = format!("{} (#fn child-read (: pointer (#pin-ref-mut #u64)) #u64 (#return (#deref pointer)))",
                 exclusive_source().replace("(#pin-set-field target state 2u32)", operation));
             let declarations = fixture(&source);
             call_plan(&declarations, "driver", "tick")
@@ -2225,12 +2227,12 @@ mod tests {
     fn nested_observers_retain_the_deepest_access_span_at_the_caller_argument() {
         let source = format!(
             "{}
-          (#fn observe (: pointer (#pin-ref u64)) u64 (#return (#deref pointer)))
-          (#fn forward (: target (#pin-ref-mut Link)) u64
+          (#fn observe (: pointer (#pin-ref #u64)) #u64 (#return (#deref pointer)))
+          (#fn forward (: target (#pin-ref-mut Link)) #u64
             (#return (#call observe (: pointer (#pin-borrow (#get target value))))))",
             exclusive_source().replace(
                 "(#pin-set-field target state 2u32)",
-                "(#let observed u64 (#call forward (: target target))) (#forget observed)"
+                "(#let observed #u64 (#call forward (: target target))) (#forget observed)"
             )
         );
         let declarations = fixture(&source);
@@ -2260,14 +2262,14 @@ mod tests {
             let operation = format!(
                 "{}
               (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) outside))
-              (#let observed u64 (#get target value)) (#forget observed) {}",
+              (#let observed #u64 (#get target value)) (#forget observed) {}",
                 if saved {
-                    "(#let saved (#pin-ref-mut u64) (#get target view))"
+                    "(#let saved (#pin-ref-mut #u64) (#get target view))"
                 } else {
                     ""
                 },
                 if saved {
-                    "(#let used u64 (#deref saved)) (#forget used) (#drop saved)"
+                    "(#let used #u64 (#deref saved)) (#forget used) (#drop saved)"
                 } else {
                     ""
                 }
@@ -2275,7 +2277,7 @@ mod tests {
             let source = exclusive_source()
                 .replace(
                     "(#fn tick (: target (#pin-ref-mut Link))",
-                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref-mut u64))",
+                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref-mut #u64))",
                 )
                 .replace(
                     "(#call tick (: target running))",
@@ -2291,12 +2293,13 @@ mod tests {
 
     #[test]
     fn repeated_nested_observers_deduplicate_without_erasing_the_access_slot() {
-        let mut source =
-            String::from("(#fn level0 (: pointer (#pin-ref u64)) u64 (#return (#deref pointer)))");
+        let mut source = String::from(
+            "(#fn level0 (: pointer (#pin-ref #u64)) #u64 (#return (#deref pointer)))",
+        );
         for level in 1..=20 {
             source.push_str(&format!(
-                "(#fn level{level} (: pointer (#pin-ref u64)) u64
-              (#let ignored u64 (#call level{} (: pointer pointer)))
+                "(#fn level{level} (: pointer (#pin-ref #u64)) #u64
+              (#let ignored #u64 (#call level{} (: pointer pointer)))
               (#return (#call level{} (: pointer pointer))))",
                 level - 1,
                 level - 1
@@ -2326,7 +2329,7 @@ mod tests {
     fn write_only_context_caching_does_not_authorize_observations() {
         let source = exclusive_source().replace(
             "(#pin-set-field target state 2u32)",
-            "(#let observed u64 (#get target value)) (#forget observed)",
+            "(#let observed #u64 (#get target value)) (#forget observed)",
         );
         let declarations = fixture(&source);
         let plan = call_plan(&declarations, "driver", "tick");
@@ -2342,10 +2345,10 @@ mod tests {
         assert!(!cache.checked.contains(&(plan, true)));
     }
 
-    const PAYLOAD_ENTRY_SOURCE: &str = "(#enum Value (Empty (Full u64)))
-          (#struct Link (: value Value : view (#pin-ref u64)))
+    const PAYLOAD_ENTRY_SOURCE: &str = "(#enum Value (Empty (Full #u64)))
+          (#struct Link (: value Value : view (#pin-ref #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-            (#let view (#pin-ref u64)
+            (#let view (#pin-ref #u64)
               (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
             (#pin-set-field target view view) (#return target))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
@@ -2355,7 +2358,7 @@ mod tests {
                 (#unsafe (#pin-write
                   (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0) 42u64))) ())
             (#return target))
-          (#fn driver (: outside (#pin-ref u64)) ()
+          (#fn driver (: outside (#pin-ref #u64)) ()
             (#let-mut link Link (#struct-literal Link (: value (Full 42u64) : view outside)))
             (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
             (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
@@ -2379,10 +2382,10 @@ mod tests {
         }
     }
 
-    const STORAGE_ENTRY_SOURCE: &str = "(#enum View (NoView (HasView (#pin-ref u64))))
-          (#struct Link (: value u64 : view View))
+    const STORAGE_ENTRY_SOURCE: &str = "(#enum View (NoView (HasView (#pin-ref #u64))))
+          (#struct Link (: value #u64 : view View))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-            (#let view (#pin-ref u64) (#pin-borrow (#get target value)))
+            (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view))) (#return target))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#if (#variant-is (#pin-borrow (#get target view)) NoView)
@@ -2410,7 +2413,7 @@ mod tests {
     fn nested_initialization_excludes_only_impossible_incoming_families() {
         for fresh in [false, true] {
             let child = if fresh {
-                "(#let view (#pin-ref u64)
+                "(#let view (#pin-ref #u64)
                   (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
                  (#pin-set-field target view view)"
             } else {
@@ -2486,12 +2489,12 @@ mod tests {
         let source = with_entry_tick(
             STORAGE_ENTRY_SOURCE,
             "
-          (#let saved (#pin-ref u64)
+          (#let saved (#pin-ref #u64)
             (#deref (#pin-get-payload (#pin-borrow (#get target view)) HasView 0)))
           (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) NoView))
           (#assert (#variant-is (#pin-borrow (#get target view)) NoView))
           (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) 99u64))
-          (#let observed u64 (#deref saved)) (#forget observed) (#drop saved)",
+          (#let observed #u64 (#deref saved)) (#forget observed) (#drop saved)",
         );
         let declarations = fixture(&source);
         let error = call_plan(&declarations, "driver", "tick")
@@ -2542,17 +2545,17 @@ mod tests {
 
     #[test]
     fn entry_payload_aliases_are_correlated_with_checked_physical_tag_guards() {
-        let source = "(#enum Value (Empty (Full u64)))
-          (#struct Link (: value Value : view (#pin-ref u64)))
+        let source = "(#enum Value (Empty (Full #u64)))
+          (#struct Link (: value Value : view (#pin-ref #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-            (#let view (#pin-ref u64)
+            (#let view (#pin-ref #u64)
               (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
             (#pin-set-field target view view) (#return target))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#if (#variant-is (#pin-borrow (#get target value)) Empty)
               (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 99u64))) ())
             (#return target))
-          (#fn driver (: outside (#pin-ref u64)) ()
+          (#fn driver (: outside (#pin-ref #u64)) ()
             (#let-mut link Link (#struct-literal Link (: value (Full 42u64) : view outside)))
             (#let installed (#pin-ref-mut Link) (#call install (: target (#pin-borrow-mut link))))
             (#let updated (#pin-ref-mut Link) (#call tick (: target installed)))
@@ -2589,7 +2592,7 @@ mod tests {
                 ("", assertion)
             };
             let source = format!(
-                "(#enum Slot (Empty (Full u64))) (#linear Slot)
+                "(#enum Slot (Empty (Full #u64))) (#linear Slot)
               (#fn initialize (: slot (#pin-ref-mut Slot)) ()
                 {before}
                 (#let previous Slot (#unsafe (#pin-read slot))) (#forget previous)
@@ -2627,9 +2630,9 @@ mod tests {
             "(#call assert (: condition (#variant-is first Empty)))",
             "(#assert (#variant-is (#if choose first second) Empty))",
         ] {
-            let source = format!("(#enum Slot (Empty (Full u64))) (#linear Slot)
-              (#fn assert (: condition bool) () (#return ()))
-              (#fn initialize (: first (#pin-ref-mut Slot) : second (#pin-ref-mut Slot) : choose bool) ()
+            let source = format!("(#enum Slot (Empty (Full #u64))) (#linear Slot)
+              (#fn assert (: condition #bool) () (#return ()))
+              (#fn initialize (: first (#pin-ref-mut Slot) : second (#pin-ref-mut Slot) : choose #bool) ()
                 {assertion}
                 (#let previous Slot (#unsafe (#pin-read first))) (#forget previous)
                 (#unsafe (#pin-write first (Full 42u64))) (#return ()))");
@@ -2650,12 +2653,12 @@ mod tests {
     #[test]
     fn repeated_nested_calls_keep_one_distinct_write_footprint() {
         let mut source = String::from(
-            "(#fn level0 (: target (#pin-ref-mut u64)) ()
+            "(#fn level0 (: target (#pin-ref-mut #u64)) ()
           (#unsafe (#pin-write target 42u64)) (#return ()))",
         );
         for level in 1..=20 {
             source.push_str(&format!(
-                "(#fn level{level} (: target (#pin-ref-mut u64)) ()
+                "(#fn level{level} (: target (#pin-ref-mut #u64)) ()
               (#call level{} (: target target))
               (#call level{} (: target target)) (#return ()))",
                 level - 1,
@@ -2680,7 +2683,7 @@ mod tests {
     #[test]
     fn global_consumption_identities_do_not_substitute_an_unused_parameter() {
         let source = format!(
-            "(#static Count u64 0u64)
+            "(#static Count #u64 0u64)
           (#fn touch () () (#unsafe (#forget Count)) (#return ())) {}",
             SOURCE.replace(
                 "(#pin-set-field target state 2u32)",
@@ -2715,7 +2718,7 @@ mod tests {
             let source = SOURCE
                 .replace(
                     "(#fn tick (: target (#pin-ref-mut Link))",
-                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref u64))",
+                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref #u64))",
                 )
                 .replace(
                     "(#call tick (: target running))",
@@ -2789,14 +2792,14 @@ mod tests {
     #[test]
     fn nested_tuple_projection_is_physical_not_child_pointer_storage() {
         let source = SOURCE
-            .replace(": value u64", ": value (#tuple u64 u64)")
+            .replace(": value #u64", ": value (#tuple #u64 #u64)")
             .replace(
                 "(#pin-borrow (#get target value))",
                 "(#pin-borrow (#get (#get target value) 1))",
             )
             .replace(
                 ": value 42u64",
-                ": value (#tuple (#tuple u64 u64) 1u64 42u64)",
+                ": value (#tuple (#tuple #u64 #u64) 1u64 42u64)",
             );
         let declarations = fixture(&source);
         let plan = call_plan(&declarations, "driver", "tick");
@@ -2805,7 +2808,7 @@ mod tests {
         plan.check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap();
         let invalid = source.replace("(#pin-set-field target state 2u32)",
-            "(#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple u64 u64) 99u64 100u64)))");
+            "(#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple #u64 #u64) 99u64 100u64)))");
         let declarations = fixture(&invalid);
         assert!(call_plan(&declarations, "driver", "tick")
             .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
@@ -2815,7 +2818,7 @@ mod tests {
     #[test]
     fn retained_exclusive_child_permits_its_own_write_not_an_owner_write() {
         let source = SOURCE
-            .replace("#pin-ref u64", "#pin-ref-mut u64")
+            .replace("#pin-ref #u64", "#pin-ref-mut #u64")
             .replace(
                 "(#pin-borrow (#get target value))",
                 "(#pin-borrow-mut (#get target value))",
@@ -2852,18 +2855,18 @@ mod tests {
     fn clearing_the_field_does_not_retire_a_live_local_child_copy() {
         for read_after_write in [false, true] {
             let operation = if read_after_write {
-                "(#let saved (#pin-ref u64) (#get target view))
+                "(#let saved (#pin-ref #u64) (#get target view))
                  (#pin-set-field target view outside) (#pin-set-field target value 99u64)
-                 (#let observed u64 (#deref saved)) (#forget observed)"
+                 (#let observed #u64 (#deref saved)) (#forget observed)"
             } else {
-                "(#let saved (#pin-ref u64) (#get target view))
-                 (#let observed u64 (#deref saved)) (#forget observed)
+                "(#let saved (#pin-ref #u64) (#get target view))
+                 (#let observed #u64 (#deref saved)) (#forget observed)
                  (#pin-set-field target view outside) (#pin-set-field target value 99u64)"
             };
             let source = SOURCE
                 .replace(
                     "(#fn tick (: target (#pin-ref-mut Link))",
-                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref u64))",
+                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref #u64))",
                 )
                 .replace(
                     "(#call tick (: target running))",
@@ -2881,26 +2884,26 @@ mod tests {
     fn fresh_same_address_borrows_do_not_resurrect_retired_entry_loans() {
         for keep_copy in [false, true] {
             let save = if keep_copy {
-                "(#let saved (#pin-ref u64) (#get target view))"
+                "(#let saved (#pin-ref #u64) (#get target view))"
             } else {
                 ""
             };
             let use_copy = if keep_copy {
-                "(#let observed u64 (#deref saved)) (#forget observed)"
+                "(#let observed #u64 (#deref saved)) (#forget observed)"
             } else {
                 ""
             };
             let operation = format!(
                 "{save}
               (#pin-set-field target view outside)
-              (#let fresh (#pin-ref u64) (#pin-borrow (#get target value)))
+              (#let fresh (#pin-ref #u64) (#pin-borrow (#get target value)))
               (#pin-set-field target view fresh)
               (#pin-set-field target state 2u32) {use_copy}"
             );
             let source = SOURCE
                 .replace(
                     "(#fn tick (: target (#pin-ref-mut Link))",
-                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref u64))",
+                    "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref #u64))",
                 )
                 .replace(
                     "(#call tick (: target running))",
@@ -2948,15 +2951,15 @@ mod tests {
     #[test]
     fn projected_child_reborrows_retain_the_incoming_family() {
         let source = SOURCE
-            .replace(": value u64", ": value (#tuple u64 u64)")
+            .replace(": value #u64", ": value (#tuple #u64 #u64)")
             .replace(
                 ": value 42u64",
-                ": value (#tuple (#tuple u64 u64) 40u64 2u64)",
+                ": value (#tuple (#tuple #u64 #u64) 40u64 2u64)",
             )
-            .replace("#pin-ref u64", "#pin-ref (#tuple u64 u64)")
+            .replace("#pin-ref #u64", "#pin-ref (#tuple #u64 #u64)")
             .replace(
                 "(#fn tick (: target (#pin-ref-mut Link))",
-                "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref (#tuple u64 u64)))",
+                "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref (#tuple #u64 #u64)))",
             )
             .replace(
                 "(#call tick (: target running))",
@@ -2964,25 +2967,25 @@ mod tests {
             )
             .replace(
                 "(#pin-set-field target state 2u32)",
-                "(#let child (#pin-ref u64) (#pin-borrow (#get (#get target view) 1)))
+                "(#let child (#pin-ref #u64) (#pin-borrow (#get (#get target view) 1)))
                  (#pin-set-field target view outside)
-                 (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple u64 u64) 99u64 100u64)))
-                 (#let observed u64 (#deref child)) (#forget observed)",
+                 (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple #u64 #u64) 99u64 100u64)))
+                 (#let observed #u64 (#deref child)) (#forget observed)",
             );
         let declarations = fixture(&source);
         let error = call_plan(&declarations, "driver", "tick")
             .check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .unwrap_err();
         let span = error.span.unwrap();
-        assert_eq!(&source[span.start..span.end], "(#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple u64 u64) 99u64 100u64))");
+        assert_eq!(&source[span.start..span.end], "(#pin-write (#pin-borrow-mut (#get target value)) (#tuple (#tuple #u64 #u64) 99u64 100u64))");
     }
 
     #[test]
     fn separate_incoming_families_at_one_address_retire_independently() {
         let source = SOURCE
             .replace(
-                ": view (#pin-ref u64)))",
-                ": view (#pin-ref u64) : second (#pin-ref u64)))",
+                ": view (#pin-ref #u64)))",
+                ": view (#pin-ref #u64) : second (#pin-ref #u64)))",
             )
             .replace(": view outside", ": view outside : second outside")
             .replace(
@@ -2991,7 +2994,7 @@ mod tests {
             )
             .replace(
                 "(#fn tick (: target (#pin-ref-mut Link))",
-                "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref u64))",
+                "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref #u64))",
             )
             .replace(
                 "(#call tick (: target running))",
@@ -3037,15 +3040,15 @@ mod tests {
     #[test]
     fn projected_borrows_keep_the_receiver_evaluated_before_index_effects() {
         let source = SOURCE
-            .replace(": value u64", ": value (#array u64 2)")
+            .replace(": value #u64", ": value (#array #u64 2)")
             .replace(
                 ": value 42u64",
-                ": value (#array-of (#array u64 2) 40u64 42u64)",
+                ": value (#array-of (#array #u64 2) 40u64 42u64)",
             )
-            .replace("#pin-ref u64", "#pin-ref (#array u64 2)")
+            .replace("#pin-ref #u64", "#pin-ref (#array #u64 2)")
             .replace(
                 "(#fn tick (: target (#pin-ref-mut Link))",
-                "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref (#array u64 2)))",
+                "(#fn tick (: target (#pin-ref-mut Link) : outside (#pin-ref (#array #u64 2)))",
             )
             .replace(
                 "(#call tick (: target running))",
@@ -3053,11 +3056,11 @@ mod tests {
             )
             .replace(
                 "(#pin-set-field target state 2u32)",
-                "(#let child (#pin-ref u64) (#pin-borrow (#index (#get target view)
+                "(#let child (#pin-ref #u64) (#pin-borrow (#index (#get target view)
                    (#block (#pin-set-field target view outside) 1usize))))
                  (#unsafe (#pin-write (#pin-borrow-mut (#get target value))
-                   (#array-of (#array u64 2) 99u64 100u64)))
-                 (#let observed u64 (#deref child)) (#forget observed)",
+                   (#array-of (#array #u64 2) 99u64 100u64)))
+                 (#let observed #u64 (#deref child)) (#forget observed)",
             );
         let declarations = fixture(&source);
         let error = call_plan(&declarations, "driver", "tick")
@@ -3065,13 +3068,13 @@ mod tests {
             .unwrap_err();
         let span = error.span.unwrap();
         assert_eq!(&source[span.start..span.end],
-            "(#pin-write (#pin-borrow-mut (#get target value))\n                   (#array-of (#array u64 2) 99u64 100u64))");
+            "(#pin-write (#pin-borrow-mut (#get target value))\n                   (#array-of (#array #u64 2) 99u64 100u64))");
     }
 
     #[test]
     fn run_local_cache_keeps_distinct_alias_contexts_separate() {
         let source = SOURCE
-            .replace(": state u32", ": state u64")
+            .replace(": state #u32", ": state #u64")
             .replace(": state 0u32", ": state 0u64")
             .replace("state 2u32", "state 2u64");
         let declarations = fixture(&source);

@@ -1,7 +1,7 @@
-(#const Wrapped i8 (#i8./.wrap (#i8.+.wrap 127i8 1i8) 2i8))
-(#const Negated i8 (#i8./.wrap (#i8.-.wrap -128i8) 2i8))
-(#const Inverted u8 (#u8./.wrap (#u8.! 0u8) 2u8))
-(#fn main () u64
+(#const Wrapped #i8 (#i8./.wrap (#i8.+.wrap 127i8 1i8) 2i8))
+(#const Negated #i8 (#i8./.wrap (#i8.-.wrap -128i8) 2i8))
+(#const Inverted #u8 (#u8./.wrap (#u8.! 0u8) 2u8))
+(#fn main () #u64
   (#assert (#i8.== Wrapped -64i8))
   (#assert (#i8.== Negated -64i8))
   (#assert (#u8.== Inverted 127u8))

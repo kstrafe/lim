@@ -1,16 +1,16 @@
 (#import "string.lim")
 
-(#enum StdReadError ((StdIoError i64) (StdTextError StringError)))
-(#enum StdReadResult ((StdLineRead usize) StdEndOfInput (StdReadFailed StdReadError)))
-(#enum StdReadCharResult ((StdReadChar u8) StdReadCharEof (StdReadCharFailed i64)))
+(#enum StdReadError ((StdIoError #i64) (StdTextError StringError)))
+(#enum StdReadResult ((StdLineRead #usize) StdEndOfInput (StdReadFailed StdReadError)))
+(#enum StdReadCharResult ((StdReadChar #u8) StdReadCharEof (StdReadCharFailed #i64)))
 
 (#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
   (#fn std-read-one-char () StdReadCharResult
-    (#let-mut byte u8 0u8)
+    (#let-mut byte #u8 0u8)
     (#let-mut result StdReadCharResult StdReadCharEof)
-    (#let-mut done bool false)
+    (#let-mut done #bool false)
     (#while (#bool.== done false)
-      (#let count i64 (#unsafe (#linux-syscall i64 0usize
+      (#let count #i64 (#unsafe (#linux-syscall #i64 0usize
         (0i64 (#addr-of-mut byte) 1usize))))
       (#if (#i64.== count 1i64)
         (#block (#set result (StdReadChar byte)) (#set done true) ())
@@ -25,9 +25,9 @@
     (#return (StdReadCharFailed -38i64))))
 
 (#fn std-read-line ((string (#ref-mut String))) StdReadResult
-  (#let-mut appended usize 0usize)
+  (#let-mut appended #usize 0usize)
   (#let-mut result StdReadResult StdEndOfInput)
-  (#let-mut finished bool false)
+  (#let-mut finished #bool false)
   (#while (#bool.== finished false)
     (#let first-result StdReadCharResult (#call std-read-one-char (:)))
     (#match first-result
@@ -45,15 +45,15 @@
         (#if (#u8.== first 10u8)
           (#block (#set result (StdLineRead appended)) (#set finished true) ())
           (#block
-            (#let width usize (#if (#u8.< first 128u8) 1usize
+            (#let width #usize (#if (#u8.< first 128u8) 1usize
               (#if (#u8.<= first 223u8) 2usize
                 (#if (#u8.<= first 239u8) 3usize 4usize))))
-            (#let-mut code u32 (#as
+            (#let-mut code #u32 (#as
               (#if (#usize.== width 1usize) first
                 (#if (#usize.== width 2usize) (#u8.& first 31u8)
-                  (#if (#usize.== width 3usize) (#u8.& first 15u8) (#u8.& first 7u8)))) u32))
-            (#let-mut got usize 1usize)
-            (#let-mut bad bool
+                  (#if (#usize.== width 3usize) (#u8.& first 15u8) (#u8.& first 7u8)))) #u32))
+            (#let-mut got #usize 1usize)
+            (#let-mut bad #bool
               (#bool.|| (#bool.&& (#u8.>= first 128u8) (#u8.< first 194u8))
                 (#u8.> first 244u8)))
             (#while (#bool.&& (#usize.< got width) (#bool.== bad false))
@@ -63,7 +63,7 @@
                   (#if (#bool.|| (#u8.< continuation 128u8) (#u8.> continuation 191u8))
                     (#block (#set bad true) ())
                     (#block
-                      (#set code (#u32.| (#u32.<< code 6u32) (#as (#u8.& continuation 63u8) u32)))
+                      (#set code (#u32.| (#u32.<< code 6u32) (#as (#u8.& continuation 63u8) #u32)))
                       (#set got (#usize.+.wrap got 1usize))
                       ())))
                 (#case StdReadCharEof (#block (#set bad true) ()))
@@ -94,7 +94,7 @@
                     (#set finished true)
                     ())
                   (#match (#call String-push-char
-                    (: string string : value (#as code char)))
+                    (: string string : value (#as code #char)))
                     (#case StringOk (#block (#set appended (#usize.+.wrap appended width)) ()))
                     (#case (StringErr error)
                       (#block

@@ -3,11 +3,11 @@
 (#import "../library/async_stdin_byte.lim")
 (#import "../library/async_poll4.lim")
 
-(#fn main () i32
+(#fn main () #i32
   (#let timer-created TimerCreate1
     (#call timer-reactor1-create (: nanoseconds 100000000u64)))
   (#let-else (TimerCreated1 timer) TimerCreate1 timer-created (#unreachable))
-  (#let-mut byte u8 0u8)
+  (#let-mut byte #u8 0u8)
   (#assert (#i64.>=
     (#call async-byte-read1-enable-nonblocking (: fd 0i64)) 0i64))
   (#let read-created AsyncByteReadCreate1
@@ -29,7 +29,7 @@
   (#let too-many AsyncPoll4Result
     (#call async-poll4-wait
       (: sources five-sources : timeout-ms -1i32)))
-  (#let rejected bool (#match too-many
+  (#let rejected #bool (#match too-many
     (#case (AsyncPoll4Failed error) (#i64.== error -22i64))
     (#case (AsyncPoll4Ready mask) (#block (#forget mask) false))))
 
@@ -41,7 +41,7 @@
   (#let first-wait AsyncPoll4Result
     (#call async-poll4-wait
       (: sources both-sources : timeout-ms -1i32)))
-  (#let first-mask u32 (#match first-wait
+  (#let first-mask #u32 (#match first-wait
     (#case (AsyncPoll4Ready mask) mask)
     (#case (AsyncPoll4Failed error) (#block (#forget error) 0u32))))
 
@@ -71,18 +71,18 @@
             (: sources read-sources : timeout-ms -1i32)))
         (#call async-byte-read1-poll (: task (#borrow read-task))))))
 
-  (#let timer-ok bool (#match timer-ready
+  (#let timer-ok #bool (#match timer-ready
     (#case (TimerReady1 count) (#u64.>= count 1u64))
     (#case TimerPending1 false)
     (#case (TimerPollFailed1 error) (#block (#forget error) false))))
-  (#let byte-ok bool (#match read-ready
+  (#let byte-ok #bool (#match read-ready
     (#case (AsyncByteReadReady1 value) (#block (#forget value) true))
     (#case AsyncByteReadEof1 true)
     (#case (AsyncByteReadFailed1 error) (#block (#forget error) false))
     (#case AsyncByteReadPending1 false)))
-  (#let read-destroyed i64
+  (#let read-destroyed #i64
     (#call async-byte-read1-destroy (: task read-task)))
-  (#let timer-destroyed i64
+  (#let timer-destroyed #i64
     (#call timer-reactor1-cancel (: timer timer)))
   (#return (#if (#bool.&& rejected (#bool.&& timer-ok byte-ok))
     (#if (#bool.&& (#i64.== read-destroyed 0i64)

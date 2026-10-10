@@ -1,7 +1,7 @@
-(#fn classify ((value u64)) u64
-  (#let-else (#or (#range 10u64 12u64) 20u64) u64 value
+(#fn classify ((value #u64)) #u64
+  (#let-else (#or (#range 10u64 12u64) 20u64) #u64 value
     (#return 0u64))
   (#return 42u64))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#call classify (: value 11u64))))

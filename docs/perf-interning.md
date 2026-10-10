@@ -16,7 +16,7 @@ and build data as before, plus allocator request counts for parsed syntax.
 
 For each source, the current side parses into the production `String` AST. The
 interned side parses that same source, then constructs a benchmark-only mirror
-with `u32` symbol IDs, a compilation-local `HashMap<String, u32>` retaining each
+with `#u32` symbol IDs, a compilation-local `HashMap<String, u32>` retaining each
 exact source spelling once, and matching spans and child shape. Allocation
 counts for the mirror row start after parsing, so those requests belong to
 mirror construction alone. The timing rows compare parse-only with parse plus

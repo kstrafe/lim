@@ -1,8 +1,8 @@
-(#enum NestedScalar ((Value u64) Empty))
+(#enum NestedScalar ((Value #u64) Empty))
 
-(#fn main () u64
-  (#let pair (#tuple u64 u64)
-    (#tuple (#tuple u64 u64) 15u64 3u64))
+(#fn main () #u64
+  (#let pair (#tuple #u64 #u64)
+    (#tuple (#tuple #u64 #u64) 15u64 3u64))
   (#let value NestedScalar (Value 18u64))
   (#return
     (#u64.+.wrap

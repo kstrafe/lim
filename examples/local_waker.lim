@@ -1,9 +1,9 @@
 (#import "../library/local_waker.lim")
 (#import "../library/cell.lim")
-(@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
 
 (#struct WakeCounter ((count CellU64)))
-(#struct WakeMetadata ((amount u64)))
+(#struct WakeMetadata ((amount #u64)))
 (#linear WakeMetadata)
 
 (#fn counter-notify
@@ -28,7 +28,7 @@
   (WakeCounter WakeMetadata)
   (counter-notify metadata-clone metadata-destroy))
 
-(#fn main () u64
+(#fn main () #u64
   (#let counter WakeCounter (#struct-literal WakeCounter ((count
     (#call CellU64-create (: value 0u64))))))
   (#let waker CounterWaker (#call counter-waker-create (: executor (#borrow counter) : metadata (#struct-literal WakeMetadata ((amount 21u64))))))
@@ -38,7 +38,7 @@
   (#call counter-waker-wake (: waker copy))
   (#call counter-waker-destroy (: waker waker))
   (#let counter-ref (#ref WakeCounter) (#borrow counter))
-  (#let count u64 (#call CellU64-get (: cell (#borrow (#get counter-ref count)))))
+  (#let count #u64 (#call CellU64-get (: cell (#borrow (#get counter-ref count)))))
   (#drop counter-ref)
   (#forget counter)
   (#return count))

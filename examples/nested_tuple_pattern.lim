@@ -1,8 +1,8 @@
-(#fn main () u64
+(#fn main () #u64
   (#return
     (#match
-      (#tuple (#tuple (#tuple u64 u64) u64)
-        (#tuple (#tuple u64 u64) 10 20)
+      (#tuple (#tuple (#tuple #u64 #u64) #u64)
+        (#tuple (#tuple #u64 #u64) 10 20)
         32)
       (#case (#tuple (#tuple _ inner) tail)
         (#u64.+.wrap inner tail))

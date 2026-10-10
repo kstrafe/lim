@@ -1,11 +1,11 @@
 (#import "../library/linux_x86_64.lim")
 
 (#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
-  (#fn main () i32
-    (#let-mut byte u8 0u8)
-    (#let-mut count i64
+  (#fn main () #i32
+    (#let-mut byte #u8 0u8)
+    (#let-mut count #i64
       (#call linux-read-byte (: destination (#borrow-mut byte))))
-    (#let-mut write-count i64 1i64)
+    (#let-mut write-count #i64 1i64)
     (#while (#bool.&& (#i64.== count 1i64) (#i64.== write-count 1i64))
       (#set write-count
         (#call linux-write-byte (: source (#borrow byte))))
@@ -20,4 +20,4 @@
         0
         1)))
   (#cfg-else
-    (#fn main () i32 (#return 1))))
+    (#fn main () #i32 (#return 1))))

@@ -1,11 +1,11 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let paths (#ptr-mut u8)
-    (#unsafe (#linux-syscall (#ptr-mut u8) LINUX-SYS-MMAP
+(#fn main () #u64
+  (#let paths (#ptr-mut #u8)
+    (#unsafe (#linux-syscall (#ptr-mut #u8) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let how (#ptr-mut u64)
-    (#unsafe (#linux-syscall (#ptr-mut u64) LINUX-SYS-MMAP
+  (#let how (#ptr-mut #u64)
+    (#unsafe (#linux-syscall (#ptr-mut #u64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let initialized ()
     (#unsafe
@@ -28,24 +28,24 @@
         (#ptr-write (#ptr-offset how 1usize) 0u64)
         (#ptr-write (#ptr-offset how 2usize) 8u64)
         ())))
-  (#let file-created i64
+  (#let file-created #i64
     (#unsafe (#call linux-openat (: directory -100i64 : path paths : flags 524481i32 : mode 384u32))))
-  (#let file-closed i64 (#call linux-close (: fd file-created)))
-  (#let secure-open i64
+  (#let file-closed #i64 (#call linux-close (: fd file-created)))
+  (#let secure-open #i64
     (#unsafe (#call linux-openat2 (: directory -100i64 : path paths : how how : how-size 24usize))))
-  (#let secure-close i64 (#call linux-close (: fd secure-open)))
-  (#let missing-open i64
+  (#let secure-close #i64 (#call linux-close (: fd secure-open)))
+  (#let missing-open #i64
     (#unsafe (#call linux-openat2 (: directory -100i64 : path (#ptr-offset paths 16usize) : how how : how-size 24usize))))
   (#unsafe (#ptr-write (#ptr-offset how 2usize) 9223372036854775808u64))
-  (#let invalid-resolve i64
+  (#let invalid-resolve #i64
     (#unsafe (#call linux-openat2 (: directory -100i64 : path paths : how how : how-size 24usize))))
-  (#let file-removed i64
+  (#let file-removed #i64
     (#unsafe (#call linux-unlinkat (: directory -100i64 : path paths : flags 0i32))))
-  (#let how-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (how 4096usize))))
-  (#let paths-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (paths 4096usize))))
-  (#let openat2-ok bool
+  (#let how-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (how 4096usize))))
+  (#let paths-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (paths 4096usize))))
+  (#let openat2-ok #bool
     (#bool.&& (#i64.>= file-created 0i64)
       (#bool.&& (#i64.== file-closed 0i64)
         (#bool.&& (#i64.>= secure-open 0i64)

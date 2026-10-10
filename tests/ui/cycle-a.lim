@@ -1,2 +1,2 @@
 (#import "cycle-b.lim")
-(#fn main () u64 (#return 0u64))
+(#fn main () #u64 (#return 0u64))

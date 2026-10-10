@@ -7,15 +7,15 @@ pointers, closures, methods, or implicit allocators.
 ## Standard system allocator and String
 
 `library/system_allocator.lim` supplies byte-oriented wrappers around the
-process's standard C allocator on Linux x86-64. `system-allocate (: size usize)`
+process's standard C allocator on Linux x86-64. `system-allocate (: size #usize)`
 returns `SystemAllocated` with a raw pointer, or `SystemAllocationFailed` with
 `SystemAllocationOutOfMemory` or `SystemAllocationInvalidSize`. Zero-size
 requests and sizes above `SYSTEM-ALLOCATION-MAX` (PTRDIFF_MAX) are rejected
 before calling libc. Empty owners therefore keep a null pointer without
 requesting a zero-size allocation.
 
-`system-reallocate (: pointer (#ptr-mut u8) : size usize)` and
-`system-deallocate (: pointer (#ptr-mut u8))` are unsafe functions. The caller
+`system-reallocate (: pointer (#ptr-mut #u8) : size #usize)` and
+`system-deallocate (: pointer (#ptr-mut #u8))` are unsafe functions. The caller
 must supply live storage from this allocator, ensure unique access, and stop
 using the old pointer after successful reallocation or deallocation. Failed
 reallocation leaves the original allocation valid. Reallocation never uses a
@@ -29,7 +29,7 @@ partially appended string. UTF-8 validation rejects truncated sequences,
 invalid continuation bytes, overlong encodings, surrogate code points, and
 scalars above U+10FFFF. Interior NUL is permitted; no terminating NUL is added.
 Borrowed `StringBytes` views retain an owner borrow; byte indexing copies a
-`u8` and no mutable byte access is public. `String-free` consumes the owner
+`#u8` and no mutable byte access is public. `String-free` consumes the owner
 and calls `free` exactly once for an allocation. `String-clear` retains
 allocated capacity; an empty
 string with retained capacity still needs freeing.
@@ -52,12 +52,12 @@ Collections store an immutable reference to that value:
 
 ```lisp library
 (#import "../library/cell.lim")
-(@cell usize CellUsize CellUsize-create CellUsize-get CellUsize-set)
+(@cell #usize CellUsize CellUsize-create CellUsize-get CellUsize-set)
 (#struct AllocatorU64 ((cursor CellUsize)))
 (#struct VecU64 ((allocator (#ref AllocatorU64))
-                 (pointer (#ptr-mut u64))
-                 (length usize)
-                 (capacity usize)))
+                 (pointer (#ptr-mut #u64))
+                 (length #usize)
+                 (capacity #usize)))
 ```
 
 The reference is immutable at the type level. Allocator implementations use
@@ -114,7 +114,7 @@ input:
 ```
 
 The comparator must have the concrete signature
-`((left (#ref ElementType)) (right (#ref ElementType))) bool`. The generated
+`((left (#ref ElementType)) (right (#ref ElementType))) #bool`. The generated
 `ConcreteVecType-sort` makes a direct call to that named function; no
 function-pointer value or runtime dispatch is created. It uses iterative
 insertion sort, so it does not add recursion to the program call graph. A
@@ -128,25 +128,25 @@ whose names are supplied as literal generator arguments:
 
 ```lisp syntax
 (#enum AllocError (OutOfMemory))
-(@result (: ok (#ptr-mut u8) : error AllocError : name AllocResult))
+(@result (: ok (#ptr-mut #u8) : error AllocError : name AllocResult))
 
 (#fn allocator-alloc
-  ((allocator (#ref AllocatorU64)) (layout usize) (alignment usize))
+  ((allocator (#ref AllocatorU64)) (layout #usize) (alignment #usize))
   AllocResult)
 
 (#fn allocator-dealloc
   ((allocator (#ref AllocatorU64))
-   (pointer (#ptr-mut u8))
-   (layout usize)
-   (alignment usize))
+   (pointer (#ptr-mut #u8))
+   (layout #usize)
+   (alignment #usize))
   ())
 
 (#fn allocator-grow
   ((allocator (#ref AllocatorU64))
-   (pointer (#ptr-mut u8))
-   (old-layout usize)
-   (new-layout usize)
-   (alignment usize))
+   (pointer (#ptr-mut #u8))
+   (old-layout #usize)
+   (new-layout #usize)
+   (alignment #usize))
   AllocResult)
 ```
 

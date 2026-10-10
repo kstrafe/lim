@@ -43,7 +43,7 @@ fn round_up(value: usize, alignment: usize) -> Result<usize, String> {
     } else {
         value
             .checked_add(alignment - remainder)
-            .ok_or_else(|| "C layout size overflowed usize".to_owned())
+            .ok_or_else(|| "C layout size overflowed #usize".to_owned())
     }
 }
 
@@ -241,8 +241,8 @@ fn aggregate_call_abi<'a>(
 #[test]
 fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
     let program = crate::parse_program(
-        "(#fn actual () u64 (#return 42u64))
-         (#fn main () u64 (#return (#call actual (:))))",
+        "(#fn actual () #u64 (#return 42u64))
+         (#fn main () #u64 (#return (#call actual (:))))",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
@@ -287,10 +287,10 @@ fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
 #[test]
 fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
     let program = crate::parse_program(
-        "(#struct Large ((a u64) (b u64) (c u64)))
+        "(#struct Large ((a #u64) (b #u64) (c #u64)))
          (#fn actual () Large
            (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64)))))
-         (#fn main () u64
+         (#fn main () #u64
            (#let value Large (#call actual (:)))
            (#return (#get value c)))",
     )
@@ -393,7 +393,7 @@ fn scalar_range_bounds(pattern: &Expr, ty: &Type) -> Result<ScalarRange, String>
         }
         return Ok(ScalarRange::Char(lower as u64, upper as u64));
     }
-    Err("range patterns require an integer or char scrutinee".into())
+    Err("range patterns require an integer or #char scrutinee".into())
 }
 
 fn range_bound_expression<'a>(expression: &'a Expr, scrutinee: &Type) -> Result<&'a Expr, String> {
@@ -1058,7 +1058,7 @@ fn monomorphize_program<'a>(
 #[cfg(test)]
 #[test]
 fn non_generic_program_does_not_copy_for_monomorphization() {
-    let program = crate::parse_program("(#fn main () u64 (#return 42u64))").unwrap();
+    let program = crate::parse_program("(#fn main () #u64 (#return 42u64))").unwrap();
     let result = monomorphize_program(&program, &HashMap::new()).unwrap();
     assert!(matches!(result, std::borrow::Cow::Borrowed(_)));
 }
@@ -3983,7 +3983,7 @@ pub(crate) fn storage_word_count(
     match ty {
         Type::Array(element, length) => storage_word_count(element, structs, enums)?
             .checked_mul(*length)
-            .ok_or_else(|| "aggregate storage word count overflowed usize".to_owned()),
+            .ok_or_else(|| "aggregate storage word count overflowed #usize".to_owned()),
         Type::Slice(_) | Type::MutableSlice(_) => Ok(2),
         Type::Tuple(fields) => checked_storage_word_sum(
             fields
@@ -4002,7 +4002,7 @@ pub(crate) fn storage_word_count(
                     variant.fields.iter().try_fold(0usize, |sum, field| {
                         sum.checked_add(storage_word_count(field, structs, enums)?)
                             .ok_or_else(|| {
-                                "aggregate storage word count overflowed usize".to_owned()
+                                "aggregate storage word count overflowed #usize".to_owned()
                             })
                     })
                 })
@@ -4012,7 +4012,7 @@ pub(crate) fn storage_word_count(
                 .unwrap_or(0);
             payload_words
                 .checked_add(1)
-                .ok_or_else(|| "aggregate storage word count overflowed usize".to_owned())
+                .ok_or_else(|| "aggregate storage word count overflowed #usize".to_owned())
         }
         _ => Err(format!("native backend does not support local type {ty:?}")),
     }
@@ -4023,7 +4023,7 @@ fn checked_storage_word_sum(
 ) -> Result<usize, String> {
     words.into_iter().try_fold(0usize, |sum, word| {
         sum.checked_add(word?)
-            .ok_or_else(|| "aggregate storage word count overflowed usize".to_owned())
+            .ok_or_else(|| "aggregate storage word count overflowed #usize".to_owned())
     })
 }
 
@@ -4124,7 +4124,7 @@ fn value_word_count(
                     .unwrap_or(0);
                 let total_words = payload_words
                     .checked_add(1)
-                    .ok_or_else(|| "aggregate value word count overflowed usize".to_owned())?;
+                    .ok_or_else(|| "aggregate value word count overflowed #usize".to_owned())?;
                 return Ok(total_words);
             }
         }
@@ -4133,7 +4133,7 @@ fn value_word_count(
         let element_words = storage_word_count(element, structs, enums)?;
         let total = element_words
             .checked_mul(*length)
-            .ok_or_else(|| "aggregate value word count overflowed usize".to_owned())?;
+            .ok_or_else(|| "aggregate value word count overflowed #usize".to_owned())?;
         if total <= VALUE_REGISTERS.len() {
             return Ok(total);
         }
@@ -5023,7 +5023,7 @@ fn constant_float_number(
             let precision = match ty {
                 Type::F32 => true,
                 Type::F64 => false,
-                _ => return Err("typed floating literal requires f32 or f64".into()),
+                _ => return Err("typed floating literal requires #f32 or #f64".into()),
             };
             constant_float_number(
                 &items[2],
@@ -5685,8 +5685,8 @@ fn validate_checked_call_result(
 #[test]
 fn checked_scalar_arguments_require_retained_types() {
     let program = crate::parse_program(
-        "(#fn take ((value u64)) u64 (#return value))
-         (#fn main () u64 (#return (#call take (: value 42u64))))",
+        "(#fn take ((value #u64)) #u64 (#return value))
+         (#fn main () #u64 (#return (#call take (: value 42u64))))",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
@@ -5726,13 +5726,13 @@ fn checked_generated_patterns_allocate_by_identity_without_source_alpha_renaming
     // Generated ordinary declarations also enter via parse_item, without
     // parse_program's source-name hygiene. BindingId storage must stand on
     // its own, not depend on an earlier spelling rewrite.
-    let source = "(#enum Small ((Number u64) Zero))
-      (#enum Wide ((Words (#tuple u64 u64 u64 u64)) Absent))
-      (#fn main () u64
+    let source = "(#enum Small ((Number #u64) Zero))
+      (#enum Wide ((Words (#tuple #u64 #u64 #u64 #u64)) Absent))
+      (#fn main () #u64
         (#let small Small (Number 20u64))
-        (#let wide Wide (Words (#tuple (#tuple u64 u64 u64 u64) 22u64 3u64 4u64 5u64)))
-        (#let first u64 (#match small (#case (Number value) value) (#case Zero 0u64)))
-        (#let second u64 (#match wide (#case (Words value) (#get value 0)) (#case Absent 0u64)))
+        (#let wide Wide (Words (#tuple (#tuple #u64 #u64 #u64 #u64) 22u64 3u64 4u64 5u64)))
+        (#let first #u64 (#match small (#case (Number value) value) (#case Zero 0u64)))
+        (#let second #u64 (#match wide (#case (Words value) (#get value 0)) (#case Absent 0u64)))
         (#return (#u64.+.wrap first second)))";
     let mut program = crate::parse_program("").unwrap();
     for syntax in crate::parse(source).unwrap() {
@@ -5758,8 +5758,8 @@ fn checked_generated_patterns_allocate_by_identity_without_source_alpha_renaming
 #[cfg(test)]
 #[test]
 fn unsafe_wrapper_lowering_preserves_native_output() {
-    let plain = crate::parse_program("(#fn main () u64 (#return 1u64))").unwrap();
-    let wrapped = crate::parse_program("(#fn main () u64 (#return (#unsafe 1u64)))").unwrap();
+    let plain = crate::parse_program("(#fn main () #u64 (#return 1u64))").unwrap();
+    let wrapped = crate::parse_program("(#fn main () #u64 (#return (#unsafe 1u64)))").unwrap();
     assert_eq!(
         generate_assembly(&plain).unwrap(),
         generate_assembly(&wrapped).unwrap()
@@ -5859,8 +5859,8 @@ fn checked_calls_require_retained_function_identity() {
     assert_eq!(checked_call_identity(None, true).unwrap(), None);
     assert_eq!(checked_call_identity(Some(&node), false).unwrap(), None);
     let program = crate::parse_program(
-        "(#fn value () u64 (#return 42u64))
-         (#fn main () u64 (#return (#call value (:))))",
+        "(#fn value () #u64 (#return 42u64))
+         (#fn main () #u64 (#return (#call value (:))))",
     )
     .unwrap();
     let checked = crate::typecheck::CheckedProgram::validate(&program).unwrap();
@@ -10303,7 +10303,7 @@ impl FunctionContext<'_> {
         }
         if operator == "slice-idx" || operator == "slice-mut-idx" {
             if items.len() != 3 {
-                return Err("slice-idx requires a slice and usize index".into());
+                return Err("slice-idx requires a slice and #usize index".into());
             }
             let element_type = match self.expression_type(&items[1]) {
                 Some(Type::Slice(element)) | Some(Type::MutableSlice(element)) => *element,
@@ -10868,7 +10868,7 @@ impl FunctionContext<'_> {
             }
             "ptr-offset" => {
                 if items.len() != 3 {
-                    return Err("ptr-offset requires a pointer and usize element index".into());
+                    return Err("ptr-offset requires a pointer and #usize element index".into());
                 }
                 let target = self
                     .expression_type(&items[1])
@@ -14377,16 +14377,16 @@ impl FunctionContext<'_> {
             Type::Array(element, length) => self
                 .native_type_size(element)?
                 .checked_mul(*length)
-                .ok_or_else(|| "native type layout size overflowed usize".to_owned()),
+                .ok_or_else(|| "native type layout size overflowed #usize".to_owned()),
             Type::Tuple(fields) => fields.iter().try_fold(0usize, |size, field| {
                 size.checked_add(self.native_type_size(field)?)
-                    .ok_or_else(|| "native type layout size overflowed usize".to_owned())
+                    .ok_or_else(|| "native type layout size overflowed #usize".to_owned())
             }),
             Type::Named(name) => {
                 if let Some(fields) = self.structs.get(name) {
                     return fields.iter().try_fold(0usize, |size, field| {
                         size.checked_add(self.native_type_size(&field.ty)?)
-                            .ok_or_else(|| "native type layout size overflowed usize".to_owned())
+                            .ok_or_else(|| "native type layout size overflowed #usize".to_owned())
                     });
                 }
                 if let Some(variants) = self.enums.get(name) {
@@ -14396,7 +14396,7 @@ impl FunctionContext<'_> {
                             variant.fields.iter().try_fold(0usize, |size, field| {
                                 size.checked_add(self.native_type_size(field)?)
                                     .ok_or_else(|| {
-                                        "native type layout size overflowed usize".to_owned()
+                                        "native type layout size overflowed #usize".to_owned()
                                     })
                             })
                         })
@@ -14406,7 +14406,7 @@ impl FunctionContext<'_> {
                         .unwrap_or(0);
                     return 8usize
                         .checked_add(payload)
-                        .ok_or_else(|| "native type layout size overflowed usize".to_owned());
+                        .ok_or_else(|| "native type layout size overflowed #usize".to_owned());
                 }
                 Err(format!("unknown type '{name}' in size-of"))
             }
@@ -14425,7 +14425,7 @@ impl FunctionContext<'_> {
             }
             offset = offset
                 .checked_add(size)
-                .ok_or_else(|| "C layout size overflowed usize".to_owned())?;
+                .ok_or_else(|| "C layout size overflowed #usize".to_owned())?;
         }
         Err(format!("unknown field '{wanted}' in #repr-c struct"))
     }
@@ -14454,7 +14454,7 @@ impl FunctionContext<'_> {
                 let (size, align) = self.c_layout(element)?;
                 Ok((
                     size.checked_mul(*length)
-                        .ok_or_else(|| "C layout size overflowed usize".to_owned())?,
+                        .ok_or_else(|| "C layout size overflowed #usize".to_owned())?,
                     align,
                 ))
             }
@@ -14466,7 +14466,7 @@ impl FunctionContext<'_> {
                         let (field_size, field_align) = self.c_layout(&field.ty)?;
                         size = round_up(size, field_align)?
                             .checked_add(field_size)
-                            .ok_or_else(|| "C layout size overflowed usize".to_owned())?;
+                            .ok_or_else(|| "C layout size overflowed #usize".to_owned())?;
                         align = align.max(field_align);
                     }
                     Ok((round_up(size, align)?, align))
@@ -14480,7 +14480,7 @@ impl FunctionContext<'_> {
                             let (field_size, field_align) = self.c_layout(field)?;
                             size = round_up(size, field_align)?
                                 .checked_add(field_size)
-                                .ok_or_else(|| "C layout size overflowed usize".to_owned())?;
+                                .ok_or_else(|| "C layout size overflowed #usize".to_owned())?;
                             align = align.max(field_align);
                         }
                         payload_size = payload_size.max(round_up(size, align)?);
@@ -14492,7 +14492,7 @@ impl FunctionContext<'_> {
                         round_up(
                             offset
                                 .checked_add(payload_size)
-                                .ok_or_else(|| "C layout size overflowed usize".to_owned())?,
+                                .ok_or_else(|| "C layout size overflowed #usize".to_owned())?,
                             align,
                         )?,
                         align,
@@ -14508,7 +14508,7 @@ impl FunctionContext<'_> {
                     let (field_size, field_align) = self.c_layout(field)?;
                     size = round_up(size, field_align)?
                         .checked_add(field_size)
-                        .ok_or_else(|| "C layout size overflowed usize".to_owned())?;
+                        .ok_or_else(|| "C layout size overflowed #usize".to_owned())?;
                     align = align.max(field_align);
                 }
                 Ok((round_up(size, align)?, align))
@@ -16060,9 +16060,9 @@ impl FunctionContext<'_> {
                     .collect::<Result<Vec<_>, _>>()?
                     .into_iter()
                     .try_fold(0usize, usize::checked_add)
-                    .ok_or_else(|| "enum payload offset overflowed usize".to_owned())?,
+                    .ok_or_else(|| "enum payload offset overflowed #usize".to_owned())?,
             )
-            .ok_or_else(|| "enum payload offset overflowed usize".to_owned())?;
+            .ok_or_else(|| "enum payload offset overflowed #usize".to_owned())?;
         let inactive = self.label("inactive_large_enum_payload_projection");
         let global_layout = self.label("large_enum_payload_global_layout");
         let done = self.label("large_enum_payload_projection_done");

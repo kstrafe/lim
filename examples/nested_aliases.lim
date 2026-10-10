@@ -1,4 +1,4 @@
-(#type Word u64)
+(#type Word #u64)
 (#type WordRef (#ref Word))
 (#type Words (#slice Word))
 
@@ -9,7 +9,7 @@
   (#return (#call read-word
     (: value (#slice-idx values 0usize)))))
 
-(#fn main () u64
+(#fn main () #u64
   (#let values (#array Word 2)
     (#array-of (#array Word 2) 42u64 7u64))
   (#let view Words (#slice-of (#borrow values)))

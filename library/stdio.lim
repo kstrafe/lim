@@ -13,19 +13,19 @@
   (
     #unsafe-fn
     std-write-all
-    (: pointer (#ptr-mut u8) : length usize)
-    i64
+    (: pointer (#ptr-mut #u8) : length #usize)
+    #i64
     (
       #let-mut
       offset
-      usize
-      (#literal usize 0)
+      #usize
+      (#literal #usize 0)
     )
     (
       #let-mut
       error
-      i64
-      (#literal i64 0)
+      #i64
+      (#literal #i64 0)
     )
     (
       #while
@@ -35,27 +35,27 @@
         (
           #i64.==
           error
-          (#literal i64 0)
+          (#literal #i64 0)
         )
       )
       (
         #let
         remaining
-        usize
+        #usize
         (#usize.-.wrap length offset)
       )
       (
         #let
         written
-        i64
+        #i64
         (
           #unsafe
           (
             #linux-syscall
-            i64
-            (#literal usize 1)
+            #i64
+            (#literal #usize 1)
             (
-              (#literal i64 1)
+              (#literal #i64 1)
               (#ptr-offset pointer offset)
               remaining
             )
@@ -67,15 +67,15 @@
         (
           #i64.>
           written
-          (#literal i64 0)
+          (#literal #i64 0)
         )
         (
           #block
           (
             #let
             count
-            usize
-            (#as written usize)
+            #usize
+            (#as written #usize)
           )
           (
             #if
@@ -94,7 +94,7 @@
               (
                 #set
                 error
-                (#literal i64 -5)
+                (#literal #i64 -5)
               )
               ()
             )
@@ -106,7 +106,7 @@
           (
             #i64.==
             written
-            (#literal i64 -4)
+            (#literal #i64 -4)
           )
           ()
           (
@@ -119,9 +119,9 @@
                 (
                   #i64.==
                   written
-                  (#literal i64 0)
+                  (#literal #i64 0)
                 )
-                (#literal i64 -5)
+                (#literal #i64 -5)
                 written
               )
             )
@@ -135,7 +135,7 @@
     #fn
     std-print
     (: text (#ref String))
-    i64
+    #i64
     ; String-data-pointer is unsafe: text's shared borrow keeps both the
     ; owner and its allocation live and immutable until the write completes.
     (
@@ -151,11 +151,11 @@
     #fn
     std-println
     (: text (#ref String))
-    i64
+    #i64
     (
       #let
       result
-      i64
+      #i64
       (
         #call
         std-print
@@ -163,8 +163,8 @@
     (
       #let-mut
       newline
-      u8
-      (#literal u8 10)
+      #u8
+      (#literal #u8 10)
     )
     (
       #return
@@ -173,7 +173,7 @@
         (
           #i64.==
           result
-          (#literal i64 0)
+          (#literal #i64 0)
         )
         (
           #unsafe
@@ -188,17 +188,17 @@
       #fn
       std-print
       (: text (#ref String))
-      i64
+      #i64
       (
         #return
-        (#literal i64 -38)
+        (#literal #i64 -38)
       )    )
     (
       #fn
       std-println
       (: text (#ref String))
-      i64
+      #i64
       (
         #return
-        (#literal i64 -38)
+        (#literal #i64 -38)
       )    )  ))

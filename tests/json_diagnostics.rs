@@ -83,13 +83,13 @@ fn errors_are_json_from_frontend_through_linker() {
     fs::create_dir(&directory).unwrap();
     let path = directory.join("quoted \"é: input.lim");
     for (source, category) in [
-        ("(#fn main () u64 (#return \"bad)", "lex"),
-        ("(#fn main () u64 (#return 0u64)", "parse"),
+        ("(#fn main () #u64 (#return \"bad)", "lex"),
+        ("(#fn main () #u64 (#return 0u64)", "parse"),
         (
-            "(#fn main () u64 (#let café u64 false) (#return café))",
+            "(#fn main () #u64 (#let café #u64 false) (#return café))",
             "type",
         ),
-        ("(#fn main () u64 (#return 42u64))", "link"),
+        ("(#fn main () #u64 (#return 42u64))", "link"),
         (
             "(#gn fail () (#gn-error \"bad \\\"message\\\"\")) (@fail)",
             "generator",
@@ -123,7 +123,7 @@ fn errors_are_json_from_frontend_through_linker() {
         }
     }
     let imported = directory.join("module.lim");
-    fs::write(&imported, "(#fn broken () u64 (#return false))").unwrap();
+    fs::write(&imported, "(#fn broken () #u64 (#return false))").unwrap();
     fs::write(&path, "(#import \"module.lim\")").unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_lim"))
         .arg("--diagnostic-format=json")
@@ -134,7 +134,7 @@ fn errors_are_json_from_frontend_through_linker() {
     assert!(text.contains("module.lim"), "{text}");
     fs::write(
         &path,
-        "(#gn bad () `((#fn broken () u64 (#return false)))) (@bad)",
+        "(#gn bad () `((#fn broken () #u64 (#return false)))) (@bad)",
     )
     .unwrap();
     let mut previous = None;

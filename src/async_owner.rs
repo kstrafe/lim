@@ -31,11 +31,11 @@ mod tests {
         } else {
             "(#get (#get owner pair) 1)"
         };
-        let leaf = if whole { "Outer" } else { "u64" };
-        let source = format!("(#struct Outer (: pair (#tuple u64 u64))) (#linear Outer)
+        let leaf = if whole { "Outer" } else { "#u64" };
+        let source = format!("(#struct Outer (: pair (#tuple #u64 #u64))) (#linear Outer)
           (#type Owner Outer)
-          (#fn work (: seed u64) u64
-            (#let-mut owner Owner (#struct-literal Outer (: pair (#tuple (#tuple u64 u64) 7u64 seed))))
+          (#fn work (: seed #u64) #u64
+            (#let-mut owner Owner (#struct-literal Outer (: pair (#tuple (#tuple #u64 #u64) 7u64 seed))))
             (#let view (#pin-ref{} {leaf}) (#pin-borrow{} {path}))
             (#drop view) (#forget owner) (#return seed))",
             if mutable { "-mut" } else { "" }, if mutable { "-mut" } else { "" });
@@ -62,7 +62,7 @@ mod tests {
                 let (graph, place, declarations) = fixture(mutable, whole);
                 let plan = Borrow::new(&graph, &place, &declarations, mutable, true, true).unwrap();
                 let source = format!(
-                    "(#struct Outer (: pair (#tuple u64 u64))) (#linear Outer) {}",
+                    "(#struct Outer (: pair (#tuple #u64 #u64))) (#linear Outer) {}",
                     plan.declaration("project", "input")
                 );
                 let program = crate::parse_program(&source).unwrap();

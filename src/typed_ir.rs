@@ -2562,8 +2562,8 @@ mod tests {
 
     #[test]
     fn expression_ids_are_dense_and_stable_across_fresh_parses() {
-        let source = "(#fn main () u64
-          (#let value u64 1u64)
+        let source = "(#fn main () #u64
+          (#let value #u64 1u64)
           (#return (#u64.+.wrap value 2u64)))";
         let first = crate::parse_program(source).unwrap();
         let second = crate::parse_program(source).unwrap();
@@ -2591,9 +2591,9 @@ mod tests {
 
     #[test]
     fn statement_ids_are_dense_and_stable_across_nested_control_flow() {
-        let source = "(#fn main () u64
-          (#let value u64 (#block (#let nested u64 1u64) nested))
-          (#let result u64 (#label outer (#loop (#break-to outer 2u64))))
+        let source = "(#fn main () #u64
+          (#let value #u64 (#block (#let nested #u64 1u64) nested))
+          (#let result #u64 (#label outer (#loop (#break-to outer 2u64))))
           (#return (#u64.+.wrap value result)))";
         let first = crate::parse_program(source).unwrap();
         let second = crate::parse_program(source).unwrap();
@@ -2625,16 +2625,16 @@ mod tests {
     #[test]
     fn declaration_ids_resolve_metadata_and_ignore_top_level_declaration_order() {
         let forms = [
-            "(#struct Z ((z u64) (a u32)))",
-            "(#struct A.Type ((a u8)))",
-            "(#enum M ((Second u16) First))",
-            "(#const Zed u64 7u64)",
-            "(#const Alpha.answer u64 42u64)",
+            "(#struct Z ((z #u64) (a #u32)))",
+            "(#struct A.Type ((a #u8)))",
+            "(#enum M ((Second #u16) First))",
+            "(#const Zed #u64 7u64)",
+            "(#const Alpha.answer #u64 42u64)",
             "(#type ZAlias Z)",
         ];
         for forms in [forms.to_vec(), forms.into_iter().rev().collect()] {
             let source = format!(
-                "{} (#fn main () u64 (#return Alpha.answer))",
+                "{} (#fn main () #u64 (#return Alpha.answer))",
                 forms.join(" ")
             );
             let program = crate::parse_program(&source).unwrap();
@@ -2730,7 +2730,7 @@ mod tests {
 
     #[test]
     fn checked_declarations_retain_types_spans_and_deterministic_function_ids() {
-        let source = "(#type Word u64)
+        let source = "(#type Word #u64)
             (#struct Pair ((left Word) (right (#ref Word))))
             (#const Answer Word 42u64)
             (#fn z ((value (#ref Word))) Word (#return (#deref value)))

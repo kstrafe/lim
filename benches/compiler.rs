@@ -161,7 +161,7 @@ fn intern_symbol_text(tokens: &[lim::Token]) -> (Vec<Arc<str>>, Vec<u32>) {
         let id = if let Some(id) = lookup.get(value.as_str()) {
             *id
         } else {
-            let id = u32::try_from(symbols.len()).expect("benchmark symbol count fits u32");
+            let id = u32::try_from(symbols.len()).expect("benchmark symbol count fits #u32");
             let symbol = Arc::<str>::from(value.as_str());
             lookup.insert(symbol.clone(), id);
             symbols.push(symbol);
@@ -202,7 +202,7 @@ impl LocalSymbols {
         if let Some(id) = self.by_text.get(text) {
             return *id;
         }
-        let id = u32::try_from(self.by_text.len()).expect("benchmark symbol count fits u32");
+        let id = u32::try_from(self.by_text.len()).expect("benchmark symbol count fits #u32");
         self.by_text.insert(text.to_owned(), id);
         id
     }
@@ -334,7 +334,7 @@ fn count_ast_symbols(nodes: &[lim::SpannedExpr]) -> usize {
 
 fn generated_syntax(aliases: usize) -> String {
     (0..aliases)
-        .map(|index| format!("(#type Generated{index} u64)\n"))
+        .map(|index| format!("(#type Generated{index} #u64)\n"))
         .collect()
 }
 
@@ -424,9 +424,11 @@ fn temp_root() -> PathBuf {
 fn generated_program(functions: usize) -> String {
     let mut source = String::new();
     for index in 0..functions {
-        source.push_str(&format!("(#fn work-{index} () u64 (#return {index}u64))\n"));
+        source.push_str(&format!(
+            "(#fn work-{index} () #u64 (#return {index}u64))\n"
+        ));
     }
-    source.push_str("(#fn main () u64 (#return 42u64))\n");
+    source.push_str("(#fn main () #u64 (#return 42u64))\n");
     source
 }
 
@@ -435,9 +437,9 @@ fn generator_program(aliases: usize) -> String {
         "(#gn aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair)))))\n(@aliases (",
     );
     for index in 0..aliases {
-        source.push_str(&format!("(Generated{index} u64) "));
+        source.push_str(&format!("(Generated{index} #u64) "));
     }
-    source.push_str("))\n(#fn main () u64 (#return 42u64))\n");
+    source.push_str("))\n(#fn main () #u64 (#return 42u64))\n");
     source
 }
 
@@ -531,7 +533,7 @@ fn main() {
     }
 
     let shared_path = root.join("shared.lim");
-    fs::write(&shared_path, "(#type SharedMarker u64)\n").unwrap();
+    fs::write(&shared_path, "(#type SharedMarker #u64)\n").unwrap();
     for (label, source) in [("small", &small), ("large", &large)] {
         report_symbol_repetition(label, source);
         let tokens = lim::lex(source).unwrap();
@@ -553,7 +555,7 @@ fn main() {
             black_box(lim::parse(black_box(source)).unwrap());
         });
         let project_source = format!(
-            "(#import \"shared.lim\")\n(#cfg-if (#cfg-is #platform linux) (#fn cfg-enabled () u64 (#return 1u64)))\n{source}"
+            "(#import \"shared.lim\")\n(#cfg-if (#cfg-is #platform linux) (#fn cfg-enabled () #u64 (#return 1u64)))\n{source}"
         );
         let path = root.join(format!("{label}.lim"));
         fs::write(&path, &project_source).unwrap();
@@ -696,14 +698,14 @@ fn main() {
         }
     }
 
-    let mut chain = String::from("(#fn step-0 () u64 (#return 42u64))\n");
+    let mut chain = String::from("(#fn step-0 () #u64 (#return 42u64))\n");
     for index in 1..64 {
         chain.push_str(&format!(
-            "(#fn step-{index} () u64 (#return (#if true (#call step-{} (:)) 0u64)))\n",
+            "(#fn step-{index} () #u64 (#return (#if true (#call step-{} (:)) 0u64)))\n",
             index - 1
         ));
     }
-    chain.push_str("(#fn main () u64 (#return (#call step-63 (:))))");
+    chain.push_str("(#fn main () #u64 (#return (#call step-63 (:))))");
     let generated = generator_program(256);
     for (name, source, expected) in [
         (

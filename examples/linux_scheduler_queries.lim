@@ -1,30 +1,30 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let scheduler-memory (#ptr-mut i32)
-    (#unsafe (#linux-syscall (#ptr-mut i32) LINUX-SYS-MMAP
+(#fn main () #u64
+  (#let scheduler-memory (#ptr-mut #i32)
+    (#unsafe (#linux-syscall (#ptr-mut #i32) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let policy i64
+  (#let policy #i64
     (#unsafe (#call linux-sched-getscheduler (: pid 0i64))))
-  (#let parameters-read i64
+  (#let parameters-read #i64
     (#unsafe (#call linux-sched-getparam (: pid 0i64 : scheduler-parameters scheduler-memory))))
-  (#let priority i32 (#unsafe (#ptr-read scheduler-memory)))
-  (#let other-priority-min i64
+  (#let priority #i32 (#unsafe (#ptr-read scheduler-memory)))
+  (#let other-priority-min #i64
     (#unsafe (#call linux-sched-get-priority-min (: policy 0i64))))
-  (#let other-priority-max i64
+  (#let other-priority-max #i64
     (#unsafe (#call linux-sched-get-priority-max (: policy 0i64))))
-  (#let fifo-priority-min i64
+  (#let fifo-priority-min #i64
     (#unsafe (#call linux-sched-get-priority-min (: policy 1i64))))
-  (#let fifo-priority-max i64
+  (#let fifo-priority-max #i64
     (#unsafe (#call linux-sched-get-priority-max (: policy 1i64))))
-  (#let invalid-priority-min i64
+  (#let invalid-priority-min #i64
     (#unsafe (#call linux-sched-get-priority-min (: policy 99i64))))
-  (#let nice-value i64
+  (#let nice-value #i64
     (#unsafe (#call linux-getpriority (: which 0i64 : who 0i64))))
-  (#let memory-unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP
+  (#let memory-unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP
       (scheduler-memory 4096usize))))
-  (#let scheduler-queries-ok bool
+  (#let scheduler-queries-ok #bool
     (#bool.&& (#i64.== policy 0i64)
       (#bool.&& (#i64.== parameters-read 0i64)
         (#bool.&& (#i32.== priority 0i32)

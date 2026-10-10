@@ -1,5 +1,5 @@
-(#fn main () u64
-  (#let value u32 2)
+(#fn main () #u64
+  (#let value #u32 2)
   (#return
     (#u64.+.wrap
       (#match value
@@ -7,7 +7,7 @@
         (#case _ 0))
       (#call bool-or (: value true)))))
 
-(#fn bool-or ((value bool)) u64
+(#fn bool-or ((value #bool)) #u64
   (#return
     (#match value
       (#case (#or true false) 42))))

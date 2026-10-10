@@ -1,7 +1,7 @@
-(#const SCALE f32 1.5f32)
-(#const OFFSET f64 0.25f64)
+(#const SCALE #f32 1.5f32)
+(#const OFFSET #f64 0.25f64)
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#if (#bool.&&
                   (#f32.== SCALE 1.5f32)
                   (#f64.== OFFSET 0.25f64))

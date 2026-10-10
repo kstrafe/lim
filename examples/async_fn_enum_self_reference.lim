@@ -1,8 +1,8 @@
 ; A pinned async frame may retain a reference into an active enum payload.
-(#enum Child ((Waiting u64)))
+(#enum Child ((Waiting #u64)))
 (#linear Child)
-(#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
-(#fn child-poll ((task Child) (waker (#ref u64))) ChildPoll
+(#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+(#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
   (#return (#match task
     (#case (Waiting count)
       (#if (#u64.== count 0u64)
@@ -10,18 +10,18 @@
         (ChildReady 2u64))))))
 (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
 
-(#struct NumberPayload ((value u64)))
-(#enum Choice ((Number NumberPayload) (Other u64)))
+(#struct NumberPayload ((value #u64)))
+(#enum Choice ((Number NumberPayload) (Other #u64)))
 (#struct Owner ((choice Choice)))
 
 (@async-fn-pinned (: names (EnumFrame EnumPoll EnumPending EnumReady enum-poll)
-                   : waker u64
+                   : waker #u64
                    : function
-  (#fn read-after-await ((owner Owner)) u64
-    (#let view (#pin-ref u64)
+  (#fn read-after-await ((owner Owner)) #u64
+    (#let view (#pin-ref #u64)
       (#pin-borrow
         (#get (#pin-get-payload (#pin-borrow (#get owner choice)) Number 0) value)))
-    (#let result u64
+    (#let result #u64
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap (#deref view) result)))))
 
@@ -33,19 +33,19 @@
     (#case EnumFrame-done ()))
   (#return ()))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut frame EnumFrame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((choice (Number (#struct-literal NumberPayload ((value 40u64))))))))))
-  (#let waker u64 0u64)
+  (#let waker #u64 0u64)
   (#let first EnumPoll
     (#call enum-poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
   (#let-else (EnumPending pending-frame) EnumPoll first (#unreachable))
   (#let second EnumPoll
     (#call enum-poll (: task pending-frame : waker (#borrow waker))))
-  (#let result u64
+  (#let result #u64
     (#match second
       (#case (EnumReady value) value)
       (#case (EnumPending unexpected)

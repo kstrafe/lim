@@ -1,7 +1,7 @@
-(#enum Boxed ((Wrapped (#tuple u64 u64)) Empty))
-(#static Value Boxed (Wrapped (#tuple (#tuple u64 u64) 10 22)))
+(#enum Boxed ((Wrapped (#tuple #u64 #u64)) Empty))
+(#static Value Boxed (Wrapped (#tuple (#tuple #u64 #u64) 10 22)))
 
-(#fn main () u64
+(#fn main () #u64
   (#return
     (#match (#unsafe Value)
       (#case (Wrapped (#tuple left right)) (#u64.+.wrap left right))

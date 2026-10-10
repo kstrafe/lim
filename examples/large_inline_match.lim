@@ -1,7 +1,7 @@
-(#fn main () u64
+(#fn main () #u64
   (#return
     (#match
-      (#array (#array (#tuple u128 u64) 4)
+      (#array (#array (#tuple #u128 #u64) 4)
         (#tuple 10u128 1u64)
         (#tuple 20u128 2u64)
         (#tuple 30u128 3u64)

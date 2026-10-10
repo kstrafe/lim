@@ -1,4 +1,4 @@
-(#fn main () u64
+(#fn main () #u64
   (#return (#call worker (:))))
-(#fn worker () u64
+(#fn worker () #u64
   (#return (#call main (:))))

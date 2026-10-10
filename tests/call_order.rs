@@ -3,7 +3,7 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 const NEXT: &str = "
-  (#fn next ((counter (#ref-mut u64)) (expected u64)) u64
+  (#fn next ((counter (#ref-mut #u64)) (expected #u64)) #u64
     (#assert (#u64.== (#deref counter) expected))
     (#deref-set counter (#u64.+.wrap expected 1u64))
     (#return expected))";
@@ -37,7 +37,7 @@ fn run(source: &str) {
 fn integer_stack_calls_evaluate_once_in_parameter_declaration_order() {
     for count in [6, 7, 9, 32] {
         let parameters = (0..count)
-            .map(|index| format!("(p{index} u64)"))
+            .map(|index| format!("(p{index} #u64)"))
             .collect::<Vec<_>>()
             .join(" ");
         let assertions = (0..count)
@@ -56,10 +56,10 @@ fn integer_stack_calls_evaluate_once_in_parameter_declaration_order() {
             .join(" ");
         run(&format!(
             "{NEXT}
-          (#fn check ({parameters}) u64 {assertions} (#return 42u64))
-          (#fn main () u64
-            (#let-mut counter u64 0u64)
-            (#let result u64 (#call check ({arguments})))
+          (#fn check ({parameters}) #u64 {assertions} (#return 42u64))
+          (#fn main () #u64
+            (#let-mut counter #u64 0u64)
+            (#let result #u64 (#call check ({arguments})))
             (#assert (#u64.== counter {count}u64))
             (#return result))"
         ));
@@ -70,8 +70,8 @@ fn integer_stack_calls_evaluate_once_in_parameter_declaration_order() {
 fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
     run(&format!(
         "{NEXT}
-      (#struct Pair (: first u64 : second u64))
-      (#fn check ((wide u128) (pair Pair) (a u64) (b u64) (c u64)) u64
+      (#struct Pair (: first #u64 : second #u64))
+      (#fn check ((wide #u128) (pair Pair) (a #u64) (b #u64) (c #u64)) #u64
         (#assert (#u128.== wide 18446744073709551624u128))
         (#assert (#u64.== (#get pair first) 1u64))
         (#assert (#u64.== (#get pair second) 2u64))
@@ -79,15 +79,15 @@ fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
         (#assert (#u64.== b 4u64))
         (#assert (#u64.== c 5u64))
         (#return 42u64))
-      (#fn main () u64
-        (#let-mut counter u64 0u64)
-        (#let result u64 (#call check
+      (#fn main () #u64
+        (#let-mut counter #u64 0u64)
+        (#let result #u64 (#call check
           (: c (#call next (: counter (#borrow-mut counter) : expected 5u64))
            : pair (#struct-literal Pair
              (: second (#call next (: counter (#borrow-mut counter) : expected 2u64))
               : first (#call next (: counter (#borrow-mut counter) : expected 1u64))))
            : wide (#u128.+.wrap
-             (#as (#call next (: counter (#borrow-mut counter) : expected 0u64)) u128)
+             (#as (#call next (: counter (#borrow-mut counter) : expected 0u64)) #u128)
              18446744073709551624u128)
            : b (#call next (: counter (#borrow-mut counter) : expected 4u64))
            : a (#call next (: counter (#borrow-mut counter) : expected 3u64)))))

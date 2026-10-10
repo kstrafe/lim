@@ -2,12 +2,12 @@
   #struct
   Values
   (
-    (a u64)
-    (b u64)
-    (c u64)
-    (d u64)
-    (e u64)
-    (f u64)
+    (a #u64)
+    (b #u64)
+    (c #u64)
+    (d #u64)
+    (e #u64)
+    (f #u64)
   )
 )
 
@@ -28,7 +28,7 @@
   (
     (value Values)
   )
-  u64
+  #u64
   (
     #return
     (#u64.+.wrap
@@ -54,7 +54,7 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #return
     (#call sum (: value (#call make (:))))

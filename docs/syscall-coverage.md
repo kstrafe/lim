@@ -299,7 +299,7 @@ Their ABI follows the kernel's
 [futex2 documentation](https://docs.kernel.org/userspace-api/futex2.html) and
 [syscall declarations](https://raw.githubusercontent.com/torvalds/linux/v6.16/kernel/futex/syscalls.c).
 Flags/counts use their specified 32-bit types; single-word expected values and
-masks use `usize` because those kernel parameters are native unsigned long.
+masks use `#usize` because those kernel parameters are native unsigned long.
 Vector entries use the separate fixed-width 24-byte record layout. All four
 APIs require caller-managed lifetimes and synchronization for raw storage.
 

@@ -1,4 +1,4 @@
-(#struct Token ((value u64)))
+(#struct Token ((value #u64)))
 (#linear Token)
 (#enum Choice ((Owned Token) Empty))
 (#fn main () ()

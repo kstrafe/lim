@@ -49,7 +49,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "gensym-reserved-source",
             diagnostic_code: "E2000",
-            offending_line: "  (#let lim.gensym.fake u64 42u64)",
+            offending_line: "  (#let lim.gensym.fake #u64 42u64)",
             line_number: 2,
         },
         Case {
@@ -67,19 +67,19 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "heap-pin-release",
             diagnostic_code: "E4100",
-            offending_line: "  (#let pointer (#ptr-mut u64) (#unsafe (#pin-release owner)))",
+            offending_line: "  (#let pointer (#ptr-mut #u64) (#unsafe (#pin-release owner)))",
             line_number: 5,
         },
         Case {
             name: "stored-reference-projection-replacement",
             diagnostic_code: "E4100",
-            offending_line: "  (#set values (#tuple (#tuple u64 u64) 99u64 100u64))",
+            offending_line: "  (#set values (#tuple (#tuple #u64 #u64) 99u64 100u64))",
             line_number: 9,
         },
         Case {
             name: "async-source-type-mismatch",
             diagnostic_code: "E4000",
-            offending_line: "    (#let bad u64 false)",
+            offending_line: "    (#let bad #u64 false)",
             line_number: 9,
         },
         Case {
@@ -115,7 +115,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "call-suspended-parent",
             diagnostic_code: "E4100",
-            offending_line: "  (#let observed u64 (#call observe (: target parent)))",
+            offending_line: "  (#let observed #u64 (#call observe (: target parent)))",
             line_number: 8,
         },
         Case {
@@ -163,7 +163,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "local-pin-alias-read",
             diagnostic_code: "E4200",
-            offending_line: "  (#let value u64 (#get target number))",
+            offending_line: "  (#let value #u64 (#get target number))",
             line_number: 8,
         },
         Case {
@@ -241,7 +241,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "cfg",
             diagnostic_code: "E4000",
-            offending_line: "(#cfg-if (#cfg-is #platfrom linux) (#fn main () u64 (#return 0u64)))",
+            offending_line: "(#cfg-if (#cfg-is #platfrom linux) (#fn main () #u64 (#return 0u64)))",
             line_number: 1,
         },
         Case {
@@ -253,7 +253,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "mismatched-let",
             diagnostic_code: "E4000",
-            offending_line: "  (#let total u64 count)",
+            offending_line: "  (#let total #u64 count)",
             line_number: 3,
         },
         Case {
@@ -349,7 +349,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "top-level-mismatch",
             diagnostic_code: "E4000",
-            offending_line: "(#let TOTAL u64 true)",
+            offending_line: "(#let TOTAL #u64 true)",
             line_number: 1,
         },
         Case {
@@ -410,7 +410,7 @@ fn compilation_errors_render_the_offending_source_line() {
             name: "aggregate-layout-overflow",
             diagnostic_code: "E5000",
             offending_line:
-                "(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))",
+                "(#fn main ((values (#array (#array #u64 18446744073709551615) 2))) () (#return ()))",
             line_number: 1,
         },
         Case {
@@ -434,13 +434,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "shadowing",
             diagnostic_code: "E4000",
-            offending_line: "  (#let value u64 2u64)",
+            offending_line: "  (#let value #u64 2u64)",
             line_number: 3,
         },
         Case {
             name: "shadowing-destructure",
             diagnostic_code: "E4000",
-            offending_line: "  (#let (#tuple value) (#tuple u64) (#tuple 2u64))",
+            offending_line: "  (#let (#tuple value) (#tuple #u64) (#tuple 2u64))",
             line_number: 3,
         },
         Case {
@@ -512,7 +512,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "generic-angle-call",
             diagnostic_code: "E4000",
-            offending_line: "  (#return (identity<u64> 42u64)))",
+            offending_line: "  (#return (identity<#u64> 42u64)))",
             line_number: 4,
         },
         Case {
@@ -530,19 +530,19 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "block-reference-escape",
             diagnostic_code: "E4100",
-            offending_line: "  (#let escaped (#ref u64) (#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local)))",
+            offending_line: "  (#let escaped (#ref #u64) (#block (#let (#tuple local) (#tuple #u64) (#tuple 7u64)) (#borrow local)))",
             line_number: 2,
         },
         Case {
             name: "destructure-reference-escape",
             diagnostic_code: "E4100",
-            offending_line: "  (#let (#tuple escaped) (#tuple (#ref u64)) (#tuple (#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))))",
+            offending_line: "  (#let (#tuple escaped) (#tuple (#ref #u64)) (#tuple (#block (#let (#tuple local) (#tuple #u64) (#tuple 7u64)) (#borrow local))))",
             line_number: 2,
         },
         Case {
             name: "call-reference-escape",
             diagnostic_code: "E4100",
-            offending_line: "  (#call consume (: input (#block (#let local u64 7u64) (#borrow local))))",
+            offending_line: "  (#call consume (: input (#block (#let local #u64 7u64) (#borrow local))))",
             line_number: 5,
         },
         Case {
@@ -610,13 +610,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "unsafe-external-call",
             diagnostic_code: "E4300",
-            offending_line: "  (#let result i32 (#call external-value (: value 1i32)))",
+            offending_line: "  (#let result #i32 (#call external-value (: value 1i32)))",
             line_number: 3,
         },
         Case {
             name: "unsafe-external-reference-return",
             diagnostic_code: "E4300",
-            offending_line: "  (#let reference (#ref-mut u64) (#call external-reference (:)))",
+            offending_line: "  (#let reference (#ref-mut #u64) (#call external-reference (:)))",
             line_number: 3,
         },
         Case {
@@ -652,26 +652,26 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "generator-capability",
             diagnostic_code: "E3000",
-            offending_line: "(#capability order u64 ((missing (u64 u64) bool)))",
+            offending_line: "(#capability order #u64 ((missing (#u64 #u64) #bool)))",
             line_number: 1,
         },
         Case {
             name: "generator-capability-signature",
             diagnostic_code: "E3000",
-            offending_line: "(#capability order u64 ((compare (u64 u64) u64)))",
+            offending_line: "(#capability order #u64 ((compare (#u64 #u64) #u64)))",
             line_number: 2,
         },
         Case {
             name: "generator-capability-duplicate-operation",
             diagnostic_code: "E3000",
             offending_line:
-                "(#capability order u64 ((compare (u64 u64) bool) (compare (u64 u64) bool)))",
+                "(#capability order #u64 ((compare (#u64 #u64) #bool) (compare (#u64 #u64) #bool)))",
             line_number: 2,
         },
         Case {
             name: "generator-capability-duplicate-type",
             diagnostic_code: "E3000",
-            offending_line: "(#capability order u64 ((compare (u64 u64) bool)))",
+            offending_line: "(#capability order #u64 ((compare (#u64 #u64) #bool)))",
             line_number: 3,
         },
         Case {
@@ -689,13 +689,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "codegen",
             diagnostic_code: "E5000",
-            offending_line: "(#const First u64 (#u64.+.wrap Second 1u64))",
+            offending_line: "(#const First #u64 (#u64.+.wrap Second 1u64))",
             line_number: 1,
         },
         Case {
             name: "nonconstant-static",
             diagnostic_code: "E5000",
-            offending_line: "(#static VALUE u64 (#call get-value (:)))",
+            offending_line: "(#static VALUE #u64 (#call get-value (:)))",
             line_number: 2,
         },
         Case {
@@ -719,13 +719,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-parameter",
             diagnostic_code: "E4000",
-            offending_line: "(#fn main ((value u64) (value u64)) u64 (#return value))",
+            offending_line: "(#fn main ((value #u64) (value #u64)) #u64 (#return value))",
             line_number: 1,
         },
         Case {
             name: "duplicate-field",
             diagnostic_code: "E4000",
-            offending_line: "(#struct Point ((x u64) (x u64)))",
+            offending_line: "(#struct Point ((x #u64) (x #u64)))",
             line_number: 1,
         },
         Case {
@@ -749,13 +749,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-global",
             diagnostic_code: "E4000",
-            offending_line: "(#let COUNT u64 2u64)",
+            offending_line: "(#let COUNT #u64 2u64)",
             line_number: 2,
         },
         Case {
             name: "duplicate-function",
             diagnostic_code: "E3000",
-            offending_line: "(#fn main () u64 (#return 2u64))",
+            offending_line: "(#fn main () #u64 (#return 2u64))",
             line_number: 2,
         },
         Case {
@@ -773,7 +773,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "thread-send",
             diagnostic_code: "E4000",
-            offending_line: "(#fn worker ((pointer (#ptr u64))) u64 (#return 0u64))",
+            offending_line: "(#fn worker ((pointer (#ptr #u64))) #u64 (#return 0u64))",
             line_number: 1,
         },
         Case {
@@ -791,13 +791,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "thread-worker-unknown-type",
             diagnostic_code: "E4000",
-            offending_line: "(#fn worker ((argument Missing)) u64 (#return 1u64))",
+            offending_line: "(#fn worker ((argument Missing)) #u64 (#return 1u64))",
             line_number: 4,
         },
         Case {
             name: "unknown-local-type",
             diagnostic_code: "E4000",
-            offending_line: "(#fn main () u64 (#let value Missing 1u64) (#return 0u64))",
+            offending_line: "(#fn main () #u64 (#let value Missing 1u64) (#return 0u64))",
             line_number: 1,
         },
         Case {
@@ -815,7 +815,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "immutable-mutable-borrow",
             diagnostic_code: "E4100",
-            offending_line: "  (#let reference (#ref-mut u64) (#borrow-mut value))",
+            offending_line: "  (#let reference (#ref-mut #u64) (#borrow-mut value))",
             line_number: 3,
         },
         Case {
@@ -986,13 +986,13 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "thread-worker-reference-result",
             diagnostic_code: "E4000",
-            offending_line: "(#fn worker ((value (#ref u64))) (#ref u64) (#return value))",
+            offending_line: "(#fn worker ((value (#ref #u64))) (#ref #u64) (#return value))",
             line_number: 1,
         },
         Case {
             name: "thread-task-function-signature",
             diagnostic_code: "E4000",
-            offending_line: "(#fn bad ((task Task)) u64 (#return 0u64))",
+            offending_line: "(#fn bad ((task Task)) #u64 (#return 0u64))",
             line_number: 3,
         },
         Case {
@@ -1176,7 +1176,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "cfg" => Some("#platfrom"),
             "operator-arity" => Some("#u64.+.wrap"),
             "unknown-function" => Some("missing"),
-            "nonboolean-if-condition" => Some("1u64"),
+            "nonboolean-if-condition" => Some("(#if 1u64 2u64 3u64)"),
             "if-branch-mismatch" => Some("false"),
             "match-branch-mismatch" => Some("false"),
             "match-missing-case" => Some("(true 1u64)"),
@@ -1229,8 +1229,8 @@ fn compilation_errors_render_the_offending_source_line() {
             "pinned-linear-referent-move" => Some("(#deref reference)"),
             "thread-worker-missing" => Some("missing-worker"),
             "thread-worker-ffi" => Some("(#thread-task Work work)"),
-            "thread-send" => Some("(#ptr u64)"),
-            "thread-worker-reference-result" => Some("(#ref u64)"),
+            "thread-send" => Some("(#ptr #u64)"),
+            "thread-worker-reference-result" => Some("(#ref #u64)"),
             "thread-task-function-signature" => Some("Task"),
             "thread-task-type-alias" => Some("Task"),
             "thread-task-field" => Some("Task"),
@@ -1239,7 +1239,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "generator-function-recursion" => Some("first"),
             "generator-capability-signature" => Some("compare"),
             "generator-capability-duplicate-operation" => Some("compare"),
-            "generator-capability-duplicate-type" => Some("u64"),
+            "generator-capability-duplicate-type" => {
+                Some("(#capability order #u64 ((compare (#u64 #u64) #bool)))")
+            }
             "duplicate-generator" => Some("make"),
             "duplicate-generator-parameter" => Some("x"),
             "unsafe" => Some("VALUE"),
@@ -1251,9 +1253,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "string-borrow-mutation" => Some("#borrow-mut"),
             "stored-reference-projection-replacement" => Some("#set"),
             "overlapping-call-borrows" => Some("(#borrow value)"),
-            "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local))"),
-            "destructure-reference-escape" => Some("(#tuple (#block (#let (#tuple local) (#tuple u64) (#tuple 7u64)) (#borrow local)))"),
-            "call-reference-escape" => Some("(#block (#let local u64 7u64) (#borrow local))"),
+            "block-reference-escape" => Some("(#block (#let (#tuple local) (#tuple #u64) (#tuple 7u64)) (#borrow local))"),
+            "destructure-reference-escape" => Some("(#tuple (#block (#let (#tuple local) (#tuple #u64) (#tuple 7u64)) (#borrow local)))"),
+            "call-reference-escape" => Some("(#block (#let local #u64 7u64) (#borrow local))"),
             "match-reference-escape" => Some("(#return (#match holder (#case (Has view) view)))"),
             "borrow-conflict-field-name" => Some("owner"),
             "borrow-conflict-callee-name" => Some("owner"),
@@ -1272,7 +1274,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "call-builtin-name-type" => Some("false"),
             "call-missing-argument" => Some("#call"),
             "type-as-constructor" => Some("Point"),
-            "aggregate-layout-overflow" => Some("(#fn main ((values (#array (#array u64 18446744073709551615) 2))) () (#return ()))"),
+            "aggregate-layout-overflow" => Some("(#fn main ((values (#array (#array #u64 18446744073709551615) 2))) () (#return ()))"),
             "array-repeat-linear" => Some("(#array-repeat (#struct-literal Token ((value 1u64))))"),
             "atomic-invalid-load-order" => Some("(#atomic-load (#borrow counter) #memory-release)"),
             "local-name-type-error" => Some("flag"),
@@ -1286,10 +1288,12 @@ fn compilation_errors_render_the_offending_source_line() {
             "call-self-loan-owner-mutation" => Some("running"),
             "call-self-loan-owner-borrow" => Some("running"),
             "reordered-named-argument-error" => Some("1u64"),
-            "nested-case-pattern-error" => Some("0u64"),
+            "nested-case-pattern-error" => {
+                Some("(#match value (#case (Nested Ready) false) (#case Stop 0u64))")
+            }
             "positional-call" => Some("add"),
             "generic-function" => Some("(#fn"),
-            "generic-angle-call" => Some("(identity<u64> 42u64)"),
+            "generic-angle-call" => Some("(identity<#u64> 42u64)"),
             "struct-literal" => Some("((y 1u64))"),
             "struct-field-type-mismatch" => Some("false"),
             "enum-payload-type-mismatch" => Some("false"),
@@ -1506,7 +1510,7 @@ fn cached_generator_semantic_errors_show_generated_code_and_invocation() {
         assert!(stderr.contains("error[E4000]"), "{stderr}");
         assert!(stderr.contains("input.lim:2:"), "{stderr}");
         assert!(
-            stderr.contains("(#fn generated () u64 (#return false))"),
+            stderr.contains("(#fn generated () #u64 (#return false))"),
             "{stderr}"
         );
         assert!(
@@ -1565,7 +1569,8 @@ fn builtin_generator_errors_show_generated_declaration_and_invocation() {
     std::fs::create_dir_all(&directory).unwrap();
     let input = directory.join("input.lim");
     let output = directory.join("output.s");
-    let source = "(@optional (: type u64 : name Maybe?))\n(@optional (: type u64 : name Maybe?))\n";
+    let source =
+        "(@optional (: type #u64 : name Maybe?))\n(@optional (: type #u64 : name Maybe?))\n";
     std::fs::write(&input, source).unwrap();
     for _ in 0..2 {
         let result = Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -1586,7 +1591,7 @@ fn builtin_generator_errors_show_generated_declaration_and_invocation() {
         );
         let invocation_row = stderr
             .lines()
-            .find(|line| line.contains("(@optional (: type u64 : name Maybe?))"))
+            .find(|line| line.contains("(@optional (: type #u64 : name Maybe?))"))
             .unwrap();
         let invocation_underline = stderr
             .lines()
@@ -1597,7 +1602,7 @@ fn builtin_generator_errors_show_generated_declaration_and_invocation() {
                 .split_once("| ")
                 .unwrap()
                 .1
-                .find("(@optional (: type u64 : name Maybe?))"),
+                .find("(@optional (: type #u64 : name Maybe?))"),
             invocation_underline
                 .split_once("| ")
                 .unwrap()

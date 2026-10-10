@@ -1,7 +1,7 @@
-(#static Values (#array (#array u64 2) 2)
-  (#array (#array (#array u64 2) 2)
-    (#array (#array u64 2) 10 20)
-    (#array (#array u64 2) 30 40)))
+(#static Values (#array (#array #u64 2) 2)
+  (#array (#array (#array #u64 2) 2)
+    (#array (#array #u64 2) 10 20)
+    (#array (#array #u64 2) 30 40)))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#unsafe (#index (#index Values 1) 0))))

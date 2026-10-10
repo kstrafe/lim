@@ -206,7 +206,7 @@ mod tests {
 
     #[test]
     fn borrowed_inspection_never_emits_an_owning_read_or_consumption() {
-        let source = "(#struct Payload ((value u64))) (#linear Payload)
+        let source = "(#struct Payload ((value #u64))) (#linear Payload)
           (#enum Choice ((Some Payload) Empty)) (#linear Choice)
           (#fn unused () () (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -233,7 +233,7 @@ mod tests {
         assert!(!text.contains("(#let inspect.0 "), "{text}");
         let checked_source = format!(
             "{source}
-          (#fn inspect ((value (#pin-ref Choice))) bool (#return {text}))"
+          (#fn inspect ((value (#pin-ref Choice))) #bool (#return {text}))"
         );
         crate::CheckedProgram::validate(&crate::parse_program(&checked_source).unwrap()).unwrap();
     }

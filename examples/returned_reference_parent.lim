@@ -1,34 +1,34 @@
 ; A returned child retains the owner's loan, not the temporary handle's life.
-(#struct Owner (: value u64))
+(#struct Owner (: value #u64))
 (#linear Owner)
 
-(#fn child-of (: owner (#ref-mut Owner)) (#ref-mut u64)
+(#fn child-of (: owner (#ref-mut Owner)) (#ref-mut #u64)
   (#return (#borrow-mut (#get owner value))))
 
-(#fn view-of (: owner (#ref-mut Owner)) (#ref u64)
+(#fn view-of (: owner (#ref-mut Owner)) (#ref #u64)
   (#return (#borrow (#get owner value))))
 
-(#fn increment (: target (#ref-mut u64)) u64
+(#fn increment (: target (#ref-mut #u64)) #u64
   (#deref-set target (#u64.+.wrap (#deref target) 1u64))
   (#return (#deref target)))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut owner Owner (#struct-literal Owner (: value 41u64)))
   (#let parent (#ref-mut Owner) (#borrow-mut owner))
   ; Transparent argument expressions retain the same parent permissions.
-  (#let shared (#ref u64) (#call view-of (: owner (#block parent))))
+  (#let shared (#ref #u64) (#call view-of (: owner (#block parent))))
   (#assert (#u64.== (#deref shared) 41u64))
   (#drop shared)
-  (#let selected bool true)
-  (#let another (#ref u64)
+  (#let selected #bool true)
+  (#let another (#ref #u64)
     (#call view-of (: owner (#if selected parent parent))))
   (#assert (#u64.== (#deref another) 41u64))
   (#drop another)
-  (#let child (#ref-mut u64)
+  (#let child (#ref-mut #u64)
     (#label result
       (#loop (#break-to result (#call child-of (: owner parent))))))
   (#drop parent)
-  (#let answer u64 (#call increment (: target child)))
+  (#let answer #u64 (#call increment (: target child)))
   (#drop child)
   (#forget owner)
   (#return answer))

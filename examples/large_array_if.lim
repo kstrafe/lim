@@ -1,6 +1,6 @@
-(#fn main () u64
-  (#let values (#array u64 8)
+(#fn main () #u64
+  (#let values (#array #u64 8)
     (#if true
-      (#array (#array u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 42u64)
-      (#array (#array u64 8) 0u64 0u64 0u64 0u64 0u64 0u64 0u64 0u64)))
+      (#array (#array #u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 42u64)
+      (#array (#array #u64 8) 0u64 0u64 0u64 0u64 0u64 0u64 0u64 0u64)))
   (#return (#index values 7u64)))

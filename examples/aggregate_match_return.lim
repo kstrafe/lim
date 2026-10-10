@@ -1,9 +1,9 @@
-(#enum Maybe ((Some u64) None))
+(#enum Maybe ((Some #u64) None))
 
-(#fn choose ((value Maybe)) (#tuple u64 u64)
+(#fn choose ((value Maybe)) (#tuple #u64 #u64)
   (#return (#match value
-    (#case (Some payload) (#tuple (#tuple u64 u64) payload 20))
-    (#case None (#tuple (#tuple u64 u64) 30 12)))))
+    (#case (Some payload) (#tuple (#tuple #u64 #u64) payload 20))
+    (#case None (#tuple (#tuple #u64 #u64) 30 12)))))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#get (#call choose (: value (Some 10))) 1)))

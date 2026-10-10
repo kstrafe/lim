@@ -2,10 +2,10 @@
   #fn
   widen
   ()
-  u128
+  #u128
   (
     #return
-    (#as 42 u128)
+    (#as 42 #u128)
   )
 )
 
@@ -13,15 +13,15 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #let
     value
-    u128
+    #u128
     (#call widen (:))
   )
   (
     #return
-    (#as value u64)
+    (#as value #u64)
   )
 )

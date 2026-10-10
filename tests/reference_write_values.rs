@@ -29,11 +29,11 @@ fn one_word_aggregate_reference_writes_use_the_target_type() {
         "(#block (#struct-literal Value ((number 42u64))))",
     ] {
         let source = format!(
-            "(#struct Value ((number u64)))
+            "(#struct Value ((number #u64)))
              (#fn make () Value (#return (#struct-literal Value ((number 42u64)))))
              (#fn write ((target (#ref-mut Value)) (replacement Value)) ()
                (#deref-set target {rhs}) (#return ()))
-             (#fn main () u64
+             (#fn main () #u64
                (#let-mut owner Value (#struct-literal Value ((number 1u64))))
                (#call write (: target (#borrow-mut owner)
                  : replacement (#struct-literal Value ((number 42u64)))))
@@ -46,8 +46,8 @@ fn one_word_aggregate_reference_writes_use_the_target_type() {
 #[test]
 fn zero_sized_reference_writes_preserve_adjacent_storage() {
     let source = "(#struct Empty ())
-      (#struct Value ((empty Empty) (number u64)))
-      (#fn main () u64
+      (#struct Value ((empty Empty) (number #u64)))
+      (#fn main () #u64
         (#let-mut owner Value (#struct-literal Value
           ((empty (#struct-literal Empty ())) (number 42u64))))
         (#let view (#ref-mut Value) (#borrow-mut owner))
@@ -59,9 +59,9 @@ fn zero_sized_reference_writes_preserve_adjacent_storage() {
 #[test]
 fn zero_sized_reference_writes_evaluate_the_rhs() {
     let source = "(#struct Empty ())
-      (#struct Value ((empty Empty) (number u64)))
+      (#struct Value ((empty Empty) (number #u64)))
       (#fn fail () Empty (#assert false) (#return (#struct-literal Empty ())))
-      (#fn main () u64
+      (#fn main () #u64
         (#let-mut owner Value (#struct-literal Value
           ((empty (#struct-literal Empty ())) (number 42u64))))
         (#let view (#ref-mut Value) (#borrow-mut owner))

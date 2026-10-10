@@ -355,7 +355,7 @@ mod tests {
 
     #[test]
     fn no_reference_cells_need_no_plan() {
-        let (graph, types, lending) = prepare("(#fn work (: value u64) u64 (#return value))");
+        let (graph, types, lending) = prepare("(#fn work (: value #u64) #u64 (#return value))");
         assert!(Plan::new(&graph, &types, None, lending.as_ref()).is_none());
     }
 
@@ -363,15 +363,15 @@ mod tests {
     fn owned_moves_empty_bindings_but_lending_and_copying_do_not() {
         for (source, empty) in [
             (
-                "(#fn work (: view (#ref-mut u64)) (#ref-mut u64) (#return view))",
+                "(#fn work (: view (#ref-mut #u64)) (#ref-mut #u64) (#return view))",
                 true,
             ),
             (
-                "(#fn work (: view (#ref-mut u64)) u64 (#return (#deref view)))",
+                "(#fn work (: view (#ref-mut #u64)) #u64 (#return (#deref view)))",
                 false,
             ),
             (
-                "(#fn work (: view (#ref u64)) (#ref u64) (#return (#clone view)))",
+                "(#fn work (: view (#ref #u64)) (#ref #u64) (#return (#clone view)))",
                 false,
             ),
         ] {
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn conditional_release_is_not_proof_of_empty_storage() {
         let (graph, types, lending) = prepare(
-            "(#fn work (: view (#ref-mut u64) : release bool) ()
+            "(#fn work (: view (#ref-mut #u64) : release #bool) ()
               (#if release (#drop view) ()) (#return ()))",
         );
         let plan = Plan::new(&graph, &types, None, lending.as_ref()).unwrap();
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn primitive_field_writes_preserve_a_live_reference_holder() {
         let (graph, types, lending) = prepare(
-            "(#struct Holder (: view (#ref u64) : count u64))
+            "(#struct Holder (: view (#ref #u64) : count #u64))
               (#fn work (: owner Holder) ()
                 (#let-mut holder Holder owner) (#set-field holder count 1u64) (#return ()))",
         );
@@ -431,16 +431,16 @@ mod tests {
     #[test]
     fn pending_preserves_only_the_restored_owned_child() {
         let context = crate::parse_program(
-            "(#enum Child ((Waiting (#ref-mut u64)))) (#linear Child)
-              (#enum ChildPoll ((Pending Child) (Ready u64)))
-              (#fn step-poll (: task Child : waker (#ref u64)) ChildPoll
+            "(#enum Child ((Waiting (#ref-mut #u64)))) (#linear Child)
+              (#enum ChildPoll ((Pending Child) (Ready #u64)))
+              (#fn step-poll (: task Child : waker (#ref #u64)) ChildPoll
                 (#return (#match task (#case (Waiting view) (Pending (Waiting view))))))",
         )
         .unwrap();
         let source = crate::parse(
-            "(#fn work (: view (#ref-mut u64)) u64
+            "(#fn work (: view (#ref-mut #u64)) #u64
               (#let child Child (Waiting view))
-              (#return (#await u64 Child Pending Ready step-poll child)))",
+              (#return (#await #u64 Child Pending Ready step-poll child)))",
         )
         .unwrap()
         .remove(0);

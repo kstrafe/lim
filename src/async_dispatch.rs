@@ -958,9 +958,9 @@ mod tests {
 
     #[test]
     fn inlined_scopes_rename_collisions_without_capturing_outer_values() {
-        let input = "(#fn poll ((task Frame)) u64
+        let input = "(#fn poll ((task Frame)) #u64
           (#return (#block
-            (#let result u64 (#block (#let task u64 42u64) task))
+            (#let result #u64 (#block (#let task #u64 42u64) task))
             (#match task (#case (Frame-start value) result)))))";
         let mut forms = crate::parse(input)
             .unwrap()
@@ -981,10 +981,10 @@ mod tests {
                 _ => None,
             })
             .unwrap();
-        let expected = "(#fn poll ((task Frame)) u64
+        let expected = "(#fn poll ((task Frame)) #u64
           (#return (#block
-            (#let result u64 (#block
-              (#let lim.async.dispatch.binding.task u64 42u64)
+            (#let result #u64 (#block
+              (#let lim.async.dispatch.binding.task #u64 42u64)
               lim.async.dispatch.binding.task))
             (#match task (#case (Frame-start value) result)))))";
         let expected = expected.replace("lim.async.dispatch.binding.task", &token);

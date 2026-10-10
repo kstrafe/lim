@@ -2,35 +2,35 @@
 ;; every resume calls the same poll function. The state enum tag is its index.
 (#import "../library/pin.lim")
 
-(#enum Step (: Step-waiting u64 u64))
+(#enum Step (: Step-waiting #u64 #u64))
 (#linear Step)
-(#enum StepPoll (: StepPending Step : StepReady u64))
-(#fn step-poll (: task Step : waker (#ref u64)) StepPoll
+(#enum StepPoll (: StepPending Step : StepReady #u64))
+(#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return (#match task
     (#case (Step-waiting value remaining)
       (#if (#u64.== remaining 0u64)
         (StepReady value)
         (StepPending (Step-waiting value (#u64.-.wrap remaining 1u64))))))))
 
-(#syntax StepAwait (u64 Step StepPending StepReady step-poll))
-(@async-fn-pinned (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work () u64
+(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
+(@async-fn-pinned (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work () #u64
     ;; The first child is immediately Ready: poll advances to await-1 without
     ;; returning to the caller or calling a generated resume function.
-    (#let first u64 (#await (#syntax-splice StepAwait) (Step-waiting 40u64 0u64)))
-    (#let second u64 (#await (#syntax-splice StepAwait) (Step-waiting 2u64 2u64)))
+    (#let first #u64 (#await (#syntax-splice StepAwait) (Step-waiting 40u64 0u64)))
+    (#let second #u64 (#await (#syntax-splice StepAwait) (Step-waiting 2u64 2u64)))
     (#return (#u64.+.wrap first second)))))
 
 (@pin (: type Frame : name PinnedFrame))
 (@pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
-  : run drive-frame : destroy destroy-frame : result u64))
+  : run drive-frame : destroy destroy-frame : result #u64))
 
-(#fn drive-frame (: pin PinnedFrame) u64
+(#fn drive-frame (: pin PinnedFrame) #u64
   ;; The adapter is unsafe because it exposes a low-level pin view. The
   ;; generated scope still owns the storage until cleanup has completed.
   (#let view (#pin-ref-mut Frame)
     (#unsafe (#call PinnedFrame-into-view (: pin pin))))
-  (#let waker u64 0u64)
+  (#let waker #u64 0u64)
   (#let first Poll (#call poll (: task view : waker (#borrow waker))))
   (#let-else (Pending after-first) Poll first (#unreachable))
   (#let second Poll (#call poll (: task after-first : waker (#borrow waker))))
@@ -52,5 +52,5 @@
     (#case Frame-done ()))
   (#return ()))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#call with-pinned-frame (: value (#call work (:))))))

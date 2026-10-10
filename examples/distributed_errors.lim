@@ -3,11 +3,11 @@
 
 (@error-enum (#syntax-distribute ApplicationErrors) ApplicationError)
 
-(#fn code ((error ApplicationError)) u64
+(#fn code ((error ApplicationError)) #u64
   (#return
     (#match error
-      (#case (FileFailure number) (#as number u64))
+      (#case (FileFailure number) (#as number #u64))
       (#case (ParseFailure number) number))))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#call code (: error (FileFailure 42u32)))))

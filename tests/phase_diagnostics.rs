@@ -12,7 +12,7 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
     let root = "(#import \"module: with spaces.lim\")";
     fs::write(&path, root).unwrap();
     let source =
-        "(#cfg-if (#cfg-and (#cfg-is #platform linux) (#cfg-is #unknown yes)) (#type Byte u8))";
+        "(#cfg-if (#cfg-and (#cfg-is #platform linux) (#cfg-is #unknown yes)) (#type Byte #u8))";
     fs::write(&imported, source).unwrap();
     let error = lim::compile_source_to_assembly(root, &path, &config, &cache, target).unwrap_err();
     assert_eq!(error.source_name.as_deref(), imported.to_str());
@@ -31,7 +31,7 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
         assert!(error.message.contains("source file /not/the/source"));
     }
     let source =
-        "(#fn value () u64 (#return 42u64))\n(#const bad u64 (#u64.+.wrap 1u64 (#call value (:))))";
+        "(#fn value () #u64 (#return 42u64))\n(#const bad #u64 (#u64.+.wrap 1u64 (#call value (:))))";
     let error =
         lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap_err();
     assert_eq!(error.code, lim::DiagnosticCode::Codegen);
@@ -40,7 +40,7 @@ fn phase_errors_keep_paths_ranges_and_message_metadata_separate() {
     assert!(!error.message.contains("source span"));
 
     let source =
-        "(#gn inner () `((#fn bad () u64 (#return false))))\n(#gn outer () `((@inner)))\n(@outer)";
+        "(#gn inner () `((#fn bad () #u64 (#return false))))\n(#gn outer () `((@inner)))\n(@outer)";
     let cold = lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap_err();
     let warm = lim::compile_source_to_assembly(source, &path, &config, &cache, target).unwrap_err();
     assert_eq!(cold, warm);

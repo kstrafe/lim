@@ -6,23 +6,23 @@
 (#import "wake_ready4.lim")
 (#import "async_poll4.lim")
 
-(#const LINUX-FCNTL-F_GETFL i32 3i32)
-(#const LINUX-FCNTL-F_SETFL i32 4i32)
-(#const LINUX-FCNTL-F_DUPFD-CLOEXEC i32 1030i32)
-(#const LINUX-O_NONBLOCK u64 2048u64)
+(#const LINUX-FCNTL-F_GETFL #i32 3i32)
+(#const LINUX-FCNTL-F_SETFL #i32 4i32)
+(#const LINUX-FCNTL-F_DUPFD-CLOEXEC #i32 1030i32)
+(#const LINUX-O_NONBLOCK #u64 2048u64)
 
 (#struct AsyncByteRead1
-  ((fd i64) (destination (#ref-mut u8)) (memory (#ptr-mut u8))
+  ((fd #i64) (destination (#ref-mut #u8)) (memory (#ptr-mut #u8))
    (queue WakeReady4) (token WakeToken4)))
 (#opaque AsyncByteRead1)
 (#linear AsyncByteRead1)
 (#enum AsyncByteReadCreate1
-  ((AsyncByteReadCreated1 AsyncByteRead1) (AsyncByteReadCreateFailed1 i64)))
+  ((AsyncByteReadCreated1 AsyncByteRead1) (AsyncByteReadCreateFailed1 #i64)))
 (#enum AsyncByteReadPoll1
-  (AsyncByteReadPending1 (AsyncByteReadReady1 u8)
-   AsyncByteReadEof1 (AsyncByteReadFailed1 i64)))
+  (AsyncByteReadPending1 (AsyncByteReadReady1 #u8)
+   AsyncByteReadEof1 (AsyncByteReadFailed1 #i64)))
 (#enum AsyncByteReadWait1
-  (AsyncByteReadWoken1 (AsyncByteReadWaitFailed1 i64)))
+  (AsyncByteReadWoken1 (AsyncByteReadWaitFailed1 #i64)))
 
 (#fn async-byte-read1-source ((task (#ref AsyncByteRead1))) AsyncPollSource4
   (#return (#call async-poll4-source
@@ -32,48 +32,48 @@
 
 ;; Explicitly changes the shared open-file-description status flags. Keeping
 ;; this enabled makes a readiness race return EAGAIN instead of blocking.
-(#fn async-byte-read1-enable-nonblocking ((fd i64)) i64
-  (#let flags i64 (#unsafe (#call linux-fcntl
+(#fn async-byte-read1-enable-nonblocking ((fd #i64)) #i64
+  (#let flags #i64 (#unsafe (#call linux-fcntl
     (: fd fd : command LINUX-FCNTL-F_GETFL : argument 0usize))))
   (#return (#if (#i64.< flags 0i64)
     flags
     (#unsafe (#call linux-fcntl
       (: fd fd : command LINUX-FCNTL-F_SETFL
-       : argument (#as (#u64.| (#as flags u64) LINUX-O_NONBLOCK) usize)))))))
+       : argument (#as (#u64.| (#as flags #u64) LINUX-O_NONBLOCK) #usize)))))))
 
 (#fn async-byte-read1-create
-  ((fd i64) (destination (#ref-mut u8))) AsyncByteReadCreate1
-  (#let flags i64 (#unsafe (#call linux-fcntl
+  ((fd #i64) (destination (#ref-mut #u8))) AsyncByteReadCreate1
+  (#let flags #i64 (#unsafe (#call linux-fcntl
     (: fd fd : command LINUX-FCNTL-F_GETFL : argument 0usize))))
   (#return (#if (#i64.< flags 0i64)
     (AsyncByteReadCreateFailed1 flags)
-    (#if (#u64.== (#u64.& (#as flags u64) LINUX-O_NONBLOCK) 0u64)
+    (#if (#u64.== (#u64.& (#as flags #u64) LINUX-O_NONBLOCK) 0u64)
       (AsyncByteReadCreateFailed1 -22i64)
       (#block
-        (#let owned-fd i64 (#unsafe (#call linux-fcntl
+        (#let owned-fd #i64 (#unsafe (#call linux-fcntl
           (: fd fd : command LINUX-FCNTL-F_DUPFD-CLOEXEC : argument 0usize))))
         (#if (#i64.< owned-fd 0i64)
           (AsyncByteReadCreateFailed1 owned-fd)
           (#block
-            (#let memory (#ptr-mut u8)
+            (#let memory (#ptr-mut #u8)
               (#unsafe (#call linux-mmap
-                (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
+                (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
                  : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-            (#let address i64 (#as (#ptr-address memory) i64))
+            (#let address #i64 (#as (#ptr-address memory) #i64))
             (#if (#i64.< address 0i64)
               (#block
-                (#let closed i64 (#call linux-close (: fd owned-fd)))
+                (#let closed #i64 (#call linux-close (: fd owned-fd)))
                 (AsyncByteReadCreateFailed1
                   (#if (#i64.< closed 0i64) closed address)))
               (#block
-                ;; pollfd { fd: i32, events: i16, revents: i16 }, requesting POLLIN.
-                (#for-range (byte usize) 0usize 8usize
+                ;; pollfd { fd: #i32, events: #i16, revents: #i16 }, requesting POLLIN.
+                (#for-range (byte #usize) 0usize 8usize
                   (#unsafe (#ptr-write (#ptr-offset (#clone memory) byte) 0u8)))
-                (#let fd-bits u64 (#as owned-fd u64))
-                (#for-range (byte usize) 0usize 4usize
+                (#let fd-bits #u64 (#as owned-fd #u64))
+                (#for-range (byte #usize) 0usize 4usize
                   (#unsafe (#ptr-write
                     (#ptr-offset (#clone memory) byte)
-                    (#as (#u64.>> fd-bits (#as (#usize.*.wrap byte 8usize) u64)) u8))))
+                    (#as (#u64.>> fd-bits (#as (#usize.*.wrap byte 8usize) #u64)) #u8))))
                 (#unsafe (#ptr-write (#ptr-offset (#clone memory) 4usize) 1u8))
                 (#let-mut queue WakeReady4 (#call wake-ready4-create (:)))
                 (#let registration WakeRegister4
@@ -110,7 +110,7 @@
   (#return (#if (#call wake-ready4-take
                 (: queue (#borrow (#get task queue)) : token (#get task token)))
     (#block
-      (#let count i64 (#call linux-read-byte-from
+      (#let count #i64 (#call linux-read-byte-from
         (: fd (#get task fd) : destination (#get task destination))))
       (#if (#i64.== count -11i64)
         AsyncByteReadPending1
@@ -123,18 +123,18 @@
 
 ;; This also cancels a pending read: poll() never leaves a buffer referenced by
 ;; the kernel. The caller must stop using the consumed task handle afterward.
-(#fn async-byte-read1-destroy ((task AsyncByteRead1)) i64
+(#fn async-byte-read1-destroy ((task AsyncByteRead1)) #i64
   (#let (AsyncByteRead1 fd destination memory queue token) AsyncByteRead1 task)
   (#let-mut queue-mut WakeReady4 queue)
   (#let retired WakeRetire4
     (#call wake-ready4-retire (: queue (#borrow-mut queue-mut) : token token)))
-  (#let stale bool (#match retired
+  (#let stale #bool (#match retired
     (#case WakeRetired4 false)
     (#case WakeStale4 true)))
   (#assert (#bool.== stale false))
   (#forget queue-mut)
   (#forget destination)
-  (#let closed i64 (#call linux-close (: fd fd)))
-  (#let unmapped i64 (#unsafe (#call linux-munmap
+  (#let closed #i64 (#call linux-close (: fd fd)))
+  (#let unmapped #i64 (#unsafe (#call linux-munmap
     (: address memory : length 4096usize))))
   (#return (#if (#i64.< closed 0i64) closed unmapped)))

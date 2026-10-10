@@ -385,7 +385,7 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
             let Some(start) = entries[index] else {
                 continue;
             };
-            let mut depth = i64::try_from(start.depth).map_err(|_| "stack depth exceeds i64")?;
+            let mut depth = i64::try_from(start.depth).map_err(|_| "stack depth exceeds #i64")?;
             let mut frame = start.frame;
             let mut peak = start.depth;
             let mut last_terminator = None;
@@ -397,7 +397,7 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
                     Some(FrameAction::Restore | FrameAction::Leave) => {
                         depth =
                             i64::try_from(frame.ok_or("cannot restore an unknown frame pointer")?)
-                                .map_err(|_| "frame depth exceeds i64")?;
+                                .map_err(|_| "frame depth exceeds #i64")?;
                         if matches!(instruction.frame, Some(FrameAction::Leave)) {
                             depth -= 8;
                             frame = None;
@@ -424,7 +424,7 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
                         block.label
                     ));
                 }
-                peak = peak.max(usize::try_from(depth).map_err(|_| "stack depth exceeds usize")?);
+                peak = peak.max(usize::try_from(depth).map_err(|_| "stack depth exceeds #usize")?);
                 if instruction.terminator.is_some() {
                     last_terminator = instruction.terminator.as_ref();
                     break;
@@ -499,7 +499,7 @@ fn analyze_function(function: &Function) -> Result<LocalUsage, String> {
                     _ => {
                         entries[successor] = Some(StackState {
                             depth: usize::try_from(depth)
-                                .map_err(|_| "stack depth exceeds usize")?,
+                                .map_err(|_| "stack depth exceeds #usize")?,
                             frame,
                         });
                         changed = true;
@@ -555,7 +555,7 @@ fn call_path_usage(
             let candidate = call_depth
                 .checked_add(8)
                 .and_then(|depth| depth.checked_add(child.bytes))
-                .ok_or_else(|| "stack call-path size overflowed usize".to_owned())?;
+                .ok_or_else(|| "stack call-path size overflowed #usize".to_owned())?;
             if candidate > result.bytes {
                 result.bytes = candidate;
                 result.chain = vec![name.to_owned()];
@@ -702,7 +702,7 @@ mod tests {
             include_str!("../examples/large_aggregate_parameters.lim"),
             include_str!("../examples/aggregate_loop_conditional.lim"),
             include_str!("../examples/nested_loop_break_scope.lim"),
-            "(#fn leaf () u64 (#return 7u64)) (#fn main () u64 (#return (#if true (#call leaf (:)) 2u64)) (#return 3u64))",
+            "(#fn leaf () #u64 (#return 7u64)) (#fn main () #u64 (#return (#if true (#call leaf (:)) 2u64)) (#return 3u64))",
         ] {
             let program = crate::parse_program(source).unwrap();
             let assembly = crate::generate_assembly(&program).unwrap();

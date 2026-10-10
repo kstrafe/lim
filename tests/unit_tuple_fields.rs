@@ -23,9 +23,9 @@ fn run(source: &str) -> std::process::ExitStatus {
 #[test]
 fn unit_tuple_fields_need_no_slot_or_register() {
     let source = r#"
-      (#let GLOBAL (#tuple u64 ()) (#tuple (#tuple u64 ()) 42u64 ()))
-      (#fn main () u64
-        (#let local (#tuple () u64 ()) (#tuple (#tuple () u64 ()) () 42u64 ()))
+      (#let GLOBAL (#tuple #u64 ()) (#tuple (#tuple #u64 ()) 42u64 ()))
+      (#fn main () #u64
+        (#let local (#tuple () #u64 ()) (#tuple (#tuple () #u64 ()) () 42u64 ()))
         (#get local 0)
         (#get local 2)
         (#get GLOBAL 1)
@@ -46,7 +46,7 @@ fn zero_word_aggregate_locals_can_be_enum_payloads() {
           (#enum Outcome ((Done {ty})))
           (#fn make () Outcome
             (#let empty {ty} {value}) (#return (Done empty)))
-          (#fn main () u64
+          (#fn main () #u64
             (#return (#match (#call make (:))
               (#case (Done value) (#block value 42u64)))))"
         );
@@ -57,14 +57,14 @@ fn zero_word_aggregate_locals_can_be_enum_payloads() {
 #[test]
 fn unit_tuple_projection_evaluates_small_and_indirect_receivers() {
     for words in [1, 8] {
-        let fields = "u64 ".repeat(words);
+        let fields = "#u64 ".repeat(words);
         let values = "42u64 ".repeat(words);
         let source = format!(
             r#"
           (#fn make () (#tuple {fields} ())
             (#assert false)
             (#return (#tuple (#tuple {fields} ()) {values} ())))
-          (#fn main () u64
+          (#fn main () #u64
             (#get (#call make ()) {words})
             (#return 42u64))
         "#

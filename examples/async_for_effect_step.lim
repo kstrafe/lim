@@ -1,23 +1,23 @@
 ; Await an argument of an effect-only step with a synchronous condition.
-(#enum StepTask ((Start u64) (Resume u64)))
+(#enum StepTask ((Start #u64) (Resume #u64)))
 (#linear StepTask)
-(#enum StepPoll ((StepPending StepTask) (StepReady u64)))
+(#enum StepPoll ((StepPending StepTask) (StepReady #u64)))
 
-(#fn step-poll (: task StepTask : waker (#ref u64)) StepPoll
+(#fn step-poll (: task StepTask : waker (#ref #u64)) StepPoll
   (#return (#match task
     (#case (Start next) (StepPending (Resume next)))
     (#case (Resume next) (StepReady next)))))
 
-(#fn advance (: next u64 : counter (#ref-mut u64)) ()
+(#fn advance (: next #u64 : counter (#ref-mut #u64)) ()
   (#deref-set counter next)
   (#return ()))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work (: run bool : stop bool) u64
-    (#let-mut index u64 0u64)
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work (: run #bool : stop #bool) #u64
+    (#let-mut index #u64 0u64)
     (#for () (#bool.&& run (#u64.< index 2u64))
       (#call advance
-        (: next (#await u64 StepTask StepPending StepReady step-poll
+        (: next (#await #u64 StepTask StepPending StepReady step-poll
                   (Start (#u64.+.wrap index 1u64)))
          : counter (#borrow-mut index)))
       (#if (#u64.== index 0u64)
@@ -25,8 +25,8 @@
         (#if stop (#break) ())))
     (#return (#u64.+.wrap index 40u64)))))
 
-(#fn main () u64
-  (#let waker u64 0u64)
+(#fn main () #u64
+  (#let waker #u64 0u64)
   (#let first Poll (#call poll
     (: task (#call work (: run true : stop false)) : waker (#borrow waker))))
   (#let-else (Pending first-task) Poll first (#unreachable))

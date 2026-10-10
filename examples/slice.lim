@@ -1,10 +1,10 @@
-(#fn second ((view (#slice u64))) u64
+(#fn second ((view (#slice #u64))) #u64
   (#return (#deref (#slice-idx view 1usize))))
 
-(#fn main () u64
-  (#let values (#array u64 3)
-    (#array (#array u64 3) 10u64 20u64 30u64))
-  (#let view (#slice u64) (#slice-of (#borrow values)))
+(#fn main () #u64
+  (#let values (#array #u64 3)
+    (#array (#array #u64 3) 10u64 20u64 30u64))
+  (#let view (#slice #u64) (#slice-of (#borrow values)))
   (#return (#u64.+.wrap
     (#call second (: view view))
-    (#as (#slice-len view) u64))))
+    (#as (#slice-len view) #u64))))

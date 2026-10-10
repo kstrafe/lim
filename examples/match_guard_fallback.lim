@@ -1,6 +1,6 @@
-(#enum Maybe ((Some u64) None))
+(#enum Maybe ((Some #u64) None))
 
-(#fn main () u64
+(#fn main () #u64
   (#let value Maybe (Some 20))
   (#return
     (#match value

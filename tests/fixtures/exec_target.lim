@@ -1,8 +1,8 @@
 (#import "../../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let letter u8 88u8)
-  (#let newline u8 10u8)
+(#fn main () #u64
+  (#let letter #u8 88u8)
+  (#let newline #u8 10u8)
   (#assert (#i64.== (#call linux-write-byte (: source (#borrow letter))) 1i64))
   (#assert (#i64.== (#call linux-write-byte (: source (#borrow newline))) 1i64))
   (#return 37u64))

@@ -25,7 +25,7 @@
   (WakeExecutor WakeMetadata)
   (notify clone-metadata destroy-metadata))
 
-(@task (Step StepPoll StepPending StepReady) u64 ((Waiting u64)))
+(@task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
 
 (#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
   (#return (#match task
@@ -37,11 +37,11 @@
           (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
 
 (@async-wake
-  (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) u64
+  (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
   ((Only (#await Step StepPending StepReady step-poll) (#return)))
   LocalWaker)
 
-(#fn main () u64
+(#fn main () #u64
   (#let queue WakeReady4 (#call wake-ready4-create (:)))
   (#let-mut executor WakeExecutor (#struct-literal WakeExecutor ((queue queue))))
   (#let executor-mut (#ref-mut WakeExecutor) (#borrow-mut executor))
@@ -52,7 +52,7 @@
   (#let token WakeToken4 (#match registration
     (#case (WakeRegistered4 value) value)
     (#case _ (#unreachable))))
-  (#let result u64 (#block
+  (#let result #u64 (#block
   (#let waker LocalWaker
     (#call local-waker-create
       (: executor (#borrow executor)
@@ -71,7 +71,7 @@
   (#drop executor-ref)
   (#let second PipelinePoll
     (#call pipeline-poll (: task pending : waker (#borrow waker))))
-  (#let outcome u64 (#match second
+  (#let outcome #u64 (#match second
     (#case (PipelineReady value) value)
     (#case (PipelinePending task) (#block (#forget task) (#unreachable)))))
   (#call local-waker-destroy (: waker waker))

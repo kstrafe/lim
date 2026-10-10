@@ -1,7 +1,7 @@
 ; Each ':' starts a pair and ends the preceding pair at this list depth.
-(#fn sum (: left u32 : right u32) u32
+(#fn sum (: left #u32 : right #u32) #u32
   (#return (#u32.+.wrap left right)))
 
-(#fn main () u64
+(#fn main () #u64
   ; Named call arguments can appear in any order.
-  (#return (#as (#call sum (: right 2u32 : left 40u32)) u64)))
+  (#return (#as (#call sum (: right 2u32 : left 40u32)) #u64)))

@@ -7,7 +7,7 @@ and a dependency-free Rust compiler. The native backend emits inspectable
 x86-64 System V assembly, then encodes and links ELF binaries internally.
 
 Lim uses concrete generated code instead of user-facing generic types. A
-generator invocation such as `(@optional (: type u64 : name MaybeU64))` emits a concrete type
+generator invocation such as `(@optional (: type #u64 : name MaybeU64))` emits a concrete type
 and its functions. Generators are pure, interpreted at compile time, and use
 the restricted `#gn-*` operation set.
 
@@ -73,8 +73,8 @@ are not treated as signals. New examples must declare their expected outcome.
 ## A small Lim program
 
 ```lisp run=42
-(#fn main () u64
-  (#let answer u64 (#u64.+.wrap 40u64 2u64))
+(#fn main () #u64
+  (#let answer #u64 (#u64.+.wrap 40u64 2u64))
   (#return answer))
 ```
 
@@ -86,8 +86,8 @@ Bindings declare their types, and every function exit uses `#return` (including
 An explicit type mismatch is rejected (this example is tested as `E4000`):
 
 ```lisp error=E4000
-(#fn main () u64
-  (#let answer u64 false)
+(#fn main () #u64
+  (#let answer #u64 false)
   (#return answer))
 ```
 ### Explaining generated-code reuse

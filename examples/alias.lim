@@ -1,4 +1,4 @@
-(#type UserId u64)
+(#type UserId #u64)
 
 (
   #fn

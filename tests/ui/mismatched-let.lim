@@ -1,4 +1,4 @@
-(#fn main () u64
-  (#let count u32 10u32)
-  (#let total u64 count)
+(#fn main () #u64
+  (#let count #u32 10u32)
+  (#let total #u64 count)
   (#return total))

@@ -1,32 +1,32 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let memory (#ptr-mut u8)
-    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+(#fn main () #u64
+  (#let memory (#ptr-mut #u8)
+    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
   (#let memory-initialized ()
     (#unsafe (#block (#ptr-write memory 201u8) ())))
-  (#let value u8 (#unsafe (#ptr-read memory)))
-  (#let residency (#ptr-mut u8)
+  (#let value #u8 (#unsafe (#ptr-read memory)))
+  (#let residency (#ptr-mut #u8)
     (#unsafe (#ptr-offset memory 64usize)))
-  (#let residence-result i64
+  (#let residence-result #i64
     (#unsafe (#call linux-mincore (: address memory : length 4096usize : residency residency))))
-  (#let resident-bit u8
+  (#let resident-bit #u8
     (#u8.& (#unsafe (#ptr-read residency)) 1u8))
-  (#let unaligned-mincore i64
+  (#let unaligned-mincore #i64
     (#unsafe (#call linux-mincore (: address (#ptr-offset memory 1usize) : length 1usize : residency residency))))
-  (#let synced i64
+  (#let synced #i64
     (#unsafe (#call linux-msync (: address memory : length 4096usize : flags 4i32))))
-  (#let invalid-sync-flags i64
+  (#let invalid-sync-flags #i64
     (#unsafe (#call linux-msync (: address memory : length 4096usize : flags 5i32))))
-  (#let barrier-capabilities i64
+  (#let barrier-capabilities #i64
     (#call linux-membarrier (: command 0i32 : flags 0u32 : cpu-id 0i32)))
-  (#let invalid-barrier-flags i64
+  (#let invalid-barrier-flags #i64
     (#call linux-membarrier (: command 0i32 : flags 1u32 : cpu-id 0i32)))
-  (#let readable i64
+  (#let readable #i64
     (#unsafe (#call linux-mprotect (: address memory : length 4096usize : protection 1u32))))
-  (#let unaligned-protection i64
+  (#let unaligned-protection #i64
     (#unsafe (#call linux-mprotect (: address (#unsafe (#ptr-offset memory 1usize)) : length 1usize : protection 1u32))))
-  (#let unmapped i64
+  (#let unmapped #i64
     (#unsafe (#call linux-munmap (: address memory : length 4096usize))))
   (#return
     (#if (#bool.&& (#u8.== value 201u8)

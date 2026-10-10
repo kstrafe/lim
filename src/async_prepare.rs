@@ -206,9 +206,9 @@ mod tests {
     use crate::Type;
 
     const CONTEXT: &str = "
-      (#enum Child ((Waiting u64))) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady u64)))
-      (#fn step-poll ((task Child) (waker (#ref u64))) ChildPoll
+      (#enum Child ((Waiting #u64))) (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Waiting count) (ChildReady count)))))";
 
     fn syntax(source: &str) -> PreparedProgramSyntax {
@@ -225,8 +225,8 @@ mod tests {
     fn work(body: &str) -> String {
         format!(
             "{CONTEXT}\n
-          (@async-fn (: names (Frame Poll Pending Ready poll) : waker u64
-            : function (#fn work ((choose bool)) u64 {body})))"
+          (@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64
+            : function (#fn work ((choose #bool)) #u64 {body})))"
         )
     }
 
@@ -234,11 +234,11 @@ mod tests {
     fn plans_arbitrary_nested_control_without_legacy_frame_emission() {
         let text = work(
             "
-          (#let-mut total u64 0u64)
+          (#let-mut total #u64 0u64)
           (#label outer (#loop
             (#if choose
               (#block
-                (#for-range (index usize) 0usize 3usize
+                (#for-range (index #usize) 0usize 3usize
                   (#set total (#await Child ChildPending ChildReady step-poll (Waiting 1u64)))
                   (#if (#usize.== index 1usize) (#block (#break-to outer) (#unreachable)) ()))
                 (#continue-to outer))
@@ -271,7 +271,7 @@ mod tests {
     fn reports_exact_original_type_mismatch_before_shape_lowering() {
         let text = work(
             "
-          (#let value u64 (#if choose
+          (#let value #u64 (#if choose
             (#await Child ChildPending ChildReady step-poll (Waiting 1u64))
             true))
           (#return value)",
@@ -288,10 +288,10 @@ mod tests {
         let text = format!(
             "{CONTEXT}
           (@async-fn (: names (First FirstPoll FirstPending FirstReady first-poll)
-            : waker u64 : function (#fn first ((seed u64)) u64
+            : waker #u64 : function (#fn first ((seed #u64)) #u64
               (#return (#await Child ChildPending ChildReady step-poll (Waiting seed))))))
           (@async-fn (: names (Second SecondPoll SecondPending SecondReady second-poll)
-            : waker u64 : function (#fn second ((seed u64)) u64
+            : waker #u64 : function (#fn second ((seed #u64)) #u64
               (#return (#await First FirstPending FirstReady first-poll
                 (#call first (: seed seed)))))))"
         );
@@ -311,9 +311,9 @@ mod tests {
         let text = format!(
             "{CONTEXT}
           (@async-fn (: names (First FirstPoll FirstPending FirstReady first-poll)
-            : waker u64 : function (#fn first () u64 (#return 1u64))))
+            : waker #u64 : function (#fn first () #u64 (#return 1u64))))
           (@async-fn (: names (Second SecondPoll SecondPending SecondReady second-poll)
-            : waker u64 : function (#fn second ((child First)) u64
+            : waker #u64 : function (#fn second ((child First)) #u64
               (#return (#get child state)))))"
         );
         let error = prepare(&syntax(&text)).err().unwrap();
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn rejects_generated_name_conflicting_with_non_async_builtin() {
         let text = format!(
-            "(@optional (: type u64 : name Frame)) {}",
+            "(@optional (: type #u64 : name Frame)) {}",
             work("(#return 1u64)")
         );
         let error = prepare(&syntax(&text)).err().unwrap();
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn non_async_generated_declarations_are_available_before_source_planning() {
         let text = format!(
-            "(@optional (: type u64 : name Maybe)) {}",
+            "(@optional (: type #u64 : name Maybe)) {}",
             work(
                 "
           (#let optional Maybe (#call Maybe-construct (: value
@@ -372,8 +372,8 @@ mod tests {
             "{CONTEXT}
           (#gn produce ()
             `( (@async-fn
-              (: names (Frame Poll Pending Ready poll) : waker u64
-               : function (#fn work ((seed u64)) u64
+              (: names (Frame Poll Pending Ready poll) : waker #u64
+               : function (#fn work ((seed #u64)) #u64
                  (#return (#await Child ChildPending ChildReady step-poll (Waiting seed)))))) ))
           (@produce)"
         );

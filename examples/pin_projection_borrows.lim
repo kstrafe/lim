@@ -1,17 +1,17 @@
 (#import "../library/pin.lim")
 
-(#struct Number (: value u64))
+(#struct Number (: value #u64))
 (#linear Number)
 (#struct Pair (: left Number : right Number))
 (#linear Pair)
 
-(@pin (: type Number : name PinnedNumber : fields (: value u64)))
+(@pin (: type Number : name PinnedNumber : fields (: value #u64)))
 (@pin (: type Pair : name PinnedPair
   : projections (: left PinnedNumber : right PinnedNumber)))
 (@pin-scope (: type Pair : pin PinnedPair : name with-pair
-  : run sum-pair : destroy destroy-pair : result u64))
+  : run sum-pair : destroy destroy-pair : result #u64))
 
-(#fn sum-pair (: pin PinnedPair) u64
+(#fn sum-pair (: pin PinnedPair) #u64
   (#let-mut parent PinnedPair pin)
   ; Borrowing a child does not consume the parent handle. Disjoint children
   ; can coexist; asking for left twice while it is borrowed would fail.
@@ -21,7 +21,7 @@
     (#call PinnedPair-right-borrow-mut (: pin (#borrow-mut parent))))
   (#call PinnedNumber-value-write (: pin (#borrow-mut left) : value 20u64))
   (#call PinnedNumber-value-write (: pin (#borrow-mut right) : value 22u64))
-  (#let answer u64 (#u64.+.wrap
+  (#let answer #u64 (#u64.+.wrap
     (#call PinnedNumber-value-read (: pin (#borrow left)))
     (#call PinnedNumber-value-read (: pin (#borrow right)))))
   (#forget left)
@@ -33,7 +33,7 @@
   (#forget pin)
   (#return ()))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#call with-pair (: value (#struct-literal Pair
     (: left (#struct-literal Number (: value 0u64))
      : right (#struct-literal Number (: value 0u64))))))))

@@ -5,42 +5,42 @@
 ;; The raw marker keeps this interior kernel protocol single-threaded.
 (#import "linux_x86_64.lim")
 
-(#struct AioOwnedContext ((id usize) (local-marker (#ptr u8))))
+(#struct AioOwnedContext ((id #usize) (local-marker (#ptr #u8))))
 (#opaque AioOwnedContext)
 (#linear AioOwnedContext)
 (#enum AioOwnedContextCreate
-  ((AioOwnedContextCreated AioOwnedContext) (AioOwnedContextCreateFailed i64)))
+  ((AioOwnedContextCreated AioOwnedContext) (AioOwnedContextCreateFailed #i64)))
 
 (#struct AioOwnedPending
-  ((context (#ref AioOwnedContext)) (memory (#ptr-mut u8)) (length usize)))
+  ((context (#ref AioOwnedContext)) (memory (#ptr-mut #u8)) (length #usize)))
 (#opaque AioOwnedPending)
 (#linear AioOwnedPending)
 (#struct AioOwnedCompleted
-  ((context (#ref AioOwnedContext)) (memory (#ptr-mut u8))
-   (length usize) (result i64)))
+  ((context (#ref AioOwnedContext)) (memory (#ptr-mut #u8))
+   (length #usize) (result #i64)))
 (#opaque AioOwnedCompleted)
 (#linear AioOwnedCompleted)
 
 (#enum AioOwnedSubmit
-  ((AioOwnedSubmitted AioOwnedPending) (AioOwnedSubmitFailed i64)))
+  ((AioOwnedSubmitted AioOwnedPending) (AioOwnedSubmitFailed #i64)))
 (#enum AioOwnedWait
   ((AioOwnedFinished AioOwnedCompleted)
-   (AioOwnedWaitFailed (#tuple AioOwnedPending i64))))
+   (AioOwnedWaitFailed (#tuple AioOwnedPending #i64))))
 (#enum AioOwnedCancel
   ((AioOwnedCancelFinished AioOwnedCompleted)
-   (AioOwnedCancelFailed (#tuple AioOwnedPending i64))))
+   (AioOwnedCancelFailed (#tuple AioOwnedPending #i64))))
 
 (#fn aio-owned-context-create () AioOwnedContextCreate
-  (#let-mut id usize 0usize)
-  (#let result i64
+  (#let-mut id #usize 0usize)
+  (#let result #i64
     (#unsafe (#call linux-io-setup (: capacity 8u32 : context (#addr-of-mut id)))))
   (#return (#if (#i64.== result 0i64)
     (AioOwnedContextCreated
       (#struct-literal AioOwnedContext
-        ((id id) (local-marker (#ptr-null (#ptr u8))))))
+        ((id id) (local-marker (#ptr-null (#ptr #u8))))))
     (AioOwnedContextCreateFailed result))))
 
-(#fn aio-owned-context-destroy ((context AioOwnedContext)) i64
+(#fn aio-owned-context-destroy ((context AioOwnedContext)) #i64
   (#let (AioOwnedContext id local-marker) AioOwnedContext context)
   (#forget local-marker)
   (#return (#unsafe (#call linux-io-destroy (: context id)))))
@@ -49,29 +49,29 @@
 ;; iocb at 0, pointer list at 64, io_event at 128, read bytes at 256.
 ;; The kernel may access this mapping until a completion is reaped.
 (#fn aio-owned-read-submit
-  ((context (#ref AioOwnedContext)) (fd i64) (length usize) (offset i64))
+  ((context (#ref AioOwnedContext)) (fd #i64) (length #usize) (offset #i64))
   AioOwnedSubmit
   (#return (#if (#bool.|| (#usize.== length 0usize) (#usize.> length 512usize))
     (AioOwnedSubmitFailed -22i64)
     (#block
-      (#let memory (#ptr-mut u8)
+      (#let memory (#ptr-mut #u8)
         (#unsafe (#call linux-mmap
-          (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
+          (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
            : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-      (#let address usize (#ptr-address memory))
+      (#let address #usize (#ptr-address memory))
       (#if (#usize.>= address 18446744073709547520usize)
-        (AioOwnedSubmitFailed (#as address i64))
+        (AioOwnedSubmitFailed (#as address #i64))
         (#block
-          (#let request (#ptr-mut u8) memory)
-          (#let buffer (#ptr-mut u8) (#unsafe (#ptr-offset memory 256usize)))
-          (#let events (#ptr-mut u8) (#unsafe (#ptr-offset memory 128usize)))
-          (#let requests (#ptr-mut (#ptr-mut u8))
-            (#unsafe (#asm (#ptr-mut (#ptr-mut u8)) ((rdi memory))
+          (#let request (#ptr-mut #u8) memory)
+          (#let buffer (#ptr-mut #u8) (#unsafe (#ptr-offset memory 256usize)))
+          (#let events (#ptr-mut #u8) (#unsafe (#ptr-offset memory 128usize)))
+          (#let requests (#ptr-mut (#ptr-mut #u8))
+            (#unsafe (#asm (#ptr-mut (#ptr-mut #u8)) ((rdi memory))
               "lea rax, [rdi+64]")))
           (#unsafe (#asm () ((rdi memory) (rsi fd) (rdx buffer)
                             (rcx length) (r8 offset) (r9 events))
             "mov QWORD PTR [rdi], r9\nmov WORD PTR [rdi+16], 0\nmov DWORD PTR [rdi+20], esi\nmov QWORD PTR [rdi+24], rdx\nmov QWORD PTR [rdi+32], rcx\nmov QWORD PTR [rdi+40], r8\nmov QWORD PTR [rdi+64], rdi"))
-          (#let submitted i64
+          (#let submitted #i64
             (#unsafe (#call linux-io-submit
               (: context (#get context id) : count 1i64 : requests requests))))
           (#if (#i64.== submitted 1i64)
@@ -87,22 +87,22 @@
 ;; the iocb mapping while waiting for readiness. Its completion result is the
 ;; returned poll mask, or zero for an acknowledged cancellation.
 (#fn aio-owned-poll-submit
-  ((context (#ref AioOwnedContext)) (fd i64) (events u16)) AioOwnedSubmit
-  (#let memory (#ptr-mut u8)
+  ((context (#ref AioOwnedContext)) (fd #i64) (events #u16)) AioOwnedSubmit
+  (#let memory (#ptr-mut #u8)
     (#unsafe (#call linux-mmap
-      (: address (#ptr-null (#ptr-mut u8)) : length 4096usize
+      (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize
        : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  (#let address usize (#ptr-address memory))
+  (#let address #usize (#ptr-address memory))
   (#return (#if (#usize.>= address 18446744073709547520usize)
-    (AioOwnedSubmitFailed (#as address i64))
+    (AioOwnedSubmitFailed (#as address #i64))
     (#block
-      (#let requests (#ptr-mut (#ptr-mut u8))
-        (#unsafe (#asm (#ptr-mut (#ptr-mut u8)) ((rdi memory))
+      (#let requests (#ptr-mut (#ptr-mut #u8))
+        (#unsafe (#asm (#ptr-mut (#ptr-mut #u8)) ((rdi memory))
           "lea rax, [rdi+64]")))
-      (#let event-buffer (#ptr-mut u8) (#unsafe (#ptr-offset memory 128usize)))
+      (#let event-buffer (#ptr-mut #u8) (#unsafe (#ptr-offset memory 128usize)))
       (#unsafe (#asm () ((rdi memory) (rsi fd) (rdx events) (rcx event-buffer))
         "mov QWORD PTR [rdi], rcx\nmov WORD PTR [rdi+16], 5\nmov DWORD PTR [rdi+20], esi\nmov QWORD PTR [rdi+24], rdx\nmov QWORD PTR [rdi+32], 0\nmov QWORD PTR [rdi+64], rdi"))
-      (#let submitted i64
+      (#let submitted #i64
         (#unsafe (#call linux-io-submit
           (: context (#get context id) : count 1i64 : requests requests))))
       (#if (#i64.== submitted 1i64)
@@ -120,31 +120,31 @@
 ;; does not issue another kernel wait for it.
 (#fn aio-owned-wait ((operation AioOwnedPending)) AioOwnedWait
   (#let (AioOwnedPending context memory length) AioOwnedPending operation)
-  (#let events (#ptr-mut u8) (#unsafe (#ptr-offset memory 128usize)))
-  (#let expected-data u64 (#as (#ptr-address events) u64))
-  (#let first-data u64 (#unsafe (#asm u64 ((rdi events)) "mov rax, [rdi]")))
-  (#let-mut completed bool (#u64.== first-data expected-data))
-  (#let-mut result i64
+  (#let events (#ptr-mut #u8) (#unsafe (#ptr-offset memory 128usize)))
+  (#let expected-data #u64 (#as (#ptr-address events) #u64))
+  (#let first-data #u64 (#unsafe (#asm #u64 ((rdi events)) "mov rax, [rdi]")))
+  (#let-mut completed #bool (#u64.== first-data expected-data))
+  (#let-mut result #i64
     (#if completed
-      (#unsafe (#asm i64 ((rdi events)) "mov rax, [rdi+16]"))
+      (#unsafe (#asm #i64 ((rdi events)) "mov rax, [rdi+16]"))
       0i64))
-  (#let-mut failed bool false)
+  (#let-mut failed #bool false)
   (#while (#bool.&& (#bool.! completed) (#bool.! failed))
-    (#let count i64
+    (#let count #i64
       (#unsafe (#call linux-io-getevents
         (: context (#get context id) : minimum 1i64 : count 1i64
-         : events events : timeout (#ptr-null (#ptr-mut i64))))))
+         : events events : timeout (#ptr-null (#ptr-mut #i64))))))
     (#if (#i64.== count 1i64)
       (#block
-        (#let event-data u64 (#unsafe (#asm u64 ((rdi events)) "mov rax, [rdi]")))
+        (#let event-data #u64 (#unsafe (#asm #u64 ((rdi events)) "mov rax, [rdi]")))
         (#if (#u64.== event-data expected-data)
           (#block
-            (#set result (#unsafe (#asm i64 ((rdi events)) "mov rax, [rdi+16]")))
+            (#set result (#unsafe (#asm #i64 ((rdi events)) "mov rax, [rdi+16]")))
             (#set completed true)
             ())
           (#block
-            (#let destination (#ptr-mut u8)
-              (#unsafe (#asm (#ptr-mut u8) ((rdi events)) "mov rax, [rdi]")))
+            (#let destination (#ptr-mut #u8)
+              (#unsafe (#asm (#ptr-mut #u8) ((rdi events)) "mov rax, [rdi]")))
             (#unsafe (#asm () ((rdi events) (rsi destination))
               "mov rax, [rdi]\nmov [rsi], rax\nmov rax, [rdi+8]\nmov [rsi+8], rax\nmov rax, [rdi+16]\nmov [rsi+16], rax\nmov rax, [rdi+24]\nmov [rsi+24], rax"))
             ())))
@@ -154,7 +154,7 @@
         ())))
   (#return (#if failed
     (AioOwnedWaitFailed
-      (#tuple (#tuple AioOwnedPending i64)
+      (#tuple (#tuple AioOwnedPending #i64)
         (#struct-literal AioOwnedPending
           ((context context) (memory memory) (length length))) result))
     (AioOwnedFinished
@@ -165,9 +165,9 @@
 ;; its completion event arrives. Any failure returns the still-owned request.
 (#fn aio-owned-cancel-wait ((operation AioOwnedPending)) AioOwnedCancel
   (#let (AioOwnedPending context memory length) AioOwnedPending operation)
-  (#let request (#ptr-mut u8) memory)
-  (#let events (#ptr-mut u8) (#unsafe (#ptr-offset memory 128usize)))
-  (#let cancelled i64
+  (#let request (#ptr-mut #u8) memory)
+  (#let events (#ptr-mut #u8) (#unsafe (#ptr-offset memory 128usize)))
+  (#let cancelled #i64
     (#unsafe (#call linux-io-cancel
       (: context (#get context id) : request request : event events))))
   (#return (#if (#i64.== cancelled -115i64)
@@ -180,25 +180,25 @@
       (AioOwnedCancelFinished
         (#struct-literal AioOwnedCompleted
           ((context context) (memory memory) (length length)
-           (result (#unsafe (#asm i64 ((rdi events)) "mov rax, [rdi+16]"))))))
+           (result (#unsafe (#asm #i64 ((rdi events)) "mov rax, [rdi+16]"))))))
       (AioOwnedCancelFailed
-        (#tuple (#tuple AioOwnedPending i64)
+        (#tuple (#tuple AioOwnedPending #i64)
           (#struct-literal AioOwnedPending
             ((context context) (memory memory) (length length))) cancelled))))))
 
 (#fn aio-owned-completed-byte
-  ((operation (#ref AioOwnedCompleted)) (index usize)) u8
+  ((operation (#ref AioOwnedCompleted)) (index #usize)) #u8
   (#assert (#i64.>= (#get operation result) 0i64))
-  (#assert (#usize.< index (#as (#get operation result) usize)))
+  (#assert (#usize.< index (#as (#get operation result) #usize)))
   (#assert (#usize.< index (#get operation length)))
-  (#let memory (#ptr-mut u8) (#get operation memory))
-  (#let buffer (#ptr-mut u8) (#unsafe (#ptr-offset memory 256usize)))
+  (#let memory (#ptr-mut #u8) (#get operation memory))
+  (#let buffer (#ptr-mut #u8) (#unsafe (#ptr-offset memory 256usize)))
   (#return (#unsafe (#ptr-read (#ptr-offset buffer index)))))
 
-(#fn aio-owned-completed-result ((operation (#ref AioOwnedCompleted))) i64
+(#fn aio-owned-completed-result ((operation (#ref AioOwnedCompleted))) #i64
   (#return (#get operation result)))
 
-(#fn aio-owned-completed-destroy ((operation AioOwnedCompleted)) i64
+(#fn aio-owned-completed-destroy ((operation AioOwnedCompleted)) #i64
   (#let (AioOwnedCompleted context memory length result)
     AioOwnedCompleted operation)
   (#drop context)

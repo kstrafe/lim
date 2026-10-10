@@ -108,9 +108,9 @@ mod tests {
     fn exclusive_reads_and_direct_calls_lend_without_moving_the_handle() {
         for ty in ["#ref-mut", "#pin-ref-mut"] {
             let (body, plan) = classify(&format!(
-                "(#fn read (: view ({ty} u64)) u64 (#return (#deref view)))
-                 (#fn work (: view ({ty} u64)) u64
-                   (#let first u64 (#deref view))
+                "(#fn read (: view ({ty} #u64)) #u64 (#return (#deref view)))
+                 (#fn work (: view ({ty} #u64)) #u64
+                   (#let first #u64 (#deref view))
                    (#return (#call read (: view view))))"
             ));
             let accesses = named(&body, plan.as_ref().unwrap(), "view");
@@ -125,22 +125,22 @@ mod tests {
     fn owned_reference_bindings_returns_and_constructors_transfer() {
         for tail in [
             "(#return view)",
-            "(#let moved (#ref-mut u64) view) (#return moved)",
+            "(#let moved (#ref-mut #u64) view) (#return moved)",
             "(#return (#if choose view other))",
-            "(#return (#block (#let moved (#ref-mut u64) view) moved))",
+            "(#return (#block (#let moved (#ref-mut #u64) view) moved))",
             "(#return (#unsafe view))",
         ] {
             let (body, plan) = classify(&format!(
-                "(#fn work (: choose bool : view (#ref-mut u64) : other (#ref-mut u64))
-                   (#ref-mut u64) {tail})"
+                "(#fn work (: choose #bool : view (#ref-mut #u64) : other (#ref-mut #u64))
+                   (#ref-mut #u64) {tail})"
             ));
             let accesses = named(&body, plan.as_ref().unwrap(), "view");
             assert_eq!(accesses.len(), 1);
             assert!(matches!(accesses[0], Access::Move(_)), "{tail}");
         }
         let (body, plan) = classify(
-            "(#struct Holder (: view (#ref-mut u64)))
-             (#fn work (: view (#ref-mut u64)) Holder
+            "(#struct Holder (: view (#ref-mut #u64)))
+             (#fn work (: view (#ref-mut #u64)) Holder
                (#return (#struct-literal Holder (: view view))))",
         );
         assert!(matches!(
@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn copied_handles_do_not_need_exclusive_storage_classification() {
-        let (_, plan) = classify("(#fn work (: view (#ref u64)) (#ref u64) (#return view))");
+        let (_, plan) = classify("(#fn work (: view (#ref #u64)) (#ref #u64) (#return view))");
         assert!(plan.is_none());
     }
 }

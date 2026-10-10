@@ -1,17 +1,17 @@
 (#import "../library/linux_x86_64.lim")
 
 ; FIONREAD writes an int; FIONBIO reads an int on Linux x86-64.
-(#fn main () u64
-  (#let memory (#ptr-mut u8) (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  (#let descriptors (#ptr-mut i32)
-    (#unsafe (#asm (#ptr-mut i32) ((rdi memory)) "mov rax, rdi")))
+(#fn main () #u64
+  (#let memory (#ptr-mut #u8) (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+  (#let descriptors (#ptr-mut #i32)
+    (#unsafe (#asm (#ptr-mut #i32) ((rdi memory)) "mov rax, rdi")))
   (#assert (#i64.== (#unsafe (#call linux-pipe2 (: descriptors descriptors : flags 0i32))) 0i64))
-  (#let reader i64 (#as (#unsafe (#ptr-read descriptors)) i64))
-  (#let writer i64 (#as (#unsafe (#ptr-read (#ptr-offset descriptors 1usize))) i64))
-  (#let count (#ptr-mut i32) (#unsafe (#ptr-offset descriptors 2usize)))
-  (#let argument usize (#unsafe (#asm usize ((rdi count)) "mov rax, rdi")))
-  (#let payload (#ptr-mut u8) (#unsafe (#ptr-offset memory 16usize)))
-  (#let received (#ptr-mut u8) (#unsafe (#ptr-offset memory 32usize)))
+  (#let reader #i64 (#as (#unsafe (#ptr-read descriptors)) #i64))
+  (#let writer #i64 (#as (#unsafe (#ptr-read (#ptr-offset descriptors 1usize))) #i64))
+  (#let count (#ptr-mut #i32) (#unsafe (#ptr-offset descriptors 2usize)))
+  (#let argument #usize (#unsafe (#asm #usize ((rdi count)) "mov rax, rdi")))
+  (#let payload (#ptr-mut #u8) (#unsafe (#ptr-offset memory 16usize)))
+  (#let received (#ptr-mut #u8) (#unsafe (#ptr-offset memory 32usize)))
   (#unsafe (#asm () ((rdi payload)) "mov DWORD PTR [rdi], 0x0a434241"))
   (#assert (#i64.== (#unsafe (#call linux-write (: fd writer : source payload : count 4usize))) 4i64))
   (#assert (#i64.== (#unsafe (#call linux-ioctl (: fd reader : request 0x541bu32 : argument argument))) 0i64))

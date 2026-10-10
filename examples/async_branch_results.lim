@@ -1,24 +1,24 @@
-; Awaiting a u64 does not require the surrounding branch to return a u64.
+; Awaiting a #u64 does not require the surrounding branch to return a u64.
 ; The chosen branch returns a linear Token; the other branch is immediate.
-(#struct Token ((value u64)))
-(#enum Step ((Waiting u64) (Resuming u64)))
+(#struct Token ((value #u64)))
+(#enum Step ((Waiting #u64) (Resuming #u64)))
 (#linear Step)
-(#enum StepPoll ((StepPending Step) (StepReady u64)))
-(#fn step-poll ((task Step) (waker (#ref u64))) StepPoll
+(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Waiting value) (StepPending (Resuming value)))
     (#case (Resuming value) (StepReady value)))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work ((choose bool)) Token
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work ((choose #bool)) Token
     (#return (#if choose
       (#block
-        (#let awaited u64
-          (#await u64 Step StepPending StepReady step-poll (Waiting 41u64)))
+        (#let awaited #u64
+          (#await #u64 Step StepPending StepReady step-poll (Waiting 41u64)))
         (#struct-literal Token ((value (#u64.+.wrap awaited 1u64)))))
       (#struct-literal Token ((value 0u64))))))))
 
-(#fn run ((choose bool) (waker (#ref u64))) u64
+(#fn run ((choose #bool) (waker (#ref #u64))) #u64
   (#let first Poll (#call poll (: task (#call work (: choose choose)) : waker waker)))
   (#let token Token (#match first
     (#case (Ready value) value)
@@ -26,14 +26,14 @@
       (#match (#call poll (: task pending : waker waker))
         (#case (Ready value) value)
         (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))))
-  (#let value u64 (#get token value))
+  (#let value #u64 (#get token value))
   (#forget token)
   (#return value))
 
-(#fn main () u64
-  (#let waker u64 0u64)
-  (#let selected u64 (#call run (: choose true : waker (#borrow waker))))
-  (#let skipped u64 (#call run (: choose false : waker (#borrow waker))))
+(#fn main () #u64
+  (#let waker #u64 0u64)
+  (#let selected #u64 (#call run (: choose true : waker (#borrow waker))))
+  (#let skipped #u64 (#call run (: choose false : waker (#borrow waker))))
   (#assert (#u64.== skipped 0u64))
   (#forget waker)
   (#return selected))

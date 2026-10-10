@@ -1,42 +1,42 @@
 ; The condition and the expression used by the step both suspend.
-(#enum ConditionTask ((Check u64) (Recheck u64)))
+(#enum ConditionTask ((Check #u64) (Recheck #u64)))
 (#linear ConditionTask)
-(#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady bool)))
-(#fn condition-poll ((task ConditionTask) (waker (#ref u64))) ConditionPoll
+(#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady #bool)))
+(#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
   (#return (#match task
     (#case (Check index) (ConditionPending (Recheck index)))
     (#case (Recheck index) (ConditionReady (#u64.< index 2u64))))))
 
-(#enum StepTask ((Start u64 bool) (Resume u64 bool)))
+(#enum StepTask ((Start #u64 #bool) (Resume #u64 #bool)))
 (#linear StepTask)
-(#enum StepPoll ((StepPending StepTask) (StepReady u64)))
-(#fn step-poll ((task StepTask) (waker (#ref u64))) StepPoll
+(#enum StepPoll ((StepPending StepTask) (StepReady #u64)))
+(#fn step-poll ((task StepTask) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start index body-ran)
       (#block (#assert body-ran) (StepPending (Resume index body-ran))))
     (#case (Resume index body-ran)
       (#block (#assert body-ran) (StepReady (#u64.+.wrap index 1u64)))))))
 
-(#fn touch ((counter (#ref-mut u64))) u64
+(#fn touch ((counter (#ref-mut #u64))) #u64
   (#deref-set counter (#u64.+.wrap (#deref counter) 1u64))
   (#return 1u64))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work () u64
-    (#let-mut index u64 0u64)
-    (#let-mut touches u64 0u64)
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work () #u64
+    (#let-mut index #u64 0u64)
+    (#let-mut touches #u64 0u64)
     (#for ()
-      (#await bool ConditionTask ConditionPending ConditionReady condition-poll (Check index))
+      (#await #bool ConditionTask ConditionPending ConditionReady condition-poll (Check index))
       (#set index (#u64.+.wrap
         (#call touch (: counter (#borrow-mut touches)))
-        (#await u64 StepTask StepPending StepReady step-poll (Start index body-ran))))
-      (#let body-ran bool true))
+        (#await #u64 StepTask StepPending StepReady step-poll (Start index body-ran))))
+      (#let body-ran #bool true))
     (#assert (#u64.== index 2u64))
     (#assert (#u64.== touches 1u64))
     (#return 42u64))))
 
-(#fn main () u64
-  (#let waker u64 0u64)
+(#fn main () #u64
+  (#let waker #u64 0u64)
   (#let first Poll (#call poll (: task (#call work ()) : waker (#borrow waker))))
   (#let-else (Pending condition-task) Poll first (#unreachable))
   (#let second Poll (#call poll (: task condition-task : waker (#borrow waker))))

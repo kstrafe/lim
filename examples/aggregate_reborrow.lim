@@ -1,14 +1,14 @@
-(#struct Owner ((value u64)))
-(#struct Views ((left (#ref u64)) (right (#ref u64))))
+(#struct Owner ((value #u64)))
+(#struct Views ((left (#ref #u64)) (right (#ref #u64))))
 (#struct WrappedViews ((views Views)))
 
-(#fn left-reference ((views (#ref Views))) (#ref u64)
+(#fn left-reference ((views (#ref Views))) (#ref #u64)
   (#return (#get views left)))
 
-(#fn left-reference-from-wrapper ((wrapper (#ref WrappedViews))) (#ref u64)
+(#fn left-reference-from-wrapper ((wrapper (#ref WrappedViews))) (#ref #u64)
   (#return (#call left-reference (: views (#borrow (#get wrapper views))))))
 
-(#fn sum-views ((left (#ref-mut Owner)) (right (#ref-mut Owner))) u64
+(#fn sum-views ((left (#ref-mut Owner)) (right (#ref-mut Owner))) #u64
   (#let views Views
     (#struct-literal Views
       (: left (#borrow (#get left value))
@@ -16,19 +16,19 @@
   (#let moved Views views)
   (#let wrapped WrappedViews (#struct-literal WrappedViews (: views moved)))
   (#let wrapper-reference (#ref WrappedViews) (#borrow wrapped))
-  (#let left-view (#ref u64)
+  (#let left-view (#ref #u64)
     (#call left-reference-from-wrapper (: wrapper wrapper-reference)))
-  (#let result u64
+  (#let result #u64
     (#u64.+.wrap
       (#deref left-view)
       (#deref (#get (#get wrapped views) right))))
   (#forget wrapped)
   (#return result))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut left Owner (#struct-literal Owner (: value 19u64)))
   (#let-mut right Owner (#struct-literal Owner (: value 23u64)))
-  (#let result u64
+  (#let result #u64
     (#call sum-views (: left (#borrow-mut left) : right (#borrow-mut right))))
   (#forget left)
   (#forget right)

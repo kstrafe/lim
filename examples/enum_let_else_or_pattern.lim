@@ -1,9 +1,9 @@
-(#enum Maybe ((Some u64) None))
+(#enum Maybe ((Some #u64) None))
 
-(#fn classify ((value Maybe)) u64
+(#fn classify ((value Maybe)) #u64
   (#let-else (#or (Some 1u64) (Some 2u64) None) Maybe value
     (#return 0u64))
   (#return 42u64))
 
-(#fn main () u64
+(#fn main () #u64
   (#return (#call classify (: value (Some 2u64)))))

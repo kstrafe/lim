@@ -1000,8 +1000,8 @@ mod tests {
 
     #[test]
     fn pending_retries_only_the_poll_and_keeps_exact_source() {
-        let source = "(#fn work ((saved u64)) u64
-          (#let answer u64 (#await u64 Child Pending Ready poll
+        let source = "(#fn work ((saved #u64)) #u64
+          (#let answer #u64 (#await #u64 Child Pending Ready poll
             (#call make (: value saved))))
           (#return (#u64.+.wrap saved answer)))";
         let parsed = parsed(source);
@@ -1015,7 +1015,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             source_text(source, await_node),
-            "(#await u64 Child Pending Ready poll\n            (#call make (: value saved)))"
+            "(#await #u64 Child Pending Ready poll\n            (#call make (: value saved)))"
         );
         assert_eq!(
             await_node
@@ -1036,15 +1036,15 @@ mod tests {
             graph.bindings[binding(&graph, "answer").0]
                 .declared_type
                 .as_deref(),
-            Some("u64")
+            Some("#u64")
         );
     }
 
     #[test]
     fn captures_computed_operands_but_keeps_unread_storage_separate() {
-        let source = "(#fn work ((saved u64) (unread Resource)) u64
-          (#let answer u64 (#u64.+.wrap (#clone saved)
-            (#await u64 Child Pending Ready poll ())))
+        let source = "(#fn work ((saved #u64) (unread Resource)) #u64
+          (#let answer #u64 (#u64.+.wrap (#clone saved)
+            (#await #u64 Child Pending Ready poll ())))
           (#forget unread)
           (#return answer))";
         let forms = parsed(source);
@@ -1085,12 +1085,12 @@ mod tests {
 
     #[test]
     fn outer_transfers_keep_targets_and_scope_exits() {
-        let source = "(#fn work ((flag bool)) u64
-          (#let result u64 (#label outer (#loop
+        let source = "(#fn work ((flag #bool)) #u64
+          (#let result #u64 (#label outer (#loop
             (#let owner Resource ())
-            (#for (#let-mut index u64 0u64) flag (#set index 1u64)
+            (#for (#let-mut index #u64 0u64) flag (#set index 1u64)
               (#let child Child ())
-              (#let ready u64 (#await u64 Child Pending Ready poll child))
+              (#let ready #u64 (#await #u64 Child Pending Ready poll child))
               (#if flag (#continue-to outer) (#break-to outer ready))))))
           (#return result))";
         let parsed = parsed(source);
@@ -1142,7 +1142,7 @@ mod tests {
 
     #[test]
     fn for_continue_goes_to_step_while_continue_goes_to_condition() {
-        let source = "(#fn work ((flag bool)) ()
+        let source = "(#fn work ((flag #bool)) ()
           (#for () flag (#await () Child Pending Ready poll ()) (#continue))
           (#while flag (#continue))
           (#return ()))";
@@ -1168,11 +1168,11 @@ mod tests {
 
     #[test]
     fn match_and_if_let_keep_declared_pattern_types_and_guard_paths() {
-        let source = "(#enum Choice ((Some (#tuple u64 bool)) (None)))
-          (#fn work ((choice Choice)) u64
+        let source = "(#enum Choice ((Some (#tuple #u64 #bool)) (None)))
+          (#fn work ((choice Choice)) #u64
             (#return (#match choice
               (#case (Some (#tuple amount enabled)) (#when enabled)
-                (#await u64 Child Pending Ready poll amount))
+                (#await #u64 Child Pending Ready poll amount))
               (#case _ (#if-let (Some (#tuple fallback _)) choice fallback 0u64)))))";
         let mut parsed = parsed(source);
         let environment = crate::async_type_environment(&parsed);
@@ -1187,14 +1187,14 @@ mod tests {
                     graph.bindings[binding(&graph, name).0]
                         .declared_type
                         .as_deref(),
-                    Some("u64")
+                    Some("#u64")
                 );
             }
             assert_eq!(
                 graph.bindings[binding(&graph, "enabled").0]
                     .declared_type
                     .as_deref(),
-                Some("bool")
+                Some("#bool")
             );
             let guard = graph
                 .nodes
@@ -1216,13 +1216,13 @@ mod tests {
 
     #[test]
     fn named_operands_follow_declarations_not_written_order() {
-        let source = "(#struct Values ((first u64) (second u64)))
-          (#fn combine ((first u64) (second u64)) u64 (#return first))
-          (#fn work () u64
+        let source = "(#struct Values ((first #u64) (second #u64)))
+          (#fn combine ((first #u64) (second #u64)) #u64 (#return first))
+          (#fn work () #u64
             (#let record Values (#struct-literal Values (: second
-              (#await u64 Child Pending Ready poll 2u64) : first 1u64)))
+              (#await #u64 Child Pending Ready poll 2u64) : first 1u64)))
             (#return (#call combine (: second
-              (#await u64 Child Pending Ready poll 4u64) : first 3u64))))";
+              (#await #u64 Child Pending Ready poll 4u64) : first 3u64))))";
         let parsed = parsed(source);
         let environment = crate::async_type_environment(&parsed);
         let graph = build(&parsed[2], &environment).unwrap().unwrap();
@@ -1253,10 +1253,10 @@ mod tests {
 
     #[test]
     fn skipped_branches_and_scope_exits_do_not_invent_live_locals() {
-        let source = "(#fn work ((flag bool) (saved u64)) u64
-          (#let selected u64 (#if flag
-            (#block (#let local u64 1u64) local)
-            (#await u64 Child Pending Ready poll saved)))
+        let source = "(#fn work ((flag #bool) (saved #u64)) #u64
+          (#let selected #u64 (#if flag
+            (#block (#let local #u64 1u64) local)
+            (#await #u64 Child Pending Ready poll saved)))
           (#return selected))";
         let parsed = parsed(source);
         let environment = AsyncTypeEnvironment::default();
@@ -1296,7 +1296,7 @@ mod tests {
 
     #[test]
     fn return_and_unreachable_source_do_not_reenter_loop() {
-        let source = "(#fn work () u64 (#loop (#return 42u64) (#await u64 Child Pending Ready poll ())) (#return 0u64))";
+        let source = "(#fn work () #u64 (#loop (#return 42u64) (#await #u64 Child Pending Ready poll ())) (#return 0u64))";
         let parsed = parsed(source);
         let environment = AsyncTypeEnvironment::default();
         let graph = build(&parsed[0], &environment).unwrap().unwrap();
@@ -1321,9 +1321,9 @@ mod tests {
 
     #[test]
     fn range_start_is_once_but_end_is_a_loop_condition() {
-        let source = "(#fn work () () (#for-range (index u64)
-          (#await u64 Child Pending Ready poll 0u64)
-          (#await u64 Child Pending Ready poll 4u64)
+        let source = "(#fn work () () (#for-range (index #u64)
+          (#await #u64 Child Pending Ready poll 0u64)
+          (#await #u64 Child Pending Ready poll 4u64)
           (#continue)) (#return ()))";
         let forms = parsed(source);
         let environment = AsyncTypeEnvironment::default();
@@ -1361,14 +1361,14 @@ mod tests {
             graph.bindings[binding(&graph, "index").0]
                 .declared_type
                 .as_deref(),
-            Some("u64")
+            Some("#u64")
         );
     }
 
     #[test]
     fn metadata_symbols_are_not_value_reads() {
-        let source = "(#fn work ((field u64) (parameter u64) (record Record)) u64
-          (#let result u64 (#await u64 Child Pending Ready poll
+        let source = "(#fn work ((field #u64) (parameter #u64) (record Record)) #u64
+          (#let result #u64 (#await #u64 Child Pending Ready poll
             (#call child (: parameter (#get record field)))))
           (#return result))";
         let forms = parsed(source);

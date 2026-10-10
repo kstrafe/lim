@@ -1427,7 +1427,10 @@ pub enum Type {
 
 impl Type {
     pub fn from_name(name: &str) -> Self {
-        match name {
+        let primitive = name
+            .strip_prefix('#')
+            .filter(|name| is_primitive_type_name(name));
+        match primitive.unwrap_or(name) {
             "()" => Self::Unit,
             "!" => Self::Never,
             "bool" => Self::Bool,
@@ -2281,7 +2284,7 @@ mod link_location_tests {
 
     #[test]
     fn unresolved_symbol_highlights_the_call_not_its_declaration() {
-        let source = "(#extern-fn #abi-c unavailable () u64)\n(#fn main () u64 (#return (#unsafe (#call unavailable (:)))))\n";
+        let source = "(#extern-fn #abi-c unavailable () #u64)\n(#fn main () #u64 (#return (#unsafe (#call unavailable (:)))))\n";
         let diagnostic = locate_link_diagnostic(
             Diagnostic::new(
                 DiagnosticCode::Link,
@@ -2961,6 +2964,9 @@ fn parse_prepared_program_items(
             continue;
         }
         let original_async = async_source::Source::from_invocation(&expression)?;
+        validate_primitive_spelling(&expression).map_err(|(message, span)| {
+            attach_span_to_source_error_kind(message, span, &source_files, "parse error: ")
+        })?;
         validate_prefixed_forms(&expression.expr).map_err(|error| {
             attach_span_to_source_error_kind(error, expression.span, &source_files, "parse error: ")
         })?;
@@ -3433,7 +3439,7 @@ fn thread_task_function_signatures(
 #[test]
 fn synthesized_thread_calls_require_named_arguments() {
     let prefix =
-        "(#fn worker ((left u64) (right u64)) u64 (#return left)) (@thread-spawn (: task Task : worker worker))";
+        "(#fn worker ((left #u64) (right #u64)) #u64 (#return left)) (@thread-spawn (: task Task : worker worker))";
     let program = |call: &str| {
         format!(
             "{prefix} (#fn main () () (#let result Task-spawn-result {call}) (#return (#panic)))"
@@ -3515,7 +3521,7 @@ fn thread_task_generated_source(name: &str, worker: &str, worker_function: &Func
         .collect::<Vec<_>>()
         .join(" ");
     format!(
-        "(#thread-task {name} {worker} (#thread-task-spawn {name}-spawn ({spawn_parameters}) {name}-spawn-result) (#thread-task-join {name}-join ((task {name})) {name}-join-result))\n(#enum {name}-spawn-error ({name}-spawn-allocation-error {name}-spawn-creation-error))\n(#enum {name}-spawn-result (({name}-spawn-ok {name}) ({name}-spawn-error {name}-spawn-error)))\n(#enum {name}-join-result (({name}-join-ok {}) ({name}-join-error (#tuple {name} i32))))\n",
+        "(#thread-task {name} {worker} (#thread-task-spawn {name}-spawn ({spawn_parameters}) {name}-spawn-result) (#thread-task-join {name}-join ((task {name})) {name}-join-result))\n(#enum {name}-spawn-error ({name}-spawn-allocation-error {name}-spawn-creation-error))\n(#enum {name}-spawn-result (({name}-spawn-ok {name}) ({name}-spawn-error {name}-spawn-error)))\n(#enum {name}-join-result (({name}-join-ok {}) ({name}-join-error (#tuple {name} #i32))))\n",
         type_source(&worker_function.return_type)
     )
 }
@@ -4874,6 +4880,13 @@ fn rename_expression(
 }
 
 fn validate_prefixed_forms(expression: &Expr) -> Result<(), String> {
+    if let Expr::Symbol(name) = expression {
+        if is_primitive_type_name(name) {
+            return Err(format!(
+                "primitive type '{name}' must use its '#' prefix: #{name}"
+            ));
+        }
+    }
     let Expr::List(items) = expression else {
         return Ok(());
     };
@@ -4945,6 +4958,43 @@ fn validate_prefixed_forms(expression: &Expr) -> Result<(), String> {
     }
     for item in items {
         validate_prefixed_forms(item)?;
+    }
+    Ok(())
+}
+
+fn is_primitive_type_name(name: &str) -> bool {
+    matches!(
+        name,
+        "bool"
+            | "char"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "f32"
+            | "f64"
+    )
+}
+
+fn validate_primitive_spelling(expression: &SpannedExpr) -> Result<(), (String, Span)> {
+    if let Expr::Symbol(name) = &expression.expr {
+        if is_primitive_type_name(name) {
+            return Err((
+                format!("primitive type '{name}' must use its '#' prefix: #{name}"),
+                expression.span,
+            ));
+        }
+    }
+    for child in &expression.children {
+        validate_primitive_spelling(child)?;
     }
     Ok(())
 }
@@ -6291,7 +6341,7 @@ fn materialize_builtin_generated_source(
     let first_source = type_source(first);
     if kind == "optional" {
         Ok(format!(
-            "(#enum {name} (({first_name} {first_source}) {second_name}))\n(#fn {name}-construct ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-is-some ((value {name})) bool (#return (#match value (#case ({first_name} _) true) (#case {second_name} false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (#case ({first_name} payload) payload) (#case {second_name} fallback))))\n"
+            "(#enum {name} (({first_name} {first_source}) {second_name}))\n(#fn {name}-construct ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-is-some ((value {name})) #bool (#return (#match value (#case ({first_name} _) true) (#case {second_name} false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (#case ({first_name} payload) payload) (#case {second_name} fallback))))\n"
         ))
     } else if kind == "result" {
         let second = variants
@@ -6300,7 +6350,7 @@ fn materialize_builtin_generated_source(
             .ok_or_else(|| "result expansion has no error payload type".to_owned())?;
         let second_source = type_source(second);
         Ok(format!(
-            "(#enum {name} (({first_name} {first_source}) ({second_name} {second_source})))\n(#fn {name}-ok ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-err ((error {second_source})) {name} (#return ({second_name} error)))\n(#fn {name}-is-ok ((value {name})) bool (#return (#match value (#case ({first_name} _) true) (#case ({second_name} _) false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (#case ({first_name} payload) payload) (#case ({second_name} _) fallback))))\n(#fn {name}-unwrap-err-or ((value {name}) (fallback {second_source})) {second_source} (#return (#match value (#case ({first_name} _) fallback) (#case ({second_name} error) error))))\n"
+            "(#enum {name} (({first_name} {first_source}) ({second_name} {second_source})))\n(#fn {name}-ok ((value {first_source})) {name} (#return ({first_name} value)))\n(#fn {name}-err ((error {second_source})) {name} (#return ({second_name} error)))\n(#fn {name}-is-ok ((value {name})) #bool (#return (#match value (#case ({first_name} _) true) (#case ({second_name} _) false))))\n(#fn {name}-unwrap-or ((value {name}) (fallback {first_source})) {first_source} (#return (#match value (#case ({first_name} payload) payload) (#case ({second_name} _) fallback))))\n(#fn {name}-unwrap-err-or ((value {name}) (fallback {second_source})) {second_source} (#return (#match value (#case ({first_name} _) fallback) (#case ({second_name} error) error))))\n"
         ))
     } else {
         Err(format!("unknown builtin generated declaration '@{kind}'"))
@@ -6387,6 +6437,7 @@ pub(crate) fn expression_source(expression: &Expr) -> Result<String, String> {
                 .collect::<Result<Vec<_>, _>>()?
                 .join(" ")
         )),
+        Expr::Symbol(name) if is_primitive_type_name(name) => Ok(format!("#{name}")),
         Expr::Symbol(name) | Expr::Function(name) => Ok(name.clone()),
         Expr::Integer(value) => Ok(value.to_string()),
         Expr::UnsignedInteger(value) => Ok(value.to_string()),
@@ -6438,22 +6489,22 @@ fn type_source(ty: &Type) -> String {
     match ty {
         Type::Unit => "()".into(),
         Type::Never => "!".into(),
-        Type::Bool => "bool".into(),
-        Type::Char => "char".into(),
-        Type::I8 => "i8".into(),
-        Type::I16 => "i16".into(),
-        Type::I32 => "i32".into(),
-        Type::I64 => "i64".into(),
-        Type::I128 => "i128".into(),
-        Type::Isize => "isize".into(),
-        Type::U8 => "u8".into(),
-        Type::U16 => "u16".into(),
-        Type::U32 => "u32".into(),
-        Type::U64 => "u64".into(),
-        Type::U128 => "u128".into(),
-        Type::Usize => "usize".into(),
-        Type::F32 => "f32".into(),
-        Type::F64 => "f64".into(),
+        Type::Bool => "#bool".into(),
+        Type::Char => "#char".into(),
+        Type::I8 => "#i8".into(),
+        Type::I16 => "#i16".into(),
+        Type::I32 => "#i32".into(),
+        Type::I64 => "#i64".into(),
+        Type::I128 => "#i128".into(),
+        Type::Isize => "#isize".into(),
+        Type::U8 => "#u8".into(),
+        Type::U16 => "#u16".into(),
+        Type::U32 => "#u32".into(),
+        Type::U64 => "#u64".into(),
+        Type::U128 => "#u128".into(),
+        Type::Usize => "#usize".into(),
+        Type::F32 => "#f32".into(),
+        Type::F64 => "#f64".into(),
         Type::Reference { mutable, target } => format!(
             "(#{} {})",
             if *mutable { "ref-mut" } else { "ref" },
@@ -7641,7 +7692,7 @@ fn generated_vec_source(items: &[Expr]) -> Result<String, String> {
     let allocator = type_source(&fields[0].ty);
     let pointer = type_source(&fields[1].ty);
     Ok(format!(
-        "(#struct {name} ((allocator {allocator}) (pointer {pointer}) (length usize) (capacity usize)))\n(#fn {name}-new-with-storage ((allocator {allocator}) (pointer {pointer}) (capacity usize)) {name} (#return (#struct-literal {name} ((allocator allocator) (pointer pointer) (length 0) (capacity capacity)))))\n(#fn {name}-len ((vector (#ref {name}))) usize (#return (#get vector length)))\n(#fn {name}-capacity ((vector (#ref {name}))) usize (#return (#get vector capacity)))\n"
+        "(#struct {name} ((allocator {allocator}) (pointer {pointer}) (length #usize) (capacity #usize)))\n(#fn {name}-new-with-storage ((allocator {allocator}) (pointer {pointer}) (capacity #usize)) {name} (#return (#struct-literal {name} ((allocator allocator) (pointer pointer) (length 0) (capacity capacity)))))\n(#fn {name}-len ((vector (#ref {name}))) #usize (#return (#get vector length)))\n(#fn {name}-capacity ((vector (#ref {name}))) #usize (#return (#get vector capacity)))\n"
     ))
 }
 
@@ -7690,11 +7741,11 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 (#fn {name}-reserve-fields
   ((allocator (#ref {allocator}))
    (pointer-slot (#ref-mut (#ptr-mut {element})))
-   (capacity-slot (#ref-mut usize))
-   (requested usize))
+   (capacity-slot (#ref-mut #usize))
+   (requested #usize))
   {name}-ReserveResult
-  (#let capacity usize (#deref capacity-slot))
-  (#let element-size usize (#size-of {element}))
+  (#let capacity #usize (#deref capacity-slot))
+  (#let element-size #usize (#size-of {element}))
   (#return
     (#if (#usize.<= requested capacity)
       ({name}-ReserveResult-ok-value ())
@@ -7703,11 +7754,11 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
           (#deref-set capacity-slot requested)
           ({name}-ReserveResult-ok-value ()))
         (#block
-          (#let doubled usize (#usize.*.saturate capacity 2usize))
-          (#let new-capacity usize
+          (#let doubled #usize (#usize.*.saturate capacity 2usize))
+          (#let new-capacity #usize
             (#if (#usize.> requested doubled) requested doubled))
-          (#let old-layout usize (#usize.*.wrap capacity element-size))
-          (#let new-layout usize (#usize.*.wrap new-capacity element-size))
+          (#let old-layout #usize (#usize.*.wrap capacity element-size))
+          (#let new-layout #usize (#usize.*.wrap new-capacity element-size))
           (#if
             (#&&
               (#usize.== (#usize./.wrap new-layout element-size) new-capacity)
@@ -7729,15 +7780,15 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
             ({name}-ReserveResult-err-value
               {name}-ReserveCapacityOverflow)))))))
 (#fn {name}-reserve
-  ((vector (#ref-mut {name})) (requested usize))
+  ((vector (#ref-mut {name})) (requested #usize))
   {name}-ReserveResult
   (#return
     (#call {name}-reserve-fields (: allocator (#clone (#get vector allocator)) : pointer-slot (#borrow-mut (#get vector pointer)) : capacity-slot (#borrow-mut (#get vector capacity)) : requested requested))))
 (#fn {name}-push
   ((vector (#ref-mut {name})) (element {element}))
   {name}-PushResult
-  (#let length usize (#get vector length))
-  (#let requested usize (#usize.+.saturate length 1usize))
+  (#let length #usize (#get vector length))
+  (#let requested #usize (#usize.+.saturate length 1usize))
   (#return
     (#if (#usize.== requested length)
       ({name}-PushResult-err-value ({name}-PushCapacityOverflow element))
@@ -7759,9 +7810,9 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
           ({name}-PushResult-err-value
             ({name}-PushReserveError error element)))))))
 (#fn {name}-get
-  ((vector (#ref {name})) (index usize))
+  ((vector (#ref {name})) (index #usize))
   {name}-GetResult
-  (#let length usize (#get vector length))
+  (#let length #usize (#get vector length))
   (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
   (#return
     (#if (#usize.< index length)
@@ -7769,9 +7820,9 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
         (#unsafe (#ptr-borrow vector (#ptr-offset pointer index))))
       (#block (#forget pointer) {name}-GetResult-none))))
 (#fn {name}-get-mut
-  ((vector (#ref-mut {name})) (index usize))
+  ((vector (#ref-mut {name})) (index #usize))
   {name}-GetMutResult
-  (#let length usize (#get vector length))
+  (#let length #usize (#get vector length))
   (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
   (#return
     (#if (#usize.< index length)
@@ -7779,9 +7830,9 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
         (#unsafe (#ptr-borrow-mut vector (#ptr-offset pointer index))))
       (#block (#forget pointer) {name}-GetMutResult-none))))
 (#fn {name}-set
-  ((vector (#ref-mut {name})) (index usize) (value {element}))
+  ((vector (#ref-mut {name})) (index #usize) (value {element}))
   {name}-SetResult
-  (#let length usize (#get vector length))
+  (#let length #usize (#get vector length))
   (#return
     (#if (#usize.< index length)
       (#block
@@ -7798,12 +7849,12 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 (#fn {name}-pop
   ((vector (#ref-mut {name})))
   {name}-PopResult
-  (#let length usize (#get vector length))
+  (#let length #usize (#get vector length))
   (#return
     (#if (#usize.== length 0usize)
       {name}-PopResult-none
       (#block
-        (#let new-length usize (#usize.-.wrap length 1usize))
+        (#let new-length #usize (#usize.-.wrap length 1usize))
         (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
         (#let destination (#ptr-mut {element})
           (#unsafe (#ptr-offset pointer new-length)))
@@ -7814,10 +7865,10 @@ fn generated_vec_allocator_source(items: &[Expr]) -> Result<String, String> {
 (#fn {name}-free ((vector {name})) ()
   (#let allocator (#ref {allocator}) (#clone (#get vector allocator)))
   (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
-  (#let length usize (#get vector length))
-  (#let capacity usize (#get vector capacity))
-  (#let element-size usize (#size-of {element}))
-  (#let-mut index usize 0usize)
+  (#let length #usize (#get vector length))
+  (#let capacity #usize (#get vector capacity))
+  (#let element-size #usize (#size-of {element}))
+  (#let-mut index #usize 0usize)
   (#while (#usize.< index length)
     (#let element-pointer (#ptr-mut {element})
       (#unsafe (#ptr-offset (#clone pointer) index)))
@@ -7859,24 +7910,24 @@ fn generated_vec_sort_source_parts(
     Ok(format!(
         r#"
 (#fn {vector}-sort ((vector (#ref-mut {vector}))) ()
-  (#let length usize (#get vector length))
-  (#let element-size usize (#size-of {element}))
+  (#let length #usize (#get vector length))
+  (#let element-size #usize (#size-of {element}))
   (#if
     (#&& (#usize.> length 1usize) (#usize.!= element-size 0usize))
     (#block
       (#let pointer (#ptr-mut {element}) (#clone (#get vector pointer)))
-      (#let-mut index usize 1usize)
+      (#let-mut index #usize 1usize)
       (#while (#usize.< index length)
         (#let current-pointer (#ptr-mut {element})
           (#unsafe (#ptr-offset (#clone pointer) index)))
         (#let current {element} (#unsafe (#ptr-read current-pointer)))
-        (#let-mut cursor usize index)
-        (#let-mut shifting bool true)
+        (#let-mut cursor #usize index)
+        (#let-mut shifting #bool true)
         (#while (#&& (#usize.> cursor 0usize) shifting)
-          (#let previous-index usize (#usize.-.wrap cursor 1usize))
+          (#let previous-index #usize (#usize.-.wrap cursor 1usize))
           (#let previous-pointer (#ptr-mut {element})
             (#unsafe (#ptr-offset (#clone pointer) previous-index)))
-          (#let move-previous bool
+          (#let move-previous #bool
             (#call {comparator}
               (: left (#borrow current) : right (#unsafe (#ptr-borrow vector previous-pointer)))))
           (#if move-previous
@@ -9175,7 +9226,7 @@ impl<'a> Parser<'a> {
                     return Ok(SpannedExpr {
                         expr: Expr::List(vec![
                             Expr::Symbol("#literal".into()),
-                            Expr::Symbol(ty.into()),
+                            Expr::Symbol(format!("#{ty}")),
                             literal,
                         ]),
                         span: token.span,
@@ -9186,7 +9237,7 @@ impl<'a> Parser<'a> {
                     return Ok(SpannedExpr {
                         expr: Expr::List(vec![
                             Expr::Symbol("#literal".into()),
-                            Expr::Symbol(ty.into()),
+                            Expr::Symbol(format!("#{ty}")),
                             literal,
                         ]),
                         span: token.span,
@@ -9372,8 +9423,8 @@ mod tests {
             target: Box::new(Type::U64),
         };
         assert_ne!(shared, exclusive);
-        assert_eq!(type_source(&shared), "(#pin-ref u64)");
-        assert_eq!(type_source(&exclusive), "(#pin-ref-mut u64)");
+        assert_eq!(type_source(&shared), "(#pin-ref #u64)");
+        assert_eq!(type_source(&exclusive), "(#pin-ref-mut #u64)");
     }
 
     fn structured_type_error(program: &Program) -> Diagnostic {
@@ -9415,7 +9466,7 @@ mod tests {
     fn compile_and_link_apis_return_structured_diagnostics() {
         let cache = env::temp_dir().join(format!("lim-diagnostic-cache-{}", std::process::id()));
         let syntax = compile_source_to_assembly(
-            "(#fn main () u64 (#return 0u64)",
+            "(#fn main () #u64 (#return 0u64)",
             Path::new("example.lim"),
             &CompileConfig::default(),
             &cache,
@@ -9426,7 +9477,7 @@ mod tests {
         assert!(syntax.span.is_some());
 
         let types = compile_source_to_assembly(
-            "(#fn main () u64 (#return missing))",
+            "(#fn main () #u64 (#return missing))",
             Path::new("example.lim"),
             &CompileConfig::default(),
             &cache,
@@ -9452,7 +9503,7 @@ mod tests {
             "(@fail)"
         );
 
-        let backend_source = "(#const First u64 (#u64.+.wrap Second 1))\n(#const Second u64 (#u64.+.wrap First 1))\n(#fn main () u64 (#return First))";
+        let backend_source = "(#const First #u64 (#u64.+.wrap Second 1))\n(#const Second #u64 (#u64.+.wrap First 1))\n(#fn main () #u64 (#return First))";
         let backend = compile_source_to_assembly(
             backend_source,
             Path::new("example.lim"),
@@ -9468,7 +9519,7 @@ mod tests {
             "Second"
         );
 
-        let nested_static_source = "(#fn get-value () u64 (#return 1u64))\n(#static VALUE u64 (#u64.+.wrap 1u64 (#call get-value (:))))\n(#fn main () u64 (#return (#unsafe VALUE)))";
+        let nested_static_source = "(#fn get-value () #u64 (#return 1u64))\n(#static VALUE #u64 (#u64.+.wrap 1u64 (#call get-value (:))))\n(#fn main () #u64 (#return (#unsafe VALUE)))";
         let nested_static = compile_source_to_assembly(
             nested_static_source,
             Path::new("example.lim"),
@@ -9592,7 +9643,7 @@ mod tests {
 
     #[test]
     fn borrow_errors_point_at_conflicting_reads() {
-        let source = "(#fn main () u64\n  (#let-mut value u64 1u64)\n  (#let reference (#ref-mut u64) (#borrow-mut value))\n  (#return value)\n)";
+        let source = "(#fn main () #u64\n  (#let-mut value #u64 1u64)\n  (#let reference (#ref-mut #u64) (#borrow-mut value))\n  (#return value)\n)";
         let program = parse_program(source).unwrap();
         let diagnostic = structured_type_error(&program);
         let rendered = render_diagnostic(&diagnostic, source, "borrow-read.lim");
@@ -9602,24 +9653,24 @@ mod tests {
 
     #[test]
     fn borrow_errors_point_at_conflicting_writes() {
-        let source = "(#fn main () u64\n  (#let-mut value u64 1u64)\n  (#let reference (#ref u64) (#borrow value))\n  (#set value 2u64)\n  (#return 0u64)\n)";
+        let source = "(#fn main () #u64\n  (#let-mut value #u64 1u64)\n  (#let reference (#ref #u64) (#borrow value))\n  (#set value 2u64)\n  (#return 0u64)\n)";
         let program = parse_program(source).unwrap();
         let diagnostic = structured_type_error(&program);
         let rendered = render_diagnostic(&diagnostic, source, "borrow-write.lim");
         assert!(rendered.contains("E4100"), "{rendered}");
         assert!(rendered.contains(":4:4"), "{rendered}");
-        assert!(rendered.contains(":3:31"), "{rendered}");
+        assert!(rendered.contains(":3:32"), "{rendered}");
     }
 
     #[test]
     fn range_loop_borrow_diagnostics_preserve_original_body_sources() {
         for body in [
             "(#set value 2u64)",
-            "(#let other u64 0u64) (#set value 2u64)",
-            "(#for-range (j u64) 0u64 1u64 (#set value 2u64))",
+            "(#let other #u64 0u64) (#set value 2u64)",
+            "(#for-range (j #u64) 0u64 1u64 (#set value 2u64))",
         ] {
             let source = format!(
-                "(#fn main () u64\n  (#let-mut value u64 1u64)\n  (#let reference (#ref u64) (#borrow value))\n  (#for-range (i u64) 0u64 1u64 {body})\n  (#return (#deref reference)))"
+                "(#fn main () #u64\n  (#let-mut value #u64 1u64)\n  (#let reference (#ref #u64) (#borrow value))\n  (#for-range (i #u64) 0u64 1u64 {body})\n  (#return (#deref reference)))"
             );
             let diagnostic = structured_type_error(&parse_program(&source).unwrap());
             assert!(diagnostic.message.contains("borrow"), "{diagnostic:?}");
@@ -9631,7 +9682,8 @@ mod tests {
 
     #[test]
     fn escaping_borrow_errors_highlight_the_return_and_label_the_referent() {
-        let source = "(#fn bad () (#ref u64)\n  (#let value u64 42)\n  (#return (#borrow value)))";
+        let source =
+            "(#fn bad () (#ref #u64)\n  (#let value #u64 42)\n  (#return (#borrow value)))";
         let program = parse_program(source).unwrap();
         let diagnostic = structured_type_error(&program);
         let span = diagnostic.span.expect("escaping borrow has a primary span");
@@ -9643,18 +9695,18 @@ mod tests {
 
     #[test]
     fn projected_borrow_errors_keep_both_operator_spans() {
-        let source = "(#struct Point ((x u64) (y u64)))\n(#fn main () u64\n  (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))\n  (#let point-ref (#ref-mut Point) (#borrow-mut point))\n  (#let reference (#ref u64) (#borrow (#get point-ref x)))\n  (#set-field point x 3u64)\n  (#return 0u64)\n)";
+        let source = "(#struct Point ((x #u64) (y #u64)))\n(#fn main () #u64\n  (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))\n  (#let point-ref (#ref-mut Point) (#borrow-mut point))\n  (#let reference (#ref #u64) (#borrow (#get point-ref x)))\n  (#set-field point x 3u64)\n  (#return 0u64)\n)";
         let program = parse_program(source).unwrap();
         let diagnostic = structured_type_error(&program);
         let rendered = render_diagnostic(&diagnostic, source, "borrow-field.lim");
         assert!(rendered.contains("E4100"), "{rendered}");
         assert!(rendered.contains(":6:4"), "{rendered}");
-        assert!(rendered.contains(":5:31"), "{rendered}");
+        assert!(rendered.contains(":5:32"), "{rendered}");
     }
 
     #[test]
     fn parsed_program_preserves_exact_function_statement_spans() {
-        let source = "(#fn main () u64\n  (#let x u64 1)\n  (#return missing)\n)";
+        let source = "(#fn main () #u64\n  (#let x #u64 1)\n  (#return missing)\n)";
         let program = parse_program(source).unwrap();
         let span = program.statement_spans.get(&("main".into(), 1)).unwrap();
         assert_eq!(&source[span.start..span.end], "(#return missing)");
@@ -9663,7 +9715,7 @@ mod tests {
 
     #[test]
     fn type_errors_pinpoint_an_unknown_identifier() {
-        let source = "(#fn main () u64\n  (#let value u64 1u64)\n  (#return missing)\n)";
+        let source = "(#fn main () #u64\n  (#let value #u64 1u64)\n  (#return missing)\n)";
         let program = parse_program(source).unwrap();
         let diagnostic = structured_type_error(&program);
         let rendered = render_diagnostic(&diagnostic, source, "type-error.lim");
@@ -9675,7 +9727,7 @@ mod tests {
 
     #[test]
     fn type_errors_preserve_the_offending_nested_expression_span() {
-        let source = "(#fn main () u64\n  (#return (#u64.+.wrap 1u64 missing))\n)";
+        let source = "(#fn main () #u64\n  (#return (#u64.+.wrap 1u64 missing))\n)";
         let program = parse_program(source).unwrap();
         let diagnostic = structured_type_error(&program);
         let span = diagnostic.span.expect("unknown nested argument has a span");
@@ -9685,9 +9737,9 @@ mod tests {
     #[test]
     fn type_mismatch_inside_nested_expression_highlights_the_bad_operand() {
         for source in [
-            "(#fn main () u64 (#return (#u64.+.wrap 1u64 false)))",
-            "(#fn main () u64 (#return (#u64.+.wrap false 1u64)))",
-            "(#fn main () u64 (#return (#u64.+.wrap 1u64 2i8)))",
+            "(#fn main () #u64 (#return (#u64.+.wrap 1u64 false)))",
+            "(#fn main () #u64 (#return (#u64.+.wrap false 1u64)))",
+            "(#fn main () #u64 (#return (#u64.+.wrap 1u64 2i8)))",
         ] {
             let program = parse_program(source).unwrap();
             let diagnostic = structured_type_error(&program);
@@ -9702,7 +9754,7 @@ mod tests {
 
     #[test]
     fn formatter_normalizes_nested_syntax() {
-        let formatted = format_source("(#fn main () u64 (#return (#u64.+.wrap 40 2)))").unwrap();
+        let formatted = format_source("(#fn main () #u64 (#return (#u64.+.wrap 40 2)))").unwrap();
         assert!(formatted.contains("#fn\n"));
         assert!(formatted.contains("#return"));
         assert_eq!(format_source(&formatted).unwrap(), formatted);
@@ -9728,7 +9780,7 @@ mod tests {
         )
         .unwrap();
         fs::write(&first, "(#import \"second.lim\")").unwrap();
-        fs::write(&second, "(#type Number u64)").unwrap();
+        fs::write(&second, "(#type Number #u64)").unwrap();
 
         let formatted = format_project_from_path(&root).unwrap();
         assert_eq!(formatted.len(), 3);
@@ -9750,7 +9802,7 @@ mod tests {
 
     #[test]
     fn duplicate_call_argument_span_is_found_from_source_structure() {
-        let source = "(#fn take ((arg u64)) () (#return ())) (#fn main () () (#call take (: arg 1u64 : arg 2u64)) (#return ()))";
+        let source = "(#fn take ((arg #u64)) () (#return ())) (#fn main () () (#call take (: arg 1u64 : arg 2u64)) (#return ()))";
         let forms = parse(source).unwrap();
         let span = duplicate_call_parameter_span(&forms[1]).unwrap();
         assert_eq!(&source[span.start..span.end], "arg");
@@ -9759,7 +9811,7 @@ mod tests {
 
     #[test]
     fn formatter_preserves_comments_and_is_idempotent_for_generator_templates() {
-        let commented = "; module note\n(#fn main () u64\n  (#let value u64 0u64)\n  ; return the named value\n  (#return value)) ; trailing note\n";
+        let commented = "; module note\n(#fn main () #u64\n  (#let value #u64 0u64)\n  ; return the named value\n  (#return value)) ; trailing note\n";
         let formatted = format_source(commented).unwrap();
         assert_ne!(formatted, commented);
         assert!(formatted.contains("; module note\n"));
@@ -9771,10 +9823,10 @@ mod tests {
         assert!(check_types(&formatted_program).is_ok());
         assert_eq!(format_source(&formatted).unwrap(), formatted);
 
-        let template = "(@generator make ((name syntax))\n  ; keep generated type readable\n  (gn-emit `(#type ,name u64)))\n(#fn empty () () (#return ()))";
+        let template = "(@generator make ((name syntax))\n  ; keep generated type readable\n  (gn-emit `(#type ,name #u64)))\n(#fn empty () () (#return ()))";
         let formatted = format_source(template).unwrap();
         assert!(formatted.contains("; keep generated type readable"));
-        assert!(formatted.contains("`(#type ,name u64)"));
+        assert!(formatted.contains("`(#type ,name #u64)"));
         assert!(formatted.contains("()"));
         assert_eq!(format_source(&formatted).unwrap(), formatted);
     }
@@ -9782,11 +9834,11 @@ mod tests {
     #[test]
     fn lexes_function_and_generated_forms() {
         let tokens =
-            lex("(#fn add ((left i32) (right i32)) i32 (#return (#u64.+.wrap  left right)))")
+            lex("(#fn add ((left #i32) (right #i32)) #i32 (#return (#u64.+.wrap  left right)))")
                 .unwrap();
         assert_eq!(tokens[0].kind, TokenKind::LParen);
         assert_eq!(tokens[1].kind, TokenKind::Symbol("#fn".into()));
-        assert_eq!(tokens[6].kind, TokenKind::Symbol("i32".into()));
+        assert_eq!(tokens[6].kind, TokenKind::Symbol("#i32".into()));
 
         let generated = lex("(@optional (: type MyType : name MyType?))").unwrap();
         assert_eq!(generated[1].kind, TokenKind::At);
@@ -9795,28 +9847,29 @@ mod tests {
 
     #[test]
     fn lexes_prefixed_keywords_and_typed_operators() {
-        let tokens = lex("(#fn main () u32 (#return (#u32.+.wrap 20 22)))").unwrap();
+        let tokens = lex("(#fn main () #u32 (#return (#u32.+.wrap 20 22)))").unwrap();
         assert_eq!(tokens[1].kind, TokenKind::Symbol("#fn".into()));
         assert!(tokens
             .iter()
             .any(|token| token.kind == TokenKind::Symbol("#u32.+.wrap".into())));
-        let program = parse_program("(#fn main () u32 (#return (#u32.+.wrap 20 22)))").unwrap();
+        let program = parse_program("(#fn main () #u32 (#return (#u32.+.wrap 20 22)))").unwrap();
         assert!(check_types(&program).is_ok(), "{:?}", check_types(&program));
         assert!(generate_assembly(&program).unwrap().contains("add"));
-        let plain = parse_program("(#fn main () u32 (#return (#u32.+ 20 22)))").unwrap();
+        let plain = parse_program("(#fn main () #u32 (#return (#u32.+ 20 22)))").unwrap();
         assert!(check_types(&plain).is_err());
-        let bare_keyword = parse_program("(#fn main () u32 (#return (if true 42 0)))").unwrap_err();
+        let bare_keyword =
+            parse_program("(#fn main () #u32 (#return (if true 42 0)))").unwrap_err();
         assert!(bare_keyword.contains("must use its '#' prefix"));
-        let bare_operator = parse_program("(#fn main () u32 (#return (+ 20 22)))").unwrap_err();
+        let bare_operator = parse_program("(#fn main () #u32 (#return (+ 20 22)))").unwrap_err();
         assert!(bare_operator.contains("must use its '#' prefix"));
         let bare_division =
-            parse_program("(#fn main () u128 (#return (/ 100u128 7u128)))").unwrap_err();
+            parse_program("(#fn main () #u128 (#return (/ 100u128 7u128)))").unwrap_err();
         assert!(bare_division.contains("must use its '#' prefix"));
         let qualified_division =
-            parse_program("(#fn main () u128 (#return (#u128./.wrap 100u128 7u128)))");
+            parse_program("(#fn main () #u128 (#return (#u128./.wrap 100u128 7u128)))");
         assert!(qualified_division.is_ok());
         let qualified_remainder =
-            parse_program("(#fn main () u128 (#return (#u128.%.wrap 100u128 7u128)))");
+            parse_program("(#fn main () #u128 (#return (#u128.%.wrap 100u128 7u128)))");
         assert!(qualified_remainder.is_ok());
         assert_eq!(
             lex("(#&& true false)").unwrap()[1].kind,
@@ -9829,7 +9882,7 @@ mod tests {
         for alias in ["x86_64-sysv", "x86_64-unknown-linux-gnu"] {
             let target = TargetDescription::parse(alias).unwrap();
             assert_eq!(target, TargetDescription::X86_64_SYSTEM_V);
-            let program = parse_program("(#fn main () u64 (#return 42))").unwrap();
+            let program = parse_program("(#fn main () #u64 (#return 42))").unwrap();
             assert!(generate_assembly_for_target(&program, target).is_ok());
         }
         for unsupported in [
@@ -9841,21 +9894,21 @@ mod tests {
                 .unwrap_err()
                 .contains("supported targets: x86_64-sysv"));
         }
-        let program = parse_program("(#fn main () u64 (#return 42))").unwrap();
+        let program = parse_program("(#fn main () #u64 (#return 42))").unwrap();
         assert!(generate_assembly_for_target(&program, TargetDescription::X86_64_SYSTEM_V).is_ok());
     }
 
     #[test]
     fn inline_assembly_is_typed_and_requires_unsafe() {
-        let source = "(#fn main () i64\n\
-          (#return (#unsafe (#asm i64 ((rax 39i64)) \"syscall\"))))";
+        let source = "(#fn main () #i64\n\
+          (#return (#unsafe (#asm #i64 ((rax 39i64)) \"syscall\"))))";
         let program = parse_program(source).unwrap();
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("    mov rax, QWORD PTR [rsp+0]"));
         assert!(assembly.contains("    syscall\n"));
         assert!(assembly.contains("    pop rbx\n"));
 
-        let outside_unsafe = "(#fn main () i64 (#return (#asm i64 ((rax 39i64)) \"syscall\")))";
+        let outside_unsafe = "(#fn main () #i64 (#return (#asm #i64 ((rax 39i64)) \"syscall\")))";
         let outside_unsafe = parse_program(&outside_unsafe).unwrap();
         let error = check_types(&outside_unsafe).unwrap_err();
         assert!(
@@ -9875,8 +9928,8 @@ mod tests {
           (#cfg-is #os linux)\
           (#cfg-is #arch x86_64)\
           (#cfg-is #target x86_64-unknown-linux-gnu))\
-          (#fn main () u64 (#return 42u64))\
-          (#cfg-else (#fn main () u64 (#return 0u64))))";
+          (#fn main () #u64 (#return 42u64))\
+          (#cfg-else (#fn main () #u64 (#return 0u64))))";
         let program = parse_program(source).unwrap();
         assert!(check_types(&program).is_ok());
         assert_eq!(program.items.len(), 1);
@@ -9885,12 +9938,12 @@ mod tests {
     #[test]
     fn raw_linux_syscalls_are_unsafe_and_enforce_the_register_limit() {
         let outside_unsafe =
-            parse_program("(#fn main () i64 (#return (#linux-syscall i64 39usize ())))").unwrap();
+            parse_program("(#fn main () #i64 (#return (#linux-syscall #i64 39usize ())))").unwrap();
         let error = check_types(&outside_unsafe).unwrap_err();
         assert!(error.contains("requires an enclosing (#unsafe ...) block"));
 
         let too_many_arguments = parse_program(
-            "(#fn main () i64 (#return (#unsafe (#linux-syscall i64 39usize (0usize 0usize 0usize 0usize 0usize 0usize 0usize)))))",
+            "(#fn main () #i64 (#return (#unsafe (#linux-syscall #i64 39usize (0usize 0usize 0usize 0usize 0usize 0usize 0usize)))))",
         )
         .unwrap();
         let error = check_types(&too_many_arguments).unwrap_err();
@@ -9908,7 +9961,7 @@ mod tests {
 
     #[test]
     fn compile_time_cfg_selects_only_the_active_forms() {
-        let source = "(#cfg-if (#cfg-and (#cfg-is #platform test-os) (#cfg-not (#cfg-is #feature slow))) (#fn main () u64 (#return 42u64)) (#cfg-else (#fn main () u64 (#return missing-name))))";
+        let source = "(#cfg-if (#cfg-and (#cfg-is #platform test-os) (#cfg-not (#cfg-is #feature slow))) (#fn main () #u64 (#return 42u64)) (#cfg-else (#fn main () #u64 (#return missing-name))))";
         let mut config = CompileConfig::default();
         config.set("platform", "test-os");
         config.set("feature", "fast");
@@ -9935,7 +9988,7 @@ mod tests {
     #[test]
     fn expands_pure_user_generators_over_literal_syntax() {
         let program = parse_program(
-            "(#gn aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))",
+            "(#gn aliases (pairs) (#gn-for-each pair pairs (#gn-list (#gn-symbol \"#type\") (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte #u8) (Word #u16))) (@aliases ((Byte #u8) (Word #u16))) (#fn main () #u64 (#return 42))",
         )
         .unwrap();
         assert!(program
@@ -9960,7 +10013,7 @@ mod tests {
 
     #[test]
     fn generator_functions_compose_and_reject_recursion() {
-        let source = "(#gn-fn make-type-form (name target) (#gn-list (#gn-symbol \"#type\") name target)) (#gn-fn make-alias (name target) (#gn-call make-type-form name target)) (#gn aliases (pairs) (#gn-for-each pair pairs (#gn-call make-alias (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte u8) (Word u16))) (#fn main () u64 (#return 42))";
+        let source = "(#gn-fn make-type-form (name target) (#gn-list (#gn-symbol \"#type\") name target)) (#gn-fn make-alias (name target) (#gn-call make-type-form name target)) (#gn aliases (pairs) (#gn-for-each pair pairs (#gn-call make-alias (#gn-first pair) (#gn-first (#gn-rest pair))))) (@aliases ((Byte #u8) (Word #u16))) (#fn main () #u64 (#return 42))";
         let program = parse_program(source).unwrap();
         assert_eq!(program.items.len(), 3);
 
@@ -9974,31 +10027,31 @@ mod tests {
     #[test]
     fn generators_require_explicit_capabilities_for_concrete_types() {
         let valid = parse_program(
-            "(#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit u64)",
+            "(#fn u64-less ((left (#ref #u64)) (right (#ref #u64))) #bool (#return true)) (#capability sortable #u64 ((u64-less ((#ref #u64) (#ref #u64)) #bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit #u64)",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok());
 
         let missing = parse_program(
-            "(#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)",
+            "(#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit #u64)",
         )
         .unwrap_err();
         assert!(missing.contains("requires capability 'sortable'"));
 
         let wrong_type = parse_program(
-            "(#fn u64-less ((left (#ref u64)) (right (#ref u64))) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit UserType)",
+            "(#fn u64-less ((left (#ref #u64)) (right (#ref #u64))) #bool (#return true)) (#capability sortable #u64 ((u64-less ((#ref #u64) (#ref #u64)) #bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit UserType)",
         )
         .unwrap_err();
         assert!(wrong_type.contains("for type 'UserType'"));
 
         let wrong_signature = parse_program(
-            "(#fn u64-less ((left u64) (right u64)) bool (#return true)) (#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit u64)",
+            "(#fn u64-less ((left #u64) (right #u64)) #bool (#return true)) (#capability sortable #u64 ((u64-less ((#ref #u64) (#ref #u64)) #bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit #u64)",
         )
         .unwrap_err();
         assert!(wrong_signature.contains("contract requires"));
 
         let missing_operation = parse_program(
-            "(#capability sortable u64 ((u64-less ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit u64)",
+            "(#capability sortable #u64 ((u64-less ((#ref #u64) (#ref #u64)) #bool))) (#gn emit ((element sortable)) (#gn-list)) (@emit #u64)",
         )
         .unwrap_err();
         assert!(missing_operation.contains("requires operation function 'u64-less'"));
@@ -10015,7 +10068,7 @@ mod tests {
 
     #[test]
     fn generator_quasiquote_unquotes_and_splices_syntax() {
-        let source = "(#gn-fn emit-alias (name) `(#type ,name u64)) (#gn aliases (names) `(,@(#gn-for-each name names (#gn-call emit-alias name)))) (@aliases (First Second)) (#fn main () u64 (#return 42))";
+        let source = "(#gn-fn emit-alias (name) `(#type ,name #u64)) (#gn aliases (names) `(,@(#gn-for-each name names (#gn-call emit-alias name)))) (@aliases (First Second)) (#fn main () #u64 (#return 42))";
         let program = parse_program(source).unwrap();
         let aliases = program
             .items
@@ -10028,7 +10081,7 @@ mod tests {
         assert_eq!(aliases, ["First", "Second"]);
 
         let non_list =
-            parse_program("(#gn bad () `((#type X u64) ,@not-a-list)) (@bad)").unwrap_err();
+            parse_program("(#gn bad () `((#type X #u64) ,@not-a-list)) (@bad)").unwrap_err();
         assert!(non_list.contains("unquote-splicing requires list syntax"));
         let outside_template = parse_program("(#gn bad (x) ,x) (@bad value)").unwrap_err();
         assert!(outside_template.contains("only valid inside a backtick syntax template"));
@@ -10050,7 +10103,7 @@ mod tests {
         assert!(unknown.contains("2:1: generator expansion"));
 
         let argument_error =
-            parse_program("(#gn fail (value) (#gn-error \"unsupported input\"))\n(@fail u64)")
+            parse_program("(#gn fail (value) (#gn-error \"unsupported input\"))\n(@fail #u64)")
                 .unwrap_err();
         assert!(argument_error.contains("argument 0="));
         assert!(argument_error.contains("invocation at 2:1"));
@@ -10063,11 +10116,11 @@ mod tests {
         let module_path = directory.join("definitions.lim");
         std::fs::write(
             &module_path,
-            "(#struct Thing ((value u64))) (#fn read-value ((thing Thing)) u64 (#return (#get thing value))) (#gn make-alias (alias target) (#gn-list (#gn-list (#gn-symbol \"#type\") alias target))) (@make-alias GeneratedAlias u64)",
+            "(#struct Thing ((value #u64))) (#fn read-value ((thing Thing)) #u64 (#return (#get thing value))) (#gn make-alias (alias target) (#gn-list (#gn-list (#gn-symbol \"#type\") alias target))) (@make-alias GeneratedAlias #u64)",
         )
         .unwrap();
         let root_path = directory.join("root.lim");
-        let program_source = "(#import \"definitions.lim\") (#import-external \"definitions.lim\" ext-) (#import-external \"definitions.lim\" ext-) (#fn main () u64 (#return (#u64.+.wrap (#call read-value (: thing (#struct-literal Thing ((value 20))))) (#call ext-read-value (: ext-thing (#struct-literal ext-Thing ((ext-value 22))))))))";
+        let program_source = "(#import \"definitions.lim\") (#import-external \"definitions.lim\" ext-) (#import-external \"definitions.lim\" ext-) (#fn main () #u64 (#return (#u64.+.wrap (#call read-value (: thing (#struct-literal Thing ((value 20))))) (#call ext-read-value (: ext-thing (#struct-literal ext-Thing ((ext-value 22))))))))";
         let program = parse_program_from_path(program_source, &root_path).unwrap();
         assert!(check_types(&program).is_ok());
         assert!(program
@@ -10088,10 +10141,10 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("lim-source-map-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let module_path = directory.join("module.lim");
-        let module_source = "(#fn broken () u64\n  (#return missing))";
+        let module_source = "(#fn broken () #u64\n  (#return missing))";
         std::fs::write(&module_path, module_source).unwrap();
         let root_path = directory.join("root.lim");
-        let root_source = "(#import \"module.lim\") (#fn main () u64 (#return 0u64))";
+        let root_source = "(#import \"module.lim\") (#fn main () #u64 (#return 0u64))";
         let program = parse_program_from_path(root_source, &root_path).unwrap();
         let (message, code, span, labels) = typecheck::check_types_with_span(&program).unwrap_err();
         assert!(!message.contains("source span "));
@@ -10110,7 +10163,7 @@ mod tests {
 
     #[test]
     fn function_type_diagnostics_carry_the_span_without_message_metadata() {
-        let source = "(#fn main () u64 (#return false))";
+        let source = "(#fn main () #u64 (#return false))";
         let program = parse_program(source).unwrap();
         let (message, code, span, labels) = typecheck::check_types_with_span(&program).unwrap_err();
         assert!(!message.contains("source span "));
@@ -10123,21 +10176,21 @@ mod tests {
         assert_eq!(diagnostic.span, Some(span));
         assert_eq!(diagnostic.code, DiagnosticCode::Type);
 
-        let global_source = "(#let total u64 false)";
+        let global_source = "(#let total #u64 false)";
         let global_program = parse_program(global_source).unwrap();
         let (message, _, span, _) = typecheck::check_types_with_span(&global_program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("mismatched global initializer has a structured span");
         assert_eq!(&global_source[span.start..span.end], "false");
 
-        let unsafe_source = "(#static VALUE u64 1u64) (#fn main () u64 (#return VALUE))";
+        let unsafe_source = "(#static VALUE #u64 1u64) (#fn main () #u64 (#return VALUE))";
         let unsafe_program = parse_program(unsafe_source).unwrap();
         let (message, _, span, _) = typecheck::check_types_with_span(&unsafe_program).unwrap_err();
         assert!(!message.contains("source span "));
         let span = span.expect("unsafe static access has a structured span");
         assert_eq!(&unsafe_source[span.start..span.end], "VALUE");
 
-        let linear_source = "(#struct Resource ((value u64))) (#linear Resource) (#fn main () u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return 0u64))";
+        let linear_source = "(#struct Resource ((value #u64))) (#linear Resource) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return 0u64))";
         let linear_program = parse_program(linear_source).unwrap();
         let (message, _, span, _) = typecheck::check_types_with_span(&linear_program).unwrap_err();
         assert!(!message.contains("source span "));
@@ -10147,7 +10200,7 @@ mod tests {
 
     #[test]
     fn function_declaration_validation_errors_carry_the_name_span() {
-        let source = "(#fn invalid () u64 (#return 0u64))";
+        let source = "(#fn invalid () #u64 (#return 0u64))";
         let mut program = parse_program(source).unwrap();
         let function = program
             .items
@@ -10169,7 +10222,7 @@ mod tests {
             std::env::temp_dir().join(format!("lim-import-parser-span-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let root_path = directory.join("root.lim");
-        let root_source = "(#fn main () u64\n  (#return \"bad token)\n)";
+        let root_source = "(#fn main () #u64\n  (#return \"bad token)\n)";
         let diagnostic = write_generated_sources_diagnostic(
             root_source,
             &root_path,
@@ -10189,11 +10242,11 @@ mod tests {
         );
 
         let module_path = directory.join("module.lim");
-        let module_source = r#"(#fn broken () u64
+        let module_source = r#"(#fn broken () #u64
   (#return "bad \" token)
 )"#;
         std::fs::write(&module_path, module_source).unwrap();
-        let import_source = "(#import \"module.lim\")\n(#fn main () u64 (#return 0u64))";
+        let import_source = "(#import \"module.lim\")\n(#fn main () #u64 (#return 0u64))";
         let diagnostic = compile_source_to_assembly(
             import_source,
             &root_path,
@@ -10223,7 +10276,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&directory);
         std::fs::create_dir_all(&directory).unwrap();
-        let source = "(#gn bad (name) `((#fn ,name () u64 (#return false))))\n(@bad generated)\n";
+        let source = "(#gn bad (name) `((#fn ,name () #u64 (#return false))))\n(@bad generated)\n";
         let input = directory.join("input.lim");
         let assembly = directory.join("output.s");
         std::fs::write(&input, source).unwrap();
@@ -10304,12 +10357,12 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-module-path-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(directory.join("shared.lim"), "(#type Imported u64)").unwrap();
+        std::fs::write(directory.join("shared.lim"), "(#type Imported #u64)").unwrap();
         let root = std::env::temp_dir().join(format!("lim-module-root-{}.lim", std::process::id()));
         let mut config = CompileConfig::default();
         config.add_module_path(&directory);
         let program = parse_program_from_path_with_config(
-            "(#import \"shared.lim\") (#fn main () u64 (#return 42))",
+            "(#import \"shared.lim\") (#fn main () #u64 (#return 42))",
             &root,
             &config,
         )
@@ -10477,7 +10530,7 @@ mod tests {
 
     #[test]
     fn enforces_one_compilation_wide_type_name_space() {
-        let program = parse_program("(#type Shared u64) (#struct Shared ())").unwrap();
+        let program = parse_program("(#type Shared #u64) (#struct Shared ())").unwrap();
         assert!(check_types(&program)
             .unwrap_err()
             .contains("duplicate type name 'Shared'"));
@@ -10485,40 +10538,40 @@ mod tests {
 
     #[test]
     fn requires_explicit_returns_in_prefixed_functions() {
-        let missing = parse_program("(#fn main () u64 42)").unwrap_err();
+        let missing = parse_program("(#fn main () #u64 42)").unwrap_err();
         assert!(missing.contains("explicit"));
         let unit = parse_program("(#fn main () () (#return ()))").unwrap();
         assert!(check_types(&unit).is_ok());
         let no_value = parse_program("(#fn main () () (#return))").unwrap_err();
         assert!(no_value.contains("exactly one expression"));
-        let old_mut =
-            parse_program("(#fn main () u64 (#let mut value u64 1) (#return value))").unwrap_err();
+        let old_mut = parse_program("(#fn main () #u64 (#let mut value #u64 1) (#return value))")
+            .unwrap_err();
         assert!(old_mut.contains("#let-mut"));
     }
 
     #[test]
     fn checks_inferred_lexical_borrows() {
         let shared = parse_program(
-            "(#fn main () u64 (#let value u64 40) (#return (#borrow value (#u64.+.wrap value 2))))",
+            "(#fn main () #u64 (#let value #u64 40) (#return (#borrow value (#u64.+.wrap value 2))))",
         )
         .unwrap();
         assert!(check_types(&shared).is_ok());
         assert!(generate_assembly(&shared).is_ok());
 
         let mutable = parse_program(
-            "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow-mut value (#block (#set value 42) value))))",
+            "(#fn main () #u64 (#let-mut value #u64 40) (#return (#borrow-mut value (#block (#set value 42) value))))",
         )
         .unwrap();
         assert!(check_types(&mutable).is_ok());
 
         let nested_shared = parse_program(
-            "(#fn main () u64 (#let value u64 40) (#return (#borrow value (#borrow value value))))",
+            "(#fn main () #u64 (#let value #u64 40) (#return (#borrow value (#borrow value value))))",
         )
         .unwrap();
         assert!(check_types(&nested_shared).is_ok());
 
         let shared_then_mutable = parse_program(
-            "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow value (#borrow-mut value value))))",
+            "(#fn main () #u64 (#let-mut value #u64 40) (#return (#borrow value (#borrow-mut value value))))",
         )
         .unwrap();
         assert!(check_types(&shared_then_mutable)
@@ -10526,14 +10579,14 @@ mod tests {
             .contains("borrow 'value' mutably"));
 
         let overlapping_mutable = parse_program(
-            "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow-mut value (#borrow value value))))",
+            "(#fn main () #u64 (#let-mut value #u64 40) (#return (#borrow-mut value (#borrow value value))))",
         )
         .unwrap();
         assert!(check_types(&overlapping_mutable)
             .unwrap_err()
             .contains("already borrowed mutably"));
 
-        let diagnostic_source = "(#fn main () u64\n  (#let-mut value u64 40)\n  (#return (#borrow value (#borrow-mut value value))))";
+        let diagnostic_source = "(#fn main () #u64\n  (#let-mut value #u64 40)\n  (#return (#borrow value (#borrow-mut value value))))";
         let diagnostic_program = parse_program(diagnostic_source).unwrap();
         let (structured_message, code, _, _) =
             typecheck::check_types_with_span(&diagnostic_program).unwrap_err();
@@ -10562,7 +10615,7 @@ mod tests {
         assert_eq!(rendered.matches("\n  --> ").count(), 2, "{rendered}");
 
         let shared_write = parse_program(
-            "(#fn main () u64 (#let-mut value u64 40) (#return (#borrow value (#block (#set value 42) value))))",
+            "(#fn main () #u64 (#let-mut value #u64 40) (#return (#borrow value (#block (#set value 42) value))))",
         )
         .unwrap();
         assert!(check_types(&shared_write)
@@ -10573,7 +10626,7 @@ mod tests {
     #[test]
     fn soundness_audit_tracks_raw_pointer_borrows_through_returned_tuples() {
         let program = parse_program(
-            "(#fn expose ((anchor (#ref u64)) (pointer (#ptr u64))) (#tuple (#ref u64) u64) (#let reference (#ref u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return (#tuple (#tuple (#ref u64) u64) reference 1u64))) (#fn bad () u64 (#let-mut value u64 41u64) (#let pointer (#ptr u64) (#unsafe (#addr-of value))) (#let result (#tuple (#ref u64) u64) (#call expose (: anchor (#borrow value) : pointer pointer))) (#set value 42u64) (#return (#deref (#get result 0))))",
+            "(#fn expose ((anchor (#ref #u64)) (pointer (#ptr #u64))) (#tuple (#ref #u64) #u64) (#let reference (#ref #u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return (#tuple (#tuple (#ref #u64) #u64) reference 1u64))) (#fn bad () #u64 (#let-mut value #u64 41u64) (#let pointer (#ptr #u64) (#unsafe (#addr-of value))) (#let result (#tuple (#ref #u64) #u64) (#call expose (: anchor (#borrow value) : pointer pointer))) (#set value 42u64) (#return (#deref (#get result 0))))",
         )
         .unwrap();
         let error = check_types(&program).unwrap_err();
@@ -10586,7 +10639,7 @@ mod tests {
     #[test]
     fn soundness_audit_keeps_enum_payload_borrows_live_across_match() {
         let program = parse_program(
-            "(#enum HeldRef ((Held (#ref u64)) Empty)) (#fn hold ((source (#ref u64))) HeldRef (#return (Held source))) (#fn bad () u64 (#let-mut value u64 41u64) (#let held HeldRef (#call hold (: source (#borrow value)))) (#set value 42u64) (#return (#match held (#case (Held reference) (#deref reference)) (#case Empty 0u64))))",
+            "(#enum HeldRef ((Held (#ref #u64)) Empty)) (#fn hold ((source (#ref #u64))) HeldRef (#return (Held source))) (#fn bad () #u64 (#let-mut value #u64 41u64) (#let held HeldRef (#call hold (: source (#borrow value)))) (#set value 42u64) (#return (#match held (#case (Held reference) (#deref reference)) (#case Empty 0u64))))",
         )
         .unwrap();
         let error = check_types(&program).unwrap_err();
@@ -10599,15 +10652,15 @@ mod tests {
     #[test]
     fn supports_generated_interior_mutable_cells() {
         let prefix = format!(
-            "{} (@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)",
+            "{} (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)",
             include_str!("../library/cell.lim")
         );
         let program = parse_program(&format!(
-            "{prefix} (#fn main () u64
+            "{prefix} (#fn main () #u64
               (#let counter CellU64 (#call CellU64-create (: value 40u64)))
               (#call CellU64-set (: cell (#borrow counter) : value (#u64.+.wrap
                   (#call CellU64-get (: cell (#borrow counter))) 2u64)))
-              (#let result u64 (#call CellU64-get (: cell (#borrow counter))))
+              (#let result #u64 (#call CellU64-get (: cell (#borrow counter))))
               (#forget counter) (#return result))"
         ))
         .unwrap();
@@ -10615,7 +10668,7 @@ mod tests {
         assert!(generate_assembly(&program).is_ok());
 
         let invalid = parse_program(&format!(
-            "{prefix} (#fn main () u64
+            "{prefix} (#fn main () #u64
               (#let counter CellU64 (#call CellU64-create (: value 40u64)))
               (#call CellU64-set (: cell (#borrow counter) : value true))
               (#forget counter) (#return 0u64))"
@@ -10623,23 +10676,23 @@ mod tests {
         .unwrap();
         assert!(check_types(&invalid).is_err());
 
-        assert!(parse_program("(#fn main () (#cell u64) (#return (#cell 0u64)))").is_err());
+        assert!(parse_program("(#fn main () (#cell #u64) (#return (#cell 0u64)))").is_err());
     }
 
     #[test]
     fn supports_shared_references_to_aggregate_allocator_state() {
         let prefix = format!(
-            "{} (@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)",
+            "{} (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)",
             include_str!("../library/cell.lim")
         );
         let program = parse_program(&format!(
             "{prefix} (#struct ArenaState ((cursor CellU64)))
-             (#fn ArenaState-advance ((arena (#ref ArenaState))) u64
+             (#fn ArenaState-advance ((arena (#ref ArenaState))) #u64
                (#let cell (#ref CellU64) (#borrow (#get arena cursor)))
                (#call CellU64-set (: cell (#clone cell) : value (#u64.+.wrap
                    (#call CellU64-get (: cell (#clone cell))) 1u64)))
                (#return (#call CellU64-get (: cell cell))))
-             (#fn main () u64 (#return 0u64))"
+             (#fn main () #u64 (#return 0u64))"
         ))
         .unwrap();
         assert!(check_types(&program).is_ok(), "{:?}", check_types(&program));
@@ -10647,14 +10700,14 @@ mod tests {
 
         let runnable = parse_program(&format!(
             "{prefix} (#struct ArenaState ((cursor CellU64)))
-             (#fn main () u64
+             (#fn main () #u64
                (#let arena ArenaState (#struct-literal ArenaState ((cursor
                  (#call CellU64-create (: value 40u64))))))
                (#let allocator (#ref ArenaState) (#borrow arena))
                (#let cell (#ref CellU64) (#borrow (#get allocator cursor)))
                (#call CellU64-set (: cell (#clone cell) : value (#u64.+.wrap
                    (#call CellU64-get (: cell (#clone cell))) 2u64)))
-               (#let result u64 (#call CellU64-get (: cell cell)))
+               (#let result #u64 (#call CellU64-get (: cell cell)))
                (#drop allocator) (#forget arena) (#return result))"
         ))
         .unwrap();
@@ -10666,14 +10719,14 @@ mod tests {
         assert!(generate_assembly(&runnable).is_ok());
 
         let reference_to_global = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#static Origin Point (#struct-literal Point ((x 20) (y 22)))) (#fn origin () (#ref Point) (#return (#unsafe (#borrow Origin)))) (#fn main () u64 (#return (#get (#call origin (:)) x)))",
+            "(#struct Point ((x #u64) (y #u64))) (#static Origin Point (#struct-literal Point ((x 20) (y 22)))) (#fn origin () (#ref Point) (#return (#unsafe (#borrow Origin)))) (#fn main () #u64 (#return (#get (#call origin (:)) x)))",
         )
         .unwrap();
         assert!(check_types(&reference_to_global).is_ok());
         assert!(generate_assembly(&reference_to_global).is_ok());
 
         let aggregate_deref = parse_program(
-            "(#struct Point ((x u64))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 42)))) (#return (#get (#deref (#borrow point)) x)))",
+            "(#struct Point ((x #u64))) (#fn main () #u64 (#let-mut point Point (#struct-literal Point ((x 42)))) (#return (#get (#deref (#borrow point)) x)))",
         )
         .unwrap();
         // The borrow is only an address operand for a local value load. The
@@ -10682,7 +10735,7 @@ mod tests {
         generate_assembly(&aggregate_deref).unwrap();
 
         let stored = parse_program(
-            "(#struct Allocator ((cursor u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)) (length u64))) (#fn main () u64 (#let-mut allocator Allocator (#struct-literal Allocator ((cursor 0)))) (#let-mut vector VecWithAllocator (#struct-literal VecWithAllocator ((allocator (#borrow allocator)) (length 0)))) (#set-field allocator cursor 1) (#return 0))",
+            "(#struct Allocator ((cursor #u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)) (length #u64))) (#fn main () #u64 (#let-mut allocator Allocator (#struct-literal Allocator ((cursor 0)))) (#let-mut vector VecWithAllocator (#struct-literal VecWithAllocator ((allocator (#borrow allocator)) (length 0)))) (#set-field allocator cursor 1) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&stored)
@@ -10690,7 +10743,7 @@ mod tests {
             .contains("immutably borrowed"));
 
         let escaping = parse_program(
-            "(#struct Allocator ((cursor u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)) (length u64))) (#fn make () VecWithAllocator (#let-mut allocator Allocator (#struct-literal Allocator ((cursor 0)))) (#let vector VecWithAllocator (#struct-literal VecWithAllocator ((allocator (#borrow allocator)) (length 0)))) (#return vector))",
+            "(#struct Allocator ((cursor #u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)) (length #u64))) (#fn make () VecWithAllocator (#let-mut allocator Allocator (#struct-literal Allocator ((cursor 0)))) (#let vector VecWithAllocator (#struct-literal VecWithAllocator ((allocator (#borrow allocator)) (length 0)))) (#return vector))",
         )
         .unwrap();
         assert!(check_types(&escaping)
@@ -10698,7 +10751,7 @@ mod tests {
             .contains("cannot return a value retaining a reference to local 'allocator'"));
 
         let immutable_reference_field = parse_program(
-            "(#struct Allocator ((cursor u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)))) (#fn replace ((#mut vector VecWithAllocator) (allocator (#ref Allocator))) () (#set-field vector allocator allocator) (#return ()))",
+            "(#struct Allocator ((cursor #u64))) (#struct VecWithAllocator ((allocator (#ref Allocator)))) (#fn replace ((#mut vector VecWithAllocator) (allocator (#ref Allocator))) () (#set-field vector allocator allocator) (#return ()))",
         )
         .unwrap();
         assert!(check_types(&immutable_reference_field)
@@ -10709,12 +10762,12 @@ mod tests {
     #[test]
     fn derives_send_and_sync_and_accepts_explicit_unsafe_overrides() {
         let program = parse_program(&format!(
-            "{} (@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
-             (#struct Plain ((value u64))) (#struct HasCell ((value CellU64)))
-             (#struct HasPointer ((value (#ptr u64))))
+            "{} (@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
+             (#struct Plain ((value #u64))) (#struct HasCell ((value CellU64)))
+             (#struct HasPointer ((value (#ptr #u64))))
              (#struct HasSharedReference ((value (#ref Plain))))
-             (#struct PromisedSend ((value (#ptr u64))))
-             (#struct PromisedSync ((value (#ptr u64))))
+             (#struct PromisedSend ((value (#ptr #u64))))
+             (#struct PromisedSync ((value (#ptr #u64))))
              (#unsafe-impl #send PromisedSend) (#unsafe-impl #sync PromisedSync)",
             include_str!("../library/cell.lim")
         ))
@@ -10774,14 +10827,14 @@ mod tests {
         .unwrap());
 
         let duplicate = parse_program(
-            "(#struct Value ((value u64))) (#unsafe-impl #send Value) (#unsafe-impl #send Value)",
+            "(#struct Value ((value #u64))) (#unsafe-impl #send Value) (#unsafe-impl #send Value)",
         )
         .unwrap();
         assert!(check_types(&duplicate)
             .unwrap_err()
             .contains("duplicate unsafe Send annotation"));
         let duplicate_source =
-            "(#struct Value ((value u64))) (#unsafe-impl #send Value) (#unsafe-impl #send Value)";
+            "(#struct Value ((value #u64))) (#unsafe-impl #send Value) (#unsafe-impl #send Value)";
         let (_, _, span, _) = typecheck::check_types_with_span(&duplicate).unwrap_err();
         let span = span.expect("duplicate unsafe annotation has its type span");
         assert_eq!(&duplicate_source[span.start..span.end], "Value");
@@ -10796,14 +10849,14 @@ mod tests {
         assert!(generic_override.contains("generic declarations are not supported"));
 
         let alias_override =
-            parse_program("(#type Resource (#ptr u8)) (#unsafe-impl #send Resource)").unwrap_err();
+            parse_program("(#type Resource (#ptr #u8)) (#unsafe-impl #send Resource)").unwrap_err();
         assert!(alias_override.contains("require a nominal struct or enum type"));
     }
 
     #[test]
     fn thread_spawn_generator_requires_send_worker_inputs_and_output() {
         let valid = parse_program(
-            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn (: task IncrementTask : worker increment))",
+            "(#fn increment ((value #u64)) #u64 (#return (#u64.+.wrap value 1))) (@thread-spawn (: task IncrementTask : worker increment))",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok(), "{:?}", check_types(&valid));
@@ -10820,7 +10873,7 @@ mod tests {
         assert!(assembly.contains(".Llim_thread_entry_IncrementTask"));
 
         let api = parse_program(
-            "(#fn increment ((value u64)) u64 (#return (#u64.+.wrap value 1))) (@thread-spawn (: task IncrementTask : worker increment)) (#fn main () u64 (#return (#match (#call IncrementTask-spawn (: value 41)) (#case (IncrementTask-spawn-ok task) (#match (#call IncrementTask-join (: task task)) (#case (IncrementTask-join-ok value) value) (#case (IncrementTask-join-error (#tuple retry error)) (#panic)))) (#case (IncrementTask-spawn-error error) (#panic)))))",
+            "(#fn increment ((value #u64)) #u64 (#return (#u64.+.wrap value 1))) (@thread-spawn (: task IncrementTask : worker increment)) (#fn main () #u64 (#return (#match (#call IncrementTask-spawn (: value 41)) (#case (IncrementTask-spawn-ok task) (#match (#call IncrementTask-join (: task task)) (#case (IncrementTask-join-ok value) value) (#case (IncrementTask-join-error (#tuple retry error)) (#panic)))) (#case (IncrementTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
         assert!(check_types(&api).is_ok(), "{:?}", check_types(&api));
@@ -10829,7 +10882,7 @@ mod tests {
         assert!(api_assembly.contains("ud2"));
 
         let non_send_input = parse_program(
-            "(#fn inspect ((pointer (#ptr u64))) u64 (#return (#unsafe (#ptr-read pointer)))) (@thread-spawn (: task PointerTask : worker inspect))",
+            "(#fn inspect ((pointer (#ptr #u64))) #u64 (#return (#unsafe (#ptr-read pointer)))) (@thread-spawn (: task PointerTask : worker inspect))",
         )
         .unwrap();
         assert!(check_types(&non_send_input)
@@ -10837,19 +10890,19 @@ mod tests {
             .contains("parameter 'pointer' does not implement Send"));
 
         let unsafe_send_input = parse_program(
-            "(#struct NativeToken ((pointer (#ptr u64)))) (#unsafe-impl #send NativeToken) (#fn inspect ((token NativeToken)) u64 (#return 0)) (@thread-spawn (: task TokenTask : worker inspect))",
+            "(#struct NativeToken ((pointer (#ptr #u64)))) (#unsafe-impl #send NativeToken) (#fn inspect ((token NativeToken)) #u64 (#return 0)) (@thread-spawn (: task TokenTask : worker inspect))",
         )
         .unwrap();
         assert!(check_types(&unsafe_send_input).is_ok());
 
         let unsafe_sync_reference = parse_program(
-            "(#struct NativeShared ((pointer (#ptr u64)))) (#unsafe-impl #sync NativeShared) (#fn inspect ((value (#ref NativeShared))) u64 (#return 0)) (@thread-spawn (: task InspectTask : worker inspect))",
+            "(#struct NativeShared ((pointer (#ptr #u64)))) (#unsafe-impl #sync NativeShared) (#fn inspect ((value (#ref NativeShared))) #u64 (#return 0)) (@thread-spawn (: task InspectTask : worker inspect))",
         )
         .unwrap();
         assert!(check_types(&unsafe_sync_reference).is_ok());
 
         let missing_sync_reference = parse_program(
-            "(#struct NativeShared ((pointer (#ptr u64)))) (#fn inspect ((value (#ref NativeShared))) u64 (#return 0)) (@thread-spawn (: task InspectTask : worker inspect))",
+            "(#struct NativeShared ((pointer (#ptr #u64)))) (#fn inspect ((value (#ref NativeShared))) #u64 (#return 0)) (@thread-spawn (: task InspectTask : worker inspect))",
         )
         .unwrap();
         assert!(check_types(&missing_sync_reference)
@@ -10857,7 +10910,7 @@ mod tests {
             .contains("parameter 'value' does not implement Send"));
 
         let reference_return = parse_program(
-            "(#fn identity ((value (#ref u64))) (#ref u64) (#return value)) (@thread-spawn (: task IdentityTask : worker identity))",
+            "(#fn identity ((value (#ref #u64))) (#ref #u64) (#return value)) (@thread-spawn (: task IdentityTask : worker identity))",
         )
         .unwrap();
         assert!(check_types(&reference_return)
@@ -10865,7 +10918,7 @@ mod tests {
             .contains("cannot return reference-containing values"));
 
         let forgotten_spawn_result = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#forget result) (#return 0))",
+            "(#fn work ((value #u64)) #u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () #u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#forget result) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&forgotten_spawn_result)
@@ -10873,7 +10926,7 @@ mod tests {
             .contains("cannot be dropped or forgotten; match and join them"));
 
         let forgotten_nested_spawn_result = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#forget (#tuple (#tuple WorkTask-spawn-result u64) result 0)) (#return 0))",
+            "(#fn work ((value #u64)) #u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () #u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#forget (#tuple (#tuple WorkTask-spawn-result #u64) result 0)) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&forgotten_nested_spawn_result)
@@ -10881,7 +10934,7 @@ mod tests {
             .contains("cannot be dropped or forgotten; match and join them"));
 
         let discarded_spawn_handle = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#return (#match result (#case _ 0))))",
+            "(#fn work ((value #u64)) #u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () #u64 (#let result WorkTask-spawn-result (#call WorkTask-spawn (: value 1))) (#return (#match result (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&discarded_spawn_handle)
@@ -10889,7 +10942,7 @@ mod tests {
             .contains("must explicitly handle variant 'WorkTask-spawn-ok'"));
 
         let discarded_join_error_handle = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#return (#match (#call WorkTask-spawn (: value 1)) (#case (WorkTask-spawn-ok task) (#match (#call WorkTask-join (: task task)) (#case (WorkTask-join-ok value) value) (#case (WorkTask-join-error (#tuple _ error)) (#panic)))) (#case (WorkTask-spawn-error error) (#panic)))))",
+            "(#fn work ((value #u64)) #u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () #u64 (#return (#match (#call WorkTask-spawn (: value 1)) (#case (WorkTask-spawn-ok task) (#match (#call WorkTask-join (: task task)) (#case (WorkTask-join-ok value) value) (#case (WorkTask-join-error (#tuple _ error)) (#panic)))) (#case (WorkTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
         assert!(check_types(&discarded_join_error_handle)
@@ -10897,7 +10950,7 @@ mod tests {
             .contains("must bind its task handle instead of discarding it"));
 
         let forged_task = parse_program(
-            "(#fn work ((value u64)) u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () u64 (#let task WorkTask (WorkTask (#ptr-null (#ptr-mut ())))) (#return 0))",
+            "(#fn work ((value #u64)) #u64 (#return value)) (@thread-spawn (: task WorkTask : worker work)) (#fn main () #u64 (#let task WorkTask (WorkTask (#ptr-null (#ptr-mut ())))) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&forged_task)
@@ -10914,10 +10967,10 @@ mod tests {
     #[test]
     fn failed_thread_join_keeps_captured_borrows_active() {
         let program = parse_program(
-            r#"(#struct Shared ((value u64)))
-(#fn read ((value (#ref Shared))) u64 (#return (#get value value)))
+            r#"(#struct Shared ((value #u64)))
+(#fn read ((value (#ref Shared))) #u64 (#return (#get value value)))
 (@thread-spawn (: task ReadTask : worker read))
-(#fn main () u64
+(#fn main () #u64
   (#let-mut shared Shared (#struct-literal Shared ((value 1))))
   (#let spawned ReadTask-spawn-result (#call ReadTask-spawn (: value (#borrow shared))))
   (#return
@@ -10942,10 +10995,10 @@ mod tests {
     #[test]
     fn failed_thread_join_keeps_exclusive_captures_active() {
         let program = parse_program(
-            r#"(#struct Shared ((value u64)))
-(#fn read-mut ((value (#ref-mut Shared))) u64 (#return (#get value value)))
+            r#"(#struct Shared ((value #u64)))
+(#fn read-mut ((value (#ref-mut Shared))) #u64 (#return (#get value value)))
 (@thread-spawn (: task MutTask : worker read-mut))
-(#fn main () u64
+(#fn main () #u64
   (#let-mut shared Shared (#struct-literal Shared ((value 1))))
   (#let spawned MutTask-spawn-result (#call MutTask-spawn (: value (#borrow-mut shared))))
   (#return
@@ -10970,20 +11023,21 @@ mod tests {
     #[test]
     fn returns_and_dereferences_references() {
         let program = parse_program(
-            "(#let answer u64 42) (#fn identity ((value (#ref u64))) (#ref u64) (#return value)) (#fn get-answer () (#ref u64) (#return (#borrow answer))) (#fn main () u64 (#return (#deref (#call identity (: value (#call get-answer (:)))))))",
+            "(#let answer #u64 42) (#fn identity ((value (#ref #u64))) (#ref #u64) (#return value)) (#fn get-answer () (#ref #u64) (#return (#borrow answer))) (#fn main () #u64 (#return (#deref (#call identity (: value (#call get-answer (:)))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
 
-        let local_escape =
-            parse_program("(#fn bad () (#ref u64) (#let value u64 42) (#return (#borrow value)))")
-                .unwrap();
+        let local_escape = parse_program(
+            "(#fn bad () (#ref #u64) (#let value #u64 42) (#return (#borrow value)))",
+        )
+        .unwrap();
         assert!(check_types(&local_escape)
             .unwrap_err()
             .contains("retaining a reference to local 'value'"));
 
-        let bad_deref = parse_program("(#fn main () u64 (#return (#deref 42)))").unwrap();
+        let bad_deref = parse_program("(#fn main () #u64 (#return (#deref 42)))").unwrap();
         assert!(check_types(&bad_deref)
             .unwrap_err()
             .contains("deref requires a reference"));
@@ -10992,7 +11046,7 @@ mod tests {
     #[test]
     fn writes_through_mutable_references_and_borrows_struct_fields() {
         let write_through_reference = parse_program(
-            "(#fn main () u64 (#let-mut value u64 40) (#let reference (#ref-mut u64) (#borrow-mut value)) (#deref-set reference 42) (#return (#deref reference)))",
+            "(#fn main () #u64 (#let-mut value #u64 40) (#let reference (#ref-mut #u64) (#borrow-mut value)) (#deref-set reference 42) (#return (#deref reference)))",
         )
         .unwrap();
         assert!(
@@ -11003,7 +11057,7 @@ mod tests {
         assert!(generate_assembly(&write_through_reference).is_ok());
 
         let immutable_write = parse_program(
-            "(#fn main () () (#let value u64 40) (#let reference (#ref u64) (#borrow value)) (#deref-set reference 42) (#return ()))",
+            "(#fn main () () (#let value #u64 40) (#let reference (#ref #u64) (#borrow value)) (#deref-set reference 42) (#return ()))",
         )
         .unwrap();
         assert!(check_types(&immutable_write)
@@ -11011,7 +11065,7 @@ mod tests {
             .contains("deref-set requires a mutable reference"));
 
         let owner_write_while_mutably_borrowed = parse_program(
-            "(#fn main () () (#let-mut value u64 40) (#let reference (#ref-mut u64) (#borrow-mut value)) (#set value 42) (#return ()))",
+            "(#fn main () () (#let-mut value #u64 40) (#let reference (#ref-mut #u64) (#borrow-mut value)) (#set value 42) (#return ()))",
         )
         .unwrap();
         assert!(check_types(&owner_write_while_mutably_borrowed)
@@ -11019,7 +11073,7 @@ mod tests {
             .contains("while it is mutably borrowed"));
 
         let derived_field = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#deref-set x-ref 42) (#return (#deref x-ref)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut #u64) (#borrow-mut (#get point-ref x))) (#deref-set x-ref 42) (#return (#deref x-ref)))",
         )
         .unwrap();
         assert!(
@@ -11030,7 +11084,7 @@ mod tests {
         assert!(generate_assembly(&derived_field).is_ok());
 
         let suspended_parent = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#return (#get point-ref y)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut #u64) (#borrow-mut (#get point-ref x))) (#return (#get point-ref y)))",
         )
         .unwrap();
         assert!(
@@ -11040,7 +11094,7 @@ mod tests {
         );
 
         let overlapping_field = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#return (#get point-ref x)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut #u64) (#borrow-mut (#get point-ref x))) (#return (#get point-ref x)))",
         )
         .unwrap();
         assert!(check_types(&overlapping_field)
@@ -11048,7 +11102,7 @@ mod tests {
             .contains("cannot access 'point.x' while it is mutably borrowed"));
 
         let dropped_field_reference = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#drop x-ref) (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y))) (#return (#deref y-ref)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut #u64) (#borrow-mut (#get point-ref x))) (#drop x-ref) (#let y-ref (#ref-mut #u64) (#borrow-mut (#get point-ref y))) (#return (#deref y-ref)))",
         )
         .unwrap();
         assert!(
@@ -11058,13 +11112,13 @@ mod tests {
         );
 
         let tuple_field_borrow = parse_program(
-            "(#fn main () u64 (#let-mut pair (#tuple u64 u64) (#tuple 1 2)) (#let pair-ref (#ref-mut (#tuple u64 u64)) (#borrow-mut pair)) (#let first-ref (#ref-mut u64) (#borrow-mut (#get pair-ref 0))) (#return (#get pair-ref 1)))",
+            "(#fn main () #u64 (#let-mut pair (#tuple #u64 #u64) (#tuple 1 2)) (#let pair-ref (#ref-mut (#tuple #u64 #u64)) (#borrow-mut pair)) (#let first-ref (#ref-mut #u64) (#borrow-mut (#get pair-ref 0))) (#return (#get pair-ref 1)))",
         )
         .unwrap();
         assert!(check_types(&tuple_field_borrow).is_ok());
 
         let overlapping_tuple_field = parse_program(
-            "(#fn main () u64 (#let-mut pair (#tuple u64 u64) (#tuple 1 2)) (#let pair-ref (#ref-mut (#tuple u64 u64)) (#borrow-mut pair)) (#let first-ref (#ref-mut u64) (#borrow-mut (#get pair-ref 0))) (#return (#get pair-ref 0)))",
+            "(#fn main () #u64 (#let-mut pair (#tuple #u64 #u64) (#tuple 1 2)) (#let pair-ref (#ref-mut (#tuple #u64 #u64)) (#borrow-mut pair)) (#let first-ref (#ref-mut #u64) (#borrow-mut (#get pair-ref 0))) (#return (#get pair-ref 0)))",
         )
         .unwrap();
         assert!(check_types(&overlapping_tuple_field)
@@ -11072,13 +11126,13 @@ mod tests {
             .contains("cannot access 'pair.0' while it is mutably borrowed"));
 
         let nested_tuple_field = parse_program(
-            "(#fn main () u64 (#let-mut pair (#tuple (#tuple u64 u64) u64) (#tuple (#tuple 1 2) 3)) (#let pair-ref (#ref-mut (#tuple (#tuple u64 u64) u64)) (#borrow-mut pair)) (#let first-ref (#ref-mut u64) (#borrow-mut (#get (#get pair-ref 0) 1))) (#return (#get pair-ref 1)))",
+            "(#fn main () #u64 (#let-mut pair (#tuple (#tuple #u64 #u64) #u64) (#tuple (#tuple 1 2) 3)) (#let pair-ref (#ref-mut (#tuple (#tuple #u64 #u64) #u64)) (#borrow-mut pair)) (#let first-ref (#ref-mut #u64) (#borrow-mut (#get (#get pair-ref 0) 1))) (#return (#get pair-ref 1)))",
         )
         .unwrap();
         assert!(check_types(&nested_tuple_field).is_ok());
 
         let array_element_borrow = parse_program(
-            "(#fn main () u64 (#let-mut values (#array u64 2) (#array 1 2)) (#let values-ref (#ref-mut (#array u64 2)) (#borrow-mut values)) (#let first-ref (#ref-mut u64) (#borrow-mut (#index values-ref 0))) (#return (#index values-ref 1)))",
+            "(#fn main () #u64 (#let-mut values (#array #u64 2) (#array 1 2)) (#let values-ref (#ref-mut (#array #u64 2)) (#borrow-mut values)) (#let first-ref (#ref-mut #u64) (#borrow-mut (#index values-ref 0))) (#return (#index values-ref 1)))",
         )
         .unwrap();
         assert!(
@@ -11088,7 +11142,7 @@ mod tests {
         );
 
         let overlapping_array_element = parse_program(
-            "(#fn main () u64 (#let-mut values (#array u64 2) (#array 1 2)) (#let values-ref (#ref-mut (#array u64 2)) (#borrow-mut values)) (#let first-ref (#ref-mut u64) (#borrow-mut (#index values-ref 0))) (#return (#index values-ref 0)))",
+            "(#fn main () #u64 (#let-mut values (#array #u64 2) (#array 1 2)) (#let values-ref (#ref-mut (#array #u64 2)) (#borrow-mut values)) (#let first-ref (#ref-mut #u64) (#borrow-mut (#index values-ref 0))) (#return (#index values-ref 0)))",
         )
         .unwrap();
         assert!(check_types(&overlapping_array_element)
@@ -11096,7 +11150,7 @@ mod tests {
             .contains("cannot access 'values.0' while it is mutably borrowed"));
 
         let dynamic_array_element = parse_program(
-            "(#fn main ((idx u64)) u64 (#let-mut values (#array u64 2) (#array 1 2)) (#let values-ref (#ref-mut (#array u64 2)) (#borrow-mut values)) (#let element-ref (#ref-mut u64) (#borrow-mut (#index values-ref idx))) (#return (#index values-ref 0)))",
+            "(#fn main ((idx #u64)) #u64 (#let-mut values (#array #u64 2) (#array 1 2)) (#let values-ref (#ref-mut (#array #u64 2)) (#borrow-mut values)) (#let element-ref (#ref-mut #u64) (#borrow-mut (#index values-ref idx))) (#return (#index values-ref 0)))",
         )
         .unwrap();
         assert!(check_types(&dynamic_array_element)
@@ -11104,7 +11158,7 @@ mod tests {
             .contains("cannot access 'values.0' while it is mutably borrowed"));
 
         let multiple_field_borrows = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y))) (#drop x-ref) (#drop y-ref) (#let z-ref (#ref-mut u64) (#borrow-mut (#get point-ref y))) (#return (#deref z-ref)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#let x-ref (#ref-mut #u64) (#borrow-mut (#get point-ref x))) (#let y-ref (#ref-mut #u64) (#borrow-mut (#get point-ref y))) (#drop x-ref) (#drop y-ref) (#let z-ref (#ref-mut #u64) (#borrow-mut (#get point-ref y))) (#return (#deref z-ref)))",
         )
         .unwrap();
         assert!(
@@ -11114,7 +11168,7 @@ mod tests {
         );
 
         let branch_field_borrow = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main ((choose bool)) u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#if choose (#block (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) 0) (#block (#let y-ref (#ref-mut u64) (#borrow-mut (#get point-ref y))) 0)) (#return (#get point-ref y)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main ((choose #bool)) #u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#if choose (#block (#let x-ref (#ref-mut #u64) (#borrow-mut (#get point-ref x))) 0) (#block (#let y-ref (#ref-mut #u64) (#borrow-mut (#get point-ref y))) 0)) (#return (#get point-ref y)))",
         )
         .unwrap();
         assert!(
@@ -11124,7 +11178,7 @@ mod tests {
         );
 
         let enum_payload_borrow = parse_program(
-            "(#enum Message ((Move u64 u64) Empty)) (#fn main () u64 (#let-mut message Message (Move 1 2)) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get-payload message-ref Move 0) (#get-payload message-ref Move 1))))",
+            "(#enum Message ((Move #u64 #u64) Empty)) (#fn main () #u64 (#let-mut message Message (Move 1 2)) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get-payload message-ref Move 0) (#get-payload message-ref Move 1))))",
         )
         .unwrap();
         assert!(
@@ -11135,7 +11189,7 @@ mod tests {
         assert!(generate_assembly(&enum_payload_borrow).is_ok());
 
         let overlapping_enum_payload = parse_program(
-            "(#enum Message ((Move u64 u64) Empty)) (#fn main () u64 (#let-mut message Message (Move 1 2)) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get-payload message-ref Move 0) (#get-payload message-ref Move 0))))",
+            "(#enum Message ((Move #u64 #u64) Empty)) (#fn main () #u64 (#let-mut message Message (Move 1 2)) (#let message-ref (#ref-mut Message) (#borrow-mut message)) (#return (#borrow-mut (#get-payload message-ref Move 0) (#get-payload message-ref Move 0))))",
         )
         .unwrap();
         assert!(check_types(&overlapping_enum_payload)
@@ -11143,7 +11197,7 @@ mod tests {
             .contains("cannot access 'message.Move.0' while it is mutably borrowed"));
 
         let nested_reference_aggregate = parse_program(
-            "(#struct Inner ((data (#ref-mut u64)))) (#struct Outer ((inner (#ref-mut Inner)))) (#fn main () u64 (#let-mut value u64 40) (#let-mut inner Inner (#struct-literal Inner ((data (#borrow-mut value))))) (#let outer Outer (#struct-literal Outer ((inner (#borrow-mut inner))))) (#deref-set (#get (#get outer inner) data) 42) (#return (#deref (#get (#get outer inner) data))))",
+            "(#struct Inner ((data (#ref-mut #u64)))) (#struct Outer ((inner (#ref-mut Inner)))) (#fn main () #u64 (#let-mut value #u64 40) (#let-mut inner Inner (#struct-literal Inner ((data (#borrow-mut value))))) (#let outer Outer (#struct-literal Outer ((inner (#borrow-mut inner))))) (#deref-set (#get (#get outer inner) data) 42) (#return (#deref (#get (#get outer inner) data))))",
         )
         .unwrap();
         assert!(
@@ -11154,14 +11208,14 @@ mod tests {
         assert!(generate_assembly(&nested_reference_aggregate).is_ok());
 
         let tuple_reference_aggregate = parse_program(
-            "(#fn main () u64 (#let-mut value u64 40) (#let refs (#tuple (#ref-mut u64)) (#tuple (#borrow-mut value))) (#deref-set (#get refs 0) 42) (#return (#deref (#get refs 0))))",
+            "(#fn main () #u64 (#let-mut value #u64 40) (#let refs (#tuple (#ref-mut #u64)) (#tuple (#borrow-mut value))) (#deref-set (#get refs 0) 42) (#return (#deref (#get refs 0))))",
         )
         .unwrap();
         assert!(check_types(&tuple_reference_aggregate).is_ok());
         assert!(generate_assembly(&tuple_reference_aggregate).is_ok());
 
         let nested_reference_owner_write = parse_program(
-            "(#struct Inner ((data (#ref-mut u64)))) (#struct Outer ((inner (#ref-mut Inner)))) (#fn main () u64 (#let-mut value u64 40) (#let-mut inner Inner (#struct-literal Inner ((data (#borrow-mut value))))) (#let outer Outer (#struct-literal Outer ((inner (#borrow-mut inner))))) (#set value 41) (#return 0))",
+            "(#struct Inner ((data (#ref-mut #u64)))) (#struct Outer ((inner (#ref-mut Inner)))) (#fn main () #u64 (#let-mut value #u64 40) (#let-mut inner Inner (#struct-literal Inner ((data (#borrow-mut value))))) (#let outer Outer (#struct-literal Outer ((inner (#borrow-mut inner))))) (#set value 41) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&nested_reference_owner_write)
@@ -11169,7 +11223,7 @@ mod tests {
             .contains("cannot mutate 'value' while it is mutably borrowed"));
 
         let original_owner_suspended = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#return (#get point y)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#return (#get point y)))",
         )
         .unwrap();
         assert!(check_types(&original_owner_suspended)
@@ -11177,7 +11231,7 @@ mod tests {
             .contains("while it is mutably borrowed"));
 
         let immutable_derived_field = parse_program(
-            "(#struct Point ((x u64))) (#fn main () () (#let point Point (#struct-literal Point ((x 1)))) (#let point-ref (#ref Point) (#borrow point)) (#let x-ref (#ref-mut u64) (#borrow-mut (#get point-ref x))) (#return ()))",
+            "(#struct Point ((x #u64))) (#fn main () () (#let point Point (#struct-literal Point ((x 1)))) (#let point-ref (#ref Point) (#borrow point)) (#let x-ref (#ref-mut #u64) (#borrow-mut (#get point-ref x))) (#return ()))",
         )
         .unwrap();
         assert!(check_types(&immutable_derived_field)
@@ -11185,14 +11239,14 @@ mod tests {
             .contains("cannot mutably borrow through an immutable reference"));
 
         let returned_field_reference = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn point-x ((point (#ref Point))) (#ref u64) (#return (#borrow (#get point x)))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 40) (y 2)))) (#return (#deref (#call point-x (: point (#borrow point))))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn point-x ((point (#ref Point))) (#ref #u64) (#return (#borrow (#get point x)))) (#fn main () #u64 (#let-mut point Point (#struct-literal Point ((x 40) (y 2)))) (#return (#deref (#call point-x (: point (#borrow point))))))",
         )
         .unwrap();
         assert!(check_types(&returned_field_reference).is_ok());
         assert!(generate_assembly(&returned_field_reference).is_ok());
 
         let escaping_field_reference = parse_program(
-            "(#struct Point ((x u64))) (#fn bad () (#ref u64) (#let-mut point Point (#struct-literal Point ((x 42)))) (#let point-ref (#ref Point) (#borrow point)) (#return (#borrow (#get point-ref x))))",
+            "(#struct Point ((x #u64))) (#fn bad () (#ref #u64) (#let-mut point Point (#struct-literal Point ((x 42)))) (#let point-ref (#ref Point) (#borrow point)) (#return (#borrow (#get point-ref x))))",
         )
         .unwrap();
         assert!(check_types(&escaping_field_reference)
@@ -11200,7 +11254,7 @@ mod tests {
             .contains("retaining a reference to local 'point'"));
 
         let cloned_local_reference = parse_program(
-            "(#fn bad () (#ref u64) (#let value u64 42) (#let reference (#ref u64) (#borrow value)) (#return (#clone reference)))",
+            "(#fn bad () (#ref #u64) (#let value #u64 42) (#let reference (#ref #u64) (#borrow value)) (#return (#clone reference)))",
         )
         .unwrap();
         assert!(check_types(&cloned_local_reference)
@@ -11208,7 +11262,7 @@ mod tests {
             .contains("cannot return a value retaining a reference to local 'value'"));
 
         let matched_local_reference = parse_program(
-            "(#fn bad () (#ref u64) (#let value u64 42) (#let reference (#ref u64) (#borrow value)) (#return (#match true (#case true (#clone reference)) (#case _ (#clone reference)))))",
+            "(#fn bad () (#ref #u64) (#let value #u64 42) (#let reference (#ref #u64) (#borrow value)) (#return (#match true (#case true (#clone reference)) (#case _ (#clone reference)))))",
         )
         .unwrap();
         assert!(check_types(&matched_local_reference)
@@ -11216,25 +11270,25 @@ mod tests {
             .contains("cannot return a value retaining a reference to local 'value'"));
 
         let block_scoped_reference = parse_program(
-            "(#fn main () u64 (#let-mut value u64 1) (#block (#let reference (#ref u64) (#borrow value)) 2) (#set value 3) (#return value))",
+            "(#fn main () #u64 (#let-mut value #u64 1) (#block (#let reference (#ref #u64) (#borrow value)) 2) (#set value 3) (#return value))",
         )
         .unwrap();
         assert!(check_types(&block_scoped_reference).is_ok());
 
         let loop_scoped_reference = parse_program(
-            "(#fn main () u64 (#let-mut value u64 1) (#while false (#let reference (#ref u64) (#borrow value))) (#set value 3) (#return value))",
+            "(#fn main () #u64 (#let-mut value #u64 1) (#while false (#let reference (#ref #u64) (#borrow value))) (#set value 3) (#return value))",
         )
         .unwrap();
         assert!(check_types(&loop_scoped_reference).is_ok());
 
         let dropped_reference = parse_program(
-            "(#fn main () u64 (#let-mut value u64 1) (#let reference (#ref-mut u64) (#borrow-mut value)) (#drop reference) (#set value 3) (#return value))",
+            "(#fn main () #u64 (#let-mut value #u64 1) (#let reference (#ref-mut #u64) (#borrow-mut value)) (#drop reference) (#set value 3) (#return value))",
         )
         .unwrap();
         assert!(check_types(&dropped_reference).is_ok());
 
         let mutable_reference_struct = parse_program(
-            "(#struct MutView ((data (#ref-mut u64)))) (#fn make ((data (#ref-mut u64))) MutView (#return (#struct-literal MutView ((data data))))) (#fn main () u64 (#let-mut value u64 40) (#let view MutView (#call make (: data (#borrow-mut value)))) (#deref-set (#get view data) 42) (#return (#deref (#get view data))))",
+            "(#struct MutView ((data (#ref-mut #u64)))) (#fn make ((data (#ref-mut #u64))) MutView (#return (#struct-literal MutView ((data data))))) (#fn main () #u64 (#let-mut value #u64 40) (#let view MutView (#call make (: data (#borrow-mut value)))) (#deref-set (#get view data) 42) (#return (#deref (#get view data))))",
         )
         .unwrap();
         assert!(
@@ -11245,7 +11299,7 @@ mod tests {
         assert!(generate_assembly(&mutable_reference_struct).is_ok());
 
         let destructured_mutable_reference = parse_program(
-            "(#struct MutView ((data (#ref-mut u64)))) (#fn main () u64 (#let-mut value u64 40) (#let view MutView (#struct-literal MutView ((data (#borrow-mut value))))) (#let (MutView reference) MutView view) (#deref-set reference 42) (#return (#deref reference)))",
+            "(#struct MutView ((data (#ref-mut #u64)))) (#fn main () #u64 (#let-mut value #u64 40) (#let view MutView (#struct-literal MutView ((data (#borrow-mut value))))) (#let (MutView reference) MutView view) (#deref-set reference 42) (#return (#deref reference)))",
         )
         .unwrap();
         assert!(
@@ -11256,7 +11310,7 @@ mod tests {
         assert!(generate_assembly(&destructured_mutable_reference).is_ok());
 
         let destructured_disjoint_mutable_references = parse_program(
-            "(#struct Pair ((left (#ref-mut u64)) (right (#ref-mut u64)))) (#fn main () u64 (#let-mut left-value u64 20) (#let-mut right-value u64 22) (#let pair Pair (#struct-literal Pair ((left (#borrow-mut left-value)) (right (#borrow-mut right-value))))) (#let (Pair left right) Pair pair) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
+            "(#struct Pair ((left (#ref-mut #u64)) (right (#ref-mut #u64)))) (#fn main () #u64 (#let-mut left-value #u64 20) (#let-mut right-value #u64 22) (#let pair Pair (#struct-literal Pair ((left (#borrow-mut left-value)) (right (#borrow-mut right-value))))) (#let (Pair left right) Pair pair) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
         )
         .unwrap();
         assert!(
@@ -11267,7 +11321,7 @@ mod tests {
         assert!(generate_assembly(&destructured_disjoint_mutable_references).is_ok());
 
         let duplicate_mutable_reference_fields = parse_program(
-            "(#struct Pair ((left (#ref-mut u64)) (right (#ref-mut u64)))) (#fn main () u64 (#let-mut value u64 20) (#let pair Pair (#struct-literal Pair ((left (#borrow-mut value)) (right (#borrow-mut value))))) (#return 0u64))",
+            "(#struct Pair ((left (#ref-mut #u64)) (right (#ref-mut #u64)))) (#fn main () #u64 (#let-mut value #u64 20) (#let pair Pair (#struct-literal Pair ((left (#borrow-mut value)) (right (#borrow-mut value))))) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&duplicate_mutable_reference_fields)
@@ -11275,7 +11329,7 @@ mod tests {
             .contains("overlapping borrows"));
 
         let destructured_enum_payload_references = parse_program(
-            "(#enum PairOrEmpty ((Pair (#ref-mut u64) (#ref-mut u64)) Empty)) (#fn main () u64 (#let-mut left-value u64 20) (#let-mut right-value u64 22) (#let choice PairOrEmpty (Pair (#borrow-mut left-value) (#borrow-mut right-value))) (#let-else (Pair left right) PairOrEmpty choice (#return 0u64)) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
+            "(#enum PairOrEmpty ((Pair (#ref-mut #u64) (#ref-mut #u64)) Empty)) (#fn main () #u64 (#let-mut left-value #u64 20) (#let-mut right-value #u64 22) (#let choice PairOrEmpty (Pair (#borrow-mut left-value) (#borrow-mut right-value))) (#let-else (Pair left right) PairOrEmpty choice (#return 0u64)) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
         )
         .unwrap();
         assert!(
@@ -11286,28 +11340,28 @@ mod tests {
         assert!(generate_assembly(&destructured_enum_payload_references).is_ok());
 
         let destructured_array_references = parse_program(
-            "(#fn main () u64 (#let-mut left-value u64 20) (#let-mut right-value u64 22) (#let references (#array (#ref-mut u64) 2) (#array (#array (#ref-mut u64) 2) (#borrow-mut left-value) (#borrow-mut right-value))) (#let (#array left right) (#array (#ref-mut u64) 2) references) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
+            "(#fn main () #u64 (#let-mut left-value #u64 20) (#let-mut right-value #u64 22) (#let references (#array (#ref-mut #u64) 2) (#array (#array (#ref-mut #u64) 2) (#borrow-mut left-value) (#borrow-mut right-value))) (#let (#array left right) (#array (#ref-mut #u64) 2) references) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
         )
         .unwrap();
         assert!(check_types(&destructured_array_references).is_ok());
         assert!(generate_assembly(&destructured_array_references).is_ok());
 
         let destructured_tuple_references = parse_program(
-            "(#fn main () u64 (#let-mut left-value u64 20) (#let-mut right-value u64 22) (#let references (#tuple (#ref-mut u64) (#ref-mut u64)) (#tuple (#tuple (#ref-mut u64) (#ref-mut u64)) (#borrow-mut left-value) (#borrow-mut right-value))) (#let (#tuple left right) (#tuple (#ref-mut u64) (#ref-mut u64)) references) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
+            "(#fn main () #u64 (#let-mut left-value #u64 20) (#let-mut right-value #u64 22) (#let references (#tuple (#ref-mut #u64) (#ref-mut #u64)) (#tuple (#tuple (#ref-mut #u64) (#ref-mut #u64)) (#borrow-mut left-value) (#borrow-mut right-value))) (#let (#tuple left right) (#tuple (#ref-mut #u64) (#ref-mut #u64)) references) (#deref-set left 21) (#deref-set right 23) (#return (#u64.+.wrap (#deref left) (#deref right))))",
         )
         .unwrap();
         assert!(check_types(&destructured_tuple_references).is_ok());
         assert!(generate_assembly(&destructured_tuple_references).is_ok());
 
         let destructured_returnable_reference = parse_program(
-            "(#struct View ((data (#ref u64)))) (#fn wrap ((source (#ref u64))) View (#return (#struct-literal View ((data source))))) (#fn unwrap ((source (#ref u64))) (#ref u64) (#let view View (#call wrap (: source source))) (#let (View reference) View view) (#return reference))",
+            "(#struct View ((data (#ref #u64)))) (#fn wrap ((source (#ref #u64))) View (#return (#struct-literal View ((data source))))) (#fn unwrap ((source (#ref #u64))) (#ref #u64) (#let view View (#call wrap (: source source))) (#let (View reference) View view) (#return reference))",
         )
         .unwrap();
         assert!(check_types(&destructured_returnable_reference).is_ok());
         assert!(generate_assembly(&destructured_returnable_reference).is_ok());
 
         let destructured_reference_escape = parse_program(
-            "(#struct View ((data (#ref u64)))) (#fn bad () (#ref u64) (#let value u64 40) (#let view View (#struct-literal View ((data (#borrow value))))) (#let (View reference) View view) (#return reference))",
+            "(#struct View ((data (#ref #u64)))) (#fn bad () (#ref #u64) (#let value #u64 40) (#let view View (#struct-literal View ((data (#borrow value))))) (#let (View reference) View view) (#return reference))",
         )
         .unwrap();
         assert!(check_types(&destructured_reference_escape)
@@ -11315,7 +11369,7 @@ mod tests {
             .contains("cannot return a value retaining a reference to local 'value'"));
 
         let mutable_reference_struct_escape = parse_program(
-            "(#struct MutView ((data (#ref-mut u64)))) (#fn make ((data (#ref-mut u64))) MutView (#return (#struct-literal MutView ((data data))))) (#fn bad () MutView (#let-mut value u64 40) (#return (#call make (: data (#borrow-mut value)))))",
+            "(#struct MutView ((data (#ref-mut #u64)))) (#fn make ((data (#ref-mut #u64))) MutView (#return (#struct-literal MutView ((data data))))) (#fn bad () MutView (#let-mut value #u64 40) (#return (#call make (: data (#borrow-mut value)))))",
         )
         .unwrap();
         assert!(check_types(&mutable_reference_struct_escape)
@@ -11323,7 +11377,7 @@ mod tests {
             .contains("cannot return a value retaining a reference to local 'value'"));
 
         let mutable_reference_struct_clone = parse_program(
-            "(#struct MutView ((data (#ref-mut u64)))) (#fn main () () (#let-mut value u64 40) (#let view MutView (#struct-literal MutView ((data (#borrow-mut value))))) (#let duplicate MutView (#clone view)) (#return ()))",
+            "(#struct MutView ((data (#ref-mut #u64)))) (#fn main () () (#let-mut value #u64 40) (#let view MutView (#struct-literal MutView ((data (#borrow-mut value))))) (#let duplicate MutView (#clone view)) (#return ()))",
         )
         .unwrap();
         assert!(check_types(&mutable_reference_struct_clone)
@@ -11333,15 +11387,16 @@ mod tests {
 
     #[test]
     fn checks_raw_pointers_and_unsafe_blocks() {
-        let null_pointer_program =
-            parse_program("(#fn make-null () (#ptr-mut u64) (#return (#ptr-null (#ptr-mut u64))))")
-                .unwrap();
+        let null_pointer_program = parse_program(
+            "(#fn make-null () (#ptr-mut #u64) (#return (#ptr-null (#ptr-mut #u64))))",
+        )
+        .unwrap();
         assert!(check_types(&null_pointer_program).is_ok());
         let null_assembly = generate_assembly(&null_pointer_program).unwrap();
         assert!(null_assembly.contains("xor eax, eax"));
 
         let pointer_null_test = parse_program(
-            "(#fn main () bool (#let pointer (#ptr u64) (#ptr-null (#ptr u64))) (#return (#ptr-is-null pointer)))",
+            "(#fn main () #bool (#let pointer (#ptr #u64) (#ptr-null (#ptr #u64))) (#return (#ptr-is-null pointer)))",
         )
         .unwrap();
         assert!(check_types(&pointer_null_test).is_ok());
@@ -11350,32 +11405,32 @@ mod tests {
             .contains("sete al"));
 
         let pointer_address = parse_program(
-            "(#fn main () usize (#let pointer (#ptr u8) (#ptr-null (#ptr u8))) (#return (#ptr-address pointer)))",
+            "(#fn main () #usize (#let pointer (#ptr #u8) (#ptr-null (#ptr #u8))) (#return (#ptr-address pointer)))",
         )
         .unwrap();
         assert!(check_types(&pointer_address).is_ok());
         assert!(generate_assembly(&pointer_address).is_ok());
         let invalid_address =
-            parse_program("(#fn main () usize (#return (#ptr-address 1usize)))").unwrap();
+            parse_program("(#fn main () #usize (#return (#ptr-address 1usize)))").unwrap();
         assert!(check_types(&invalid_address)
             .unwrap_err()
             .contains("ptr-address requires a raw pointer"));
 
         let untyped_null_pointer =
-            parse_program("(#fn bad () (#ptr u64) (#return (#ptr-null u64)))").unwrap();
+            parse_program("(#fn bad () (#ptr #u64) (#return (#ptr-null #u64)))").unwrap();
         assert!(check_types(&untyped_null_pointer)
             .unwrap_err()
             .contains("ptr-null requires an explicit raw-pointer type"));
 
         let pointer_program = parse_program(
-            "(#fn main () u64 (#let-mut value u64 40) (#return (#unsafe (#block (#let p (#ptr-mut u64) (#addr-of-mut value)) (#ptr-write p 42) (#ptr-read p)))))",
+            "(#fn main () #u64 (#let-mut value #u64 40) (#return (#unsafe (#block (#let p (#ptr-mut #u64) (#addr-of-mut value)) (#ptr-write p 42) (#ptr-read p)))))",
         )
         .unwrap();
         assert!(check_types(&pointer_program).is_ok());
         assert!(generate_assembly(&pointer_program).is_ok());
 
         let safe_pointer_use = parse_program(
-            "(#fn bad () u64 (#let value u64 42) (#return (#ptr-read (#addr-of value))))",
+            "(#fn bad () #u64 (#let value #u64 42) (#return (#ptr-read (#addr-of value))))",
         )
         .unwrap();
         assert!(check_types(&safe_pointer_use)
@@ -11383,7 +11438,7 @@ mod tests {
             .contains("requires an enclosing (#unsafe ...) block"));
 
         let immutable_pointer_write = parse_program(
-            "(#fn bad () u64 (#let value u64 42) (#let p (#ptr u64) (#unsafe (#addr-of value))) (#unsafe (#ptr-write p 1)) (#return value))",
+            "(#fn bad () #u64 (#let value #u64 42) (#let p (#ptr #u64) (#unsafe (#addr-of value))) (#unsafe (#ptr-write p 1)) (#return value))",
         )
         .unwrap();
         assert!(check_types(&immutable_pointer_write)
@@ -11391,7 +11446,7 @@ mod tests {
             .contains("mutable raw pointer"));
 
         let pointer_offset = parse_program(
-            "(#fn main () u64 (#let-mut value u64 42u64) (#let pointer (#ptr-mut u64) (#unsafe (#addr-of-mut value))) (#return (#unsafe (#ptr-read (#ptr-offset pointer 0usize)))))",
+            "(#fn main () #u64 (#let-mut value #u64 42u64) (#let pointer (#ptr-mut #u64) (#unsafe (#addr-of-mut value))) (#return (#unsafe (#ptr-read (#ptr-offset pointer 0usize)))))",
         )
         .unwrap();
         assert!(check_types(&pointer_offset).is_ok());
@@ -11400,7 +11455,7 @@ mod tests {
         assert!(assembly.contains("pointer_offset_overflow"));
 
         let wrong_index_type = parse_program(
-            "(#fn bad ((pointer (#ptr u64))) (#ptr u64) (#return (#unsafe (#ptr-offset pointer 0u64))))",
+            "(#fn bad ((pointer (#ptr #u64))) (#ptr #u64) (#return (#unsafe (#ptr-offset pointer 0u64))))",
         )
         .unwrap();
         assert!(check_types(&wrong_index_type)
@@ -11408,7 +11463,7 @@ mod tests {
             .contains("expected Usize"));
 
         let missing_unsafe = parse_program(
-            "(#fn bad ((pointer (#ptr u64))) (#ptr u64) (#return (#ptr-offset pointer 1usize)))",
+            "(#fn bad ((pointer (#ptr #u64))) (#ptr #u64) (#return (#ptr-offset pointer 1usize)))",
         )
         .unwrap();
         assert!(check_types(&missing_unsafe)
@@ -11416,7 +11471,7 @@ mod tests {
             .contains("requires an enclosing (#unsafe ...) block"));
 
         let unsafe_span_source =
-            "(#fn bad ((pointer (#ptr u64))) (#ptr u64)\n  (#return (#ptr-offset pointer 1usize)))";
+            "(#fn bad ((pointer (#ptr #u64))) (#ptr #u64)\n  (#return (#ptr-offset pointer 1usize)))";
         let unsafe_span_program = parse_program(unsafe_span_source).unwrap();
         let unsafe_diagnostic = structured_type_error(&unsafe_span_program);
         let span = unsafe_diagnostic
@@ -11425,7 +11480,7 @@ mod tests {
         assert_eq!(&unsafe_span_source[span.start..span.end], "#ptr-offset");
 
         let return_borrow_from_raw_pointer = parse_program(
-            "(#fn expose ((anchor (#ref u64)) (pointer (#ptr u64))) (#ref u64) (#let reference (#ref u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference)) (#fn bad () u64 (#let-mut value u64 41) (#let pointer (#ptr u64) (#unsafe (#addr-of value))) (#let reference (#ref u64) (#call expose (: anchor (#borrow value) : pointer pointer))) (#set value 42) (#return (#deref reference)))",
+            "(#fn expose ((anchor (#ref #u64)) (pointer (#ptr #u64))) (#ref #u64) (#let reference (#ref #u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference)) (#fn bad () #u64 (#let-mut value #u64 41) (#let pointer (#ptr #u64) (#unsafe (#addr-of value))) (#let reference (#ref #u64) (#call expose (: anchor (#borrow value) : pointer pointer))) (#set value 42) (#return (#deref reference)))",
         )
         .unwrap();
         let error = check_types(&return_borrow_from_raw_pointer).unwrap_err();
@@ -11435,7 +11490,7 @@ mod tests {
         );
 
         let valid_return_borrow_from_raw_pointer = parse_program(
-            "(#fn expose ((anchor (#ref u64)) (pointer (#ptr u64))) (#ref u64) (#let reference (#ref u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference)) (#fn main () u64 (#let-mut value u64 41) (#let pointer (#ptr u64) (#unsafe (#addr-of value))) (#let reference (#ref u64) (#call expose (: anchor (#borrow value) : pointer pointer))) (#return (#deref reference)))",
+            "(#fn expose ((anchor (#ref #u64)) (pointer (#ptr #u64))) (#ref #u64) (#let reference (#ref #u64) (#unsafe (#ptr-borrow anchor pointer))) (#forget pointer) (#return reference)) (#fn main () #u64 (#let-mut value #u64 41) (#let pointer (#ptr #u64) (#unsafe (#addr-of value))) (#let reference (#ref #u64) (#call expose (: anchor (#borrow value) : pointer pointer))) (#return (#deref reference)))",
         )
         .unwrap();
         let checked = check_types(&valid_return_borrow_from_raw_pointer);
@@ -11443,7 +11498,7 @@ mod tests {
         assert!(generate_assembly(&valid_return_borrow_from_raw_pointer).is_ok());
 
         let mutable_borrow_with_immutable_anchor = parse_program(
-            "(#fn bad ((anchor (#ref u64)) (pointer (#ptr-mut u64))) (#ref-mut u64) (#return (#unsafe (#ptr-borrow-mut anchor pointer))))",
+            "(#fn bad ((anchor (#ref #u64)) (pointer (#ptr-mut #u64))) (#ref-mut #u64) (#return (#unsafe (#ptr-borrow-mut anchor pointer))))",
         )
         .unwrap();
         assert!(check_types(&mutable_borrow_with_immutable_anchor)
@@ -11453,25 +11508,25 @@ mod tests {
 
     #[test]
     fn rejects_legacy_forms() {
-        let missing_prefix = parse_program("(fn main () u64 (#return 42))").unwrap_err();
+        let missing_prefix = parse_program("(fn main () #u64 (#return 42))").unwrap_err();
         assert!(missing_prefix.contains("must use its '#' prefix"));
-        let missing_return = parse_program("(#fn main () u64 42)").unwrap_err();
+        let missing_return = parse_program("(#fn main () #u64 42)").unwrap_err();
         assert!(missing_return.contains("explicit"));
         let unqualified_arithmetic =
-            parse_program("(#fn main () u64 (#return (#+ 40 2)))").unwrap_err();
+            parse_program("(#fn main () #u64 (#return (#+ 40 2)))").unwrap_err();
         assert!(unqualified_arithmetic.contains("explicit type qualifier"));
         let unqualified_comparison =
-            parse_program("(#fn main () bool (#return (#== 40 2)))").unwrap_err();
+            parse_program("(#fn main () #bool (#return (#== 40 2)))").unwrap_err();
         assert!(unqualified_comparison.contains("explicit type qualifier"));
-        assert!(parse_program("(#fn main () bool (#return (#u64.== 40 2)))").is_ok());
+        assert!(parse_program("(#fn main () #bool (#return (#u64.== 40 2)))").is_ok());
         let missing_match_case =
-            parse_program("(#fn main () u64 (#return (#match true (true 1u64) (#case _ 0u64))))")
+            parse_program("(#fn main () #u64 (#return (#match true (true 1u64) (#case _ 0u64))))")
                 .unwrap_err();
         assert!(missing_match_case.contains("each #match arm must use #case"));
-        let valid = parse_program("(#fn main () u64 (#return (#u64.+.wrap 40 2)))");
+        let valid = parse_program("(#fn main () #u64 (#return (#u64.+.wrap 40 2)))");
         assert!(valid.is_ok());
         let external = parse_program(
-            "(#extern-fn #abi-c abs ((value i32)) i32) (#fn main () u64 (#return (#as (#unsafe (#call abs (: value -42))) u64)))",
+            "(#extern-fn #abi-c abs ((value #i32)) #i32) (#fn main () #u64 (#return (#as (#unsafe (#call abs (: value -42))) #u64)))",
         )
         .unwrap();
         assert!(check_types(&external).is_ok());
@@ -11479,7 +11534,7 @@ mod tests {
         assert!(external_assembly.contains(".extern abs"));
         assert!(external_assembly.contains("call abs"));
         let unsafe_boundary = parse_program(
-            "(#extern-fn #abi-c abs ((value i32)) i32) (#fn main () u64 (#return (#as (#call abs (: value -42)) u64)))",
+            "(#extern-fn #abi-c abs ((value #i32)) #i32) (#fn main () #u64 (#return (#as (#call abs (: value -42)) #u64)))",
         )
         .unwrap();
         assert!(check_types(&unsafe_boundary)
@@ -11495,13 +11550,13 @@ mod tests {
         assert_eq!(tokens[2].kind, TokenKind::Symbol(".".into()));
         assert_eq!(tokens[3].kind, TokenKind::Symbol("#u64.+.wrap".into()));
         let program = parse_program(
-            "(#fn util.add-one () u64 (#return 42))
-             (#fn main () u64
-               (#let-mut value.local u64 (#call util.add-one (:)))
+            "(#fn util.add-one () #u64 (#return 42))
+             (#fn main () #u64
+               (#let-mut value.local #u64 (#call util.add-one (:)))
                (#set value.local 84u64)
                (#return value.local))
-             (#fn wide.value () i128
-               (#let-mut wide.local i128 12)
+             (#fn wide.value () #i128
+               (#let-mut wide.local #i128 12)
                (#set wide.local 15)
                (#return wide.local))",
         )
@@ -11513,22 +11568,22 @@ mod tests {
 
     #[test]
     fn parses_nested_lists_quotes_and_comments() {
-        let expressions = parse("# header\n'(#fn main () i32 42) ; tail\n").unwrap();
+        let expressions = parse("# header\n'(#fn main () #i32 42) ; tail\n").unwrap();
         assert!(matches!(expressions[0].expr, Expr::Quote(_)));
     }
 
     #[test]
     fn colon_groups_expand_to_lists_and_require_a_prefix() {
-        let shorthand = "(: text (#slice char) : control u32)";
+        let shorthand = "(: text (#slice #char) : control #u32)";
         let parsed = parse(shorthand).unwrap();
         assert_eq!(
             parsed[0].expr,
-            parse("((text (#slice char)) (control u32))").unwrap()[0].expr
+            parse("((text (#slice #char)) (control #u32))").unwrap()[0].expr
         );
         assert_eq!(parsed[0].children.len(), 2);
         assert_eq!(
             &shorthand[parsed[0].children[1].span.start..parsed[0].children[1].span.end],
-            ": control u32"
+            ": control #u32"
         );
         assert_eq!(parse("(:)").unwrap()[0].expr, Expr::List(vec![]));
         for invalid in ["(name : value)", "(: x : : y)", "(: x :)", ":"] {
@@ -11543,29 +11598,29 @@ mod tests {
 
     #[test]
     fn colon_groups_work_in_signatures_and_named_calls() {
-        let source = "(#fn sum (: index u32 : right u32) u32
+        let source = "(#fn sum (: index #u32 : right #u32) #u32
           (#return (#u32.+.wrap index right)))
-          (#fn main () u32
+          (#fn main () #u32
             (#return (#call sum (: right 2u32 : index 40u32))))";
         let program = parse_program(source).unwrap();
         assert!(check_types(&program).is_ok(), "{:?}", check_types(&program));
         assert!(generate_assembly(&program).is_ok());
         let empty = parse_program(
-            "(#fn answer (:) u32 (#return 42u32))
-             (#fn main (:) u32 (#return (#call answer (:))))",
+            "(#fn answer (:) #u32 (#return 42u32))
+             (#fn main (:) #u32 (#return (#call answer (:))))",
         )
         .unwrap();
         assert!(check_types(&empty).is_ok());
-        assert!(parse_program("(#extern-fn #abi-c abs (: value i32) i32)").is_ok());
+        assert!(parse_program("(#extern-fn #abi-c abs (: value #i32) #i32)").is_ok());
         let missing = parse_program(
-            "(#fn take (: left u32 : right u32) u32 (#return left))
-             (#fn main () u32 (#return (#call take (: left 1u32))))",
+            "(#fn take (: left #u32 : right #u32) #u32 (#return left))
+             (#fn main () #u32 (#return (#call take (: left 1u32))))",
         )
         .unwrap_err();
         assert!(missing.contains("missing parameter"), "{missing}");
 
-        let duplicate = "(#fn take (: left u32) u32 (#return left))
-          (#fn main () u32 (#return (#call take (: left 1u32 : left 2u32))))";
+        let duplicate = "(#fn take (: left #u32) #u32 (#return left))
+          (#fn main () #u32 (#return (#call take (: left 1u32 : left 2u32))))";
         let cache =
             std::env::temp_dir().join(format!("lim-colon-duplicate-cache-{}", std::process::id()));
         let error = compile_source_to_assembly(
@@ -11580,8 +11635,8 @@ mod tests {
         let span = error.span.expect("duplicate argument has a source span");
         assert_eq!(&duplicate[span.start..span.end], "left");
         let obsolete = parse_program(
-            "(#fn take (: value u32) u32 (#return value))
-             (#fn main () u32 (#return (#call take (#fn-args (value 1u32)))))",
+            "(#fn take (: value #u32) #u32 (#return value))
+             (#fn main () #u32 (#return (#call take (#fn-args (value 1u32)))))",
         )
         .unwrap_err();
         assert!(obsolete.contains("named argument"), "{obsolete}");
@@ -11589,10 +11644,10 @@ mod tests {
 
     #[test]
     fn formatter_keeps_colon_group_spelling() {
-        let source = "(#fn take (: left u32 : right u32) u32 (#return left))
-          (#fn main () u32 (#return (#call take (: right 2u32 : left 40u32))))";
+        let source = "(#fn take (: left #u32 : right #u32) #u32 (#return left))
+          (#fn main () #u32 (#return (#call take (: right 2u32 : left 40u32))))";
         let formatted = format_source(source).unwrap();
-        assert!(formatted.contains("(: left u32 : right u32)"));
+        assert!(formatted.contains("(: left #u32 : right #u32)"));
         assert!(formatted.contains("(: right 2u32 : left 40u32)"));
         assert_eq!(format_source(&formatted).unwrap(), formatted);
     }
@@ -11664,7 +11719,7 @@ mod tests {
     #[test]
     fn parses_typed_lets_and_functions() {
         let program = parse_program(
-            "(#fn add ((left u32) (right u64)) u64 (#let total u64 (#u64.+.wrap  left right)) (#return total))",
+            "(#fn add ((left #u32) (right #u64)) #u64 (#let total #u64 (#u64.+.wrap  left right)) (#return total))",
         )
         .unwrap();
         let Item::Function(function) = &program.items[0] else {
@@ -11683,13 +11738,13 @@ mod tests {
             Statement::Return(Some(Expr::Symbol(ref name))) if name == "total"
         ));
         let local_const = parse_program(
-            "(#fn main () u64 (#const Answer u64 40) (#return (#u64.+.wrap  Answer 2)))",
+            "(#fn main () #u64 (#const Answer #u64 40) (#return (#u64.+.wrap  Answer 2)))",
         )
         .unwrap();
         assert!(check_types(&local_const).is_ok());
         assert!(generate_assembly(&local_const).is_ok());
         let mutable_const = parse_program(
-            "(#fn main () u64 (#const Answer u64 40) (#set Answer 42) (#return Answer))",
+            "(#fn main () #u64 (#const Answer #u64 40) (#set Answer 42) (#return Answer))",
         )
         .unwrap();
         assert!(check_types(&mutable_const)
@@ -11698,12 +11753,13 @@ mod tests {
         let generic =
             parse_program("(#fn identity (T) ((value T)) T (#return value))").unwrap_err();
         assert!(generic.contains("generic functions are not supported"));
-        let instantiated = parse_program("(#fn main () u64 (#return (identity<u64> 42)))").unwrap();
+        let instantiated =
+            parse_program("(#fn main () #u64 (#return (identity<#u64> 42)))").unwrap();
         assert!(check_types(&instantiated)
             .unwrap_err()
             .contains("angle-bracket generic calls are not supported"));
         let concrete = parse_program(
-            "(#fn identity-u64 ((value u64)) u64 (#return value)) (#fn main () u64 (#return (#call identity-u64 (: value 42))))",
+            "(#fn identity-u64 ((value #u64)) #u64 (#return value)) (#fn main () #u64 (#return (#call identity-u64 (: value 42))))",
         )
         .unwrap();
         assert!(check_types(&concrete).is_ok());
@@ -11713,7 +11769,7 @@ mod tests {
     #[test]
     fn parses_all_builtin_scalar_types_and_named_types() {
         let program = parse_program(
-            "(#fn types ((a u8) (b u16) (c u32) (d u64) (e u128) (f usize) (g i8) (h i16) (i i32) (j i64) (k i128) (l isize) (m f32) (n f64) (o bool) (p char) (q UserId)) () (#return ()))",
+            "(#fn types ((a #u8) (b #u16) (c #u32) (d #u64) (e #u128) (f #usize) (g #i8) (h #i16) (i #i32) (j #i64) (k #i128) (l #isize) (m #f32) (n #f64) (o #bool) (p #char) (q UserId)) () (#return ()))",
         )
         .unwrap();
         let Item::Function(function) = &program.items[0] else {
@@ -11727,7 +11783,7 @@ mod tests {
     #[test]
     fn parses_and_checks_typed_constants() {
         let program = parse_program(
-            "(#const Answer u64 (#u64.+.wrap  40 2)) (#fn main () u64 (#return Answer))",
+            "(#const Answer #u64 (#u64.+.wrap  40 2)) (#fn main () #u64 (#return Answer))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -11738,7 +11794,7 @@ mod tests {
     #[test]
     fn evaluates_typed_float_constants() {
         let program = parse_program(
-            "(#const Scale f32 (#f32.* Base 2.0)) (#const Base f32 1.5) (#const Pi f64 (#f64.+ 3.0 0.25)) (#fn main () u64 (#return (#if (#bool.&& (#f32.> Scale 2.9) (#f64.> Pi 3.2)) 42 0)))",
+            "(#const Scale #f32 (#f32.* Base 2.0)) (#const Base #f32 1.5) (#const Pi #f64 (#f64.+ 3.0 0.25)) (#fn main () #u64 (#return (#if (#bool.&& (#f32.> Scale 2.9) (#f64.> Pi 3.2)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -11750,12 +11806,12 @@ mod tests {
     #[test]
     fn parses_and_checks_immutable_statics() {
         let program = parse_program(
-            "(#static BuildId u64 7) (#fn main () u64 (#return (#u64.+.wrap  (#unsafe BuildId) 35)))",
+            "(#static BuildId #u64 7) (#fn main () #u64 (#return (#u64.+.wrap  (#unsafe BuildId) 35)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let safe_read =
-            parse_program("(#static BuildId u64 7) (#fn main () u64 (#return BuildId))").unwrap();
+            parse_program("(#static BuildId #u64 7) (#fn main () #u64 (#return BuildId))").unwrap();
         assert!(check_types(&safe_read)
             .unwrap_err()
             .contains("access to static 'BuildId' requires"));
@@ -11765,7 +11821,7 @@ mod tests {
     #[test]
     fn lowers_aggregate_statics_for_index_and_field_reads() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#static Values (#array u64 3) (#array (#array u64 3) 10 20 30)) (#static Origin Point (#struct-literal Point ((x 7) (y 9)))) (#static Pair (#tuple u64 f64) (#tuple (#tuple u64 f64) 4 2.5)) (#enum Maybe ((Some u64) None)) (#static Choice Maybe (Some 12)) (#fn take ((values (#array u64 3)) (point Point)) u64 (#return (#u64.+.wrap (#index values 1) (#get point y)))) (#fn return-values () (#array u64 3) (#return (#unsafe Values))) (#fn read-choice ((choice Maybe)) u64 (#return (#match choice (#case (Some value) value) (#case None 0)))) (#fn return-choice () Maybe (#return (#unsafe Choice))) (#fn main () u64 (#let copied (#array u64 3) (#unsafe Values)) (#let copied-choice Maybe (#unsafe Choice)) (#return (#u64.+.wrap (#index copied 0) (#u64.+.wrap (#index (#call return-values (:)) 2) (#u64.+.wrap (#call take (: values (#unsafe Values) : point (#unsafe Origin))) (#u64.+.wrap (#call read-choice (: choice copied-choice)) (#call read-choice (: choice (#call return-choice (:))))))))))",
+            "(#struct Point ((x #u64) (y #u64))) (#static Values (#array #u64 3) (#array (#array #u64 3) 10 20 30)) (#static Origin Point (#struct-literal Point ((x 7) (y 9)))) (#static Pair (#tuple #u64 #f64) (#tuple (#tuple #u64 #f64) 4 2.5)) (#enum Maybe ((Some #u64) None)) (#static Choice Maybe (Some 12)) (#fn take ((values (#array #u64 3)) (point Point)) #u64 (#return (#u64.+.wrap (#index values 1) (#get point y)))) (#fn return-values () (#array #u64 3) (#return (#unsafe Values))) (#fn read-choice ((choice Maybe)) #u64 (#return (#match choice (#case (Some value) value) (#case None 0)))) (#fn return-choice () Maybe (#return (#unsafe Choice))) (#fn main () #u64 (#let copied (#array #u64 3) (#unsafe Values)) (#let copied-choice Maybe (#unsafe Choice)) (#return (#u64.+.wrap (#index copied 0) (#u64.+.wrap (#index (#call return-values (:)) 2) (#u64.+.wrap (#call take (: values (#unsafe Values) : point (#unsafe Origin))) (#u64.+.wrap (#call read-choice (: choice copied-choice)) (#call read-choice (: choice (#call return-choice (:))))))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -11776,7 +11832,7 @@ mod tests {
     #[test]
     fn evaluates_floating_remainder_constants() {
         let program = parse_program(
-            "(#const Remainder f64 (#f64.% 7.5 2.5)) (#fn main () u64 (#return (#if (#f64.== Remainder 0.0) 42 0)))",
+            "(#const Remainder #f64 (#f64.% 7.5 2.5)) (#fn main () #u64 (#return (#if (#f64.== Remainder 0.0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -11786,10 +11842,10 @@ mod tests {
 
     #[test]
     fn rejects_malformed_let_and_functions() {
-        assert!(parse_program("(#let value u32)")
+        assert!(parse_program("(#let value #u32)")
             .unwrap_err()
             .contains("let requires"));
-        assert!(parse_program("(#fn broken ((value u32)) u32)")
+        assert!(parse_program("(#fn broken ((value #u32)) #u32)")
             .unwrap_err()
             .contains("explicit"));
         assert!(parse_program("(unknown form)")
@@ -11798,14 +11854,14 @@ mod tests {
         assert!(parse_program("(#fn empty () ())")
             .unwrap_err()
             .contains("explicit"));
-        assert!(parse_program("(#fn missing () u64)")
+        assert!(parse_program("(#fn missing () #u64)")
             .unwrap_err()
             .contains("explicit"));
     }
 
     #[test]
     fn generates_native_integer_assembly() {
-        let program = parse_program("(#fn main () i64 (#return (#i64.+.wrap  20 22)))").unwrap();
+        let program = parse_program("(#fn main () #i64 (#return (#i64.+.wrap  20 22)))").unwrap();
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains(".globl main"));
         assert!(assembly.contains("add rax, rcx"));
@@ -11817,12 +11873,12 @@ mod tests {
     #[test]
     fn type_checks_variables_calls_and_returns() {
         let program =
-            parse_program("(#fn inc ((value u32)) u32 (#return (#u32.+.wrap  value 1))) (#fn main () u32 (#return (#call inc (: value 41))))")
+            parse_program("(#fn inc ((value #u32)) #u32 (#return (#u32.+.wrap  value 1))) (#fn main () #u32 (#return (#call inc (: value 41))))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
-        let mismatch = parse_program("(#fn main () u32 (#return true))").unwrap();
+        let mismatch = parse_program("(#fn main () #u32 (#return true))").unwrap();
         assert!(check_types(&mismatch).unwrap_err().contains("expected U32"));
-        let unknown = parse_program("(#fn main () u32 (#return missing))").unwrap();
+        let unknown = parse_program("(#fn main () #u32 (#return missing))").unwrap();
         assert!(check_types(&unknown)
             .unwrap_err()
             .contains("unknown variable"));
@@ -11831,7 +11887,7 @@ mod tests {
     #[test]
     fn rejects_shadowed_local_bindings() {
         let program = parse_program(
-            "(#fn main () u64 (#let value u64 40) (#let value u64 (#u64.+.wrap value 1)) (#return (#u64.+.wrap value (#block (#let value u64 1) (#u64.+.wrap value 1)))))",
+            "(#fn main () #u64 (#let value #u64 40) (#let value #u64 (#u64.+.wrap value 1)) (#return (#u64.+.wrap value (#block (#let value #u64 1) (#u64.+.wrap value 1)))))",
         )
         .unwrap_err();
         assert!(program.contains("binding 'value' shadows an existing binding"));
@@ -11840,7 +11896,7 @@ mod tests {
     #[test]
     fn rejects_parameters_that_shadow_globals() {
         let error = parse_program(
-            "(#let value u64 10) (#fn read ((value u64)) u64 (#return value)) (#fn main () u64 (#return (#call read (: value 42))))",
+            "(#let value #u64 10) (#fn read ((value #u64)) #u64 (#return value)) (#fn main () #u64 (#return (#call read (: value 42))))",
         )
         .unwrap_err();
         assert!(error.contains("binding 'value' shadows an existing binding"));
@@ -11849,7 +11905,7 @@ mod tests {
     #[test]
     fn rejects_match_bindings_that_shadow_outer_locals() {
         let error = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#let value u64 40) (#return (#match (Some 1) (#case (Some value) (#u64.+.wrap value 1)) (#case None value))))",
+            "(#enum Maybe ((Some #u64) None)) (#fn main () #u64 (#let value #u64 40) (#return (#match (Some 1) (#case (Some value) (#u64.+.wrap value 1)) (#case None value))))",
         )
         .unwrap_err();
         assert!(error.contains("binding 'value' shadows an existing binding"));
@@ -11858,7 +11914,7 @@ mod tests {
     #[test]
     fn preserves_type_descriptors_when_a_local_matches_a_type_name() {
         let program = parse_program(
-            "(#fn main () u64 (#let u64 u64 40) (#return (#u64.+.wrap (#get (#tuple (#tuple u64 u64) u64 2) 0) 2)))",
+            "(#fn main () #u64 (#let #u64 #u64 40) (#return (#u64.+.wrap (#get (#tuple (#tuple #u64 #u64) #u64 2) 0) 2)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -11868,7 +11924,7 @@ mod tests {
     #[test]
     fn parses_mutable_while_statements() {
         let program =
-            parse_program("(#fn count () u64 (#let-mut n u64 0) (#while (#u64.<  (#clone n) 3) (#set n (#u64.+.wrap  n 1))) (#return n))")
+            parse_program("(#fn count () #u64 (#let-mut n #u64 0) (#while (#u64.<  (#clone n) 3) (#set n (#u64.+.wrap  n 1))) (#return n))")
                 .unwrap();
         let Item::Function(function) = &program.items[0] else {
             panic!()
@@ -11883,9 +11939,9 @@ mod tests {
 
     #[test]
     fn accepts_u64_literals_above_i64_range() {
-        let program = parse_program("(#fn main () u64 (#return 18446744073709551615))").unwrap();
+        let program = parse_program("(#fn main () #u64 (#return 18446744073709551615))").unwrap();
         assert!(check_types(&program).is_ok());
-        let too_large = parse_program("(#fn main () u32 (#return 4294967296))").unwrap();
+        let too_large = parse_program("(#fn main () #u32 (#return 4294967296))").unwrap();
         assert!(check_types(&too_large)
             .unwrap_err()
             .contains("does not fit"));
@@ -11894,7 +11950,7 @@ mod tests {
     #[test]
     fn checks_break_and_continue_scope() {
         let valid = parse_program(
-            "(#fn main () u64 (#let-mut n u64 0) (#while (#u64.<  (#clone n) 3) (#set n (#u64.+.wrap  n 1)) (#continue)) (#return n))",
+            "(#fn main () #u64 (#let-mut n #u64 0) (#while (#u64.<  (#clone n) 3) (#set n (#u64.+.wrap  n 1)) (#continue)) (#return n))",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok());
@@ -11907,7 +11963,7 @@ mod tests {
     #[test]
     fn scopes_loop_value_breaks_to_their_own_loop() {
         let nested_statement =
-            parse_program("(#fn main () u64 (#loop (#loop (#break 7))) (#return 42))").unwrap();
+            parse_program("(#fn main () #u64 (#loop (#loop (#break 7))) (#return 42))").unwrap();
         assert!(check_types(&nested_statement).is_ok());
         let Item::Function(function) = &nested_statement.items[0] else {
             panic!("expected a function");
@@ -11915,14 +11971,14 @@ mod tests {
         assert!(matches!(function.body[0], Statement::Loop { .. }));
 
         let mismatched =
-            parse_program("(#fn main () u64 (#return (#loop (#loop (#break true)) (#break 42))))")
+            parse_program("(#fn main () #u64 (#return (#loop (#loop (#break true)) (#break 42))))")
                 .unwrap();
         assert!(check_types(&mismatched).is_ok());
     }
 
     #[test]
     fn checks_and_lowers_early_return() {
-        let program = parse_program("(#fn main () u64 (#return 42) (#return 0))").unwrap();
+        let program = parse_program("(#fn main () #u64 (#return 42) (#return 0))").unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("mov rax, 42"));
@@ -11932,7 +11988,7 @@ mod tests {
     #[test]
     fn generates_integer_operator_family() {
         let program = parse_program(
-            "(#fn main () i64 (#return (#i64.%.wrap  (#i64./.wrap  (#i64.^  20 1) 2) 3)))",
+            "(#fn main () #i64 (#return (#i64.%.wrap  (#i64./.wrap  (#i64.^  20 1) 2) 3)))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -11943,7 +11999,7 @@ mod tests {
 
     #[test]
     fn emits_wide_division_by_zero_traps() {
-        let program = parse_program("(#fn main () u128 (#return (#u128.%.wrap 1 0)))").unwrap();
+        let program = parse_program("(#fn main () #u128 (#return (#u128.%.wrap 1 0)))").unwrap();
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("wide_division_by_zero"));
         assert!(assembly.contains("ud2"));
@@ -11952,7 +12008,7 @@ mod tests {
     #[test]
     fn lowers_unsigned_division_and_remainder() {
         let program = parse_program(
-            "(#fn main () u64 (#let left u64 20) (#let right u64 3) (#return (#u64.+.wrap  (#u64./.wrap  (#clone left) (#clone right)) (#u64.%.wrap  left right))))",
+            "(#fn main () #u64 (#let left #u64 20) (#let right #u64 3) (#return (#u64.+.wrap  (#u64./.wrap  (#clone left) (#clone right)) (#u64.%.wrap  left right))))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -11963,7 +12019,7 @@ mod tests {
     #[test]
     fn lowers_float_values_inside_aggregates() {
         let program = parse_program(
-            "(#struct Point ((x f64) (y f32))) (#fn main () u64 (#let point Point (#struct-literal Point ((x 1.5) (y 2.5)))) (#let x f64 (#get point x)) (#let values (#array f32 2) (#array 1.5 2.5)) (#let y f32 (#index values 1)) (#return (#if (#bool.&& (#f64.> x 1.0) (#f32.> y 2.0)) 42 0)))",
+            "(#struct Point ((x #f64) (y #f32))) (#fn main () #u64 (#let point Point (#struct-literal Point ((x 1.5) (y 2.5)))) (#let x #f64 (#get point x)) (#let values (#array #f32 2) (#array 1.5 2.5)) (#let y #f32 (#index values 1)) (#return (#if (#bool.&& (#f64.> x 1.0) (#f32.> y 2.0)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -11975,7 +12031,7 @@ mod tests {
     #[test]
     fn preserves_unsigned_comparisons_and_shifts() {
         let program =
-            parse_program("(#fn main () u64 (#let value u64 1) (#return (#if (#u64.<  (#clone value) 2) (#u64.>>  value 1) 0)))")
+            parse_program("(#fn main () #u64 (#let value #u64 1) (#return (#if (#u64.<  (#clone value) 2) (#u64.>>  value 1) 0)))")
                 .unwrap();
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("setb al"), "{assembly}");
@@ -11984,17 +12040,18 @@ mod tests {
 
     #[test]
     fn checks_and_lowers_explicit_integer_casts() {
-        let program = parse_program("(#fn main () u64 (#return (#as (#as 42 u32) u64)))").unwrap();
+        let program =
+            parse_program("(#fn main () #u64 (#return (#as (#as 42 #u32) #u64)))").unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).unwrap().contains("mov rax, 42"));
-        let invalid = parse_program("(#fn main () u64 (#return (#as 42 ())))").unwrap();
+        let invalid = parse_program("(#fn main () #u64 (#return (#as 42 ())))").unwrap();
         assert!(check_types(&invalid).unwrap_err().contains("numeric"));
     }
 
     #[test]
     fn checks_and_lowers_numeric_casts() {
         let program = parse_program(
-            "(#fn main () u64 (#let value f64 41.75) (#let whole u64 (#as value u64)) (#let small f32 (#as whole f32)) (#return (#as small u64)))",
+            "(#fn main () #u64 (#let value #f64 41.75) (#let whole #u64 (#as value #u64)) (#let small #f32 (#as whole #f32)) (#return (#as small #u64)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12007,14 +12064,14 @@ mod tests {
     #[test]
     fn checks_and_lowers_128_bit_casts() {
         let program = parse_program(
-            "(#fn widen () u128 (#return (#as 42 u128))) (#fn main () u64 (#let value u128 (#call widen (:))) (#return (#as value u64)))",
+            "(#fn widen () #u128 (#return (#as 42 #u128))) (#fn main () #u64 (#let value #u128 (#call widen (:))) (#return (#as value #u64)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("sar rdx, 63"));
         let signed =
-            parse_program("(#fn main ((value i128)) i64 (#return (#as value i64)))").unwrap();
+            parse_program("(#fn main ((value #i128)) #i64 (#return (#as value #i64)))").unwrap();
         assert!(check_types(&signed).is_ok());
         assert!(generate_assembly(&signed).is_ok());
     }
@@ -12022,7 +12079,7 @@ mod tests {
     #[test]
     fn passes_aggregate_values_with_mixed_float_parameters() {
         let program = parse_program(
-            "(#struct Pair ((scale f32) (value u64))) (#fn consume ((pair Pair) (factor f32)) u64 (#return (#if (#f32.>  (#get pair scale) 1.0) (#u64.+.wrap (#get pair value) 1) 0))) (#fn main () u64 (#return (#call consume (: pair (#struct-literal Pair ((scale 1.5) (value 41))) : factor 2.0))))",
+            "(#struct Pair ((scale #f32) (value #u64))) (#fn consume ((pair Pair) (factor #f32)) #u64 (#return (#if (#f32.>  (#get pair scale) 1.0) (#u64.+.wrap (#get pair value) 1) 0))) (#fn main () #u64 (#return (#call consume (: pair (#struct-literal Pair ((scale 1.5) (value 41))) : factor 2.0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12034,7 +12091,7 @@ mod tests {
     #[test]
     fn passes_six_field_structs_through_functions() {
         let program = parse_program(
-            "(#struct Values ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64))) (#fn make () Values (#return (#struct-literal Values ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6))))) (#fn sum ((value Values)) u64 (#return (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#get value a) (#get value b)) (#get value c)) (#get value d)) (#get value e)) (#get value f)))) (#fn main () u64 (#return (#call sum (: value (#call make (:))))))",
+            "(#struct Values ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64))) (#fn make () Values (#return (#struct-literal Values ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6))))) (#fn sum ((value Values)) #u64 (#return (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#get value a) (#get value b)) (#get value c)) (#get value d)) (#get value e)) (#get value f)))) (#fn main () #u64 (#return (#call sum (: value (#call make (:))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12046,7 +12103,7 @@ mod tests {
     #[test]
     fn passes_mixed_f32_and_f64_parameters() {
         let program = parse_program(
-            "(#fn blend ((small f32) (large f64)) f64 (#return (#f64.+ (#as small f64) large))) (#fn main () u64 (#return (#if (#f64.> (#call blend (: small 1.5 : large 2.5)) 4.0) 42 0)))",
+            "(#fn blend ((small #f32) (large #f64)) #f64 (#return (#f64.+ (#as small #f64) large))) (#fn main () #u64 (#return (#if (#f64.> (#call blend (: small 1.5 : large 2.5)) 4.0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12058,7 +12115,7 @@ mod tests {
     #[test]
     fn passes_tuples_through_functions() {
         let program = parse_program(
-            "(#fn make () (#tuple u64 f32) (#return (#tuple 40 2.5))) (#fn consume ((value (#tuple u64 f32))) u64 (#return (#u64.+.wrap (#get value 0) (#as (#get value 1) u64)))) (#fn main () u64 (#let value (#tuple u64 f32) (#call make (:))) (#return (#call consume (: value value))))",
+            "(#fn make () (#tuple #u64 #f32) (#return (#tuple 40 2.5))) (#fn consume ((value (#tuple #u64 #f32))) #u64 (#return (#u64.+.wrap (#get value 0) (#as (#get value 1) #u64)))) (#fn main () #u64 (#let value (#tuple #u64 #f32) (#call make (:))) (#return (#call consume (: value value))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12070,7 +12127,7 @@ mod tests {
     #[test]
     fn mutates_tuple_fields() {
         let program = parse_program(
-            "(#fn main () u64 (#let-mut value (#tuple u64 f32) (#tuple 1 2.5)) (#set-field value 0 40) (#return (#u64.+.wrap (#get value 0) 2)))",
+            "(#fn main () #u64 (#let-mut value (#tuple #u64 #f32) (#tuple 1 2.5)) (#set-field value 0 40) (#return (#u64.+.wrap (#get value 0) 2)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12078,7 +12135,7 @@ mod tests {
             .unwrap()
             .contains("QWORD PTR [rbp-8]"));
         let invalid = parse_program(
-            "(#fn main () u64 (#let value (#tuple u64 f32) (#tuple 1 2.5)) (#set-field value 0 40) (#return 0))",
+            "(#fn main () #u64 (#let value (#tuple #u64 #f32) (#tuple 1 2.5)) (#set-field value 0 40) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&invalid)
@@ -12089,7 +12146,7 @@ mod tests {
     #[test]
     fn normalizes_integer_width_after_arithmetic() {
         let program = parse_program(
-            "(#fn main () u64 (#let value u8 (#u8.+.wrap (#as 255 u8) 1)) (#return (#if (#u8.== value 0) 42 0)))",
+            "(#fn main () #u64 (#let value #u8 (#u8.+.wrap (#as 255 #u8) 1)) (#return (#if (#u8.== value 0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12101,7 +12158,7 @@ mod tests {
     #[test]
     fn normalizes_typed_global_constants() {
         let program =
-            parse_program("(#let WRAPPED u8 (#u8.+.wrap 255 1)) (#fn main () u64 (#return (#if (#u8.== WRAPPED 0) 42 0)))")
+            parse_program("(#let WRAPPED #u8 (#u8.+.wrap 255 1)) (#fn main () #u64 (#return (#if (#u8.== WRAPPED 0) 42 0)))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
@@ -12111,7 +12168,7 @@ mod tests {
     #[test]
     fn evaluates_referenced_global_constants_and_integer_operators() {
         let program = parse_program(
-            "(#const Base u64 40) (#const Answer u64 (#u64.+.wrap  (#u64.*.wrap  Base 2) 2)) (#fn main () u64 (#return (#if (#u64.&&  (#u64.==  Answer 82) (#u64.>=  (#u64.<<  1 6) 64)) 42 0)))",
+            "(#const Base #u64 40) (#const Answer #u64 (#u64.+.wrap  (#u64.*.wrap  Base 2) 2)) (#fn main () #u64 (#return (#if (#u64.&&  (#u64.==  Answer 82) (#u64.>=  (#u64.<<  1 6) 64)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12122,7 +12179,7 @@ mod tests {
     #[test]
     fn evaluates_integer_casts_in_global_constants() {
         let program = parse_program(
-            "(#const Wrapped u8 (#as (#u8.+.wrap 255 1) u8)) (#fn main () u64 (#return (#if (#u8.== Wrapped 0) 42 0)))",
+            "(#const Wrapped #u8 (#as (#u8.+.wrap 255 1) #u8)) (#fn main () #u64 (#return (#if (#u8.== Wrapped 0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12134,7 +12191,7 @@ mod tests {
     #[test]
     fn evaluates_forward_global_constant_references() {
         let program = parse_program(
-            "(#const Answer u64 (#u64.+.wrap  Base 2)) (#const Base u64 40) (#fn main () u64 (#return Answer))",
+            "(#const Answer #u64 (#u64.+.wrap  Base 2)) (#const Base #u64 40) (#fn main () #u64 (#return Answer))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12142,7 +12199,7 @@ mod tests {
             .unwrap()
             .contains("Answer:\n    .quad 42"));
         let recursive = parse_program(
-            "(#const First u64 (#u64.+.wrap  Second 1)) (#const Second u64 (#u64.+.wrap  First 1)) (#fn main () u64 (#return First))",
+            "(#const First #u64 (#u64.+.wrap  Second 1)) (#const Second #u64 (#u64.+.wrap  First 1)) (#fn main () #u64 (#return First))",
         )
         .unwrap();
         let error = generate_assembly(&recursive).unwrap_err();
@@ -12152,14 +12209,14 @@ mod tests {
     #[test]
     fn rejects_recursive_function_calls() {
         let direct = parse_program(
-            "(#fn recurse () u64 (#return (#call recurse (:)))) (#fn main () u64 (#return (#call recurse (:))))",
+            "(#fn recurse () #u64 (#return (#call recurse (:)))) (#fn main () #u64 (#return (#call recurse (:))))",
         )
         .unwrap();
         let error = check_types(&direct).unwrap_err();
         assert!(error.contains("recursive calls"), "{error}");
 
         let indirect = parse_program(
-            "(#fn first () u64 (#return (#call second (:)))) (#fn second () u64 (#return (#call first (:)))) (#fn main () u64 (#return (#call first (:))))",
+            "(#fn first () #u64 (#return (#call second (:)))) (#fn second () #u64 (#return (#call first (:)))) (#fn main () #u64 (#return (#call first (:))))",
         )
         .unwrap();
         let error = check_types(&indirect).unwrap_err();
@@ -12172,7 +12229,7 @@ mod tests {
     #[test]
     fn lowers_wide_integer_globals() {
         let program = parse_program(
-            "(#let VALUE u128 42) (#fn main () u64 (#return (#if (#u128.==  VALUE 42) 42 0)))",
+            "(#let VALUE #u128 42) (#fn main () #u64 (#return (#if (#u128.==  VALUE 42) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12187,7 +12244,7 @@ mod tests {
     #[test]
     fn lowers_high_unsigned_wide_global_literals() {
         let program = parse_program(
-            "(#let VALUE u128 340282366920938463463374607431768211455) (#fn main () u64 (#return (#if (#u128.==  VALUE (#as -1 u128)) 42 0)))",
+            "(#let VALUE #u128 340282366920938463463374607431768211455) (#fn main () #u64 (#return (#if (#u128.==  VALUE (#as -1 #u128)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12199,14 +12256,14 @@ mod tests {
     #[test]
     fn preserves_float_width_across_control_flow() {
         let program = parse_program(
-            "(#fn choose ((flag bool)) f32 (#return (#if flag 1.5 2.5))) (#fn main () u64 (#return (#if (#f32.>  (#call choose (: flag true)) 1.0) 42 0)))",
+            "(#fn choose ((flag #bool)) #f32 (#return (#if flag 1.5 2.5))) (#fn main () #u64 (#return (#if (#f32.>  (#call choose (: flag true)) 1.0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("movd xmm0, eax"));
         let matched = parse_program(
-            "(#enum MaybeF ((SomeF f32) None)) (#fn read ((value MaybeF)) f32 (#return (#match value (#case (SomeF payload) payload) (#case None 2.5)))) (#fn main () u64 (#return (#if (#f32.>  (#call read (: value None)) 2.0) 42 0)))",
+            "(#enum MaybeF ((SomeF #f32) None)) (#fn read ((value MaybeF)) #f32 (#return (#match value (#case (SomeF payload) payload) (#case None 2.5)))) (#fn main () #u64 (#return (#if (#f32.>  (#call read (: value None)) 2.0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&matched).is_ok());
@@ -12218,7 +12275,7 @@ mod tests {
     #[test]
     fn handles_nan_float_comparisons() {
         let program =
-            parse_program("(#fn main () u64 (#return (#if (#f64.!= (#f64./ 0.0 0.0) 0.0) 42 0)))")
+            parse_program("(#fn main () #u64 (#return (#if (#f64.!= (#f64./ 0.0 0.0) 0.0) 42 0)))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
@@ -12227,15 +12284,15 @@ mod tests {
 
     #[test]
     fn checks_shift_counts_against_integer_width() {
-        let program = parse_program("(#fn main () u64 (#return (#u64.<<  21 1)))").unwrap();
+        let program = parse_program("(#fn main () #u64 (#return (#u64.<<  21 1)))").unwrap();
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("shift_failure"));
-        let invalid = parse_program("(#fn main () u8 (#return (#u8.<<  (#as 1 u8) 8)))").unwrap();
+        let invalid = parse_program("(#fn main () #u8 (#return (#u8.<<  (#as 1 #u8) 8)))").unwrap();
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("shift count 8 is out of range"));
         let wide = parse_program(
-            "(#fn main ((count u128)) u128 (#return (#u128.<<  (#as 1 u128) count)))",
+            "(#fn main ((count #u128)) #u128 (#return (#u128.<<  (#as 1 #u128) count)))",
         )
         .unwrap();
         assert!(generate_assembly(&wide)
@@ -12246,7 +12303,7 @@ mod tests {
     #[test]
     fn accepts_high_bit_u128_literals() {
         let program = parse_program(
-            "(#fn make () u128 (#return 0x8000000000000000000000000000002a)) (#fn main () u64 (#return (#as (#call make (:)) u64)))",
+            "(#fn make () #u128 (#return 0x8000000000000000000000000000002a)) (#fn main () #u64 (#return (#as (#call make (:)) #u64)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12257,7 +12314,7 @@ mod tests {
     #[test]
     fn lowers_unit_functions_and_calls() {
         let program = parse_program(
-            "(#fn noop () () (#return ())) (#fn main () u64 (#call noop (:)) (#return 42))",
+            "(#fn noop () () (#return ())) (#fn main () #u64 (#call noop (:)) (#return 42))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12269,14 +12326,14 @@ mod tests {
     #[test]
     fn checks_and_lowers_mutable_parameters() {
         let program =
-            parse_program("(#fn increment ((#mut value u64)) u64 (#set value (#u64.+.wrap  value 1)) (#return value))")
+            parse_program("(#fn increment ((#mut value #u64)) #u64 (#set value (#u64.+.wrap  value 1)) (#return value))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program)
             .unwrap()
             .contains("add rax, rcx"));
         let invalid =
-            parse_program("(#fn increment ((value u64)) u64 (#set value 1) (#return value))")
+            parse_program("(#fn increment ((value #u64)) #u64 (#set value 1) (#return value))")
                 .unwrap();
         assert!(check_types(&invalid).unwrap_err().contains("immutable"));
     }
@@ -12284,7 +12341,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_f64_arithmetic() {
         let program = parse_program(
-            "(#fn calculate () f64 (#let left f64 1.5) (#let right f64 2.25) (#return (#f64.+  left right)))",
+            "(#fn calculate () #f64 (#let left #f64 1.5) (#let right #f64 2.25) (#return (#f64.+  left right)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12292,28 +12349,29 @@ mod tests {
         assert!(assembly.contains("addsd xmm1, xmm0"));
         assert!(assembly.contains("movq xmm0"));
         let remainder =
-            parse_program("(#fn main () u64 (#return (#if (#f64.== (#f64.% 5.5 2.0) 1.5) 42 0)))")
+            parse_program("(#fn main () #u64 (#return (#if (#f64.== (#f64.% 5.5 2.0) 1.5) 42 0)))")
                 .unwrap();
         assert!(check_types(&remainder).is_ok());
         assert!(generate_assembly(&remainder).unwrap().contains("fprem"));
         let narrow_remainder = parse_program(
-            "(#fn main () u64 (#let left f32 5.5) (#let right f32 2.0) (#return (#if (#f32.==  (#f32.%  left right) 1.5) 42 0)))",
+            "(#fn main () #u64 (#let left #f32 5.5) (#let right #f32 2.0) (#return (#if (#f32.==  (#f32.%  left right) 1.5) 42 0)))",
         )
         .unwrap();
         assert!(generate_assembly(&narrow_remainder)
             .unwrap()
             .contains("fprem"));
-        let parameter = parse_program("(#fn calculate ((value f64)) f64 (#return value))").unwrap();
+        let parameter =
+            parse_program("(#fn calculate ((value #f64)) #f64 (#return value))").unwrap();
         assert!(generate_assembly(&parameter)
             .unwrap()
             .contains("movq QWORD PTR [rbp-8], xmm0"));
         let called = parse_program(
-            "(#fn add ((left f64) (right f64)) f64 (#return (#f64.+  left right))) (#fn main () f64 (#return (#call add (: left 1.5 : right 2.5))))",
+            "(#fn add ((left #f64) (right #f64)) #f64 (#return (#f64.+  left right))) (#fn main () #f64 (#return (#call add (: left 1.5 : right 2.5))))",
         )
         .unwrap();
         assert!(generate_assembly(&called).unwrap().contains("call add"));
         let mixed = parse_program(
-            "(#fn choose ((value u64) (scale f64)) u64 (#return (#if (#f64.>  scale 1.0) value 0))) (#fn main () u64 (#return (#call choose (: value 42 : scale 2.0))))",
+            "(#fn choose ((value #u64) (scale #f64)) #u64 (#return (#if (#f64.>  scale 1.0) value 0))) (#fn main () #u64 (#return (#call choose (: value 42 : scale 2.0))))",
         )
         .unwrap();
         assert!(check_types(&mixed).is_ok());
@@ -12323,7 +12381,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_f32_arithmetic_and_calls() {
         let program = parse_program(
-            "(#fn add ((left f32) (right f32)) f32 (#return (#f32.+  left right))) (#fn main () u64 (#return (#if (#f32.>  (#call add (: left 1.5 : right 2.5)) 3.0) 42 0)))",
+            "(#fn add ((left #f32) (right #f32)) #f32 (#return (#f32.+  left right))) (#fn main () #u64 (#return (#if (#f32.>  (#call add (: left 1.5 : right 2.5)) 3.0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -12332,15 +12390,15 @@ mod tests {
         assert!(assembly.contains("ucomiss xmm1, xmm0"));
         assert!(assembly.contains("movd xmm0"));
         let parameter_assembly = generate_assembly(
-            &parse_program("(#fn read ((value f32)) f32 (#return value))").unwrap(),
+            &parse_program("(#fn read ((value #f32)) #f32 (#return value))").unwrap(),
         )
         .unwrap();
         assert!(parameter_assembly.contains("movd DWORD PTR [rbp-8], xmm0"));
-        let overflow_f32 = parse_program("(#fn main () f32 (#return 1e100))").unwrap();
+        let overflow_f32 = parse_program("(#fn main () #f32 (#return 1e100))").unwrap();
         assert!(check_types(&overflow_f32)
             .unwrap_err()
             .contains("not finite for F32"));
-        let overflow_f64 = parse_program("(#fn main () f64 (#return 1e400))").unwrap();
+        let overflow_f64 = parse_program("(#fn main () #f64 (#return 1e400))").unwrap();
         assert!(check_types(&overflow_f64)
             .unwrap_err()
             .contains("not finite for F64"));
@@ -12349,14 +12407,14 @@ mod tests {
     #[test]
     fn checks_and_lowers_char_values() {
         let program =
-            parse_program("(#fn main () u64 (#return (#if (#char.== #\\a #\\a) 42 0)))").unwrap();
+            parse_program("(#fn main () #u64 (#return (#if (#char.== #\\a #\\a) 42 0)))").unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).unwrap().contains("mov rax, 97"));
     }
 
     #[test]
     fn async_scope_span_lookup_ignores_same_spelled_non_value_symbols() {
-        let source = "(#block local (#let local u64 1u64) (#get value local) (#call work (: local value)) (#struct-literal Holder ((local value))))";
+        let source = "(#block local (#let local #u64 1u64) (#get value local) (#call work (: local value)) (#struct-literal Holder ((local value))))";
         let parsed = parse(source).unwrap();
         let span = source_value_symbol_span(&parsed[0], "local").unwrap();
         assert_eq!(span.start, source.find("local").unwrap());
@@ -12368,13 +12426,13 @@ mod tests {
         let environment = |result| {
             async_type_environment(
                 &parse(&format!(
-                    "(#fn helper ((value u64)) {result} (#return (#unreachable)))"
+                    "(#fn helper ((value #u64)) {result} (#return (#unreachable)))"
                 ))
                 .unwrap(),
             )
         };
-        let scalar = environment("u64");
-        let boolean = environment("bool");
+        let scalar = environment("#u64");
+        let boolean = environment("#bool");
         assert_eq!(scalar.functions, boolean.functions);
         assert_ne!(
             async_type_environment_identity(&scalar),
@@ -12382,7 +12440,7 @@ mod tests {
         );
         assert_eq!(
             async_type_environment_identity(&scalar),
-            async_type_environment_identity(&environment("u64"))
+            async_type_environment_identity(&environment("#u64"))
         );
     }
 
@@ -12391,8 +12449,8 @@ mod tests {
         let environment = |fields| {
             async_type_environment(&parse(&format!("(#struct Values ({fields}))")).unwrap())
         };
-        let first = environment("(z u16) (a u64)");
-        let swapped = environment("(a u64) (z u16)");
+        let first = environment("(z #u16) (a #u64)");
+        let swapped = environment("(a #u64) (z #u16)");
         assert_eq!(first.struct_fields, swapped.struct_fields);
         assert_eq!(first.struct_field_order["Values"], ["z", "a"]);
         assert_ne!(
@@ -12401,7 +12459,7 @@ mod tests {
         );
         assert_eq!(
             async_type_environment_identity(&first),
-            async_type_environment_identity(&environment("(z u16) (a u64)"))
+            async_type_environment_identity(&environment("(z #u16) (a #u64)"))
         );
     }
 
@@ -12410,13 +12468,13 @@ mod tests {
         let environment = |parameters| {
             async_type_environment(
                 &parse(&format!(
-                    "(#fn helper ({parameters}) u64 (#return (#unreachable)))"
+                    "(#fn helper ({parameters}) #u64 (#return (#unreachable)))"
                 ))
                 .unwrap(),
             )
         };
-        let first = environment("(first u64) (second u64)");
-        let swapped = environment("(second u64) (first u64)");
+        let first = environment("(first #u64) (second #u64)");
+        let swapped = environment("(second #u64) (first #u64)");
         assert_eq!(first.functions, swapped.functions);
         assert_eq!(
             first.function_parameter_order["helper"],
@@ -12428,10 +12486,10 @@ mod tests {
         );
         assert_eq!(
             async_type_environment_identity(&first),
-            async_type_environment_identity(&environment("(first u64) (second u64)"))
+            async_type_environment_identity(&environment("(first #u64) (second #u64)"))
         );
         let foreign = async_type_environment(
-            &parse("(#extern-fn #abi-c foreign ((second u64) (first u64)) u64)").unwrap(),
+            &parse("(#extern-fn #abi-c foreign ((second #u64) (first #u64)) #u64)").unwrap(),
         );
         assert_eq!(
             foreign.function_parameter_order["foreign"],
@@ -12442,7 +12500,7 @@ mod tests {
     #[test]
     fn async_metadata_is_only_built_for_selected_async_users() {
         let declarations =
-            "(#struct Value ((number u64))) (#fn ordinary ((value u64)) u64 (#return value))";
+            "(#struct Value ((number #u64))) (#fn ordinary ((value #u64)) #u64 (#return value))";
         let prepare = |source: &str| {
             prepare_program_syntax(
                 source,
@@ -12462,17 +12520,20 @@ mod tests {
 
         for generator in ["async-fn", "async-fn-pinned"] {
             let source = format!(
-                "{declarations} (@{generator} (: names (Frame Poll Pending Ready poll) : waker u64 : function (#fn work () u64 (#return 1u64))))"
+                "{declarations} (@{generator} (: names (Frame Poll Pending Ready poll) : waker #u64 : function (#fn work () #u64 (#return 1u64))))"
             );
             let asynchronous = prepare(&source);
             assert_eq!(
                 asynchronous.async_types.functions["ordinary"]["value"],
-                "u64"
+                "#u64"
             );
-            assert_eq!(asynchronous.async_types.function_results["ordinary"], "u64");
+            assert_eq!(
+                asynchronous.async_types.function_results["ordinary"],
+                "#u64"
+            );
             assert_eq!(
                 asynchronous.async_types.struct_fields["Value"]["number"],
-                "u64"
+                "#u64"
             );
         }
     }
@@ -12480,7 +12541,7 @@ mod tests {
     #[test]
     fn expands_optional_generated_declarations() {
         let program = parse_program(
-            "(@optional (: type u64 : name Maybe?)) (#fn main () u64 (#let value Maybe? (#call Maybe?-construct (: value 42))) (#return (#if (#call Maybe?-is-some (: value (#clone value))) (#call Maybe?-unwrap-or (: value value : fallback 0)) 0)))",
+            "(@optional (: type #u64 : name Maybe?)) (#fn main () #u64 (#let value Maybe? (#call Maybe?-construct (: value 42))) (#return (#if (#call Maybe?-is-some (: value (#clone value))) (#call Maybe?-unwrap-or (: value value : fallback 0)) 0)))",
         )
         .unwrap();
         assert!(program.items.iter().any(|item| {
@@ -12503,32 +12564,32 @@ mod tests {
     fn builtin_generators_require_complete_named_arguments() {
         let cases = [
             (
-                "(@optional (: name Maybe : type u64))",
-                "(@ optional u64 Maybe)",
+                "(@optional (: name Maybe : type #u64))",
+                "(@ optional #u64 Maybe)",
             ),
             (
-                "(@result (: name Outcome : error u32 : ok u64))",
-                "(@ result u64 u32 Outcome)",
+                "(@result (: name Outcome : error #u32 : ok #u64))",
+                "(@ result #u64 #u32 Outcome)",
             ),
             (
                 "(@thread-spawn (: worker work : task Task))",
                 "(@ thread-spawn Task work)",
             ),
             (
-                "(@vec (: name VecU64 : allocator Arena : element u64))",
-                "(@ vec u64 Arena VecU64)",
+                "(@vec (: name VecU64 : allocator Arena : element #u64))",
+                "(@ vec #u64 Arena VecU64)",
             ),
             (
-                "(@vec-sort (: comparator less : vector VecU64 : element u64))",
-                "(@ vec-sort u64 VecU64 less)",
+                "(@vec-sort (: comparator less : vector VecU64 : element #u64))",
+                "(@ vec-sort #u64 VecU64 less)",
             ),
             (
-                "(@vec-alloc (: destroy drop-item : dealloc release : grow grow : alloc allocate : alloc-error AllocError : alloc-result AllocResult : vector VecU64 : allocator Arena : element u64))",
-                "(@ vec-alloc u64 Arena VecU64 AllocResult AllocError allocate grow release drop-item)",
+                "(@vec-alloc (: destroy drop-item : dealloc release : grow grow : alloc allocate : alloc-error AllocError : alloc-result AllocResult : vector VecU64 : allocator Arena : element #u64))",
+                "(@ vec-alloc #u64 Arena VecU64 AllocResult AllocError allocate grow release drop-item)",
             ),
             (
-                "(@async-fn (: function (#fn work () u64 (#return 1)) : waker Wake : names (Frame Poll Pending Ready poll)))",
-                "(@ async-fn (Frame Poll Pending Ready poll) Wake (#fn work () u64 (#return 1)))",
+                "(@async-fn (: function (#fn work () #u64 (#return 1)) : waker Wake : names (Frame Poll Pending Ready poll)))",
+                "(@ async-fn (Frame Poll Pending Ready poll) Wake (#fn work () #u64 (#return 1)))",
             ),
         ];
         for (source, expected) in cases {
@@ -12537,8 +12598,8 @@ mod tests {
             assert_eq!(expression_source(&normalized).unwrap(), expected);
         }
         let reordered = parse_program(
-            "(@optional (: name Maybe : type u64))
-             (#fn work () u64 (#return 1u64))
+            "(@optional (: name Maybe : type #u64))
+             (#fn work () #u64 (#return 1u64))
              (@thread-spawn (: worker work : task Work))",
         )
         .unwrap();
@@ -12551,14 +12612,14 @@ mod tests {
             .iter()
             .any(|item| matches!(item, Item::ThreadTask { name, .. } if name == "Work")));
         for (source, message) in [
-            ("(@optional u64 Maybe)", "requires a named argument list"),
-            ("(@optional (: type u64))", "missing argument 'name'"),
+            ("(@optional #u64 Maybe)", "requires a named argument list"),
+            ("(@optional (: type #u64))", "missing argument 'name'"),
             (
-                "(@optional (: type u64 : name Maybe : name Other))",
+                "(@optional (: type #u64 : name Maybe : name Other))",
                 "repeats argument 'name'",
             ),
             (
-                "(@optional (: type u64 : renamed Maybe))",
+                "(@optional (: type #u64 : renamed Maybe))",
                 "has no argument 'renamed'",
             ),
         ] {
@@ -12569,7 +12630,7 @@ mod tests {
 
     #[test]
     fn dependency_digest_is_compact_and_tracks_syntax_spans_and_cfg() {
-        let source = "(#fn main () u64 (#return 42u64))";
+        let source = "(#fn main () #u64 (#return 42u64))";
         let expressions = parse(source).unwrap();
         let config = CompileConfig::default();
         let key = generator_dependency_context(&expressions, &config);
@@ -12707,7 +12768,7 @@ mod tests {
             std::env::temp_dir().join(format!("lim-combined-compile-{}", std::process::id()));
         let cache = directory.join("cache");
         let path = directory.join("input.lim");
-        let source = "(@optional (: type u64 : name Maybe)) (#fn main () u64 (#return 42u64))";
+        let source = "(@optional (: type #u64 : name Maybe)) (#fn main () #u64 (#return 42u64))";
         let config = CompileConfig::default();
         let expected = compile_source_to_assembly(
             source,
@@ -12738,7 +12799,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-optional-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        write_generated_sources("(@optional (: type u64 : name Maybe?))", &directory).unwrap();
+        write_generated_sources("(@optional (: type #u64 : name Maybe?))", &directory).unwrap();
         let (_, generated) = read_cached_generated_source(&directory, "Maybe?-construct");
         assert!(generated.contains("#enum"));
         assert!(generated.contains("#return"));
@@ -12754,8 +12815,11 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-result-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        write_generated_sources("(@result (: ok u64 : error u32 : name Result))", &directory)
-            .unwrap();
+        write_generated_sources(
+            "(@result (: ok #u64 : error #u32 : name Result))",
+            &directory,
+        )
+        .unwrap();
         let (_, generated) = read_cached_generated_source(&directory, "Result-ok-value");
         assert!(generated.contains("Result-ok-value"));
         assert!(generated.contains("Result-unwrap-or"));
@@ -12769,7 +12833,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-user-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        let source = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (@emit CachedType)";
+        let source = "(#gn emit (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (@emit CachedType)";
         write_generated_sources(source, &directory).unwrap();
         let (path, generated) = read_cached_generated_source(&directory, "CachedType");
         assert!(path
@@ -12777,7 +12841,7 @@ mod tests {
             .unwrap()
             .to_string_lossy()
             .starts_with("generated-"));
-        assert!(generated.contains("(#type CachedType u64)"));
+        assert!(generated.contains("(#type CachedType #u64)"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -12786,7 +12850,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-thread-spawn-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        let source = "(#fn worker ((value u64)) u64 (#return value)) (@thread-spawn (: task Task : worker worker))";
+        let source = "(#fn worker ((value #u64)) #u64 (#return value)) (@thread-spawn (: task Task : worker worker))";
         write_generated_sources(source, &directory).unwrap();
         let (path, generated) =
             read_cached_generated_source(&directory, "#thread-task Task worker");
@@ -12798,7 +12862,7 @@ mod tests {
         assert!(!directory.join("thread-spawn-0.lim").exists());
         assert!(generated.contains("(#thread-task Task worker"));
         assert!(
-            generated.contains("(#thread-task-spawn Task-spawn ((value u64)) Task-spawn-result)")
+            generated.contains("(#thread-task-spawn Task-spawn ((value #u64)) Task-spawn-result)")
         );
         assert!(generated.contains("(#thread-task-join Task-join ((task Task)) Task-join-result)"));
         assert!(generated.contains("Task-spawn-ok"));
@@ -12807,7 +12871,7 @@ mod tests {
         assert!(generated.contains("Task-join-error"));
 
         let lowered = parse_program(&format!(
-            "(#fn worker ((value u64)) u64 (#return value)) {generated}"
+            "(#fn worker ((value #u64)) #u64 (#return value)) {generated}"
         ))
         .unwrap();
         let original = parse_program(source).unwrap();
@@ -12829,7 +12893,7 @@ mod tests {
     #[test]
     fn expands_allocator_backed_vec_with_explicit_allocator_borrow() {
         let program = parse_program(
-            "(#struct Arena ((cursor u64))) (@vec (: element u64 : allocator Arena : name VecU64)) (#fn main () usize (#let-mut arena Arena (#struct-literal Arena ((cursor 0)))) (#let-mut value u64 0) (#let vector VecU64 (#call VecU64-new-with-storage (: allocator (#borrow arena) : pointer (#unsafe (#addr-of-mut value)) : capacity 4))) (#return (#call VecU64-capacity (: vector (#borrow vector)))))",
+            "(#struct Arena ((cursor #u64))) (@vec (: element #u64 : allocator Arena : name VecU64)) (#fn main () #usize (#let-mut arena Arena (#struct-literal Arena ((cursor 0)))) (#let-mut value #u64 0) (#let vector VecU64 (#call VecU64-new-with-storage (: allocator (#borrow arena) : pointer (#unsafe (#addr-of-mut value)) : capacity 4))) (#return (#call VecU64-capacity (: vector (#borrow vector)))))",
         )
         .unwrap();
         assert!(program
@@ -12845,14 +12909,14 @@ mod tests {
     #[test]
     fn dereferences_and_writes_small_aggregate_references() {
         let read = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut point Point (#struct-literal Point ((x 40) (y 2)))) (#let point-ref (#ref Point) (#borrow point)) (#let copy Point (#deref point-ref)) (#return (#u64.+.wrap (#get copy x) (#get copy y))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#let-mut point Point (#struct-literal Point ((x 40) (y 2)))) (#let point-ref (#ref Point) (#borrow point)) (#let copy Point (#deref point-ref)) (#return (#u64.+.wrap (#get copy x) (#get copy y))))",
         )
         .unwrap();
         assert!(check_types(&read).is_ok());
         assert!(generate_assembly(&read).is_ok());
 
         let write = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () Point (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#deref-set point-ref (#struct-literal Point ((x 40) (y 2)))) (#return (#deref point-ref)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () Point (#let-mut point Point (#struct-literal Point ((x 1) (y 2)))) (#let point-ref (#ref-mut Point) (#borrow-mut point)) (#deref-set point-ref (#struct-literal Point ((x 40) (y 2)))) (#return (#deref point-ref)))",
         )
         .unwrap();
         let write_types = check_types(&write);
@@ -12863,7 +12927,7 @@ mod tests {
     #[test]
     fn copies_large_aggregate_dereferences_through_indirect_storage() {
         let program = parse_program(
-            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn take-large ((value (#ref Large))) Large (#return (#deref value))) (#fn main () u64 (#let large Large (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7)))) (#let copy Large (#call take-large (: value (#borrow large)))) (#return (#get copy g)))",
+            "(#struct Large ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))) (#fn take-large ((value (#ref Large))) Large (#return (#deref value))) (#fn main () #u64 (#let large Large (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7)))) (#let copy Large (#call take-large (: value (#borrow large)))) (#return (#get copy g)))",
         )
         .unwrap();
         let type_result = check_types(&program);
@@ -12875,7 +12939,7 @@ mod tests {
     #[test]
     fn projects_large_fields_through_references_into_indirect_storage() {
         let program = parse_program(
-            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#struct Outer ((large Large) (tail u64))) (#fn project ((outer (#ref Outer))) Large (#return (#get outer large))) (#fn main () u64 (#let outer Outer (#struct-literal Outer ((large (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7)))) (tail 8)))) (#let result Large (#call project (: outer (#borrow outer)))) (#return (#get result g)))",
+            "(#struct Large ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))) (#struct Outer ((large Large) (tail #u64))) (#fn project ((outer (#ref Outer))) Large (#return (#get outer large))) (#fn main () #u64 (#let outer Outer (#struct-literal Outer ((large (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7)))) (tail 8)))) (#let result Large (#call project (: outer (#borrow outer)))) (#return (#get result g)))",
         )
         .unwrap();
         let type_result = check_types(&program);
@@ -12887,7 +12951,7 @@ mod tests {
     #[test]
     fn dropping_reference_aggregate_releases_each_field_loan() {
         let program = parse_program(
-            "(#struct View ((left (#ref-mut u64)) (right (#ref-mut u64)))) (#fn main () u64 (#let-mut left u64 1) (#let-mut right u64 2) (#let view View (#struct-literal View ((left (#borrow-mut left)) (right (#borrow-mut right))))) (#drop view) (#set left 10) (#set right 20) (#return (#u64.+.wrap left right)))",
+            "(#struct View ((left (#ref-mut #u64)) (right (#ref-mut #u64)))) (#fn main () #u64 (#let-mut left #u64 1) (#let-mut right #u64 2) (#let view View (#struct-literal View ((left (#borrow-mut left)) (right (#borrow-mut right))))) (#drop view) (#set left 10) (#set right 20) (#return (#u64.+.wrap left right)))",
         )
         .unwrap();
         let type_result = check_types(&program);
@@ -12898,7 +12962,7 @@ mod tests {
     #[test]
     fn vec_sort_expansion_calls_and_typechecks_its_literal_comparator() {
         let valid = parse_program(
-            "(#struct Arena ((cursor u64))) (@vec (: element u64 : allocator Arena : name VecU64)) (@vec-sort (: element u64 : vector VecU64 : comparator compare-u64)) (#fn compare-u64 ((left (#ref u64)) (right (#ref u64))) bool (#return (#u64.< (#deref left) (#deref right)))) (#fn main () u64 (#return 0u64))",
+            "(#struct Arena ((cursor #u64))) (@vec (: element #u64 : allocator Arena : name VecU64)) (@vec-sort (: element #u64 : vector VecU64 : comparator compare-u64)) (#fn compare-u64 ((left (#ref #u64)) (right (#ref #u64))) #bool (#return (#u64.< (#deref left) (#deref right)))) (#fn main () #u64 (#return 0u64))",
         )
         .unwrap();
         let checked = check_types(&valid);
@@ -12906,7 +12970,7 @@ mod tests {
         assert!(generate_assembly(&valid).is_ok());
 
         let invalid = parse_program(
-            "(#struct Arena ((cursor u64))) (@vec (: element u64 : allocator Arena : name VecU64)) (@vec-sort (: element u64 : vector VecU64 : comparator compare-u64)) (#fn compare-u64 ((left u64) (right u64)) bool (#return (#u64.< left right))) (#fn main () u64 (#return 0u64))",
+            "(#struct Arena ((cursor #u64))) (@vec (: element #u64 : allocator Arena : name VecU64)) (@vec-sort (: element #u64 : vector VecU64 : comparator compare-u64)) (#fn compare-u64 ((left #u64) (right #u64)) #bool (#return (#u64.< left right))) (#fn main () #u64 (#return 0u64))",
         )
         .unwrap();
         let error = check_types(&invalid).unwrap_err();
@@ -12922,7 +12986,7 @@ mod tests {
             std::env::temp_dir().join(format!("lim-generated-vec-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         write_generated_sources(
-            "(@vec (: element u64 : allocator Arena : name VecU64))",
+            "(@vec (: element #u64 : allocator Arena : name VecU64))",
             &directory,
         )
         .unwrap();
@@ -12931,7 +12995,7 @@ mod tests {
         assert!(generated.contains("VecU64-new-with-storage"));
         assert!(generated.contains("(#ref Arena)"));
         write_generated_sources(
-            "(@vec-sort (: element u64 : vector VecU64 : comparator compare-u64))",
+            "(@vec-sort (: element #u64 : vector VecU64 : comparator compare-u64))",
             &directory,
         )
         .unwrap();
@@ -12945,27 +13009,27 @@ mod tests {
     fn expands_allocator_owned_vec_declarations() {
         let program = parse_program(
             r#"
-(#struct Arena ((cursor u64)))
+(#struct Arena ((cursor #u64)))
 (#enum AllocError (OutOfMemory))
-(@result (: ok (#ptr-mut u64) : error AllocError : name AllocResult))
-(@vec (: element u64 : allocator Arena : name VecU64))
-(@vec-alloc (: element u64 : allocator Arena : vector VecU64 : alloc-result AllocResult : alloc-error AllocError : alloc arena-alloc : grow arena-grow : dealloc arena-dealloc : destroy drop-u64))
-(#fn arena-alloc ((allocator (#ref Arena)) (layout usize) (alignment usize)) AllocResult
+(@result (: ok (#ptr-mut #u64) : error AllocError : name AllocResult))
+(@vec (: element #u64 : allocator Arena : name VecU64))
+(@vec-alloc (: element #u64 : allocator Arena : vector VecU64 : alloc-result AllocResult : alloc-error AllocError : alloc arena-alloc : grow arena-grow : dealloc arena-dealloc : destroy drop-u64))
+(#fn arena-alloc ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) AllocResult
   (#return (#call AllocResult-err (: error OutOfMemory))))
 (#fn arena-grow
-  ((allocator (#ref Arena)) (pointer (#ptr-mut u64)) (old-layout usize)
-   (new-layout usize) (alignment usize))
+  ((allocator (#ref Arena)) (pointer (#ptr-mut #u64)) (old-layout #usize)
+   (new-layout #usize) (alignment #usize))
   AllocResult
   (#forget pointer)
   (#return (#call AllocResult-err (: error OutOfMemory))))
 (#fn arena-dealloc
-  ((allocator (#ref Arena)) (pointer (#ptr-mut u64)) (layout usize)
-   (alignment usize))
+  ((allocator (#ref Arena)) (pointer (#ptr-mut #u64)) (layout #usize)
+   (alignment #usize))
   ()
   (#forget pointer)
   (#return ()))
-(#fn drop-u64 ((allocator (#ref Arena)) (value u64)) () (#return ()))
-(#fn main () usize
+(#fn drop-u64 ((allocator (#ref Arena)) (value #u64)) () (#return ()))
+(#fn main () #usize
   (#let-mut arena Arena (#struct-literal Arena ((cursor 0u64))))
   (#let-mut vector VecU64 (#call VecU64-new (: allocator (#borrow arena))))
   (#let reserve-result VecU64-ReserveResult
@@ -13027,7 +13091,7 @@ mod tests {
     #[test]
     fn rejects_allocator_backed_vector_outliving_its_allocator() {
         let program = parse_program(
-            "(#struct Arena ((cursor u64))) (@vec (: element u64 : allocator Arena : name VecU64)) (#fn escape () VecU64 (#let arena Arena (#struct-literal Arena ((cursor 0u64)))) (#return (#call VecU64-new-with-storage (: allocator (#borrow arena) : pointer (#ptr-null (#ptr-mut u64)) : capacity 0usize))))",
+            "(#struct Arena ((cursor #u64))) (@vec (: element #u64 : allocator Arena : name VecU64)) (#fn escape () VecU64 (#let arena Arena (#struct-literal Arena ((cursor 0u64)))) (#return (#call VecU64-new-with-storage (: allocator (#borrow arena) : pointer (#ptr-null (#ptr-mut #u64)) : capacity 0usize))))",
         )
         .unwrap();
         let error = check_types(&program).unwrap_err();
@@ -13037,7 +13101,7 @@ mod tests {
     #[test]
     fn lowers_if_let_to_native_match() {
         let program = parse_program(
-            "(@optional (: type u64 : name Maybe?)) (#fn main () u64 (#let value Maybe? (#call Maybe?-construct (: value 42))) (#return (#if-let (Maybe?-some payload) value payload 0)))",
+            "(@optional (: type #u64 : name Maybe?)) (#fn main () #u64 (#let value Maybe? (#call Maybe?-construct (: value 42))) (#return (#if-let (Maybe?-some payload) value payload 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13047,7 +13111,7 @@ mod tests {
     #[test]
     fn expands_result_generated_declarations() {
         let program = parse_program(
-            "(@result (: ok u64 : error u32 : name Result)) (#fn classify ((value Result)) u64 (#return (#match value (#case (Result-ok-value 42) 1) (#case (Result-err-value _) 0)))) (#fn main () u64 (#let value Result (#call Result-ok (: value 42))) (#return (#call classify (: value value))))",
+            "(@result (: ok #u64 : error #u32 : name Result)) (#fn classify ((value Result)) #u64 (#return (#match value (#case (Result-ok-value 42) 1) (#case (Result-err-value _) 0)))) (#fn main () #u64 (#let value Result (#call Result-ok (: value 42))) (#return (#call classify (: value value))))",
         )
         .unwrap();
         let type_result = check_types(&program);
@@ -13058,7 +13122,7 @@ mod tests {
     #[test]
     fn lowers_while_let_with_match_guard() {
         let program = parse_program(
-            "(@optional (: type u64 : name Maybe?)) (#fn main () u64 (#let-mut value Maybe? (#call Maybe?-construct (: value 42))) (#let-mut total u64 0) (#while-let (Maybe?-some payload) value (#set total (#u64.+.wrap  total payload)) (#set value Maybe?-none)) (#return total))",
+            "(@optional (: type #u64 : name Maybe?)) (#fn main () #u64 (#let-mut value Maybe? (#call Maybe?-construct (: value 42))) (#let-mut total #u64 0) (#while-let (Maybe?-some payload) value (#set total (#u64.+.wrap  total payload)) (#set value Maybe?-none)) (#return total))",
         )
         .unwrap();
         let type_result = check_types(&program);
@@ -13070,7 +13134,7 @@ mod tests {
     #[test]
     fn lowers_aggregate_if_let_and_while_let() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn point_value () u64 (#let point Point (#struct-literal Point ((x 40) (y 2)))) (#return (#if-let (Point 40 y) point y 0))) (#fn main () u64 (#let-mut value (#tuple u64 u64) (#tuple (#tuple u64 u64) 1 2)) (#let-mut total u64 0) (#while-let (#tuple 1 _) value (#set total (#u64.+.wrap total (#get value 1))) (#set-field value 0 0)) (#return (#u64.+.wrap total (#call point_value (:)))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn point_value () #u64 (#let point Point (#struct-literal Point ((x 40) (y 2)))) (#return (#if-let (Point 40 y) point y 0))) (#fn main () #u64 (#let-mut value (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 1 2)) (#let-mut total #u64 0) (#while-let (#tuple 1 _) value (#set total (#u64.+.wrap total (#get value 1))) (#set-field value 0 0)) (#return (#u64.+.wrap total (#call point_value (:)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13080,7 +13144,7 @@ mod tests {
     #[test]
     fn lowers_typed_tuple_and_struct_let_destructuring() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn sum_tuple ((value (#tuple u64 u64))) u64 (#let (#tuple first second) (#tuple u64 u64) value) (#return (#u64.+.wrap first second))) (#fn sum_point ((value Point)) u64 (#let (Point x y) Point value) (#return (#u64.+.wrap x y))) (#fn main () u64 (#return (#u64.+.wrap (#call sum_tuple (: value (#tuple (#tuple u64 u64) 20 10))) (#call sum_point (: value (#struct-literal Point ((x 7) (y 5))))))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn sum_tuple ((value (#tuple #u64 #u64))) #u64 (#let (#tuple first second) (#tuple #u64 #u64) value) (#return (#u64.+.wrap first second))) (#fn sum_point ((value Point)) #u64 (#let (Point x y) Point value) (#return (#u64.+.wrap x y))) (#fn main () #u64 (#return (#u64.+.wrap (#call sum_tuple (: value (#tuple (#tuple #u64 #u64) 20 10))) (#call sum_point (: value (#struct-literal Point ((x 7) (y 5))))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13090,7 +13154,7 @@ mod tests {
     #[test]
     fn lowers_mutable_aggregate_let_destructuring() {
         let program = parse_program(
-            "(#fn main () u64 (#let-mut (#tuple first second) (#tuple u64 u64) (#tuple (#tuple u64 u64) 20 22)) (#set first 40) (#return (#u64.+.wrap first second)))",
+            "(#fn main () #u64 (#let-mut (#tuple first second) (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 20 22)) (#set first 40) (#return (#u64.+.wrap first second)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13100,7 +13164,7 @@ mod tests {
     #[test]
     fn lowers_array_let_destructuring() {
         let program = parse_program(
-            "(#fn main () u64 (#let (#array first second third) (#array u64 3) (#array (#array u64 3) 10 20 12)) (#return (#u64.+.wrap first (#u64.+.wrap second third))))",
+            "(#fn main () #u64 (#let (#array first second third) (#array #u64 3) (#array (#array #u64 3) 10 20 12)) (#return (#u64.+.wrap first (#u64.+.wrap second third))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13110,7 +13174,7 @@ mod tests {
     #[test]
     fn lowers_array_match_patterns() {
         let program = parse_program(
-            "(#fn classify ((value (#array u64 3))) u64 (#return (#match value (#case (#array 10 middle _) middle) (#case _ 0)))) (#fn main () u64 (#return (#call classify (: value (#array (#array u64 3) 10 32 12)))))",
+            "(#fn classify ((value (#array #u64 3))) #u64 (#return (#match value (#case (#array 10 middle _) middle) (#case _ 0)))) (#fn main () #u64 (#return (#call classify (: value (#array (#array #u64 3) 10 32 12)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13120,7 +13184,7 @@ mod tests {
     #[test]
     fn matches_empty_arrays() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#match (#array (#array u64 0)) (#case (#array) 42) (#case _ 0))))",
+            "(#fn main () #u64 (#return (#match (#array (#array #u64 0)) (#case (#array) 42) (#case _ 0))))",
         )
         .unwrap();
         let type_result = check_types(&program);
@@ -13131,7 +13195,7 @@ mod tests {
     #[test]
     fn matches_direct_array_values() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#match (#array (#array u64 3) 10 32 12) (#case (#array 10 middle _) middle) (#case _ 0))))",
+            "(#fn main () #u64 (#return (#match (#array (#array #u64 3) 10 32 12) (#case (#array 10 middle _) middle) (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13141,7 +13205,7 @@ mod tests {
     #[test]
     fn matches_direct_struct_values() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#return (#match (#struct-literal Point ((x 10) (y 32))) (#case (Point 10 middle) middle) (#case _ 0))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#return (#match (#struct-literal Point ((x 10) (y 32))) (#case (Point 10 middle) middle) (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13151,7 +13215,7 @@ mod tests {
     #[test]
     fn matches_direct_tuple_values() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#match (#tuple (#tuple u64 u64) 10 32) (#case (#tuple 10 middle) middle) (#case _ 0))))",
+            "(#fn main () #u64 (#return (#match (#tuple (#tuple #u64 #u64) 10 32) (#case (#tuple 10 middle) middle) (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13161,7 +13225,7 @@ mod tests {
     #[test]
     fn returns_nested_direct_tuple_values() {
         let program = parse_program(
-            "(#fn make () (#tuple (#tuple u64 u64) u64) (#return (#tuple (#tuple (#tuple u64 u64) 10 20) 32))) (#fn main () u64 (#return (#get (#call make (:)) 1)))",
+            "(#fn make () (#tuple (#tuple #u64 #u64) #u64) (#return (#tuple (#tuple (#tuple #u64 #u64) 10 20) 32))) (#fn main () #u64 (#return (#get (#call make (:)) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13171,7 +13235,7 @@ mod tests {
     #[test]
     fn stores_and_reads_nested_tuple_locals() {
         let program = parse_program(
-            "(#fn main () u64 (#let value (#tuple (#tuple u64 u64) u64) (#tuple (#tuple (#tuple u64 u64) 10 20) 32)) (#return (#get value 1)))",
+            "(#fn main () #u64 (#let value (#tuple (#tuple #u64 #u64) #u64) (#tuple (#tuple (#tuple #u64 #u64) 10 20) 32)) (#return (#get value 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13181,7 +13245,7 @@ mod tests {
     #[test]
     fn stores_and_indexes_nested_array_locals() {
         let program = parse_program(
-            "(#fn main () u64 (#let value (#array (#array u64 2) 2) (#array (#array (#array u64 2) 2) (#array (#array u64 2) 10 20) (#array (#array u64 2) 30 40))) (#return (#index (#index value 1) 0)))",
+            "(#fn main () #u64 (#let value (#array (#array #u64 2) 2) (#array (#array (#array #u64 2) 2) (#array (#array #u64 2) 10 20) (#array (#array #u64 2) 30 40))) (#return (#index (#index value 1) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13191,7 +13255,7 @@ mod tests {
     #[test]
     fn stores_and_reads_nested_struct_locals() {
         let program = parse_program(
-            "(#struct Inner ((left u64) (right u64))) (#struct Outer ((inner Inner) (tail u64))) (#fn main () u64 (#let value Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 32)))) (#return (#get value tail)))",
+            "(#struct Inner ((left #u64) (right #u64))) (#struct Outer ((inner Inner) (tail #u64))) (#fn main () #u64 (#let value Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 32)))) (#return (#get value tail)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13201,7 +13265,7 @@ mod tests {
     #[test]
     fn destructures_nested_struct_locals() {
         let program = parse_program(
-            "(#struct Inner ((left u64) (right u64))) (#struct Outer ((inner Inner) (tail u64))) (#fn main () u64 (#let (Outer inner tail) Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 32)))) (#return tail))",
+            "(#struct Inner ((left #u64) (right #u64))) (#struct Outer ((inner Inner) (tail #u64))) (#fn main () #u64 (#let (Outer inner tail) Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 32)))) (#return tail))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13211,7 +13275,7 @@ mod tests {
     #[test]
     fn matches_nested_direct_tuple_values() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#match (#tuple (#tuple (#tuple u64 u64) u64) (#tuple (#tuple u64 u64) 10 20) 32) (#case _ 32))))",
+            "(#fn main () #u64 (#return (#match (#tuple (#tuple (#tuple #u64 #u64) #u64) (#tuple (#tuple #u64 #u64) 10 20) 32) (#case _ 32))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13221,7 +13285,7 @@ mod tests {
     #[test]
     fn matches_nested_tuple_patterns_and_binds_flattened_values() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#match (#tuple (#tuple (#tuple u64 u64) u64) (#tuple (#tuple u64 u64) 10 20) 32) (#case (#tuple (#tuple _ inner) tail) (#u64.+.wrap inner tail)) (#case _ 0))))",
+            "(#fn main () #u64 (#return (#match (#tuple (#tuple (#tuple #u64 #u64) #u64) (#tuple (#tuple #u64 #u64) 10 20) 32) (#case (#tuple (#tuple _ inner) tail) (#u64.+.wrap inner tail)) (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13231,7 +13295,7 @@ mod tests {
     #[test]
     fn passes_nested_tuple_parameters_through_native_calls() {
         let program = parse_program(
-            "(#fn add-inner-and-tail ((value (#tuple (#tuple u64 u64) u64))) u64 (#return (#u64.+.wrap (#u64.+.wrap (#get (#get value 0) 1) (#get value 1)) (#get (#get value 0) 0)))) (#fn main () u64 (#return (#call add-inner-and-tail (: value (#tuple (#tuple (#tuple u64 u64) u64) (#tuple (#tuple u64 u64) 10 20) 32)))))",
+            "(#fn add-inner-and-tail ((value (#tuple (#tuple #u64 #u64) #u64))) #u64 (#return (#u64.+.wrap (#u64.+.wrap (#get (#get value 0) 1) (#get value 1)) (#get (#get value 0) 0)))) (#fn main () #u64 (#return (#call add-inner-and-tail (: value (#tuple (#tuple (#tuple #u64 #u64) #u64) (#tuple (#tuple #u64 #u64) 10 20) 32)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13241,7 +13305,7 @@ mod tests {
     #[test]
     fn returns_nested_array_locals_through_native_calls() {
         let program = parse_program(
-            "(#fn nested-values () (#array (#array u64 2) 2) (#let value (#array (#array u64 2) 2) (#array (#array (#array u64 2) 2) (#array (#array u64 2) 10 20) (#array (#array u64 2) 30 40))) (#return value)) (#fn main () u64 (#return (#index (#index (#call nested-values (:)) 1) 0)))",
+            "(#fn nested-values () (#array (#array #u64 2) 2) (#let value (#array (#array #u64 2) 2) (#array (#array (#array #u64 2) 2) (#array (#array #u64 2) 10 20) (#array (#array #u64 2) 30 40))) (#return value)) (#fn main () #u64 (#return (#index (#index (#call nested-values (:)) 1) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13251,7 +13315,7 @@ mod tests {
     #[test]
     fn mutates_nested_array_elements() {
         let program = parse_program(
-            "(#fn main () u64 (#let-mut values (#array (#array u64 2) 2) (#array (#array (#array u64 2) 2) (#array (#array u64 2) 10 20) (#array (#array u64 2) 30 40))) (#set-index values 1 (#array (#array u64 2) 50 60)) (#return (#index (#index values 1) 0)))",
+            "(#fn main () #u64 (#let-mut values (#array (#array #u64 2) 2) (#array (#array (#array #u64 2) 2) (#array (#array #u64 2) 10 20) (#array (#array #u64 2) 30 40))) (#set-index values 1 (#array (#array #u64 2) 50 60)) (#return (#index (#index values 1) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13261,7 +13325,7 @@ mod tests {
     #[test]
     fn mutates_nested_tuple_fields() {
         let program = parse_program(
-            "(#fn main () u64 (#let-mut value (#tuple (#tuple u64 u64) u64) (#tuple (#tuple (#tuple u64 u64) u64) (#tuple (#tuple u64 u64) 10 20) 30)) (#set-field value 0 (#tuple (#tuple u64 u64) 50 60)) (#return (#get (#get value 0) 1)))",
+            "(#fn main () #u64 (#let-mut value (#tuple (#tuple #u64 #u64) #u64) (#tuple (#tuple (#tuple #u64 #u64) #u64) (#tuple (#tuple #u64 #u64) 10 20) 30)) (#set-field value 0 (#tuple (#tuple #u64 #u64) 50 60)) (#return (#get (#get value 0) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13271,7 +13335,7 @@ mod tests {
     #[test]
     fn mutates_nested_struct_fields() {
         let program = parse_program(
-            "(#struct Inner ((left u64) (right u64))) (#struct Outer ((inner Inner) (tail u64))) (#fn main () u64 (#let-mut value Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 30)))) (#set-field value inner (#struct-literal Inner ((left 50) (right 60)))) (#return (#get (#get value inner) right)))",
+            "(#struct Inner ((left #u64) (right #u64))) (#struct Outer ((inner Inner) (tail #u64))) (#fn main () #u64 (#let-mut value Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 30)))) (#set-field value inner (#struct-literal Inner ((left 50) (right 60)))) (#return (#get (#get value inner) right)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13281,7 +13345,7 @@ mod tests {
     #[test]
     fn reads_nested_static_arrays() {
         let program = parse_program(
-            "(#static Values (#array (#array u64 2) 2) (#array (#array (#array u64 2) 2) (#array (#array u64 2) 10 20) (#array (#array u64 2) 30 40))) (#fn main () u64 (#return (#unsafe (#index (#index Values 1) 0))))",
+            "(#static Values (#array (#array #u64 2) 2) (#array (#array (#array #u64 2) 2) (#array (#array #u64 2) 10 20) (#array (#array #u64 2) 30 40))) (#fn main () #u64 (#return (#unsafe (#index (#index Values 1) 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13291,7 +13355,7 @@ mod tests {
     #[test]
     fn matches_nested_enum_payloads() {
         let program = parse_program(
-            "(#enum Boxed ((Wrapped (#tuple u64 u64)) Empty)) (#fn sum ((value Boxed)) u64 (#return (#match value (#case (Wrapped (#tuple left right)) (#u64.+.wrap left right)) (#case Empty 0)))) (#fn main () u64 (#return (#call sum (: value (Wrapped (#tuple (#tuple u64 u64) 10 22))))))",
+            "(#enum Boxed ((Wrapped (#tuple #u64 #u64)) Empty)) (#fn sum ((value Boxed)) #u64 (#return (#match value (#case (Wrapped (#tuple left right)) (#u64.+.wrap left right)) (#case Empty 0)))) (#fn main () #u64 (#return (#call sum (: value (Wrapped (#tuple (#tuple #u64 #u64) 10 22))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13301,7 +13365,7 @@ mod tests {
     #[test]
     fn reads_nested_enum_statics() {
         let program = parse_program(
-            "(#enum Boxed ((Wrapped (#tuple u64 u64)) Empty)) (#static Value Boxed (Wrapped (#tuple (#tuple u64 u64) 10 22))) (#fn main () u64 (#return (#match (#unsafe Value) (#case (Wrapped (#tuple left right)) (#u64.+.wrap left right)) (#case Empty 0))))",
+            "(#enum Boxed ((Wrapped (#tuple #u64 #u64)) Empty)) (#static Value Boxed (Wrapped (#tuple (#tuple #u64 #u64) 10 22))) (#fn main () #u64 (#return (#match (#unsafe Value) (#case (Wrapped (#tuple left right)) (#u64.+.wrap left right)) (#case Empty 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13311,7 +13375,7 @@ mod tests {
     #[test]
     fn destructures_nested_aggregate_patterns() {
         let program = parse_program(
-            "(#struct Inner ((left u64) (right u64))) (#struct Outer ((inner Inner) (tail u64))) (#fn main () u64 (#let (Outer (Inner left right) tail) Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 30)))) (#return (#u64.+.wrap right tail)))",
+            "(#struct Inner ((left #u64) (right #u64))) (#struct Outer ((inner Inner) (tail #u64))) (#fn main () #u64 (#let (Outer (Inner left right) tail) Outer (#struct-literal Outer ((inner (#struct-literal Inner ((left 10) (right 20)))) (tail 30)))) (#return (#u64.+.wrap right tail)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13321,7 +13385,7 @@ mod tests {
     #[test]
     fn mutates_enum_payload_fields() {
         let program = parse_program(
-            "(#enum Pair ((Pair u64 u64) Empty)) (#fn main () u64 (#let-mut value Pair (Pair 20 22)) (#set-payload value Pair 1 30) (#return (#match value (#case (Pair left right) (#u64.+.wrap left right)) (#case Empty 0))))",
+            "(#enum Pair ((Pair #u64 #u64) Empty)) (#fn main () #u64 (#let-mut value Pair (Pair 20 22)) (#set-payload value Pair 1 30) (#return (#match value (#case (Pair left right) (#u64.+.wrap left right)) (#case Empty 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13331,7 +13395,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_match_guards() {
         let program = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#let value Maybe (Some 42)) (#return (#match value (#case (Some payload) (#when (#u64.>.wrap payload 40)) (#u64.+.wrap payload 8)) (#case (Some _) 0) (#case None 0))))",
+            "(#enum Maybe ((Some #u64) None)) (#fn main () #u64 (#let value Maybe (Some 42)) (#return (#match value (#case (Some payload) (#when (#u64.>.wrap payload 40)) (#u64.+.wrap payload 8)) (#case (Some _) 0) (#case None 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13340,7 +13404,7 @@ mod tests {
 
     #[test]
     fn checks_and_lowers_value_loops() {
-        let program = parse_program("(#fn main () u64 (#return (#loop (#break 42))))").unwrap();
+        let program = parse_program("(#fn main () #u64 (#return (#loop (#break 42))))").unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
     }
@@ -13348,7 +13412,7 @@ mod tests {
     #[test]
     fn lowers_value_loops_with_conditional_breaks() {
         let program = parse_program(
-            "(#fn main () u64 (#let-mut i u64 0) (#return (#loop (#set i (#u64.+.wrap (#clone i) 1)) (#if (#u64.== (#clone i) 3) (#block (#break (#clone i))) (#u64.+.wrap (#clone i) 0)))))",
+            "(#fn main () #u64 (#let-mut i #u64 0) (#return (#loop (#set i (#u64.+.wrap (#clone i) 1)) (#if (#u64.== (#clone i) 3) (#block (#break (#clone i))) (#u64.+.wrap (#clone i) 0)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13357,7 +13421,7 @@ mod tests {
 
     #[test]
     fn checks_and_lowers_diverging_expressions() {
-        let program = parse_program("(#fn main () u64 (#return (#if true 42 (#panic))))").unwrap();
+        let program = parse_program("(#fn main () #u64 (#return (#if true 42 (#panic))))").unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
     }
@@ -13365,7 +13429,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_never_returning_functions() {
         let program = parse_program(
-            "(#fn abort () ! (#return (#unreachable))) (#fn choose ((condition bool)) u64 (#return (#if condition 42 (#call abort (:))))) (#fn main () u64 (#return (#call choose (: condition false))))",
+            "(#fn abort () ! (#return (#unreachable))) (#fn choose ((condition #bool)) #u64 (#return (#if condition 42 (#call abort (:))))) (#fn main () #u64 (#return (#call choose (: condition false))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13378,7 +13442,7 @@ mod tests {
             .contains("expected Never"));
 
         let layout = parse_program(
-            "(#fn main () u64 (#return (#u64.+.wrap (#as (#size-of ()) u64) (#as (#size-of !) u64))))",
+            "(#fn main () #u64 (#return (#u64.+.wrap (#as (#size-of ()) #u64) (#as (#size-of !) #u64))))",
         )
         .unwrap();
         assert!(check_types(&layout).is_ok());
@@ -13389,7 +13453,7 @@ mod tests {
     #[test]
     fn casts_fieldless_enum_discriminants() {
         let program = parse_program(
-            "(#enum Color (Red Green)) (#fn discriminant ((value Color)) u64 (#return (#as value u64))) (#fn main () u64 (#let selected Color Green) (#return (#u64.+.wrap (#call discriminant (: value selected)) 41)))",
+            "(#enum Color (Red Green)) (#fn discriminant ((value Color)) #u64 (#return (#as value #u64))) (#fn main () #u64 (#let selected Color Green) (#return (#u64.+.wrap (#call discriminant (: value selected)) 41)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13398,7 +13462,7 @@ mod tests {
         assert!(assembly.contains("mov rax, 1"));
 
         let payload = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#return (#as (Some 1) u64)))",
+            "(#enum Maybe ((Some #u64) None)) (#fn main () #u64 (#return (#as (Some 1) #u64)))",
         )
         .unwrap();
         assert!(check_types(&payload).is_err());
@@ -13407,7 +13471,7 @@ mod tests {
     #[test]
     fn lowers_zero_word_unit_values() {
         let program = parse_program(
-            "(#struct Tagged ((marker ()) (value u64))) (#fn consume ((marker ())) u64 (#return 41)) (#fn main () u64 (#let unit-value () ()) (#let pair (#tuple () u64) (#tuple (#tuple () u64) (#clone unit-value) 40)) (#let tagged Tagged (#struct-literal Tagged ((marker (#clone unit-value)) (value 1)))) (#return (#u64.+.wrap (#call consume (: marker unit-value)) (#u64.+.wrap (#get pair 1) (#get tagged value)))))",
+            "(#struct Tagged ((marker ()) (value #u64))) (#fn consume ((marker ())) #u64 (#return 41)) (#fn main () #u64 (#let unit-value () ()) (#let pair (#tuple () #u64) (#tuple (#tuple () #u64) (#clone unit-value) 40)) (#let tagged Tagged (#struct-literal Tagged ((marker (#clone unit-value)) (value 1)))) (#return (#u64.+.wrap (#call consume (: marker unit-value)) (#u64.+.wrap (#get pair 1) (#get tagged value)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13417,7 +13481,7 @@ mod tests {
     #[test]
     fn lowers_unit_like_structs() {
         let program = parse_program(
-            "(#struct Marker ()) (#fn make () Marker (#return (#struct-literal Marker ()))) (#fn consume ((marker Marker)) u64 (#return 41)) (#fn main () u64 (#let marker Marker (#call make (:))) (#return (#call consume (: marker marker))))",
+            "(#struct Marker ()) (#fn make () Marker (#return (#struct-literal Marker ()))) (#fn consume ((marker Marker)) #u64 (#return 41)) (#fn main () #u64 (#let marker Marker (#call make (:))) (#return (#call consume (: marker marker))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13429,7 +13493,7 @@ mod tests {
     #[test]
     fn lowers_zero_sized_globals() {
         let program = parse_program(
-            "(#let UNIT () ()) (#fn consume ((value ())) u64 (#return 41)) (#fn main () u64 (#return (#call consume (: value UNIT))))",
+            "(#let UNIT () ()) (#fn consume ((value ())) #u64 (#return 41)) (#fn main () #u64 (#return (#call consume (: value UNIT))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13441,7 +13505,7 @@ mod tests {
     #[test]
     fn rejects_value_breaks_in_statement_loops() {
         let program =
-            parse_program("(#fn main () u64 (#while true (#break 1)) (#return 0))").unwrap();
+            parse_program("(#fn main () #u64 (#while true (#break 1)) (#return 0))").unwrap();
         let error = check_types(&program).unwrap_err();
         assert!(error.contains("only valid in a loop expression"));
     }
@@ -13449,7 +13513,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_let_else() {
         let program = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#let value Maybe (Some 42)) (#let-else (Some payload) Maybe value (#return 0)) (#return payload))",
+            "(#enum Maybe ((Some #u64) None)) (#fn main () #u64 (#let value Maybe (Some 42)) (#let-else (Some payload) Maybe value (#return 0)) (#return payload))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13459,7 +13523,7 @@ mod tests {
     #[test]
     fn accepts_diverging_let_else_expressions() {
         let program = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#let value Maybe (Some 42)) (#let-else (Some payload) Maybe value (#unreachable)) (#return payload))",
+            "(#enum Maybe ((Some #u64) None)) (#fn main () #u64 (#let value Maybe (Some 42)) (#let-else (Some payload) Maybe value (#unreachable)) (#return payload))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13474,8 +13538,8 @@ mod tests {
             "(#match true (#case true (#block (#return 0u64))) (#case false (#block (#return 1u64))))",
         ] {
             let program = parse_program(&format!(
-                "(#enum Maybe ((Some u64) None))
-                 (#fn main () u64
+                "(#enum Maybe ((Some #u64) None))
+                 (#fn main () #u64
                    (#let value Maybe (Some 42u64))
                    (#let-else (Some payload) Maybe value {fallback})
                    (#return payload))"
@@ -13484,8 +13548,8 @@ mod tests {
             generate_assembly(&program).unwrap();
         }
         let program = parse_program(
-            "(#enum Maybe ((Some u64) None))
-             (#fn main () u64 (#let value Maybe (Some 42u64))
+            "(#enum Maybe ((Some #u64) None))
+             (#fn main () #u64 (#let value Maybe (Some 42u64))
                (#let-else (Some payload) Maybe value
                  (#if true (#block (#return 0u64)) ()))
                (#return payload))",
@@ -13501,18 +13565,18 @@ mod tests {
             "(#label outer (#loop (#if true (#block (#break-to outer 42u64)) ())))",
             "(#loop (#loop (#break)) (#break 42u64))",
         ] {
-            let program = parse_program(&format!("(#fn main () u64 (#return {value}))")).unwrap();
+            let program = parse_program(&format!("(#fn main () #u64 (#return {value}))")).unwrap();
             check_types(&program).unwrap();
             generate_assembly(&program).unwrap();
         }
         let program = parse_program(
-            "(#fn main () u64
+            "(#fn main () #u64
                (#return (#loop (#if true (#block (#break 42u64)) (#block (#break false))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_err());
         let program = parse_program(
-            "(#fn main () u64
+            "(#fn main () #u64
                (#return (#label outer (#loop (#break-to outer)))))",
         )
         .unwrap();
@@ -13523,7 +13587,7 @@ mod tests {
     fn statement_loop_headers_use_the_enclosing_value_loop_result_contract() {
         for statement in [
             "(#while (#block (#break 42u64) false) ())",
-            "(#for (#let count u64 (#block (#break 42u64) 0u64)) false () ())",
+            "(#for (#let count #u64 (#block (#break 42u64) 0u64)) false () ())",
             "(#for () (#block (#break 42u64) false) () ())",
             "(#for () true (#break 42u64) ())",
             "(#while true (#break-to outer 42u64))",
@@ -13531,7 +13595,7 @@ mod tests {
             "(#for () true () (#break-to outer 42u64))",
         ] {
             let source = format!(
-                "(#fn main () u64
+                "(#fn main () #u64
                    (#return (#label outer (#loop {statement} (#break 42u64)))))"
             );
             let program = parse_program(&source).unwrap();
@@ -13552,7 +13616,7 @@ mod tests {
 
     #[test]
     fn destructured_linear_cleanup_errors_retain_the_binding_span() {
-        let source = "(#struct Token ((value u64))) (#linear Token)
+        let source = "(#struct Token ((value #u64))) (#linear Token)
           (#fn broken ((value Token)) ()
             (#let (#tuple retained) (#tuple Token) (#tuple (#tuple Token) value))
             (#return ()))";
@@ -13568,7 +13632,7 @@ mod tests {
     #[test]
     fn matches_wide_enum_payload_literals() {
         let program = parse_program(
-            "(#enum Maybe ((Some i128) None)) (#fn main () u64 (#let value Maybe (Some 42)) (#return (#match value (#case (Some 42) 42) (#case _ 0))))",
+            "(#enum Maybe ((Some #i128) None)) (#fn main () #u64 (#let value Maybe (Some 42)) (#return (#match value (#case (Some 42) 42) (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13578,7 +13642,7 @@ mod tests {
     #[test]
     fn indexes_direct_aggregate_arrays_dynamically() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#get (#index (#array (#array (#tuple u64 u64) 2) (#tuple (#tuple u64 u64) 10 20) (#tuple (#tuple u64 u64) 30 12)) 1) 0)))",
+            "(#fn main () #u64 (#return (#get (#index (#array (#array (#tuple #u64 #u64) 2) (#tuple (#tuple #u64 #u64) 10 20) (#tuple (#tuple #u64 #u64) 30 12)) 1) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13588,7 +13652,7 @@ mod tests {
     #[test]
     fn indexes_direct_aggregate_array_repeats_dynamically() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#get (#index (#array-repeat (#array (#tuple u64 u64) 2) (#tuple 30 12)) 1) 0)))",
+            "(#fn main () #u64 (#return (#get (#index (#array-repeat (#array (#tuple #u64 #u64) 2) (#tuple 30 12)) 1) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13598,7 +13662,7 @@ mod tests {
     #[test]
     fn passes_aggregate_arrays_through_functions() {
         let program = parse_program(
-            "(#fn consume ((values (#array (#tuple u64 u64) 2))) u64 (#return (#get (#index values 1) 0))) (#fn main () u64 (#let values (#array (#tuple u64 u64) 2) (#array (#array (#tuple u64 u64) 2) (#tuple (#tuple u64 u64) 10 20) (#tuple (#tuple u64 u64) 30 12))) (#return (#call consume (: values values))))",
+            "(#fn consume ((values (#array (#tuple #u64 #u64) 2))) #u64 (#return (#get (#index values 1) 0))) (#fn main () #u64 (#let values (#array (#tuple #u64 #u64) 2) (#array (#array (#tuple #u64 #u64) 2) (#tuple (#tuple #u64 #u64) 10 20) (#tuple (#tuple #u64 #u64) 30 12))) (#return (#call consume (: values values))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13608,7 +13672,7 @@ mod tests {
     #[test]
     fn passes_repeated_aggregate_arrays_through_functions() {
         let program = parse_program(
-            "(#fn consume ((values (#array (#tuple u64 u64) 2))) u64 (#return (#get (#index values 1) 0))) (#fn main () u64 (#return (#call consume (: values (#array-repeat (#tuple 30 12))))))",
+            "(#fn consume ((values (#array (#tuple #u64 #u64) 2))) #u64 (#return (#get (#index values 1) 0))) (#fn main () #u64 (#return (#call consume (: values (#array-repeat (#tuple 30 12))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13618,7 +13682,7 @@ mod tests {
     #[test]
     fn returns_repeated_aggregate_arrays() {
         let program = parse_program(
-            "(#fn values () (#array (#tuple u64 u64) 2) (#return (#array-repeat (#tuple 30 12)))) (#fn main () u64 (#return (#get (#index (#call values (:)) 1) 0)))",
+            "(#fn values () (#array (#tuple #u64 #u64) 2) (#return (#array-repeat (#tuple 30 12)))) (#fn main () #u64 (#return (#get (#index (#call values (:)) 1) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13628,7 +13692,7 @@ mod tests {
     #[test]
     fn returns_aggregate_if_values() {
         let program = parse_program(
-            "(#fn choose ((condition bool)) (#tuple u64 u64) (#return (#if condition (#tuple (#tuple u64 u64) 10 20) (#tuple (#tuple u64 u64) 30 12)))) (#fn main () u64 (#return (#get (#call choose (: condition true)) 1)))",
+            "(#fn choose ((condition #bool)) (#tuple #u64 #u64) (#return (#if condition (#tuple (#tuple #u64 #u64) 10 20) (#tuple (#tuple #u64 #u64) 30 12)))) (#fn main () #u64 (#return (#get (#call choose (: condition true)) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13638,7 +13702,7 @@ mod tests {
     #[test]
     fn returns_aggregate_match_values() {
         let program = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn choose ((value Maybe)) (#tuple u64 u64) (#return (#match value (#case (Some payload) (#tuple (#tuple u64 u64) payload 20)) (#case None (#tuple (#tuple u64 u64) 30 12))))) (#fn main () u64 (#return (#get (#call choose (: value (Some 10))) 1)))",
+            "(#enum Maybe ((Some #u64) None)) (#fn choose ((value Maybe)) (#tuple #u64 #u64) (#return (#match value (#case (Some payload) (#tuple (#tuple #u64 #u64) payload 20)) (#case None (#tuple (#tuple #u64 #u64) 30 12))))) (#fn main () #u64 (#return (#get (#call choose (: value (Some 10))) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13648,7 +13712,7 @@ mod tests {
     #[test]
     fn selects_fields_from_aggregate_if_values() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#get (#if true (#tuple (#tuple u64 u64) 10 20) (#tuple (#tuple u64 u64) 30 12)) 1)))",
+            "(#fn main () #u64 (#return (#get (#if true (#tuple (#tuple #u64 #u64) 10 20) (#tuple (#tuple #u64 #u64) 30 12)) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13658,7 +13722,7 @@ mod tests {
     #[test]
     fn returns_aggregate_loop_values() {
         let program = parse_program(
-            "(#fn values () (#tuple u64 u64) (#return (#loop (#break (#tuple (#tuple u64 u64) 30 12))))) (#fn main () u64 (#return (#get (#call values (:)) 1)))",
+            "(#fn values () (#tuple #u64 #u64) (#return (#loop (#break (#tuple (#tuple #u64 #u64) 30 12))))) (#fn main () #u64 (#return (#get (#call values (:)) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13668,7 +13732,7 @@ mod tests {
     #[test]
     fn lowers_aggregate_block_values() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#get (#block (#let value u64 10) (#tuple (#tuple u64 u64) value 20)) 1)))",
+            "(#fn main () #u64 (#return (#get (#block (#let value #u64 10) (#tuple (#tuple #u64 #u64) value 20)) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13678,7 +13742,7 @@ mod tests {
     #[test]
     fn lowers_conditional_aggregate_loop_breaks() {
         let program = parse_program(
-            "(#fn values () (#tuple u64 u64) (#return (#loop (#if true (#block (#break (#tuple (#tuple u64 u64) 30 12))) (#unreachable))))) (#fn main () u64 (#return (#get (#call values (:)) 1)))",
+            "(#fn values () (#tuple #u64 #u64) (#return (#loop (#if true (#block (#break (#tuple (#tuple #u64 #u64) 30 12))) (#unreachable))))) (#fn main () #u64 (#return (#get (#call values (:)) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13688,7 +13752,7 @@ mod tests {
     #[test]
     fn passes_aggregate_control_values_to_functions() {
         let program = parse_program(
-            "(#fn consume ((value (#tuple u64 u64))) u64 (#return (#get value 1))) (#fn main () u64 (#return (#call consume (: value (#if true (#tuple (#tuple u64 u64) 10 20) (#tuple (#tuple u64 u64) 30 12))))))",
+            "(#fn consume ((value (#tuple #u64 #u64))) #u64 (#return (#get value 1))) (#fn main () #u64 (#return (#call consume (: value (#if true (#tuple (#tuple #u64 #u64) 10 20) (#tuple (#tuple #u64 #u64) 30 12))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13698,7 +13762,7 @@ mod tests {
     #[test]
     fn evaluates_saturating_integer_constants() {
         let program = parse_program(
-            "(#const Max u8 255) (#const Clamped u8 (#u8.+.saturate Max 1)) (#fn main () u64 (#return (#as Clamped u64)))",
+            "(#const Max #u8 255) (#const Clamped #u8 (#u8.+.saturate Max 1)) (#fn main () #u64 (#return (#as Clamped #u64)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13708,7 +13772,7 @@ mod tests {
     #[test]
     fn evaluates_saturating_minimum_division_constants() {
         let program = parse_program(
-            "(#const Minimum i8 -128) (#const Quotient i8 (#i8./.saturate Minimum -1)) (#fn main () u64 (#return (#as Quotient u64)))",
+            "(#const Minimum #i8 -128) (#const Quotient #i8 (#i8./.saturate Minimum -1)) (#fn main () #u64 (#return (#as Quotient #u64)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13718,7 +13782,7 @@ mod tests {
     #[test]
     fn evaluates_u128_saturating_constants_in_the_unsigned_domain() {
         let program = parse_program(
-            "(#const Maximum u128 0xffffffffffffffffffffffffffffffff) (#const Saturated u128 (#u128.+.saturate Maximum 1)) (#fn main () u64 (#return (#if (#u128.== Saturated Maximum) 42 0)))",
+            "(#const Maximum #u128 0xffffffffffffffffffffffffffffffff) (#const Saturated #u128 (#u128.+.saturate Maximum 1)) (#fn main () #u64 (#return (#if (#u128.== Saturated Maximum) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13728,7 +13792,7 @@ mod tests {
     #[test]
     fn evaluates_i128_saturating_constants_at_signed_bounds() {
         let program = parse_program(
-            "(#const Minimum i128 -170141183460469231731687303715884105728) (#const Saturated i128 (#i128.-.saturate Minimum 1)) (#fn main () u64 (#return (#if (#i128.== Saturated Minimum) 42 0)))",
+            "(#const Minimum #i128 -170141183460469231731687303715884105728) (#const Saturated #i128 (#i128.-.saturate Minimum 1)) (#fn main () #u64 (#return (#if (#i128.== Saturated Minimum) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13738,7 +13802,7 @@ mod tests {
     #[test]
     fn evaluates_wrapping_i128_minimum_division_constants() {
         let program = parse_program(
-            "(#const Minimum i128 -170141183460469231731687303715884105728) (#const Quotient i128 (#i128./.wrap Minimum -1)) (#const Remainder i128 (#i128.%.wrap Minimum -1)) (#fn main () u64 (#return (#if (#i128.== Quotient Minimum) (#if (#i128.== Remainder 0) 42 0) 0)))",
+            "(#const Minimum #i128 -170141183460469231731687303715884105728) (#const Quotient #i128 (#i128./.wrap Minimum -1)) (#const Remainder #i128 (#i128.%.wrap Minimum -1)) (#fn main () #u64 (#return (#if (#i128.== Quotient Minimum) (#if (#i128.== Remainder 0) 42 0) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13748,7 +13812,7 @@ mod tests {
     #[test]
     fn preserves_boolean_constant_short_circuiting() {
         let program = parse_program(
-            "(#const FalseAnd bool (#bool.&& false (#u64.== (#u64./.wrap 1 0) 0))) (#const TrueOr bool (#bool.|| true (#u64.== (#u64./.wrap 1 0) 0))) (#fn main () u64 (#return (#if (#bool.&& (#bool.! FalseAnd) TrueOr) 42 0)))",
+            "(#const FalseAnd #bool (#bool.&& false (#u64.== (#u64./.wrap 1 0) 0))) (#const TrueOr #bool (#bool.|| true (#u64.== (#u64./.wrap 1 0) 0))) (#fn main () #u64 (#return (#if (#bool.&& (#bool.! FalseAnd) TrueOr) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13758,7 +13822,7 @@ mod tests {
     #[test]
     fn evaluates_full_width_unsigned_machine_constants() {
         let program = parse_program(
-            "(#const Maximum u64 18446744073709551615) (#const Wrapped u64 (#u64.*.wrap Maximum 2)) (#const Saturated u64 (#u64.*.saturate Maximum 2)) (#fn main () u64 (#return (#if (#u64.&& (#u64.== Wrapped 18446744073709551614) (#u64.== Saturated Maximum)) 42 0)))",
+            "(#const Maximum #u64 18446744073709551615) (#const Wrapped #u64 (#u64.*.wrap Maximum 2)) (#const Saturated #u64 (#u64.*.saturate Maximum 2)) (#fn main () #u64 (#return (#if (#u64.&& (#u64.== Wrapped 18446744073709551614) (#u64.== Saturated Maximum)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13768,7 +13832,7 @@ mod tests {
     #[test]
     fn evaluates_wrapping_i128_constant_shifts() {
         let program = parse_program(
-            "(#const Shifted i128 (#i128.<< 1 127)) (#const Minimum i128 -170141183460469231731687303715884105728) (#fn main () u64 (#return (#if (#i128.== Shifted Minimum) 42 0)))",
+            "(#const Shifted #i128 (#i128.<< 1 127)) (#const Minimum #i128 -170141183460469231731687303715884105728) (#fn main () #u64 (#return (#if (#i128.== Shifted Minimum) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13778,27 +13842,27 @@ mod tests {
     #[test]
     fn parses_and_checks_value_structs() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn point_x () u64 (#return (#get (#struct-literal Point ((x 7) (y 9))) x)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn point_x () #u64 (#return (#get (#struct-literal Point ((x 7) (y 9))) x)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("mov rax, 7"));
         let local = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn point_y () u64 (#let p Point (#struct-literal Point ((x 7) (y 9)))) (#return (#get p y)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn point_y () #u64 (#let p Point (#struct-literal Point ((x 7) (y 9)))) (#return (#get p y)))",
         )
         .unwrap();
         assert!(generate_assembly(&local).unwrap().contains("[rbp-16]"));
-        let mutable = parse_program("(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let-mut p Point (#struct-literal Point ((x 1) (y 2)))) (#set-field p y 40) (#return (#u64.+.wrap  (#get p x) (#get p y))))").unwrap();
+        let mutable = parse_program("(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#let-mut p Point (#struct-literal Point ((x 1) (y 2)))) (#set-field p y 40) (#return (#u64.+.wrap  (#get p x) (#get p y))))").unwrap();
         assert!(check_types(&mutable).is_ok());
         let returned = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn make_point () Point (#return (#struct-literal Point ((x 7) (y 9)))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn make_point () Point (#return (#struct-literal Point ((x 7) (y 9)))))",
         )
         .unwrap();
         assert!(check_types(&returned).is_ok());
         assert!(generate_assembly(&returned).unwrap().contains("pop rdx"));
         let consumed = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn make_point () Point (#return (#struct-literal Point ((x 7) (y 9))))) (#fn main () u64 (#let point Point (#call make_point (:))) (#return (#get point y)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn make_point () Point (#return (#struct-literal Point ((x 7) (y 9))))) (#fn main () #u64 (#let point Point (#call make_point (:))) (#return (#get point y)))",
         )
         .unwrap();
         assert!(check_types(&consumed).is_ok());
@@ -13806,7 +13870,7 @@ mod tests {
             .unwrap()
             .contains("call make_point"));
         let unsupported_parameter = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn identity ((point Point)) Point (#return point)) (#fn main () u64 (#let result Point (#call identity (: point (#struct-literal Point ((x 11) (y 37)))))) (#return (#get result y)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn identity ((point Point)) Point (#return point)) (#fn main () #u64 (#let result Point (#call identity (: point (#struct-literal Point ((x 11) (y 37)))))) (#return (#get result y)))",
         )
         .unwrap();
         assert!(check_types(&unsupported_parameter).is_ok());
@@ -13814,7 +13878,7 @@ mod tests {
             .unwrap()
             .contains("call identity"));
         let concrete = parse_program(
-            "(#struct BoxU64 ((value u64))) (#fn main () u64 (#let boxed BoxU64 (#struct-literal BoxU64 ((value 42)))) (#return (#get boxed value)))",
+            "(#struct BoxU64 ((value #u64))) (#fn main () #u64 (#let boxed BoxU64 (#struct-literal BoxU64 ((value 42)))) (#return (#get boxed value)))",
         )
         .unwrap();
         assert!(check_types(&concrete).is_ok());
@@ -13822,13 +13886,13 @@ mod tests {
             .unwrap()
             .contains("mov rax, 42"));
         let concrete_enum = parse_program(
-            "(#enum MaybeU64 ((SomeU64 u64) None)) (#fn main () u64 (#let value MaybeU64 (SomeU64 42)) (#return (#match value (#case (SomeU64 payload) payload) (#case None 0))))",
+            "(#enum MaybeU64 ((SomeU64 #u64) None)) (#fn main () #u64 (#let value MaybeU64 (SomeU64 42)) (#return (#match value (#case (SomeU64 payload) payload) (#case None 0))))",
         )
         .unwrap();
         assert!(check_types(&concrete_enum).is_ok());
         assert!(generate_assembly(&concrete_enum).is_ok());
         let free_function = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn point-new ((x u64) (y u64)) Point (#return (#struct-literal Point ((x x) (y y))))) (#fn main () u64 (#return (#get (#call point-new (: x 7 : y 9)) y)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn point-new ((x #u64) (y #u64)) Point (#return (#struct-literal Point ((x x) (y y))))) (#fn main () #u64 (#return (#get (#call point-new (: x 7 : y 9)) y)))",
         )
         .unwrap();
         assert!(check_types(&free_function).is_ok());
@@ -13838,7 +13902,7 @@ mod tests {
     #[test]
     fn checks_boolean_and_unary_operators() {
         let program = parse_program(
-            "(#fn main () bool (#return (#bool.&&  (#bool.!  false) (#bool.||  false true))))",
+            "(#fn main () #bool (#return (#bool.&&  (#bool.!  false) (#bool.||  false true))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13846,25 +13910,26 @@ mod tests {
         assert!(assembly.contains("and_false"));
         assert!(assembly.contains("xor eax, 1"));
         let bitwise =
-            parse_program("(#fn main () bool (#return (#bool.^  (#bool.&  true true) false)))")
+            parse_program("(#fn main () #bool (#return (#bool.^  (#bool.&  true true) false)))")
                 .unwrap();
         assert!(check_types(&bitwise).is_ok());
         let bitwise_assembly = generate_assembly(&bitwise).unwrap();
         assert!(bitwise_assembly.contains("and rax, rcx"));
         assert!(bitwise_assembly.contains("xor rax, rcx"));
-        let invalid_float = parse_program("(#fn main () f64 (#return (#f64.&  1.0 2.0)))").unwrap();
+        let invalid_float =
+            parse_program("(#fn main () #f64 (#return (#f64.&  1.0 2.0)))").unwrap();
         assert!(check_types(&invalid_float)
             .unwrap_err()
             .contains("requires integer or boolean"));
         let invalid_aggregate = parse_program(
-            "(#fn main () bool (#return (#u64.==  (#tuple (#tuple u64 u64) 1 2) (#tuple (#tuple u64 u64) 1 2))))",
+            "(#fn main () #bool (#return (#u64.==  (#tuple (#tuple #u64 #u64) 1 2) (#tuple (#tuple #u64 #u64) 1 2))))",
         )
         .unwrap();
         assert!(check_types(&invalid_aggregate).is_err());
         let unit_if = parse_program("(#fn main () () (#return (#if true ())))").unwrap();
         assert!(check_types(&unit_if).is_ok());
         assert!(generate_assembly(&unit_if).is_ok());
-        let missing_else = parse_program("(#fn main () u64 (#return (#if true 1)))").unwrap();
+        let missing_else = parse_program("(#fn main () #u64 (#return (#if true 1)))").unwrap();
         assert!(check_types(&missing_else)
             .unwrap_err()
             .contains("if without else"));
@@ -13873,7 +13938,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_native_assertions() {
         let program =
-            parse_program("(#fn main () u64 (#assert (#u64.==  40 40)) (#debug-assert (#u64.>=  42 0)) (#return 42))")
+            parse_program("(#fn main () #u64 (#assert (#u64.==  40 40)) (#debug-assert (#u64.>=  42 0)) (#return 42))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
@@ -13885,57 +13950,57 @@ mod tests {
     #[test]
     fn checks_and_lowers_size_of() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#return (#as (#usize.+.wrap (#size-of Point) (#size-of (#array u32 2))) u64)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#return (#as (#usize.+.wrap (#size-of Point) (#size-of (#array #u32 2))) #u64)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("mov rax, 16"));
         let alignment =
-            parse_program("(#fn main () u64 (#return (#as (#align-of u128) u64)))").unwrap();
+            parse_program("(#fn main () #u64 (#return (#as (#align-of #u128) #u64)))").unwrap();
         assert!(check_types(&alignment).is_ok());
         assert!(generate_assembly(&alignment)
             .unwrap()
             .contains("mov rax, 8"));
-        let invalid = parse_program("(#fn main () usize (#return (#size-of Unknown)))").unwrap();
+        let invalid = parse_program("(#fn main () #usize (#return (#size-of Unknown)))").unwrap();
         let diagnostic = structured_type_error(&invalid);
         let span = diagnostic.span.expect("unknown size-of type has a span");
         assert_eq!(
-            &"(#fn main () usize (#return (#size-of Unknown)))"[span.start..span.end],
+            &"(#fn main () #usize (#return (#size-of Unknown)))"[span.start..span.end],
             "Unknown"
         );
     }
 
     #[test]
     fn c_layout_is_explicit_and_reports_field_offsets() {
-        let program = parse_program("(#struct Point #repr-c ((x u8) (y u32) (z u16))) (#fn main () usize (#return (#offset-of Point y)))").unwrap();
+        let program = parse_program("(#struct Point #repr-c ((x #u8) (y #u32) (z #u16))) (#fn main () #usize (#return (#offset-of Point y)))").unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("mov rax, 4"));
-        let size = parse_program("(#struct Point #repr-c ((x u8) (y u32) (z u16))) (#fn main () usize (#return (#size-of Point)))").unwrap();
+        let size = parse_program("(#struct Point #repr-c ((x #u8) (y #u32) (z #u16))) (#fn main () #usize (#return (#size-of Point)))").unwrap();
         assert!(generate_assembly(&size).unwrap().contains("mov rax, 12"));
-        let align = parse_program("(#struct Point #repr-c ((x u8) (y u32))) (#fn main () usize (#return (#align-of Point)))").unwrap();
+        let align = parse_program("(#struct Point #repr-c ((x #u8) (y #u32))) (#fn main () #usize (#return (#align-of Point)))").unwrap();
         assert!(generate_assembly(&align).unwrap().contains("mov rax, 4"));
         let not_c = parse_program(
-            "(#struct Point ((x u64))) (#fn main () usize (#return (#offset-of Point x)))",
+            "(#struct Point ((x #u64))) (#fn main () #usize (#return (#offset-of Point x)))",
         )
         .unwrap();
         assert!(generate_assembly(&not_c).is_err());
         let enum_layout = parse_program(
-            "(#enum Code #repr-c (Small Large)) (#fn main () usize (#return (#size-of Code)))",
+            "(#enum Code #repr-c (Small Large)) (#fn main () #usize (#return (#size-of Code)))",
         )
         .unwrap();
         assert!(generate_assembly(&enum_layout)
             .unwrap()
             .contains("mov rax, 4"));
-        let bad_enum = parse_program("(#enum Code #repr-c ((TooLarge 2147483648))) (#fn main () usize (#return (#size-of Code)))").unwrap();
+        let bad_enum = parse_program("(#enum Code #repr-c ((TooLarge 2147483648))) (#fn main () #usize (#return (#size-of Code)))").unwrap();
         assert!(check_types(&bad_enum).is_err());
     }
 
     #[test]
     fn c_abi_rejects_by_value_aggregate_arguments_and_returns() {
         let argument = parse_program(
-            "(#struct Point #repr-c ((x u64))) (#extern-fn #abi-c consume-point ((point Point)) u64)",
+            "(#struct Point #repr-c ((x #u64))) (#extern-fn #abi-c consume-point ((point Point)) #u64)",
         )
         .unwrap();
         assert!(check_types(&argument).is_ok());
@@ -13944,7 +14009,7 @@ mod tests {
             .contains("directly passed scalar values"));
 
         let result = parse_program(
-            "(#struct Point #repr-c ((x u64))) (#extern-fn #abi-c make-point () Point)",
+            "(#struct Point #repr-c ((x #u64))) (#extern-fn #abi-c make-point () Point)",
         )
         .unwrap();
         assert!(check_types(&result).is_ok());
@@ -13956,12 +14021,12 @@ mod tests {
     #[test]
     fn checks_and_lowers_integer_bitwise_not() {
         let program = parse_program(
-            "(#fn main () u32 (#let value u32 (#u32.!  0)) (#return (#u32.&  value 42)))",
+            "(#fn main () #u32 (#let value #u32 (#u32.!  0)) (#return (#u32.&  value 42)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).unwrap().contains("not rax"));
-        let invalid = parse_program("(#fn main () u64 (#return (#u64.!  1.0)))").unwrap();
+        let invalid = parse_program("(#fn main () #u64 (#return (#u64.!  1.0)))").unwrap();
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("must be a boolean or integer"));
@@ -13970,7 +14035,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_payload_free_enums() {
         let program = parse_program(
-            "(#enum Color (Red Green Blue)) (#fn main () u64 (#return (#match Green (#case Red 10) (#case Green 20) (#case _ 30))))",
+            "(#enum Color (Red Green Blue)) (#fn main () #u64 (#return (#match Green (#case Red 10) (#case Green 20) (#case _ 30))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13984,7 +14049,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_multi_payload_enums() {
         let program = parse_program(
-            "(#enum Pair ((Pair u64 u64) Empty)) (#fn main () u64 (#let value Pair (Pair 20 22)) (#return (#match value (#case (Pair left right) (#u64.+.wrap  left right)) (#case Empty 0))))",
+            "(#enum Pair ((Pair #u64 #u64) Empty)) (#fn main () #u64 (#let value Pair (Pair 20 22)) (#return (#match value (#case (Pair left right) (#u64.+.wrap  left right)) (#case Empty 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -13994,7 +14059,7 @@ mod tests {
     #[test]
     fn matches_enum_payload_literals() {
         let program = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn classify ((value Maybe)) u64 (#return (#match value (#case (Some 42) 1) (#case None 0)))) (#fn main () u64 (#return (#call classify (: value (Some 42)))))",
+            "(#enum Maybe ((Some #u64) None)) (#fn classify ((value Maybe)) #u64 (#return (#match value (#case (Some 42) 1) (#case None 0)))) (#fn main () #u64 (#return (#call classify (: value (Some 42)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14006,7 +14071,7 @@ mod tests {
     #[test]
     fn passes_multi_payload_enums_through_functions() {
         let program = parse_program(
-            "(#enum Pair ((Pair u64 u64) Empty)) (#fn make () Pair (#let value Pair (Pair 20 22)) (#return value)) (#fn sum ((value Pair)) u64 (#return (#match value (#case (Pair left right) (#u64.+.wrap  left right)) (#case Empty 0)))) (#fn main () u64 (#return (#call sum (: value (#call make (:))))))",
+            "(#enum Pair ((Pair #u64 #u64) Empty)) (#fn make () Pair (#let value Pair (Pair 20 22)) (#return value)) (#fn sum ((value Pair)) #u64 (#return (#match value (#case (Pair left right) (#u64.+.wrap  left right)) (#case Empty 0)))) (#fn main () #u64 (#return (#call sum (: value (#call make (:))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14016,7 +14081,7 @@ mod tests {
     #[test]
     fn lowers_two_word_128_bit_integers() {
         let program = parse_program(
-            "(#fn add ((left u128) (right u128)) u128 (#return (#u128.+.wrap  left right))) (#fn main () u64 (#return (#as (#call add (: left 20 : right 22)) u64)))",
+            "(#fn add ((left #u128) (right #u128)) #u128 (#return (#u128.+.wrap  left right))) (#fn main () #u64 (#return (#as (#call add (: left 20 : right 22)) #u64)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14024,7 +14089,7 @@ mod tests {
         assert!(assembly.contains("adc rdx, r8"));
         assert!(assembly.contains("call add"));
         let minimum =
-            parse_program("(#fn main () i128 (#return -170141183460469231731687303715884105728))")
+            parse_program("(#fn main () #i128 (#return -170141183460469231731687303715884105728))")
                 .unwrap();
         assert!(check_types(&minimum).is_ok());
         assert!(generate_assembly(&minimum).is_ok());
@@ -14033,7 +14098,7 @@ mod tests {
     #[test]
     fn lowers_128_bit_comparisons_and_shifts() {
         let program = parse_program(
-            "(#fn main () u64 (#let left u128 1) (#let right u128 2) (#return (#if (#u128.&&  (#u128.<  (#clone left) (#clone right)) (#u128.==  (#u128.<<  left 5) 32)) 42 0)))",
+            "(#fn main () #u64 (#let left #u128 1) (#let right #u128 2) (#return (#if (#u128.&&  (#u128.<  (#clone left) (#clone right)) (#u128.==  (#u128.<<  left 5) 32)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14045,7 +14110,7 @@ mod tests {
     #[test]
     fn lowers_128_bit_multiplication() {
         let program = parse_program(
-            "(#fn multiply ((left u128) (right u128)) u128 (#return (#u128.*.wrap  left right))) (#fn main () u64 (#return (#as (#call multiply (: left 6 : right 7)) u64)))",
+            "(#fn multiply ((left #u128) (right #u128)) #u128 (#return (#u128.*.wrap  left right))) (#fn main () #u64 (#return (#as (#call multiply (: left 6 : right 7)) #u64)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14055,7 +14120,7 @@ mod tests {
     #[test]
     fn lowers_unsigned_128_bit_division_and_remainder() {
         let program = parse_program(
-            "(#fn main () u64 (#let value u128 100) (#let divisor u128 7) (#return (#if (#u128.&&  (#u128.==  (#u128./.wrap  (#clone value) (#clone divisor)) 14) (#u128.==  (#u128.%.wrap  value divisor) 2)) 42 0)))",
+            "(#fn main () #u64 (#let value #u128 100) (#let divisor #u128 7) (#return (#if (#u128.&&  (#u128.==  (#u128./.wrap  (#clone value) (#clone divisor)) 14) (#u128.==  (#u128.%.wrap  value divisor) 2)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14067,7 +14132,7 @@ mod tests {
     #[test]
     fn lowers_signed_128_bit_division_and_remainder() {
         let program = parse_program(
-            "(#fn main () u64 (#let value i128 100) (#let divisor i128 7) (#return (#if (#i128.&&  (#i128.==  (#i128./.wrap  (#i128.-.wrap  (#clone value)) (#clone divisor)) -14) (#i128.==  (#i128.%.wrap  (#i128.-.wrap  value) divisor) -2)) 42 0)))",
+            "(#fn main () #u64 (#let value #i128 100) (#let divisor #i128 7) (#return (#if (#i128.&&  (#i128.==  (#i128./.wrap  (#i128.-.wrap  (#clone value)) (#clone divisor)) -14) (#i128.==  (#i128.%.wrap  (#i128.-.wrap  value) divisor) -2)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14077,7 +14142,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_scalar_enum_payloads() {
         let program = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#let value Maybe (Some 42)) (#return (#match value (#case (Some _) 42) (#case None 7))))",
+            "(#enum Maybe ((Some #u64) None)) (#fn main () #u64 (#let value Maybe (Some 42)) (#return (#match value (#case (Some _) 42) (#case None 7))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14085,14 +14150,14 @@ mod tests {
         assert!(assembly.contains("mov QWORD PTR [rbp-8], 0"));
         assert!(assembly.contains("cmp QWORD PTR [rsp], 0"));
         let invalid = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#return (#match None (#case (Some _) 1))))",
+            "(#enum Maybe ((Some #u64) None)) (#fn main () #u64 (#return (#match None (#case (Some _) 1))))",
         )
         .unwrap();
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("not exhaustive"));
         let binding = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#let value Maybe (Some 42)) (#return (#match value (#case (Some payload) payload) (#case None 0))))",
+            "(#enum Maybe ((Some #u64) None)) (#fn main () #u64 (#let value Maybe (Some 42)) (#return (#match value (#case (Some payload) payload) (#case None 0))))",
         )
         .unwrap();
         assert!(check_types(&binding).is_ok());
@@ -14100,13 +14165,13 @@ mod tests {
             .unwrap()
             .contains("mov QWORD PTR [rbp-24], rax"));
         let returned = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn make () Maybe (#return (Some 42))) (#fn main () u64 (#let value Maybe (#call make (:))) (#return (#match value (#case (Some payload) payload) (#case None 0))))",
+            "(#enum Maybe ((Some #u64) None)) (#fn make () Maybe (#return (Some 42))) (#fn main () #u64 (#let value Maybe (#call make (:))) (#return (#match value (#case (Some payload) payload) (#case None 0))))",
         )
         .unwrap();
         assert!(check_types(&returned).is_ok());
         assert!(generate_assembly(&returned).unwrap().contains("call make"));
         let passed = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn identity ((value Maybe)) Maybe (#return value)) (#fn main () u64 (#let result Maybe (#call identity (: value (Some 42)))) (#return (#match result (#case (Some payload) payload) (#case None 0))))",
+            "(#enum Maybe ((Some #u64) None)) (#fn identity ((value Maybe)) Maybe (#return value)) (#fn main () #u64 (#let result Maybe (#call identity (: value (Some 42)))) (#return (#match result (#case (Some payload) payload) (#case None 0))))",
         )
         .unwrap();
         assert!(check_types(&passed).is_ok());
@@ -14114,7 +14179,7 @@ mod tests {
             .unwrap()
             .contains("call identity"));
         let repeated = parse_program(
-            "(#fn main () u64 (#let values (#array u64 3) (#array-repeat 13)) (#return (#index values 1)))",
+            "(#fn main () #u64 (#let values (#array #u64 3) (#array-repeat 13)) (#return (#index values 1)))",
         )
         .unwrap();
         assert!(check_types(&repeated).is_ok());
@@ -14126,7 +14191,7 @@ mod tests {
     #[test]
     fn matches_computed_enum_values() {
         let program = parse_program(
-            "(#enum Maybe ((Some u64) None)) (#fn main () u64 (#return (#match (Some 42) (#case (Some value) value) (#case None 0))))",
+            "(#enum Maybe ((Some #u64) None)) (#fn main () #u64 (#return (#match (Some 42) (#case (Some value) value) (#case None 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14136,7 +14201,7 @@ mod tests {
     #[test]
     fn indexes_arrays_returned_by_functions() {
         let program = parse_program(
-            "(#fn make () (#array u64 3) (#return (#array 10 20 30))) (#fn main () u64 (#return (#index (#call make (:)) 1)))",
+            "(#fn make () (#array #u64 3) (#return (#array 10 20 30))) (#fn main () #u64 (#return (#index (#call make (:)) 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14146,7 +14211,7 @@ mod tests {
     #[test]
     fn selects_fields_from_structs_returned_by_functions() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn make () Point (#return (#struct-literal Point ((x 7) (y 9))))) (#fn main () u64 (#return (#get (#call make (:)) y)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn make () Point (#return (#struct-literal Point ((x 7) (y 9))))) (#fn main () #u64 (#return (#get (#call make (:)) y)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14156,7 +14221,7 @@ mod tests {
     #[test]
     fn passes_floating_struct_fields_through_functions() {
         let program = parse_program(
-            "(#struct Point ((x f64) (y f32))) (#fn make () Point (#return (#struct-literal Point ((x 1.5) (y 2.5))))) (#fn main () u64 (#return (#if (#bool.&& (#f64.> (#get (#call make (:)) x) 1.0) (#f32.> (#get (#call make (:)) y) 2.0)) 42 0)))",
+            "(#struct Point ((x #f64) (y #f32))) (#fn make () Point (#return (#struct-literal Point ((x 1.5) (y 2.5))))) (#fn main () #u64 (#return (#if (#bool.&& (#f64.> (#get (#call make (:)) x) 1.0) (#f32.> (#get (#call make (:)) y) 2.0)) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14168,7 +14233,7 @@ mod tests {
     #[test]
     fn passes_floating_arrays_through_functions() {
         let program = parse_program(
-            "(#fn sum ((values (#array f32 2))) f32 (#return (#index values 1))) (#fn make () (#array f32 2) (#return (#array 1.5 2.5))) (#fn main () u64 (#let value f32 (#call sum (: values (#call make (:))))) (#return (#if (#f32.>  value 2.0) 42 0)))",
+            "(#fn sum ((values (#array #f32 2))) #f32 (#return (#index values 1))) (#fn make () (#array #f32 2) (#return (#array 1.5 2.5))) (#fn main () #u64 (#let value #f32 (#call sum (: values (#call make (:))))) (#return (#if (#f32.>  value 2.0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14180,7 +14245,7 @@ mod tests {
     #[test]
     fn indexes_floating_arrays_returned_by_functions() {
         let program = parse_program(
-            "(#fn make () (#array f32 2) (#return (#array 1.5 2.5))) (#fn main () u64 (#return (#if (#f32.>  (#index (#call make (:)) 1) 2.0) 42 0)))",
+            "(#fn make () (#array #f32 2) (#return (#array 1.5 2.5))) (#fn main () #u64 (#return (#if (#f32.>  (#index (#call make (:)) 1) 2.0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14192,7 +14257,7 @@ mod tests {
     #[test]
     fn passes_floating_enum_payloads_through_functions() {
         let program = parse_program(
-            "(#enum MaybeF ((SomeF f32) None)) (#fn make () MaybeF (#return (SomeF 2.5))) (#fn read ((value MaybeF)) f32 (#return (#match value (#case (SomeF payload) payload) (#case None 0.0)))) (#fn main () u64 (#return (#if (#f32.>  (#call read (: value (#call make (:)))) 2.0) 42 0)))",
+            "(#enum MaybeF ((SomeF #f32) None)) (#fn make () MaybeF (#return (SomeF 2.5))) (#fn read ((value MaybeF)) #f32 (#return (#match value (#case (SomeF payload) payload) (#case None 0.0)))) (#fn main () #u64 (#return (#if (#f32.>  (#call read (: value (#call make (:)))) 2.0) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14204,38 +14269,38 @@ mod tests {
     #[test]
     fn matches_scalar_values() {
         let program = parse_program(
-            "(#fn classify ((value u64)) u64 (#return (#match value (#case 0 10) (#case 1 20) (#case _ 30)))) (#fn main () u64 (#return (#call classify (: value 1))))",
+            "(#fn classify ((value #u64)) #u64 (#return (#match value (#case 0 10) (#case 1 20) (#case _ 30)))) (#fn main () #u64 (#return (#call classify (: value 1))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("cmp QWORD PTR [rsp], 1"));
         let bools = parse_program(
-            "(#fn main () u64 (#return (#match true (#case true 42) (#case false 0))))",
+            "(#fn main () #u64 (#return (#match true (#case true 42) (#case false 0))))",
         )
         .unwrap();
         assert!(check_types(&bools).is_ok());
         let incomplete =
-            parse_program("(#fn main () u64 (#return (#match 1 (#case 1 42))))").unwrap();
+            parse_program("(#fn main () #u64 (#return (#match 1 (#case 1 42))))").unwrap();
         assert!(check_types(&incomplete)
             .unwrap_err()
             .contains("not exhaustive"));
         let duplicate_integer = parse_program(
-            "(#fn main () u64 (#return (#match 1 (#case 1 10) (#case 1 20) (#case _ 30))))",
+            "(#fn main () #u64 (#return (#match 1 (#case 1 10) (#case 1 20) (#case _ 30))))",
         )
         .unwrap();
         assert!(check_types(&duplicate_integer)
             .unwrap_err()
             .contains("duplicate integer match pattern"));
         let duplicate_enum = parse_program(
-            "(#enum Color (Red Blue)) (#fn main () u64 (#return (#match Red (#case Red 1) (#case Red 2) (#case _ 0))))",
+            "(#enum Color (Red Blue)) (#fn main () #u64 (#return (#match Red (#case Red 1) (#case Red 2) (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&duplicate_enum)
             .unwrap_err()
             .contains("duplicate enum match pattern 'Red'"));
         let wide = parse_program(
-            "(#fn main () u64 (#let value u128 340282366920938463463374607431768211455) (#return (#match value (#case 340282366920938463463374607431768211455 42) (#case _ 0))))",
+            "(#fn main () #u64 (#let value #u128 340282366920938463463374607431768211455) (#return (#match value (#case 340282366920938463463374607431768211455 42) (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&wide).is_ok());
@@ -14244,7 +14309,7 @@ mod tests {
 
     #[test]
     fn checks_and_lowers_fixed_arrays() {
-        let program = parse_program("(#fn main () u64 (#let-mut values (#array u64 2) (#array 3 4)) (#set-index values 1 40) (#return (#u64.+.wrap  (#index values 0) (#index values 1))))").unwrap();
+        let program = parse_program("(#fn main () #u64 (#let-mut values (#array #u64 2) (#array 3 4)) (#set-index values 1 40) (#return (#u64.+.wrap  (#index values 0) (#index values 1))))").unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("lea r11"));
@@ -14252,12 +14317,12 @@ mod tests {
         assert!(assembly.contains("jae"));
         assert!(assembly.contains("ud2"));
         let invalid = parse_program(
-            "(#fn main () u64 (#let values (#array u64 2) (#array 1 2)) (#return (#index values 2)))",
+            "(#fn main () #u64 (#let values (#array #u64 2) (#array 1 2)) (#return (#index values 2)))",
         )
         .unwrap();
         assert!(check_types(&invalid).unwrap_err().contains("out of bounds"));
         let passed = parse_program(
-            "(#fn identity ((values (#array u64 3))) (#array u64 3) (#return values)) (#fn main () u64 (#let values (#array u64 3) (#call identity (: values (#array 10 20 37)))) (#return (#index values 2)))",
+            "(#fn identity ((values (#array #u64 3))) (#array #u64 3) (#return values)) (#fn main () #u64 (#let values (#array #u64 3) (#call identity (: values (#array 10 20 37)))) (#return (#index values 2)))",
         )
         .unwrap();
         assert!(check_types(&passed).is_ok());
@@ -14269,7 +14334,7 @@ mod tests {
     #[test]
     fn lowers_fixed_string_arrays() {
         let program = parse_program(
-            "(#fn main () u64 (#let chars (#array char 2) \"Hi\") (#return (#if (#char.== (#index \"Hi\" 1) #\\i) (#if (#char.== (#index chars 0) #\\H) 42 0) 0)))",
+            "(#fn main () #u64 (#let chars (#array #char 2) \"Hi\") (#return (#if (#char.== (#index \"Hi\" 1) #\\i) (#if (#char.== (#index chars 0) #\\H) 42 0) 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14279,7 +14344,7 @@ mod tests {
     #[test]
     fn checks_and_lowers_explicit_enum_discriminants() {
         let program = parse_program(
-            "(#enum Result ((Ok 7 u64) (Err 99 u64))) (#fn main () u64 (#let value Result (Ok 42)) (#return (#match value (#case (Ok payload) payload) (#case (Err _) 0))))",
+            "(#enum Result ((Ok 7 #u64) (Err 99 #u64))) (#fn main () #u64 (#let value Result (Ok 42)) (#return (#match value (#case (Ok payload) payload) (#case (Err _) 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14295,7 +14360,7 @@ mod tests {
     #[test]
     fn accepts_maximum_final_enum_discriminant() {
         let program = parse_program(
-            "(#enum Code ((Maximum 18446744073709551615))) (#fn main () u64 (#return (#match Maximum (#case Maximum 42) (#case _ 0))))",
+            "(#enum Code ((Maximum 18446744073709551615))) (#fn main () #u64 (#return (#match Maximum (#case Maximum 42) (#case _ 0))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14306,7 +14371,7 @@ mod tests {
     #[test]
     fn lowers_discarded_fixed_string_expressions() {
         let program =
-            parse_program("(#fn main () u64 (#if true \"Hi\" \"No\") (#return 42))").unwrap();
+            parse_program("(#fn main () #u64 (#if true \"Hi\" \"No\") (#return 42))").unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
     }
@@ -14314,7 +14379,7 @@ mod tests {
     #[test]
     fn lowers_discarded_aggregate_expressions() {
         let program = parse_program(
-            "(#struct Pair ((left u64) (right u64))) (#fn main () u64 (#tuple (#tuple u64 u64) 1 2) (#struct-literal Pair ((left 3) (right 4))) (#return 42))",
+            "(#struct Pair ((left #u64) (right #u64))) (#fn main () #u64 (#tuple (#tuple #u64 #u64) 1 2) (#struct-literal Pair ((left 3) (right 4))) (#return 42))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14324,19 +14389,19 @@ mod tests {
     #[test]
     fn lowers_keyed_struct_literals() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#let point Point (#struct-literal Point ((y 22u64) (x 20u64)))) (#return (#u64.+.wrap (#get point x) (#get point y))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#let point Point (#struct-literal Point ((y 22u64) (x 20u64)))) (#return (#u64.+.wrap (#get point x) (#get point y))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
 
         let missing = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#return (#struct-literal Point ((x 20u64)))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#return (#struct-literal Point ((x 20u64)))))",
         );
         assert!(missing.unwrap_err().contains("missing field 'y'"));
 
         let duplicate = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#return (#struct-literal Point ((x 20u64) (x 21u64) (y 22u64)))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#return (#struct-literal Point ((x 20u64) (x 21u64) (y 22u64)))))",
         );
         assert!(duplicate.unwrap_err().contains("duplicate field 'x'"));
     }
@@ -14344,14 +14409,14 @@ mod tests {
     #[test]
     fn struct_types_are_not_positional_constructors() {
         let direct = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn main () u64 (#return (#get (Point 20u64 22u64) x)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn main () #u64 (#return (#get (Point 20u64 22u64) x)))",
         );
         assert!(direct
             .unwrap_err()
             .contains("'Point' is a type, not a constructor function"));
 
         let named = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn make-point ((x u64) (y u64)) Point (#return (#struct-literal Point ((x x) (y y))))) (#fn main () u64 (#return (#get (#call make-point (: x 20u64 : y 22u64)) x)))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn make-point ((x #u64) (y #u64)) Point (#return (#struct-literal Point ((x x) (y y))))) (#fn main () #u64 (#return (#get (#call make-point (: x 20u64 : y 22u64)) x)))",
         )
         .unwrap();
         assert!(check_types(&named).is_ok());
@@ -14361,14 +14426,14 @@ mod tests {
     #[test]
     fn calls_use_explicit_named_function_arguments() {
         let program = parse_program(
-            "(#fn subtract ((minuend u64) (subtrahend u64)) u64 (#return (#u64.-.wrap minuend subtrahend))) (#fn main () u64 (#return (#call subtract (: subtrahend 2u64 : minuend 42u64))))",
+            "(#fn subtract ((minuend #u64) (subtrahend #u64)) #u64 (#return (#u64.-.wrap minuend subtrahend))) (#fn main () #u64 (#return (#call subtract (: subtrahend 2u64 : minuend 42u64))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
 
         let duplicate = parse_program(
-            "(#fn identity ((value u64)) u64 (#return value)) (#fn main () u64 (#return (#call identity (: value 1u64 : value 2u64))))",
+            "(#fn identity ((value #u64)) #u64 (#return value)) (#fn main () #u64 (#return (#call identity (: value 1u64 : value 2u64))))",
         );
         assert!(duplicate.unwrap_err().contains("more than once"));
     }
@@ -14376,13 +14441,13 @@ mod tests {
     #[test]
     fn lowers_direct_array_constructor_indexing() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#index (#array (#array u64 3) 10 20 42) 2)))",
+            "(#fn main () #u64 (#return (#index (#array (#array #u64 3) 10 20 42) 2)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
         let inferred =
-            parse_program("(#fn main () u64 (#return (#index (#array 10 20) 0)))").unwrap();
+            parse_program("(#fn main () #u64 (#return (#index (#array 10 20) 0)))").unwrap();
         assert!(check_types(&inferred)
             .unwrap_err()
             .contains("direct array constructors require"));
@@ -14391,7 +14456,7 @@ mod tests {
     #[test]
     fn lowers_direct_array_repeat_indexing() {
         let program = parse_program(
-            "(#fn main () u64 (#return (#index (#array-repeat (#array u64 3) 42) 2)))",
+            "(#fn main () #u64 (#return (#index (#array-repeat (#array #u64 3) 42) 2)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14401,7 +14466,7 @@ mod tests {
     #[test]
     fn passes_explicit_array_constructors_through_functions() {
         let program = parse_program(
-            "(#fn make () (#array u64 3) (#return (#array (#array u64 3) 10 20 37))) (#fn consume ((values (#array u64 3))) u64 (#return (#index values 2))) (#fn main () u64 (#return (#call consume (: values (#call make (:))))))",
+            "(#fn make () (#array #u64 3) (#return (#array (#array #u64 3) 10 20 37))) (#fn consume ((values (#array #u64 3))) #u64 (#return (#index values 2))) (#fn main () #u64 (#return (#call consume (: values (#call make (:))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14411,18 +14476,19 @@ mod tests {
     #[test]
     fn lowers_explicit_direct_tuple_constructor() {
         let program =
-            parse_program("(#fn main () u64 (#return (#get (#tuple (#tuple u64 u64) 40 2) 0)))")
+            parse_program("(#fn main () #u64 (#return (#get (#tuple (#tuple #u64 #u64) 40 2) 0)))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).is_ok());
-        let inferred = parse_program("(#fn main () u64 (#return (#get (#tuple 40 2) 0)))").unwrap();
+        let inferred =
+            parse_program("(#fn main () #u64 (#return (#get (#tuple 40 2) 0)))").unwrap();
         assert!(check_types(&inferred).is_err());
     }
 
     #[test]
     fn passes_explicit_tuple_constructors_through_functions() {
         let program = parse_program(
-            "(#fn make () (#tuple u64 u64) (#return (#tuple (#tuple u64 u64) 40 2))) (#fn consume ((value (#tuple u64 u64))) u64 (#return (#get value 0))) (#fn main () u64 (#return (#call consume (: value (#call make (:))))))",
+            "(#fn make () (#tuple #u64 #u64) (#return (#tuple (#tuple #u64 #u64) 40 2))) (#fn consume ((value (#tuple #u64 #u64))) #u64 (#return (#get value 0))) (#fn main () #u64 (#return (#call consume (: value (#call make (:))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14432,7 +14498,7 @@ mod tests {
     #[test]
     fn lowers_tuple_destructuring_match() {
         let program = parse_program(
-            "(#fn classify ((value (#tuple u64 u64))) u64 (#return (#match value (#case (#tuple 40 second) second) (#case _ 0)))) (#fn main () u64 (#return (#call classify (: value (#tuple (#tuple u64 u64) 40 2)))))",
+            "(#fn classify ((value (#tuple #u64 #u64))) #u64 (#return (#match value (#case (#tuple 40 second) second) (#case _ 0)))) (#fn main () #u64 (#return (#call classify (: value (#tuple (#tuple #u64 #u64) 40 2)))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14442,7 +14508,7 @@ mod tests {
     #[test]
     fn lowers_struct_destructuring_match() {
         let program = parse_program(
-            "(#struct Point ((x u64) (y u64))) (#fn classify ((value Point)) u64 (#return (#match value (#case (Point 40 second) second) (#case _ 0)))) (#fn main () u64 (#return (#call classify (: value (#struct-literal Point ((x 40) (y 2)))))))",
+            "(#struct Point ((x #u64) (y #u64))) (#fn classify ((value Point)) #u64 (#return (#match value (#case (Point 40 second) second) (#case _ 0)))) (#fn main () #u64 (#return (#call classify (: value (#struct-literal Point ((x 40) (y 2)))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14452,7 +14518,7 @@ mod tests {
     #[test]
     fn wraps_signed_machine_width_division_overflow() {
         let program =
-            parse_program("(#fn main () i64 (#return (#i64./.wrap -9223372036854775808 -1)))")
+            parse_program("(#fn main () #i64 (#return (#i64./.wrap -9223372036854775808 -1)))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program)
@@ -14463,7 +14529,7 @@ mod tests {
     #[test]
     fn saturates_signed_machine_width_division_overflow() {
         let program =
-            parse_program("(#fn main () i64 (#return (#i64./.saturate -9223372036854775808 -1)))")
+            parse_program("(#fn main () #i64 (#return (#i64./.saturate -9223372036854775808 -1)))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
@@ -14473,32 +14539,32 @@ mod tests {
     #[test]
     fn lowers_saturating_wide_addition_and_subtraction() {
         let program = parse_program(
-            "(#fn main () u128 (#return (#u128.+.saturate 340282366920938463463374607431768211455 1)))",
+            "(#fn main () #u128 (#return (#u128.+.saturate 340282366920938463463374607431768211455 1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("wide_saturate_high"));
         let signed = parse_program(
-            "(#fn main () i128 (#return (#i128.-.saturate -170141183460469231731687303715884105728 1)))",
+            "(#fn main () #i128 (#return (#i128.-.saturate -170141183460469231731687303715884105728 1)))",
         )
         .unwrap();
         assert!(check_types(&signed).is_ok());
         assert!(generate_assembly(&signed).is_ok());
         let multiplication = parse_program(
-            "(#fn main () u128 (#return (#u128.*.saturate 340282366920938463463374607431768211455 2)))",
+            "(#fn main () #u128 (#return (#u128.*.saturate 340282366920938463463374607431768211455 2)))",
         )
         .unwrap();
         assert!(check_types(&multiplication).is_ok());
         assert!(generate_assembly(&multiplication).is_ok());
         let signed_multiplication = parse_program(
-            "(#fn main () i128 (#return (#i128.*.saturate 170141183460469231731687303715884105727 2)))",
+            "(#fn main () #i128 (#return (#i128.*.saturate 170141183460469231731687303715884105727 2)))",
         )
         .unwrap();
         assert!(check_types(&signed_multiplication).is_ok());
         assert!(generate_assembly(&signed_multiplication).is_ok());
         let negative_multiplication = parse_program(
-            "(#fn main () i128 (#return (#i128.*.saturate -170141183460469231731687303715884105728 2)))",
+            "(#fn main () #i128 (#return (#i128.*.saturate -170141183460469231731687303715884105728 2)))",
         )
         .unwrap();
         assert!(check_types(&negative_multiplication).is_ok());
@@ -14508,21 +14574,21 @@ mod tests {
     #[test]
     fn lowers_saturating_wide_division_and_remainder() {
         let program = parse_program(
-            "(#fn main () i128 (#return (#i128./.saturate -170141183460469231731687303715884105728 -1)))",
+            "(#fn main () #i128 (#return (#i128./.saturate -170141183460469231731687303715884105728 -1)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("wide_saturating_division_done"));
         let remainder =
-            parse_program("(#fn main () i128 (#return (#i128.%.saturate -10 3)))").unwrap();
+            parse_program("(#fn main () #i128 (#return (#i128.%.saturate -10 3)))").unwrap();
         assert!(check_types(&remainder).is_ok());
         assert!(generate_assembly(&remainder).is_ok());
     }
 
     #[test]
     fn lowers_stack_arguments() {
-        let program = parse_program("(#fn sum8 ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64) (h u64)) u64 (#return (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  a b) c) d) e) f) g) h))) (#fn main () u64 (#return (#call sum8 (: a 1 : b 2 : c 3 : d 4 : e 5 : f 6 : g 7 : h 8))))").unwrap();
+        let program = parse_program("(#fn sum8 ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64) (h #u64)) #u64 (#return (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  (#u64.+.wrap  a b) c) d) e) f) g) h))) (#fn main () #u64 (#return (#call sum8 (: a 1 : b 2 : c 3 : d 4 : e 5 : f 6 : g 7 : h 8))))").unwrap();
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("[rbp+16]"));
         assert!(assembly.contains("[rbp+24]"));
@@ -14530,7 +14596,7 @@ mod tests {
 
     #[test]
     fn lowers_for_loop_with_continue_step() {
-        let program = parse_program("(#fn main () u64 (#let-mut total u64 0) (#for (#let-mut i u64 0) (#u64.<  (#clone i) 3) (#set i (#u64.+.wrap  i 1)) (#continue)) (#return total))").unwrap();
+        let program = parse_program("(#fn main () #u64 (#let-mut total #u64 0) (#for (#let-mut i #u64 0) (#u64.<  (#clone i) 3) (#set i (#u64.+.wrap  i 1)) (#continue)) (#return total))").unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("for_step"));
@@ -14539,7 +14605,7 @@ mod tests {
     #[test]
     fn lowers_explicit_range_loops() {
         let program = parse_program(
-            "(#fn main () u64 (#let-mut total u64 0) (#for-range (i u64) 0 10 (#set total (#u64.+.wrap  total i))) (#return total))",
+            "(#fn main () #u64 (#let-mut total #u64 0) (#for-range (i #u64) 0 10 (#set total (#u64.+.wrap  total i))) (#return total))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14549,7 +14615,7 @@ mod tests {
     #[test]
     fn lowers_statement_blocks_in_expressions() {
         let program =
-            parse_program("(#fn main () u64 (#let-mut value u64 1) (#return (#if true (#block (#set value 40) value) (#block value))))")
+            parse_program("(#fn main () #u64 (#let-mut value #u64 1) (#return (#if true (#block (#set value 40) value) (#block value))))")
                 .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program)
@@ -14560,12 +14626,12 @@ mod tests {
     #[test]
     fn checks_and_lowers_loop_statements() {
         let program = parse_program(
-            "(#fn main () u64 (#let-mut value u64 0) (#loop (#set value (#u64.+.wrap  value 1)) (#break)) (#return value))",
+            "(#fn main () #u64 (#let-mut value #u64 0) (#loop (#set value (#u64.+.wrap  value 1)) (#break)) (#return value))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).unwrap().contains("loop"));
-        let invalid = parse_program("(#fn main () u64 (#break) (#return 0))").unwrap();
+        let invalid = parse_program("(#fn main () #u64 (#break) (#return 0))").unwrap();
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("outside a loop"));
@@ -14574,21 +14640,22 @@ mod tests {
     #[test]
     fn checks_and_lowers_labeled_value_loops() {
         let program = parse_program(
-            "(#fn main () u64 (#let-mut count u64 0) (#let result u64 (#label outer (#loop (#set count (#u64.+.wrap count 1u64)) (#if (#u64.< count 3u64) (#block (#continue-to outer)) ()) (#break-to outer 42u64)))) (#return result))",
+            "(#fn main () #u64 (#let-mut count #u64 0) (#let result #u64 (#label outer (#loop (#set count (#u64.+.wrap count 1u64)) (#if (#u64.< count 3u64) (#block (#continue-to outer)) ()) (#break-to outer 42u64)))) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         let assembly = generate_assembly(&program).unwrap();
         assert!(assembly.contains("value_loop"));
 
-        let invalid = parse_program("(#fn main () u64 (#return (#label nope 42u64)))").unwrap_err();
+        let invalid =
+            parse_program("(#fn main () #u64 (#return (#label nope 42u64)))").unwrap_err();
         assert!(invalid.contains("expression label"));
     }
 
     #[test]
     fn lowers_aggregate_labeled_value_breaks() {
         let program = parse_program(
-            "(#fn main () (#tuple u64 u64) (#return (#label outer (#loop (#break-to outer (#tuple (#tuple u64 u64) 40u64 2u64))))))",
+            "(#fn main () (#tuple #u64 #u64) (#return (#label outer (#loop (#break-to outer (#tuple (#tuple #u64 #u64) 40u64 2u64))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14599,7 +14666,7 @@ mod tests {
     #[test]
     fn lowers_large_aggregate_labeled_value_breaks() {
         let program = parse_program(
-            "(#fn main () (#array u64 7) (#return (#label outer (#loop (#break-to outer (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64))))))",
+            "(#fn main () (#array #u64 7) (#return (#label outer (#loop (#break-to outer (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 7u64))))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14609,16 +14676,16 @@ mod tests {
     #[test]
     fn keeps_loop_locals_in_lexical_scope() {
         for source in [
-            "(#fn main () u64 (#while false (#let value u64 7) (#break)) (#return value))",
-            "(#fn main () u64 (#loop (#let value u64 7) (#break)) (#return value))",
-            "(#fn main () u64 (#for (#let-mut i u64 0) false (#set i 1) (#let value u64 7)) (#return value))",
+            "(#fn main () #u64 (#while false (#let value #u64 7) (#break)) (#return value))",
+            "(#fn main () #u64 (#loop (#let value #u64 7) (#break)) (#return value))",
+            "(#fn main () #u64 (#for (#let-mut i #u64 0) false (#set i 1) (#let value #u64 7)) (#return value))",
         ] {
             let program = parse_program(source).unwrap();
             let error = check_types(&program).unwrap_err();
             assert!(error.contains("value"), "{source}: {error}");
         }
         let valid = parse_program(
-            "(#fn main () u64 (#while false (#let value u64 7) (#break)) (#return 0))",
+            "(#fn main () #u64 (#while false (#let value #u64 7) (#break)) (#return 0))",
         )
         .unwrap();
         assert!(check_types(&valid).is_ok());
@@ -14626,7 +14693,7 @@ mod tests {
     #[test]
     fn lowers_immutable_globals() {
         let program = parse_program(
-            "(#let ANSWER u64 40) (#fn main () u64 (#return (#u64.+.wrap  ANSWER 2)))",
+            "(#let ANSWER #u64 40) (#fn main () #u64 (#return (#u64.+.wrap  ANSWER 2)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14634,7 +14701,7 @@ mod tests {
             .unwrap()
             .contains("[rip+ANSWER]"));
         let invalid =
-            parse_program("(#let-mut ANSWER u64 40) (#fn main () u64 (#return ANSWER))").unwrap();
+            parse_program("(#let-mut ANSWER #u64 40) (#fn main () #u64 (#return ANSWER))").unwrap();
         assert!(check_types(&invalid)
             .unwrap_err()
             .contains("cannot be mutable"));
@@ -14643,7 +14710,7 @@ mod tests {
     #[test]
     fn lowers_float_and_char_globals() {
         let program = parse_program(
-            "(#let scale f32 1.5) (#let pi f64 3.25) (#let letter char #\\a) (#fn main () u64 (#return (#if (#bool.&& (#f32.> scale 1.0) (#bool.&& (#f64.> pi 3.0) (#char.== letter #\\a))) 42 0)))",
+            "(#let scale #f32 1.5) (#let pi #f64 3.25) (#let letter #char #\\a) (#fn main () #u64 (#return (#if (#bool.&& (#f32.> scale 1.0) (#bool.&& (#f64.> pi 3.0) (#char.== letter #\\a))) 42 0)))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -14655,7 +14722,7 @@ mod tests {
     #[test]
     fn lowers_saturating_unary_negation() {
         let program = parse_program(
-            "(#fn saturate ((value i8)) i8 (#return (#i8.-.saturate value))) (#fn main () u64 (#return (#as (#call saturate (: value -128)) u64)))",
+            "(#fn saturate ((value #i8)) #i8 (#return (#i8.-.saturate value))) (#fn main () #u64 (#return (#as (#call saturate (: value -128)) #u64)))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -14666,7 +14733,7 @@ mod tests {
     #[test]
     fn lowers_static_float_arrays() {
         let program = parse_program(
-            "(#static VALUES (#array f32 2) (#array (#array f32 2) 1.5f32 2.5f32)) (#fn main () u64 (#return (#unsafe (#if (#f32.== (#index VALUES 1) 2.5f32) 42 0))))",
+            "(#static VALUES (#array #f32 2) (#array (#array #f32 2) 1.5f32 2.5f32)) (#fn main () #u64 (#return (#unsafe (#if (#f32.== (#index VALUES 1) 2.5f32) 42 0))))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -14677,7 +14744,7 @@ mod tests {
     #[test]
     fn parses_and_lowers_typed_integer_literals() {
         let program = parse_program(
-            "(#const BYTE u8 255u8) (#fn main () u64 (#return (#as (#u32.+.wrap 1u32 41u32) u64)))",
+            "(#const BYTE #u8 255u8) (#fn main () #u64 (#return (#as (#u32.+.wrap 1u32 41u32) #u64)))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -14685,7 +14752,7 @@ mod tests {
         assert!(assembly.contains("mov rax, 41"), "{assembly}");
 
         let wide =
-            parse_program("(#fn main () u128 (#return 0xffffffffffffffffffffffffffffffffu128))")
+            parse_program("(#fn main () #u128 (#return 0xffffffffffffffffffffffffffffffffu128))")
                 .unwrap();
         assert!(generate_assembly(&wide).is_ok());
     }
@@ -14693,7 +14760,7 @@ mod tests {
     #[test]
     fn parses_and_evaluates_typed_float_literals() {
         let program = parse_program(
-            "(#const SCALE f32 1.5f32) (#const OFFSET f64 0.25f64) (#fn main () u64 (#return (#if (#bool.&& (#f32.== SCALE 1.5f32) (#f64.== OFFSET 0.25f64)) 42 0)))",
+            "(#const SCALE #f32 1.5f32) (#const OFFSET #f64 0.25f64) (#fn main () #u64 (#return (#if (#bool.&& (#f32.== SCALE 1.5f32) (#f64.== OFFSET 0.25f64)) 42 0)))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -14704,7 +14771,7 @@ mod tests {
     #[test]
     fn mangles_assembler_reserved_identifiers() {
         let program = parse_program(
-            "(#fn offset () u64 (#return 41)) (#fn main () u64 (#return (#u64.+.wrap (#call offset (:)) 1u64)))",
+            "(#fn offset () #u64 (#return 41)) (#fn main () #u64 (#return (#u64.+.wrap (#call offset (:)) 1u64)))",
         )
         .unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -14715,7 +14782,7 @@ mod tests {
     #[test]
     fn supports_large_tuple_locals_without_abi_flattening() {
         let program = parse_program(
-            "(#fn main () u64 (#let value (#tuple u64 u64 u64 u64 u64 u64 u64) (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#let copy (#tuple u64 u64 u64 u64 u64 u64 u64) value) (#return (#u64.+.wrap (#get copy 0) (#get copy 6))))",
+            "(#fn main () #u64 (#let value (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#let copy (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) value) (#return (#u64.+.wrap (#get copy 0) (#get copy 6))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14724,7 +14791,7 @@ mod tests {
     #[test]
     fn supports_large_struct_locals_without_abi_flattening() {
         let program = parse_program(
-            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn main () u64 (#let value Large (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 7u64)))) (#let copy Large value) (#return (#u64.+.wrap (#get copy a) (#get copy g))))",
+            "(#struct Large ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))) (#fn main () #u64 (#let value Large (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 7u64)))) (#let copy Large value) (#return (#u64.+.wrap (#get copy a) (#get copy g))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14733,7 +14800,7 @@ mod tests {
     #[test]
     fn supports_large_array_locals_without_abi_flattening() {
         let program = parse_program(
-            "(#fn main () u64 (#let values (#array u64 8) (#array (#array u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 8u64)) (#let copy (#array u64 8) values) (#return (#u64.+.wrap (#index copy 0u64) (#index copy 7u64))))",
+            "(#fn main () #u64 (#let values (#array #u64 8) (#array (#array #u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 8u64)) (#let copy (#array #u64 8) values) (#return (#u64.+.wrap (#index copy 0u64) (#index copy 7u64))))",
         )
         .unwrap();
         let assembly = generate_assembly(&program);
@@ -14743,7 +14810,7 @@ mod tests {
     #[test]
     fn copies_oversized_array_elements_by_local_binding_identity() {
         let program = parse_program(
-            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn main () u64 (#let values (#array Large 1) (#array (#array Large 1) (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 42u64))))) (#let copied Large (#index values 0usize)) (#return (#get copied g)))",
+            "(#struct Large ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))) (#fn main () #u64 (#let values (#array Large 1) (#array (#array Large 1) (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 42u64))))) (#let copied Large (#index values 0usize)) (#return (#get copied g)))",
         )
         .unwrap();
         let assembly = generate_assembly(&program);
@@ -14753,7 +14820,7 @@ mod tests {
     #[test]
     fn matches_large_scalar_array_locals_without_abi_flattening() {
         let program = parse_program(
-            "(#fn main () u64 (#let values (#array u64 7) (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)) (#return (#match values (#case (#array first second third fourth fifth sixth last) last) (#case _ 0u64))))",
+            "(#fn main () #u64 (#let values (#array #u64 7) (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)) (#return (#match values (#case (#array first second third fourth fifth sixth last) last) (#case _ 0u64))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14762,7 +14829,7 @@ mod tests {
     #[test]
     fn matches_direct_large_scalar_array_returns() {
         let program = parse_program(
-            "(#fn make () (#array u64 7) (#return (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))) (#fn main () u64 (#return (#match (#call make (:)) (#case (#array first second third fourth fifth sixth last) last) (#case _ 0u64))))",
+            "(#fn make () (#array #u64 7) (#return (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64))) (#fn main () #u64 (#return (#match (#call make (:)) (#case (#array first second third fourth fifth sixth last) last) (#case _ 0u64))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14771,7 +14838,7 @@ mod tests {
     #[test]
     fn matches_direct_large_nested_aggregate_returns() {
         let program = parse_program(
-            "(#fn make () (#array (#tuple u128 u64) 4) (#return (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64)))) (#fn main () u64 (#return (#match (#call make (:)) (#case (#array (#tuple _ _) (#tuple _ _) (#tuple _ _) (#tuple _ last)) last) (#case _ 0u64))))",
+            "(#fn make () (#array (#tuple #u128 #u64) 4) (#return (#array (#array (#tuple #u128 #u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64)))) (#fn main () #u64 (#return (#match (#call make (:)) (#case (#array (#tuple _ _) (#tuple _ _) (#tuple _ _) (#tuple _ last)) last) (#case _ 0u64))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14780,7 +14847,7 @@ mod tests {
     #[test]
     fn matches_direct_large_tuple_and_struct_returns() {
         let program = parse_program(
-            "(#struct Large ((a u64) (b u64) (c u64) (d u64) (e u64) (f u64) (g u64))) (#fn make-tuple () (#tuple u64 u64 u64 u64 u64 u64 u64) (#return (#tuple (#tuple u64 u64 u64 u64 u64 u64 u64) 1u64 2u64 3u64 4u64 5u64 6u64 20u64))) (#fn make-struct () Large (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 22u64))))) (#fn main () u64 (#return (#u64.+.wrap (#match (#call make-tuple (:)) (#case (#tuple first second third fourth fifth sixth last) last) (#case _ 0u64)) (#match (#call make-struct (:)) (#case (Large first second third fourth fifth sixth last) last) (#case _ 0u64)))))",
+            "(#struct Large ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))) (#fn make-tuple () (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) (#return (#tuple (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64) 1u64 2u64 3u64 4u64 5u64 6u64 20u64))) (#fn make-struct () Large (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 22u64))))) (#fn main () #u64 (#return (#u64.+.wrap (#match (#call make-tuple (:)) (#case (#tuple first second third fourth fifth sixth last) last) (#case _ 0u64)) (#match (#call make-struct (:)) (#case (Large first second third fourth fifth sixth last) last) (#case _ 0u64)))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14789,7 +14856,7 @@ mod tests {
     #[test]
     fn lowers_large_aggregate_let_else() {
         let program = parse_program(
-            "(#fn main () u64 (#let values (#array u64 7) (#array (#array u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)) (#let-else (#array first second third fourth fifth sixth last) (#array u64 7) values (#return 0u64)) (#return last))",
+            "(#fn main () #u64 (#let values (#array #u64 7) (#array (#array #u64 7) 1u64 2u64 3u64 4u64 5u64 6u64 42u64)) (#let-else (#array first second third fourth fifth sixth last) (#array #u64 7) values (#return 0u64)) (#return last))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14798,7 +14865,7 @@ mod tests {
     #[test]
     fn supports_large_enum_payloads_in_locals() {
         let program = parse_program(
-            "(#enum BigPayload ((Big u64 u64 u64 u64 u64 u64 u64) Empty)) (#fn main () u64 (#let-mut value BigPayload (Big 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#set-payload value Big 6 42u64) (#return 42u64))",
+            "(#enum BigPayload ((Big #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty)) (#fn main () #u64 (#let-mut value BigPayload (Big 1u64 2u64 3u64 4u64 5u64 6u64 7u64)) (#set-payload value Big 6 42u64) (#return 42u64))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14816,7 +14883,7 @@ mod tests {
     #[test]
     fn returns_large_arrays_with_nested_wide_elements() {
         let program = parse_program(
-            "(#fn make () (#array (#tuple u128 u64) 4) (#return (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64)))) (#fn main () u64 (#let values (#array (#tuple u128 u64) 4) (#call make (:))) (#let item (#tuple u128 u64) (#index values 3u64)) (#let direct-item (#tuple u128 u64) (#index (#call make (:)) 3u64)) (#return (#u64.+.wrap (#get item 1) (#get direct-item 1))))",
+            "(#fn make () (#array (#tuple #u128 #u64) 4) (#return (#array (#array (#tuple #u128 #u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64)))) (#fn main () #u64 (#let values (#array (#tuple #u128 #u64) 4) (#call make (:))) (#let item (#tuple #u128 #u64) (#index values 3u64)) (#let direct-item (#tuple #u128 #u64) (#index (#call make (:)) 3u64)) (#return (#u64.+.wrap (#get item 1) (#get direct-item 1))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14825,7 +14892,7 @@ mod tests {
     #[test]
     fn passes_large_arrays_with_nested_wide_elements() {
         let program = parse_program(
-            "(#fn consume ((value (#array (#tuple u128 u64) 4))) u64 (#let item (#tuple u128 u64) (#index value 3u64)) (#return (#get item 1))) (#fn main () u64 (#return (#call consume (: value (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64))))))",
+            "(#fn consume ((value (#array (#tuple #u128 #u64) 4))) #u64 (#let item (#tuple #u128 #u64) (#index value 3u64)) (#return (#get item 1))) (#fn main () #u64 (#return (#call consume (: value (#array (#array (#tuple #u128 #u64) 4) (#tuple 10u128 1u64) (#tuple 20u128 2u64) (#tuple 30u128 3u64) (#tuple 40u128 42u64))))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14834,7 +14901,7 @@ mod tests {
     #[test]
     fn passes_two_constructed_large_arguments_without_aliasing() {
         let program = parse_program(
-            "(#fn add-last ((left (#array (#tuple u128 u64) 4)) (right (#array (#tuple u128 u64) 4))) u64 (#let left-item (#tuple u128 u64) (#index left 3u64)) (#let right-item (#tuple u128 u64) (#index right 3u64)) (#return (#u64.+.wrap (#get left-item 1) (#get right-item 1)))) (#fn main () u64 (#return (#call add-last (: left (#array (#array (#tuple u128 u64) 4) (#tuple 10u128 2u64) (#tuple 20u128 3u64) (#tuple 30u128 4u64) (#tuple 40u128 20u64)) : right (#array (#array (#tuple u128 u64) 4) (#tuple 50u128 5u64) (#tuple 60u128 6u64) (#tuple 70u128 7u64) (#tuple 80u128 22u64))))))",
+            "(#fn add-last ((left (#array (#tuple #u128 #u64) 4)) (right (#array (#tuple #u128 #u64) 4))) #u64 (#let left-item (#tuple #u128 #u64) (#index left 3u64)) (#let right-item (#tuple #u128 #u64) (#index right 3u64)) (#return (#u64.+.wrap (#get left-item 1) (#get right-item 1)))) (#fn main () #u64 (#return (#call add-last (: left (#array (#array (#tuple #u128 #u64) 4) (#tuple 10u128 2u64) (#tuple 20u128 3u64) (#tuple 30u128 4u64) (#tuple 40u128 20u64)) : right (#array (#array (#tuple #u128 #u64) 4) (#tuple 50u128 5u64) (#tuple 60u128 6u64) (#tuple 70u128 7u64) (#tuple 80u128 22u64))))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14843,7 +14910,7 @@ mod tests {
     #[test]
     fn passes_constructed_large_enum_arguments() {
         let program = parse_program(
-            "(#enum Wide ((Values u64 u64 u64 u64 u64 u64 u64) Empty)) (#fn last ((value Wide)) u64 (#return (#match value (#case (Values first second third fourth fifth sixth last) last) (#case _ 0u64)))) (#fn main () u64 (#return (#call last (: value (Values 1u64 2u64 3u64 4u64 5u64 6u64 42u64)))))",
+            "(#enum Wide ((Values #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty)) (#fn last ((value Wide)) #u64 (#return (#match value (#case (Values first second third fourth fifth sixth last) last) (#case _ 0u64)))) (#fn main () #u64 (#return (#call last (: value (Values 1u64 2u64 3u64 4u64 5u64 6u64 42u64)))))",
         )
         .unwrap();
         assert!(generate_assembly(&program).is_ok());
@@ -14852,35 +14919,35 @@ mod tests {
     #[test]
     fn checks_and_lowers_type_aliases() {
         let program = parse_program(
-            "(#type UserId u64) (#fn add_one ((id UserId)) UserId (#return (#u64.+.wrap  id 1))) (#fn main () UserId (#return (#call add_one (: id 41))))",
+            "(#type UserId #u64) (#fn add_one ((id UserId)) UserId (#return (#u64.+.wrap  id 1))) (#fn main () UserId (#return (#call add_one (: id 41))))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
         assert!(generate_assembly(&program).unwrap().contains("add_one"));
         let invalid = parse_program(
-            "(#type UserId u64) (#fn main () UserId (#let value u32 1) (#return value))",
+            "(#type UserId #u64) (#fn main () UserId (#let value #u32 1) (#return value))",
         )
         .unwrap();
         assert!(check_types(&invalid).unwrap_err().contains("expected U64"));
         let nested = parse_program(
-            "(#type UserId u64) (#fn main () UserId (#return (#block (#let inner UserId 41) inner)))",
+            "(#type UserId #u64) (#fn main () UserId (#return (#block (#let inner UserId 41) inner)))",
         )
         .unwrap();
         assert!(check_types(&nested).is_ok());
         let tuple_alias = parse_program(
-            "(#type UserId u64) (#fn main () (#tuple UserId u32) (#return (#tuple 40 2)))",
+            "(#type UserId #u64) (#fn main () (#tuple UserId #u32) (#return (#tuple 40 2)))",
         )
         .unwrap();
         assert!(check_types(&tuple_alias).is_ok());
         assert!(generate_assembly(&tuple_alias).is_ok());
         let enum_payload = parse_program(
-            "(#type Value u64) (#enum Box ((Some Value) None)) (#fn main () u64 (#return (#match (Some 42) (#case (Some value) value) (#case None 0))))",
+            "(#type Value #u64) (#enum Box ((Some Value) None)) (#fn main () #u64 (#return (#match (Some 42) (#case (Some value) value) (#case None 0))))",
         )
         .unwrap();
         assert!(check_types(&enum_payload).is_ok());
         assert!(generate_assembly(&enum_payload).is_ok());
         let concrete = parse_program(
-            "(#type PairU64 (#tuple u64 u64)) (#fn main () u64 (#let pair PairU64 (#tuple 20 22)) (#return (#u64.+.wrap  (#get pair 0) (#get pair 1))))",
+            "(#type PairU64 (#tuple #u64 #u64)) (#fn main () #u64 (#let pair PairU64 (#tuple 20 22)) (#return (#u64.+.wrap  (#get pair 0) (#get pair 1))))",
         )
         .unwrap();
         assert!(check_types(&concrete).is_ok());
@@ -14903,13 +14970,13 @@ mod tests {
     #[test]
     fn rejects_ambiguous_unqualified_value_names() {
         let duplicate_field =
-            parse_program("(#struct Point ((x u64) (x u64))) (#fn main () u64 (#return 0))")
+            parse_program("(#struct Point ((x #u64) (x #u64))) (#fn main () #u64 (#return 0))")
                 .unwrap();
         assert!(check_types(&duplicate_field)
             .unwrap_err()
             .contains("duplicate field 'x'"));
         let duplicate_variant = parse_program(
-            "(#enum First (Ready)) (#enum Second (Ready)) (#fn main () u64 (#return 0))",
+            "(#enum First (Ready)) (#enum Second (Ready)) (#fn main () #u64 (#return 0))",
         )
         .unwrap();
         assert!(check_types(&duplicate_variant)
@@ -14920,7 +14987,7 @@ mod tests {
     #[test]
     fn slices_borrow_arrays_and_bounds_check_indexing() {
         let program = parse_program(
-            "(#fn main () u64 (#let values (#array u64 3) (#array (#array u64 3) 10u64 20u64 30u64)) (#let view (#slice u64) (#slice-of (#borrow values))) (#return (#deref (#slice-idx view 1usize))))",
+            "(#fn main () #u64 (#let values (#array #u64 3) (#array (#array #u64 3) 10u64 20u64 30u64)) (#let view (#slice #u64) (#slice-of (#borrow values))) (#return (#deref (#slice-idx view 1usize))))",
         ).unwrap();
         check_types(&program).unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -14931,7 +14998,7 @@ mod tests {
     #[test]
     fn slices_keep_their_array_borrow_active() {
         let program = parse_program(
-            "(#fn bad () () (#let-mut values (#array u64 2) (#array (#array u64 2) 1u64 2u64)) (#let view (#slice u64) (#slice-of (#borrow values))) (#set values (#array (#array u64 2) 3u64 4u64)) (#return ()))",
+            "(#fn bad () () (#let-mut values (#array #u64 2) (#array (#array #u64 2) 1u64 2u64)) (#let view (#slice #u64) (#slice-of (#borrow values))) (#set values (#array (#array #u64 2) 3u64 4u64)) (#return ()))",
         ).unwrap();
         let error = check_types(&program).unwrap_err();
         assert!(error.contains("while it is immutably borrowed"), "{error}");
@@ -14940,7 +15007,7 @@ mod tests {
     #[test]
     fn slices_can_be_passed_to_functions() {
         let program = parse_program(
-            "(#fn second ((view (#slice u64))) u64 (#return (#deref (#slice-idx view 1usize)))) (#fn main () u64 (#let values (#array u64 2) (#array (#array u64 2) 11u64 29u64)) (#let view (#slice u64) (#slice-of (#borrow values))) (#return (#call second (: view view))))",
+            "(#fn second ((view (#slice #u64))) #u64 (#return (#deref (#slice-idx view 1usize)))) (#fn main () #u64 (#let values (#array #u64 2) (#array (#array #u64 2) 11u64 29u64)) (#let view (#slice #u64) (#slice-of (#borrow values))) (#return (#call second (: view view))))",
         ).unwrap();
         check_types(&program).unwrap();
         generate_assembly(&program).unwrap();
@@ -14948,7 +15015,7 @@ mod tests {
 
     #[test]
     fn ranged_slices_typecheck_and_emit_runtime_bounds_checks() {
-        let source = "(#fn main () u64 (#let values (#array u64 3) (#array (#array u64 3) 4u64 8u64 15u64)) (#let all (#slice u64) (#slice-of (#borrow values))) (#let middle (#slice u64) (#slice-range all 1usize 2usize)) (#return (#deref (#slice-idx middle 0usize))))";
+        let source = "(#fn main () #u64 (#let values (#array #u64 3) (#array (#array #u64 3) 4u64 8u64 15u64)) (#let all (#slice #u64) (#slice-of (#borrow values))) (#let middle (#slice #u64) (#slice-range all 1usize 2usize)) (#return (#deref (#slice-idx middle 0usize))))";
         let program = parse_program(source).unwrap();
         check_types(&program).unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -14958,14 +15025,14 @@ mod tests {
 
     #[test]
     fn ranged_slice_cannot_outlive_its_array() {
-        let source = "(#fn bad () (#slice u64) (#let values (#array u64 2) (#array (#array u64 2) 1u64 2u64)) (#let all (#slice u64) (#slice-of (#borrow values))) (#return (#slice-range all 0usize 1usize)))";
+        let source = "(#fn bad () (#slice #u64) (#let values (#array #u64 2) (#array (#array #u64 2) 1u64 2u64)) (#let all (#slice #u64) (#slice-of (#borrow values))) (#return (#slice-range all 0usize 1usize)))";
         let program = parse_program(source).unwrap();
         assert!(check_types(&program).is_err());
     }
 
     #[test]
     fn mutable_slice_split_produces_writable_disjoint_views() {
-        let source = "(#fn main () u64 (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64)) (#slice-mut-split view 2usize)) (#deref-set (#slice-mut-idx left 0usize) 17u64) (#deref-set (#slice-mut-idx right 0usize) 25u64) (#let-mut result u64 (#u64.+.wrap (#deref (#slice-mut-idx left 0usize)) (#deref (#slice-mut-idx right 0usize)))) (#forget left) (#forget right) (#return result))";
+        let source = "(#fn main () #u64 (#let-mut values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut #u64) (#slice-mut #u64)) (#slice-mut-split view 2usize)) (#deref-set (#slice-mut-idx left 0usize) 17u64) (#deref-set (#slice-mut-idx right 0usize) 25u64) (#let-mut result #u64 (#u64.+.wrap (#deref (#slice-mut-idx left 0usize)) (#deref (#slice-mut-idx right 0usize)))) (#forget left) (#forget right) (#return result))";
         let program = parse_program(source).unwrap();
         check_types(&program).unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -14974,18 +15041,18 @@ mod tests {
 
     #[test]
     fn mutable_slice_split_rejects_parent_use_and_overlapping_mutable_borrow() {
-        let parent_use = "(#fn main () () (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64)) (#slice-mut-split view 2usize)) (#let again (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#return ()))";
+        let parent_use = "(#fn main () () (#let-mut values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut #u64) (#slice-mut #u64)) (#slice-mut-split view 2usize)) (#let again (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#return ()))";
         let program = parse_program(parent_use).unwrap();
         assert!(check_types(&program).is_err());
 
-        let overlapping = "(#fn main () () (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let first (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let second (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#return ()))";
+        let overlapping = "(#fn main () () (#let-mut values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64)) (#let first (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#let second (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#return ()))";
         let program = parse_program(overlapping).unwrap();
         assert!(check_types(&program).is_err());
     }
 
     #[test]
     fn mutable_slice_supports_nested_splits_and_zero_sized_elements() {
-        let nested = "(#fn main () usize (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let root (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut u64) (#slice-mut u64)) (#slice-mut-split root 3usize)) (#let (#tuple first second) (#tuple (#slice-mut u64) (#slice-mut u64)) (#slice-mut-split left 1usize)) (#let-mut result usize (#slice-mut-len second)) (#forget first) (#forget second) (#forget right) (#return result))";
+        let nested = "(#fn main () #usize (#let-mut values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64)) (#let root (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#let (#tuple left right) (#tuple (#slice-mut #u64) (#slice-mut #u64)) (#slice-mut-split root 3usize)) (#let (#tuple first second) (#tuple (#slice-mut #u64) (#slice-mut #u64)) (#slice-mut-split left 1usize)) (#let-mut result #usize (#slice-mut-len second)) (#forget first) (#forget second) (#forget right) (#return result))";
         let program = parse_program(nested).unwrap();
         check_types(&program).unwrap();
         generate_assembly(&program).unwrap();
@@ -14998,18 +15065,18 @@ mod tests {
 
     #[test]
     fn mutable_slice_return_preserves_source_provenance() {
-        let valid = "(#fn identity-slice ((source (#slice-mut u64))) (#slice-mut u64) (#return source)) (#fn main () usize (#let-mut values (#array u64 4) (#array (#array u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#let returned (#slice-mut u64) (#call identity-slice (: source view))) (#let result usize (#slice-mut-len returned)) (#forget returned) (#return result))";
+        let valid = "(#fn identity-slice ((source (#slice-mut #u64))) (#slice-mut #u64) (#return source)) (#fn main () #usize (#let-mut values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64)) (#let view (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#let returned (#slice-mut #u64) (#call identity-slice (: source view))) (#let result #usize (#slice-mut-len returned)) (#forget returned) (#return result))";
         let program = parse_program(valid).unwrap();
         check_types(&program).unwrap();
 
-        let invalid = "(#fn bad () (#slice-mut u64) (#let-mut values (#array u64 2) (#array (#array u64 2) 1u64 2u64)) (#let root (#slice-mut u64) (#slice-mut-of (#borrow-mut values))) (#return root))";
+        let invalid = "(#fn bad () (#slice-mut #u64) (#let-mut values (#array #u64 2) (#array (#array #u64 2) 1u64 2u64)) (#let root (#slice-mut #u64) (#slice-mut-of (#borrow-mut values))) (#return root))";
         let program = parse_program(invalid).unwrap();
         assert!(check_types(&program).is_err());
     }
 
     #[test]
     fn atomics_typecheck_explicit_orders_and_reject_invalid_operations() {
-        let valid = "(#fn main () u64 (#let-mut counter (#atomic u64) (#atomic-init u64 0u64)) (#atomic-fetch-add (#borrow counter) 1u64 #memory-acq-rel) (#let observed u64 (#atomic-load (#borrow counter) #memory-acquire)) (#atomic-store (#borrow counter) observed #memory-release) (#forget counter) (#return observed))";
+        let valid = "(#fn main () #u64 (#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64)) (#atomic-fetch-add (#borrow counter) 1u64 #memory-acq-rel) (#let observed #u64 (#atomic-load (#borrow counter) #memory-acquire)) (#atomic-store (#borrow counter) observed #memory-release) (#forget counter) (#return observed))";
         let program = parse_program(valid).unwrap();
         check_types(&program).unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -15017,15 +15084,15 @@ mod tests {
         assert!(assembly.contains("mov rax, QWORD PTR [rax]"));
 
         for invalid in [
-            "(#fn main () () (#let-mut counter (#atomic u64) (#atomic-init u64 0u64)) (#atomic-load (#borrow counter) #memory-release) (#forget counter) (#return ()))",
-            "(#fn main () () (#let-mut counter (#atomic u64) (#atomic-init u64 0u64)) (#atomic-store (#borrow counter) 1u64 #memory-acquire) (#forget counter) (#return ()))",
-            "(#fn main () () (#let-mut counter (#atomic u128) (#atomic-init u128 0u128)) (#forget counter) (#return ()))",
+            "(#fn main () () (#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64)) (#atomic-load (#borrow counter) #memory-release) (#forget counter) (#return ()))",
+            "(#fn main () () (#let-mut counter (#atomic #u64) (#atomic-init #u64 0u64)) (#atomic-store (#borrow counter) 1u64 #memory-acquire) (#forget counter) (#return ()))",
+            "(#fn main () () (#let-mut counter (#atomic #u128) (#atomic-init #u128 0u128)) (#forget counter) (#return ()))",
         ] {
             let program = parse_program(invalid).unwrap();
             assert!(check_types(&program).is_err());
         }
 
-        let narrow = "(#fn main () u64 (#let-mut byte (#atomic i8) (#atomic-init i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#let-mut half (#atomic u16) (#atomic-init u16 0u16)) (#atomic-store (#borrow half) 3u16 #memory-seq-cst) (#forget byte) (#forget half) (#return 42u64))";
+        let narrow = "(#fn main () #u64 (#let-mut byte (#atomic #i8) (#atomic-init #i8 -1i8)) (#atomic-fetch-add (#borrow byte) 1i8 #memory-relaxed) (#let-mut half (#atomic #u16) (#atomic-init #u16 0u16)) (#atomic-store (#borrow half) 3u16 #memory-seq-cst) (#forget byte) (#forget half) (#return 42u64))";
         let program = parse_program(narrow).unwrap();
         check_types(&program).unwrap();
         let assembly = generate_assembly(&program).unwrap();
@@ -15045,7 +15112,7 @@ mod tests {
     #[test]
     fn stack_usage_report_analyzes_generated_call_paths() {
         let program = parse_program(
-            "(#fn leaf () u64 (#return 4u64)) (#fn main () u64 (#let value u64 (#call leaf (:))) (#return value))",
+            "(#fn leaf () #u64 (#return 4u64)) (#fn main () #u64 (#let value #u64 (#call leaf (:))) (#return value))",
         )
         .unwrap();
         check_types(&program).unwrap();

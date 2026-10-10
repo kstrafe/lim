@@ -1,6 +1,6 @@
-(#struct Wide ((byte u8) (a u64) (single f32) (pair u128) (empty ()) (short i16) (double f64) (g u64) (h u64)))
-(#struct Inner ((wide Wide) (tag u16)))
-(#struct Outer ((inner Inner) (tail u64)))
+(#struct Wide ((byte #u8) (a #u64) (single #f32) (pair #u128) (empty ()) (short #i16) (double #f64) (g #u64) (h #u64)))
+(#struct Inner ((wide Wide) (tag #u16)))
+(#struct Outer ((inner Inner) (tail #u64)))
 (#enum WidePayload ((Value Wide) Empty))
 (#static GlobalOuter Outer
   (#struct-literal Outer
@@ -12,7 +12,7 @@
          (tag 8u16))))
      (tail 9u64))))
 
-(#fn main () u64
+(#fn main () #u64
   (#let outer Outer
     (#struct-literal Outer
       ((inner

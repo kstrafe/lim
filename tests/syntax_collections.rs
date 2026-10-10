@@ -12,16 +12,16 @@ fn distributed_error_enum_is_concrete_cached_and_allocation_free() {
     .unwrap();
     fs::write(
         root.join("a.lim"),
-        "(#import \"declaration.lim\") (#syntax-contribute Errors a (First u64))",
+        "(#import \"declaration.lim\") (#syntax-contribute Errors a (First #u64))",
     )
     .unwrap();
     fs::write(
         root.join("b.lim"),
-        "(#import \"declaration.lim\") (#syntax-contribute Errors b (Second u32))",
+        "(#import \"declaration.lim\") (#syntax-contribute Errors b (Second #u32))",
     )
     .unwrap();
     let source = "(#import \"b.lim\") (#import \"a.lim\") (@errors (#syntax-distribute Errors) Error)
-      (#fn main () u64 (#let error Error (First 42u64)) (#return (#match error (#case (First n) n) (#case (Second n) (#as n u64)))))";
+      (#fn main () #u64 (#let error Error (First 42u64)) (#return (#match error (#case (First n) n) (#case (Second n) (#as n #u64)))))";
     fs::write(root.join("main.lim"), source).unwrap();
     for _ in 0..2 {
         let output = support::run(
@@ -84,15 +84,15 @@ fn cfg_selection_and_external_prefixes_apply_before_freezing() {
     fs::write(
         root.join("module.lim"),
         "(#syntax-collection Entries)
-      (#syntax-contribute Entries stable (Stable u64))
-      (#cfg-if (#cfg-is #extra yes) (#syntax-contribute Entries extra (Extra u32)))
+      (#syntax-contribute Entries stable (Stable #u64))
+      (#cfg-if (#cfg-is #extra yes) (#syntax-contribute Entries extra (Extra #u32)))
       (#gn errors (entries name) `((#enum ,name ,entries)))
       (@errors (#syntax-distribute Entries) Errors)
-      (#fn value () u64 (#return (#match (Stable 42u64) (#case (Stable n) n) (#case _ 0u64))))",
+      (#fn value () #u64 (#return (#match (Stable 42u64) (#case (Stable n) n) (#case _ 0u64))))",
     )
     .unwrap();
     let source =
-        "(#import-external \"module.lim\" ext-) (#fn main () u64 (#return (#call ext-value (:))))";
+        "(#import-external \"module.lim\" ext-) (#fn main () #u64 (#return (#call ext-value (:))))";
     let mut config = lim::CompileConfig::default();
     config.set("extra", "no");
     let first = lim::compile_source_to_assembly(

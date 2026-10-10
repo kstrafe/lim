@@ -1,8 +1,8 @@
-(#enum Value (Empty (Full u64)))
-(#struct Link (: value Value : view (#pin-ref u64)))
+(#enum Value (Empty (Full #u64)))
+(#struct Link (: value Value : view (#pin-ref #u64)))
 
 (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
-  (#let view (#pin-ref u64)
+  (#let view (#pin-ref #u64)
     (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
   (#pin-set-field target view view) (#return target))
 
@@ -11,20 +11,20 @@
   (#if (#variant-is (#pin-borrow (#get target value)) Empty)
     (#block
       (#unsafe (#pin-write (#pin-borrow-mut (#get target value)) (Full 40u64)))
-      (#let payload (#pin-ref-mut u64)
+      (#let payload (#pin-ref-mut #u64)
         (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0))
       (#unsafe (#pin-write payload 42u64))) ())
   (#return target))
 
-(#fn main () u64
-  (#let outside u64 0u64)
+(#fn main () #u64
+  (#let outside #u64 0u64)
   (#let-mut link Link (#struct-literal Link
     (: value Empty : view (#pin-borrow outside))))
   (#let installed (#pin-ref-mut Link)
     (#call initialize-or-touch (: target (#pin-borrow-mut link))))
   (#let updated (#pin-ref-mut Link)
     (#call install (: target installed)))
-  (#let answer u64 (#deref (#get updated view)))
+  (#let answer #u64 (#deref (#get updated view)))
   (#pin-set-field updated view (#pin-borrow outside))
   (#drop updated) (#forget link)
   (#return answer))

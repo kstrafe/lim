@@ -2,7 +2,7 @@
   #fn
   make
   ()
-  (#tuple u64 f32)
+  (#tuple #u64 #f32)
   (
     #return
     (#tuple 40 2.5)
@@ -15,10 +15,10 @@
   (
     (
       value
-      (#tuple u64 f32)
+      (#tuple #u64 #f32)
     )
   )
-  u64
+  #u64
   (
     #return
     (#u64.+.wrap
@@ -26,7 +26,7 @@
       (
         #as
         (#get value 1)
-        u64
+        #u64
       )
     )
   )
@@ -36,11 +36,11 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #let
     value
-    (#tuple u64 f32)
+    (#tuple #u64 #f32)
     (#call make (:))
   )
   (

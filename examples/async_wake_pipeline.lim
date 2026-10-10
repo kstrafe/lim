@@ -1,10 +1,10 @@
 (#import "../library/tasks.lim")
 (#import "../library/local_waker.lim")
 (#import "../library/cell.lim")
-(@cell u64 CellU64 CellU64-create CellU64-get CellU64-set)
+(@cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
 
 (#struct WakeExecutor ((notifications CellU64)))
-(#struct WakeMetadata ((amount u64)))
+(#struct WakeMetadata ((amount #u64)))
 (#linear WakeMetadata)
 
 (#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref WakeMetadata))) ()
@@ -27,7 +27,7 @@
   (WakeExecutor WakeMetadata)
   (notify clone-metadata destroy-metadata))
 
-(@task (Step StepPoll StepPending StepReady) u64 ((Waiting u64)))
+(@task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
 
 (#fn step-poll ((task Step) (waker (#ref LocalWaker))) StepPoll
   (#return (#match task
@@ -39,11 +39,11 @@
           (StepPending (Waiting (#u64.-.wrap remaining 1u64)))))))))
 
 (@async-wake
-  (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) u64
+  (Pipeline PipelinePoll PipelinePending PipelineReady pipeline-poll) #u64
   ((Only (#await Step StepPending StepReady step-poll) (#return)))
   LocalWaker)
 
-(#fn main () u64
+(#fn main () #u64
   (#let executor WakeExecutor
     (#struct-literal WakeExecutor ((notifications
       (#call CellU64-create (: value 0u64))))))
@@ -57,14 +57,14 @@
       (#case (PipelineReady result) (#unreachable))))
   (#let second PipelinePoll
     (#call pipeline-poll (: task pending : waker (#borrow waker))))
-  (#let result u64
+  (#let result #u64
     (#match second
       (#case (PipelineReady value) value)
       (#case (PipelinePending task)
         (#block (#forget task) (#unreachable)))))
   (#call local-waker-destroy (: waker waker))
   (#let executor-ref (#ref WakeExecutor) (#borrow executor))
-  (#let notifications u64 (#call CellU64-get (: cell (#borrow (#get executor-ref notifications)))))
+  (#let notifications #u64 (#call CellU64-get (: cell (#borrow (#get executor-ref notifications)))))
   (#drop executor-ref)
   (#forget executor)
   (#return (#u64.+.wrap result notifications)))

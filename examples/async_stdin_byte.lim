@@ -2,8 +2,8 @@
 ; destination only while it is pending; poll never leaves the buffer in flight.
 (#import "../library/async_stdin_byte.lim")
 
-(#fn main () i32
-  (#let-mut byte u8 0u8)
+(#fn main () #i32
+  (#let-mut byte #u8 0u8)
   (#let blocking AsyncByteReadCreate1
     (#call async-byte-read1-create
       (: fd 0i64 : destination (#borrow-mut byte))))
@@ -11,10 +11,10 @@
     (#case (AsyncByteReadCreateFailed1 error) (#i64.== error -22i64))
     (#case (AsyncByteReadCreated1 unexpected)
       (#block
-        (#let cleanup i64
+        (#let cleanup #i64
           (#call async-byte-read1-destroy (: task unexpected)))
         false))))
-  (#let enabled i64 (#call async-byte-read1-enable-nonblocking (: fd 0i64)))
+  (#let enabled #i64 (#call async-byte-read1-enable-nonblocking (: fd 0i64)))
   (#assert (#i64.>= enabled 0i64))
   (#let invalid AsyncByteReadCreate1
     (#call async-byte-read1-create
@@ -23,7 +23,7 @@
     (#case (AsyncByteReadCreateFailed1 error) (#i64.== error -9i64))
     (#case (AsyncByteReadCreated1 unexpected)
       (#block
-        (#let cleanup i64
+        (#let cleanup #i64
           (#call async-byte-read1-destroy (: task unexpected)))
         false))))
   (#let created AsyncByteReadCreate1
@@ -31,18 +31,18 @@
       (: fd 0i64 : destination (#borrow-mut byte))))
   (#let-else (AsyncByteReadCreated1 task) AsyncByteReadCreate1 created
     (#unreachable))
-  (#let original-closed i64 (#call linux-close (: fd 0i64)))
+  (#let original-closed #i64 (#call linux-close (: fd 0i64)))
   (#let first AsyncByteReadPoll1
     (#call async-byte-read1-poll (: task (#borrow task))))
   (#let wait AsyncByteReadWait1
     (#call async-byte-read1-wait (: task (#borrow task))))
   (#let second AsyncByteReadPoll1
     (#call async-byte-read1-poll (: task (#borrow task))))
-  (#let destroyed i64 (#call async-byte-read1-destroy (: task task)))
-  (#let result i32 (#match second
+  (#let destroyed #i64 (#call async-byte-read1-destroy (: task task)))
+  (#let result #i32 (#match second
     (#case (AsyncByteReadReady1 value)
       (#block
-        (#let written i64
+        (#let written #i64
           (#call linux-write-byte (: source (#borrow byte))))
         (#if (#bool.&& (#u8.== value byte) (#i64.== written 1i64)) 0i32 5i32)))
     (#case AsyncByteReadEof1 0i32)

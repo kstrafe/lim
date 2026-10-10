@@ -4780,7 +4780,7 @@ fn normalize_async_loop_await_types(expression: &mut Expr) -> Result<(), String>
                             let bool_type = parse_type(Some(&Expr::Symbol("bool".into())))?;
                             if await_type != bool_type {
                                 return Err(
-                                    "@async-fn nested while condition await must produce bool"
+                                    "@async-fn nested while condition await must produce #bool"
                                         .into(),
                                 );
                             }
@@ -5403,7 +5403,7 @@ fn lower_async_while(
                     let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
                     if result_type != Type::Bool {
                         return Err(
-                            "@async-fn awaited #while condition #await result type must be bool"
+                            "@async-fn awaited #while condition #await result type must be #bool"
                                 .into(),
                         );
                     }
@@ -5411,7 +5411,7 @@ fn lower_async_while(
                 }
                 _ => {
                     return Err(
-                        "@async-fn awaited #while condition requires (#await [bool] Child Pending Ready poll task)"
+                        "@async-fn awaited #while condition requires (#await [#bool] Child Pending Ready poll task)"
                             .into(),
                     );
                 }
@@ -6452,14 +6452,15 @@ fn lower_async_while_with_transfers(
                 let result_type = parse_type(Some(&normalize_keywords(await_form[1].clone())))?;
                 if result_type != Type::Bool {
                     return Err(
-                        "@async-fn awaited #while condition #await result type must be bool".into(),
+                        "@async-fn awaited #while condition #await result type must be #bool"
+                            .into(),
                     );
                 }
                 await_form.remove(1);
             }
             _ => {
                 return Err(
-                    "@async-fn awaited #while condition requires (#await [bool] Child Pending Ready poll task)"
+                    "@async-fn awaited #while condition requires (#await [#bool] Child Pending Ready poll task)"
                         .into(),
                 );
             }
@@ -8075,7 +8076,7 @@ fn lower_async_while_with_transfers(
          (#enum {task_poll_result} (({task_pending} {task_type}) ({task_ready} {ready_type})))
          (#fn {task_run} ({run_parameters}) {task_poll_result}
          (#let-mut {base}-outcome {run_state} {active_value})
-         (#let-mut {base}-stopped bool false)
+         (#let-mut {base}-stopped #bool false)
          (#while (#bool.== {base}-stopped false)
              (#set {base}-outcome
                (#match {base}-outcome
@@ -13291,7 +13292,7 @@ mod async_lowering_tests {
     fn nested_pattern_scope_walks_separate_declarations_from_value_uses() {
         let expression = crate::parse(
             "(#let-else (Some (Parts (#tuple first second) _)) Maybe input
-          (#block (#let (#array failed other) (#array u64 2) fallback) (#return failed)))",
+          (#block (#let (#array failed other) (#array #u64 2) fallback) (#return failed)))",
         )
         .unwrap()
         .remove(0)
@@ -13319,11 +13320,11 @@ mod async_lowering_tests {
     #[test]
     fn capture_walk_ignores_type_annotations_and_assembly_register_labels() {
         let expression = crate::parse(
-            "(#block (#as byte u64)
-          (#tuple (#tuple u64 bool) number decision)
-          (#array-of (#array u32 2) left right)
+            "(#block (#as byte #u64)
+          (#tuple (#tuple #u64 #bool) number decision)
+          (#array-of (#array #u32 2) left right)
           (#size-of Layout) (#align-of Layout)
-          (#unsafe (#asm u64 ((rax input) (rdi (#as count usize))) \"syscall\")))",
+          (#unsafe (#asm #u64 ((rax input) (rdi (#as count #usize))) \"syscall\")))",
         )
         .unwrap()
         .remove(0)
@@ -13342,7 +13343,7 @@ mod async_lowering_tests {
     #[test]
     fn local_pattern_bindings_preserve_nested_order_aliases_and_mutability() {
         let environment = crate::async_type_environment(
-            &crate::parse("(#type Narrow u16) (#struct Parts ((z (#array Narrow 2)) (a u64)))")
+            &crate::parse("(#type Narrow #u16) (#struct Parts ((z (#array Narrow 2)) (a #u64)))")
                 .unwrap(),
         );
         let expression = |source| crate::parse(source).unwrap().remove(0).expr;
@@ -13360,7 +13361,7 @@ mod async_lowering_tests {
             [
                 ("first", "Narrow", true),
                 ("second", "Narrow", true),
-                ("tail", "u64", true)
+                ("tail", "#u64", true)
             ]
         );
         let ignored = declared_local_bindings(
@@ -13386,7 +13387,7 @@ mod async_lowering_tests {
 
     #[test]
     fn stage_task_inlining_leaves_pattern_declarations_intact() {
-        let mut prefix = vec!["(#let (#tuple left right) (#tuple u64 u64) pair)".into()];
+        let mut prefix = vec!["(#let (#tuple left right) (#tuple #u64 #u64) pair)".into()];
         let original = prefix.clone();
         assert_eq!(
             inline_stage_task_temporary(&mut prefix, "child").unwrap(),

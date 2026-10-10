@@ -1,27 +1,27 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let memory (#ptr-mut i64)
-    (#unsafe (#linux-syscall (#ptr-mut i64) LINUX-SYS-MMAP
+(#fn main () #u64
+  (#let memory (#ptr-mut #i64)
+    (#unsafe (#linux-syscall (#ptr-mut #i64) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
-  (#let usage-result i64
+  (#let usage-result #i64
     (#unsafe (#call linux-getrusage (: resource 0i64 : usage memory))))
-  (#let user-seconds i64 (#unsafe (#ptr-read memory)))
-  (#let user-microseconds i64
+  (#let user-seconds #i64 (#unsafe (#ptr-read memory)))
+  (#let user-microseconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 1usize))))
-  (#let system-seconds i64
+  (#let system-seconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 2usize))))
-  (#let system-microseconds i64
+  (#let system-microseconds #i64
     (#unsafe (#ptr-read (#ptr-offset memory 3usize))))
-  (#let maximum-resident-set i64
+  (#let maximum-resident-set #i64
     (#unsafe (#ptr-read (#ptr-offset memory 4usize))))
-  (#let initial-limit-result i64
+  (#let initial-limit-result #i64
     (#unsafe (#call linux-getrlimit (: resource 7usize : limits (#ptr-offset memory 20usize)))))
-  (#let initial-soft-limit i64
+  (#let initial-soft-limit #i64
     (#unsafe (#ptr-read (#ptr-offset memory 20usize))))
-  (#let initial-hard-limit i64
+  (#let initial-hard-limit #i64
     (#unsafe (#ptr-read (#ptr-offset memory 21usize))))
-  (#let reduced-soft-limit i64
+  (#let reduced-soft-limit #i64
     (#if (#i64.> initial-soft-limit 32i64) 32i64 initial-soft-limit))
   (#let limit-update ()
     (#unsafe
@@ -29,28 +29,28 @@
         (#ptr-write (#ptr-offset memory 22usize) reduced-soft-limit)
         (#ptr-write (#ptr-offset memory 23usize) initial-hard-limit)
         ())))
-  (#let set-limit-result i64
+  (#let set-limit-result #i64
     (#unsafe (#call linux-setrlimit (: resource 7usize : limits (#ptr-offset memory 22usize)))))
-  (#let current-limit-result i64
+  (#let current-limit-result #i64
     (#unsafe (#call linux-getrlimit (: resource 7usize : limits (#ptr-offset memory 24usize)))))
-  (#let current-soft-limit i64
+  (#let current-soft-limit #i64
     (#unsafe (#ptr-read (#ptr-offset memory 24usize))))
-  (#let current-hard-limit i64
+  (#let current-hard-limit #i64
     (#unsafe (#ptr-read (#ptr-offset memory 25usize))))
-  (#let restore-limit-result i64
+  (#let restore-limit-result #i64
     (#unsafe (#call linux-setrlimit (: resource 7usize : limits (#ptr-offset memory 20usize)))))
-  (#let queried-limit-result i64
-    (#unsafe (#call linux-prlimit64 (: pid 0i64 : resource 7usize : new-limits (#ptr-null (#ptr-mut i64)) : old-limits (#ptr-offset memory 26usize)))))
-  (#let restored-soft-limit i64
+  (#let queried-limit-result #i64
+    (#unsafe (#call linux-prlimit64 (: pid 0i64 : resource 7usize : new-limits (#ptr-null (#ptr-mut #i64)) : old-limits (#ptr-offset memory 26usize)))))
+  (#let restored-soft-limit #i64
     (#unsafe (#ptr-read (#ptr-offset memory 26usize))))
-  (#let restored-hard-limit i64
+  (#let restored-hard-limit #i64
     (#unsafe (#ptr-read (#ptr-offset memory 27usize))))
-  (#let previous-mask i64 (#call linux-umask (: mask 18usize)))
-  (#let restore-mask i64
-    (#call linux-umask (: mask (#as previous-mask usize))))
-  (#let unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
-  (#let resources-ok bool
+  (#let previous-mask #i64 (#call linux-umask (: mask 18usize)))
+  (#let restore-mask #i64
+    (#call linux-umask (: mask (#as previous-mask #usize))))
+  (#let unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let resources-ok #bool
     (#bool.&& (#i64.== usage-result 0i64)
       (#bool.&& (#i64.>= user-seconds 0i64)
         (#bool.&& (#i64.>= user-microseconds 0i64)

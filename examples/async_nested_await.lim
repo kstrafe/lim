@@ -1,30 +1,30 @@
 ; An await can produce the task consumed by another await, even inside an
 ; arithmetic operand. Both tasks suspend once before returning their value.
-(#enum OuterTask ((Waiting u64) (Resuming u64)))
+(#enum OuterTask ((Waiting #u64) (Resuming #u64)))
 (#linear OuterTask)
-(#enum OuterPoll ((OuterPending OuterTask) (OuterReady u64)))
-(#fn outer-poll ((task OuterTask) (waker (#ref u64))) OuterPoll
+(#enum OuterPoll ((OuterPending OuterTask) (OuterReady #u64)))
+(#fn outer-poll ((task OuterTask) (waker (#ref #u64))) OuterPoll
   (#return (#match task
     (#case (Waiting value) (OuterPending (Resuming value)))
     (#case (Resuming value) (OuterReady value)))))
 
 (#enum InnerTask (MakeOuter ResumeOuter))
 (#enum InnerPoll ((InnerPending InnerTask) (InnerReady OuterTask)))
-(#fn inner-poll ((task InnerTask) (waker (#ref u64))) InnerPoll
+(#fn inner-poll ((task InnerTask) (waker (#ref #u64))) InnerPoll
   (#return (#match task
     (#case MakeOuter (InnerPending ResumeOuter))
     (#case ResumeOuter (InnerReady (Waiting 42u64))))))
 
-(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64 : function
-  (#fn work () u64
-    (#let result u64
+(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64 : function
+  (#fn work () #u64
+    (#let result #u64
       (#u64.+.wrap 0u64
-        (#await u64 OuterTask OuterPending OuterReady outer-poll
+        (#await #u64 OuterTask OuterPending OuterReady outer-poll
           (#await OuterTask InnerTask InnerPending InnerReady inner-poll MakeOuter))))
     (#return result))))
 
-(#fn main () u64
-  (#let waker u64 0u64)
+(#fn main () #u64
+  (#let waker #u64 0u64)
   (#let first Poll
     (#call poll (: task (#call work (:)) : waker (#borrow waker))))
   (#let-else (Pending inner-pending) Poll first (#unreachable))
@@ -33,7 +33,7 @@
   (#let-else (Pending outer-pending) Poll second (#unreachable))
   (#let third Poll
     (#call poll (: task outer-pending : waker (#borrow waker))))
-  (#let result u64
+  (#let result #u64
     (#match third
       (#case (Ready value) value)
       (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable)))))

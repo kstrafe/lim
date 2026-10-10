@@ -134,13 +134,13 @@ fn declared_lim_function_signatures(
 #[cfg(test)]
 #[test]
 fn capability_signature_scan_does_not_parse_function_bodies() {
-    let source = "(#fn answer ((value u64)) u64 (#not-a-builtin value))";
+    let source = "(#fn answer ((value #u64)) #u64 (#not-a-builtin value))";
     let signatures = declared_lim_function_signatures(&crate::parse(source).unwrap()).unwrap();
     assert_eq!(signatures["answer"], "[U64]->U64");
     // Skipping bodies here must not skip ordinary compilation validation.
     assert!(crate::parse_program(source).is_err());
     assert!(declared_lim_function_signatures(
-        &crate::parse("(#extern-fn #abi-c foreign () u64 (#return 42u64))").unwrap()
+        &crate::parse("(#extern-fn #abi-c foreign () #u64 (#return 42u64))").unwrap()
     )
     .is_err());
 }
@@ -688,11 +688,9 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
                     capability,
                 ));
             };
-            if !context
-                .capabilities
-                .get(capability)
-                .is_some_and(|types| types.contains_key(type_name))
-            {
+            if !context.capabilities.get(capability).is_some_and(|types| {
+                types.contains_key(type_name.strip_prefix('#').unwrap_or(type_name))
+            }) {
                 return Err(format!(
                     "{} parameter '{}' requires capability '{}' for type '{}'; declare (#capability {} {})",
                     invocation_description(
@@ -1783,7 +1781,7 @@ mod tests {
     #[test]
     fn ordinary_forms_preserve_nested_spans_without_expansion() {
         let forms = crate::parse(
-            "(#fn main () u64\n  (#let value u64 (#u64.+.wrap 1u64 2u64))\n  (#return value))",
+            "(#fn main () #u64\n  (#let value #u64 (#u64.+.wrap 1u64 2u64))\n  (#return value))",
         )
         .unwrap();
         let expected = format!("{forms:?}");
@@ -1919,7 +1917,7 @@ mod tests {
     fn segmented_hash_preserves_generated_source_digest_format() {
         for (key, source) in [
             ("", ""),
-            ("key", "(#fn main () u64 (#return 42u64))"),
+            ("key", "(#fn main () #u64 (#return 42u64))"),
             ("κλειδί\0key", "λ\0source"),
         ] {
             let mut joined = key.as_bytes().to_vec();
@@ -2010,12 +2008,12 @@ mod tests {
     fn generated_source_formatting_preserves_syntax_and_cache_hits() {
         let directory =
             std::env::temp_dir().join(format!("lim-generated-format-{}", std::process::id()));
-        let raw = "\n         (#fn start ((value u64)) u64\n(#return value))\n               (#fn other () (#array char 3) (#return \"()\\n\"))";
+        let raw = "\n         (#fn start ((value #u64)) #u64\n(#return value))\n               (#fn other () (#array #char 3) (#return \"()\\n\"))";
         let formatted =
             cached_generated_source(&directory, "formatting", || Ok(raw.into())).unwrap();
         assert_eq!(
             formatted,
-            "(#fn start ((value u64)) u64\n  (#return value))\n\n(#fn other () (#array char 3)\n  (#return \"()\\n\"))\n"
+            "(#fn start ((value #u64)) #u64\n  (#return value))\n\n(#fn other () (#array #char 3)\n  (#return \"()\\n\"))\n"
         );
         let syntax = |source: &str| {
             crate::parse(source)
@@ -2042,7 +2040,7 @@ mod tests {
             std::env::temp_dir().join(format!("lim-inspectable-cache-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         let first =
-            cached_generated_source(&directory, "key-a", || Ok("(#type Cached u64)".into()))
+            cached_generated_source(&directory, "key-a", || Ok("(#type Cached #u64)".into()))
                 .unwrap();
         let source_path = fs::read_dir(generated_source_directory(&directory))
             .unwrap()
@@ -2054,13 +2052,13 @@ mod tests {
         let mut regenerated = false;
         let second = cached_generated_source(&directory, "key-a", || {
             regenerated = true;
-            Ok("(#type Cached u64)".into())
+            Ok("(#type Cached #u64)".into())
         })
         .unwrap();
         assert!(regenerated, "edited but valid source must not be trusted");
         assert_eq!(fs::read_to_string(source_path).unwrap(), second);
         let different =
-            cached_generated_source(&directory, "key-b", || Ok("(#type Other u64)".into()))
+            cached_generated_source(&directory, "key-b", || Ok("(#type Other #u64)".into()))
                 .unwrap();
         assert_eq!(first, second);
         assert_ne!(first, different);
@@ -2181,9 +2179,9 @@ mod tests {
                 let directory = directory.clone();
                 std::thread::spawn(move || {
                     let (key, source) = if index % 2 == 0 {
-                        ("shared-key", "(#type Shared u64)")
+                        ("shared-key", "(#type Shared #u64)")
                     } else {
-                        ("other-key", "(#type Other u64)")
+                        ("other-key", "(#type Other #u64)")
                     };
                     cached_generated_source(&directory, key, || Ok(source.into())).unwrap()
                 })
@@ -2193,9 +2191,9 @@ mod tests {
             assert_eq!(
                 worker.join().unwrap(),
                 if index % 2 == 0 {
-                    "(#type Shared u64)\n"
+                    "(#type Shared #u64)\n"
                 } else {
-                    "(#type Other u64)\n"
+                    "(#type Other #u64)\n"
                 }
             );
         }
@@ -2204,14 +2202,14 @@ mod tests {
                 Err("concurrent cache entry was not published coherently".into())
             })
             .unwrap(),
-            "(#type Shared u64)\n"
+            "(#type Shared #u64)\n"
         );
         assert_eq!(
             cached_generated_source(&directory, "other-key", || {
                 Err("concurrent cache entry was not published coherently".into())
             })
             .unwrap(),
-            "(#type Other u64)\n"
+            "(#type Other #u64)\n"
         );
         assert!(fs::read_dir(&directory)
             .unwrap()
@@ -2233,8 +2231,8 @@ mod tests {
             CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).unwrap();
-        let source = "(#gn-fn emit (name temporary) `((#fn ,name (: task u64) u64
-              (#let ,temporary u64 task) (#return ,temporary))))
+        let source = "(#gn-fn emit (name temporary) `((#fn ,name (: task #u64) #u64
+              (#let ,temporary #u64 task) (#return ,temporary))))
           (#gn child (name temporary) (#gn-call emit name temporary))
           (#gn-fn forward (name temporary) `((@child ,name ,temporary)))
           (#gn parent (name) (#gn-call forward name (#gn-gensym \"task\")))
@@ -2309,7 +2307,7 @@ mod tests {
             CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
         fs::create_dir(&directory).unwrap();
-        let source = "(#gn emit () `((#type ,(#gn-gensym \"task\") u64))) (@emit)";
+        let source = "(#gn emit () `((#type ,(#gn-gensym \"task\") #u64))) (@emit)";
         let expand = || {
             expand_with_generated_cached_and_hits(
                 crate::parse(source).unwrap(),
@@ -2359,7 +2357,7 @@ mod tests {
     #[test]
     fn gensym_evaluations_and_helper_calls_share_one_invocation_counter() {
         let source = "(#gn-fn fresh () (#gn-gensym \"task\"))
-          (#gn emit () `((#type ,(#gn-call fresh) u64) (#type ,(#gn-call fresh) u64)))
+          (#gn emit () `((#type ,(#gn-call fresh) #u64) (#type ,(#gn-call fresh) #u64)))
           (@emit)";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
@@ -2413,7 +2411,7 @@ mod tests {
     fn generated_syntax_cache_hits_and_invalidates_for_generator_dependencies() {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-cache-{}", std::process::id()));
-        let source = "(#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (#gn-fn make-alias (name) `,(#gn-call make-type name)) (#gn-fn unused (name) (#gn-list name)) (#gn alias (name) (#gn-call make-alias name)) (#gn forward (call) (#gn-list call)) (#gn spare (name) (#gn-list name)) (@forward (@alias CachedType)) (@alias CachedType)";
+        let source = "(#gn-fn make-type (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (#gn-fn make-alias (name) `,(#gn-call make-type name)) (#gn-fn unused (name) (#gn-list name)) (#gn alias (name) (#gn-call make-alias name)) (#gn forward (call) (#gn-list call)) (#gn spare (name) (#gn-list name)) (@forward (@alias CachedType)) (@alias CachedType)";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) =
@@ -2478,7 +2476,7 @@ mod tests {
         );
         assert_eq!(syntax(&unrelated), syntax(&second));
 
-        let changed_dependency = source.replace("name u64", "name u32");
+        let changed_dependency = source.replace("name #u64", "name #u32");
         let ((changed, _), changed_hits) = expand_with_generated_cached_and_hits(
             parse_forms(&changed_dependency),
             Some(&directory),
@@ -2505,8 +2503,8 @@ mod tests {
             }
         };
         let source = "(#syntax-collection Errors)
-          (#syntax-contribute Errors second (Second u32))
-          (#syntax-contribute Errors first (First u64))
+          (#syntax-contribute Errors second (Second #u32))
+          (#syntax-contribute Errors first (First #u64))
           (#gn errors (entries name) `((#enum ,name ,entries)))
           (@errors (#syntax-distribute Errors) Error)";
         let expand = |source: &str| {
@@ -2521,7 +2519,7 @@ mod tests {
         let ((warm, _), hits) = expand(source);
         assert_eq!(hits, 1);
         assert_eq!(first, warm);
-        let changed = source.replace("Second u32", "Second u16");
+        let changed = source.replace("Second #u32", "Second #u16");
         let ((changed_forms, _), hits) = expand(&changed);
         assert_eq!(hits, 0);
         assert_ne!(first, changed_forms);
@@ -2533,10 +2531,10 @@ mod tests {
     #[test]
     fn distributed_and_literal_list_arguments_deduplicate() {
         let source = "(#syntax-collection Entries)
-          (#syntax-contribute Entries first u64)
+          (#syntax-contribute Entries first #u64)
           (#gn alias (entries) `((#type Alias ,(#gn-first entries))))
           (@alias (#syntax-distribute Entries))
-          (@alias (u64))";
+          (@alias (#u64))";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
         assert_eq!(forms.len(), 1);
@@ -2546,7 +2544,7 @@ mod tests {
     #[test]
     fn bare_collection_name_remains_literal_syntax() {
         let source = "(#syntax-collection Entries)
-          (#syntax-contribute Entries first u64)
+          (#syntax-contribute Entries first #u64)
           (#gn alias (entry) `((#type Alias ,entry)))
           (@alias Entries)";
         let ((forms, _), _) =
@@ -2556,7 +2554,7 @@ mod tests {
 
     #[test]
     fn old_generator_keyword_is_not_accepted() {
-        let source = "(#generator alias (name) `((#type ,name u64))) (@alias Old)";
+        let source = "(#generator alias (name) `((#type ,name #u64))) (@alias Old)";
         assert!(crate::parse_program(source).is_err());
     }
 
@@ -2568,7 +2566,7 @@ mod tests {
         ));
         let source = |operation: &str| {
             format!(
-                "(#fn less ((a (#ref u64)) (b (#ref u64))) bool (#return true)) (#fn less-v2 ((a (#ref u64)) (b (#ref u64))) bool (#return true)) (#capability sortable u64 (({operation} ((#ref u64) (#ref u64)) bool))) (#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit u64)"
+                "(#fn less ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)) (#fn less-v2 ((a (#ref #u64)) (b (#ref #u64))) #bool (#return true)) (#capability sortable #u64 (({operation} ((#ref #u64) (#ref #u64)) #bool))) (#gn emit ((element sortable)) (#gn-list (#gn-list (#gn-symbol \"#type\") Generated element))) (@emit #u64)"
             )
         };
         let expand = |text: &str| {
@@ -2596,7 +2594,7 @@ mod tests {
         let directory =
             std::env::temp_dir().join(format!("lim-generator-context-{}", std::process::id()));
         let source =
-            "(#gn make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name u64))) (@make ContextType)";
+            "(#gn make (name) (#gn-list (#gn-list (#gn-symbol \"#type\") name #u64))) (@make ContextType)";
         let parse_forms = |source: &str| crate::parse(source).unwrap();
 
         let ((first, _), first_hits) = expand_with_generated_cached_and_hits(

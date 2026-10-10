@@ -1,36 +1,36 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let event-memory (#ptr-mut u8)
-    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
-  (#let epoll-fd i64
+(#fn main () #u64
+  (#let event-memory (#ptr-mut #u8)
+    (#unsafe (#call linux-mmap (: address (#ptr-null (#ptr-mut #u8)) : length 4096usize : protection 3u32 : flags 34u32 : fd -1i64 : offset 0i64))))
+  (#let epoll-fd #i64
     (#call linux-epoll-create1 (: flags 0i32)))
-  (#let event-fd i64
+  (#let event-fd #i64
     (#call linux-eventfd2 (: initial-value 0u32 : flags 0i32)))
-  (#let null-pointer (#ptr-mut u8) (#ptr-null (#ptr-mut u8)))
-  (#let zero-timeout (#ptr-mut u8)
+  (#let null-pointer (#ptr-mut #u8) (#ptr-null (#ptr-mut #u8)))
+  (#let zero-timeout (#ptr-mut #u8)
     (#unsafe (#ptr-offset event-memory 32usize)))
-  (#let poll-fds (#ptr-mut u8)
+  (#let poll-fds (#ptr-mut #u8)
     (#unsafe (#ptr-offset event-memory 64usize)))
-  (#let event-fd-bits u64 (#as event-fd u64))
+  (#let event-fd-bits #u64 (#as event-fd #u64))
   (#let poll-initialized ()
     (#unsafe
       (#block
-        (#ptr-write poll-fds (#as event-fd-bits u8))
+        (#ptr-write poll-fds (#as event-fd-bits #u8))
         (#ptr-write (#ptr-offset poll-fds 1usize)
-          (#as (#u64.>> event-fd-bits 8u64) u8))
+          (#as (#u64.>> event-fd-bits 8u64) #u8))
         (#ptr-write (#ptr-offset poll-fds 2usize)
-          (#as (#u64.>> event-fd-bits 16u64) u8))
+          (#as (#u64.>> event-fd-bits 16u64) #u8))
         (#ptr-write (#ptr-offset poll-fds 3usize)
-          (#as (#u64.>> event-fd-bits 24u64) u8))
+          (#as (#u64.>> event-fd-bits 24u64) #u8))
         (#ptr-write (#ptr-offset poll-fds 4usize) 1u8)
         (#ptr-write (#ptr-offset poll-fds 5usize) 0u8)
         (#ptr-write (#ptr-offset poll-fds 6usize) 0u8)
         (#ptr-write (#ptr-offset poll-fds 7usize) 0u8)
         ())))
-  (#let poll-before i64
+  (#let poll-before #i64
     (#unsafe (#call linux-poll (: pollfds poll-fds : count 1usize : timeout-ms 0i32))))
-  (#let ppoll-before i64
+  (#let ppoll-before #i64
     (#unsafe (#call linux-ppoll (: pollfds poll-fds : count 1usize : timeout zero-timeout : signal-mask null-pointer : signal-set-size 8usize))))
   (#let event-initialized ()
     (#unsafe
@@ -45,7 +45,7 @@
         (#ptr-write (#ptr-offset event-memory 10usize) 34u8)
         (#ptr-write (#ptr-offset event-memory 11usize) 17u8)
         ())))
-  (#let registered i64
+  (#let registered #i64
     (#unsafe (#call linux-epoll-ctl (: epoll-fd epoll-fd : operation 1i32 : fd event-fd : event event-memory))))
   (#let counter-value-set ()
     (#unsafe
@@ -59,57 +59,57 @@
         (#ptr-write (#ptr-offset event-memory 6usize) 0u8)
         (#ptr-write (#ptr-offset event-memory 7usize) 0u8)
         ())))
-  (#let counter-written i64
+  (#let counter-written #i64
     (#unsafe (#call linux-write (: fd event-fd : source event-memory : count 8usize))))
-  (#let poll-ready i64
+  (#let poll-ready #i64
     (#unsafe (#call linux-poll (: pollfds poll-fds : count 1usize : timeout-ms 0i32))))
-  (#let poll-mask u8
+  (#let poll-mask #u8
     (#unsafe (#ptr-read (#ptr-offset poll-fds 6usize))))
-  (#let ppoll-ready i64
+  (#let ppoll-ready #i64
     (#unsafe (#call linux-ppoll (: pollfds poll-fds : count 1usize : timeout zero-timeout : signal-mask null-pointer : signal-set-size 8usize))))
-  (#let ppoll-mask u8
+  (#let ppoll-mask #u8
     (#unsafe (#ptr-read (#ptr-offset poll-fds 6usize))))
-  (#let ready-count i64
+  (#let ready-count #i64
     (#unsafe (#call linux-epoll-wait (: epoll-fd epoll-fd : events event-memory : max-events 1i32 : timeout-ms 0i32))))
-  (#let pwait-ready i64
+  (#let pwait-ready #i64
     (#unsafe (#call linux-epoll-pwait (: epoll-fd epoll-fd : events event-memory : max-events 1i32 : timeout-ms 0i32 : signal-mask null-pointer : signal-set-size 8usize))))
-  (#let pwait2-ready i64
+  (#let pwait2-ready #i64
     (#unsafe (#call linux-epoll-pwait2 (: epoll-fd epoll-fd : events event-memory : max-events 1i32 : timeout zero-timeout : signal-mask null-pointer : signal-set-size 8usize))))
-  (#let readiness-mask u8 (#unsafe (#ptr-read event-memory)))
-  (#let data-byte-0 u8 (#unsafe (#ptr-read (#ptr-offset event-memory 4usize))))
-  (#let data-byte-7 u8 (#unsafe (#ptr-read (#ptr-offset event-memory 11usize))))
-  (#let counter-read i64
+  (#let readiness-mask #u8 (#unsafe (#ptr-read event-memory)))
+  (#let data-byte-0 #u8 (#unsafe (#ptr-read (#ptr-offset event-memory 4usize))))
+  (#let data-byte-7 #u8 (#unsafe (#ptr-read (#ptr-offset event-memory 11usize))))
+  (#let counter-read #i64
     (#unsafe (#call linux-read (: fd event-fd : destination event-memory : count 8usize))))
-  (#let counter-byte-0 u8 (#unsafe (#ptr-read event-memory)))
-  (#let counter-byte-7 u8
+  (#let counter-byte-0 #u8 (#unsafe (#ptr-read event-memory)))
+  (#let counter-byte-7 #u8
     (#unsafe (#ptr-read (#ptr-offset event-memory 7usize))))
-  (#let no-longer-ready i64
+  (#let no-longer-ready #i64
     (#unsafe (#call linux-epoll-wait (: epoll-fd epoll-fd : events event-memory : max-events 1i32 : timeout-ms 0i32))))
-  (#let poll-after i64
+  (#let poll-after #i64
     (#unsafe (#call linux-poll (: pollfds poll-fds : count 1usize : timeout-ms 0i32))))
-  (#let ppoll-after i64
+  (#let ppoll-after #i64
     (#unsafe (#call linux-ppoll (: pollfds poll-fds : count 1usize : timeout zero-timeout : signal-mask null-pointer : signal-set-size 8usize))))
-  (#let pwait-after i64
+  (#let pwait-after #i64
     (#unsafe (#call linux-epoll-pwait (: epoll-fd epoll-fd : events event-memory : max-events 1i32 : timeout-ms 0i32 : signal-mask null-pointer : signal-set-size 8usize))))
-  (#let pwait2-after i64
+  (#let pwait2-after #i64
     (#unsafe (#call linux-epoll-pwait2 (: epoll-fd epoll-fd : events event-memory : max-events 1i32 : timeout zero-timeout : signal-mask null-pointer : signal-set-size 8usize))))
-  (#let invalid-create i64
+  (#let invalid-create #i64
     (#call linux-epoll-create1 (: flags 1i32)))
-  (#let invalid-eventfd i64
+  (#let invalid-eventfd #i64
     (#call linux-eventfd2 (: initial-value 0u32 : flags 2i32)))
-  (#let invalid-ctl i64
+  (#let invalid-ctl #i64
     (#unsafe (#call linux-epoll-ctl (: epoll-fd -1i64 : operation 1i32 : fd event-fd : event event-memory))))
-  (#let invalid-wait i64
+  (#let invalid-wait #i64
     (#unsafe (#call linux-epoll-wait (: epoll-fd epoll-fd : events event-memory : max-events 0i32 : timeout-ms 0i32))))
-  (#let invalid-pwait i64
+  (#let invalid-pwait #i64
     (#unsafe (#call linux-epoll-pwait (: epoll-fd epoll-fd : events event-memory : max-events 0i32 : timeout-ms 0i32 : signal-mask null-pointer : signal-set-size 8usize))))
-  (#let invalid-pwait2 i64
+  (#let invalid-pwait2 #i64
     (#unsafe (#call linux-epoll-pwait2 (: epoll-fd epoll-fd : events event-memory : max-events 0i32 : timeout zero-timeout : signal-mask null-pointer : signal-set-size 8usize))))
-  (#let event-closed i64 (#call linux-close (: fd event-fd)))
-  (#let epoll-closed i64 (#call linux-close (: fd epoll-fd)))
-  (#let event-unmapped i64
+  (#let event-closed #i64 (#call linux-close (: fd event-fd)))
+  (#let epoll-closed #i64 (#call linux-close (: fd epoll-fd)))
+  (#let event-unmapped #i64
     (#unsafe (#call linux-munmap (: address event-memory : length 4096usize))))
-  (#let epoll-ok bool
+  (#let epoll-ok #bool
     (#bool.&& (#i64.>= epoll-fd 0i64)
       (#bool.&& (#i64.>= event-fd 0i64)
         (#bool.&& (#i64.== registered 0i64)
@@ -125,7 +125,7 @@
                           (#bool.&& (#i64.== event-closed 0i64)
                             (#bool.&& (#i64.== epoll-closed 0i64)
                               (#i64.== event-unmapped 0i64))))))))))))))))
-  (#let wait-variants-ok bool
+  (#let wait-variants-ok #bool
     (#bool.&& (#i64.== poll-before 0i64)
       (#bool.&& (#i64.== ppoll-before 0i64)
         (#bool.&& (#i64.== poll-ready 1i64)

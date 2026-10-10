@@ -29,10 +29,10 @@ fn seeded_malformed_and_truncated_sources_fail_deterministically_in_bounded_proc
     let mut seed = 0x5eed_u64;
 
     let mut cases = vec![
-        "(#fn main () u64".to_owned(),
-        "(#fn main () u64 (#return \"unfinished))".to_owned(),
-        "(#fn main () u64 (#return (#u64.+.wrap 1u64 2u64))".to_owned(),
-        "(@unknown-generator u64)".to_owned(),
+        "(#fn main () #u64".to_owned(),
+        "(#fn main () #u64 (#return \"unfinished))".to_owned(),
+        "(#fn main () #u64 (#return (#u64.+.wrap 1u64 2u64))".to_owned(),
+        "(@unknown-generator #u64)".to_owned(),
         "(#gn abort (message) (#gn-error message)) (@abort \"deterministic expansion failure\")"
             .to_owned(),
     ];

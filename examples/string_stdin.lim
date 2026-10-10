@@ -1,8 +1,8 @@
 (#std)
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut line String (#call String-new (:)))
-  (#let-mut finished bool false)
+  (#let-mut finished #bool false)
   (#while (#bool.== finished false)
     (#match (#call std-read-line (: string (#borrow-mut line)))
       (#case (StdLineRead count)

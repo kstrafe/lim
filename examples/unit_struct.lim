@@ -3,9 +3,9 @@
 (#fn make () Marker
   (#return (#struct-literal Marker ())))
 
-(#fn consume ((marker Marker)) u64
+(#fn consume ((marker Marker)) #u64
   (#return 41))
 
-(#fn main () u64
+(#fn main () #u64
   (#let marker Marker (#call make (:)))
   (#return (#call consume (: marker marker))))

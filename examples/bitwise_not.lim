@@ -2,7 +2,7 @@
   #fn
   main
   ()
-  u32
+  #u32
   (
     #return
     (#u32.&

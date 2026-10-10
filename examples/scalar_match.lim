@@ -2,9 +2,9 @@
   #fn
   classify
   (
-    (value u64)
+    (value #u64)
   )
-  u64
+  #u64
   (
     #return
     (
@@ -21,7 +21,7 @@
   #fn
   main
   ()
-  u64
+  #u64
   (
     #return
     (#call classify (: value 1))

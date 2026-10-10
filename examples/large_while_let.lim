@@ -1,11 +1,11 @@
 (#enum Wrapped
-  ((Values (#array u64 7)) Empty))
+  ((Values (#array #u64 7)) Empty))
 
-(#fn main () u64
+(#fn main () #u64
   (#let-mut value Wrapped
-    (Values (#array (#array u64 7)
+    (Values (#array (#array #u64 7)
       1u64 2u64 3u64 4u64 5u64 6u64 42u64)))
-  (#let-mut total u64 0u64)
+  (#let-mut total #u64 0u64)
   (#while-let (Values payload) value
     (#set total (#index payload 6u64))
     (#set value Empty))

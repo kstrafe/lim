@@ -311,11 +311,11 @@ mod checked_program_tests {
     #[test]
     fn implicit_clone_hooks_contribute_to_native_call_depths() {
         let program = crate::parse_program(
-            "(#struct Value ((number u64)))
+            "(#struct Value ((number #u64)))
           (#fn helper ((value Value)) Value (#return value))
           (#fn Value-clone ((value Value)) Value
             (#return (#call helper (: value value))))
-          (#fn main () u64
+          (#fn main () #u64
             (#let value Value (#struct-literal Value (: number 42u64)))
             (#let copied Value (#clone value)) (#return (#get copied number)))",
         )
@@ -329,13 +329,13 @@ mod checked_program_tests {
 
     #[test]
     fn owned_nested_projection_borrows_retain_the_original_binding_and_loan_path() {
-        let source = "(#struct Inner ((value u64)))
+        let source = "(#struct Inner ((value #u64)))
           (#struct Owner ((inner Inner))) (#linear Owner)
-          (#fn main () u64
+          (#fn main () #u64
             (#let owner Owner (#struct-literal Owner
               (: inner (#struct-literal Inner (: value 42u64)))))
-            (#let view (#pin-ref u64) (#pin-borrow (#get (#get owner inner) value)))
-            (#let result u64 (#deref view))
+            (#let view (#pin-ref #u64) (#pin-borrow (#get (#get owner inner) value)))
+            (#let result #u64 (#deref view))
             (#drop view) (#forget owner) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let checked = CheckedProgram::validate(&program).unwrap();
@@ -394,9 +394,9 @@ mod checked_program_tests {
     #[test]
     fn staged_typed_liveness_is_available_before_linear_enforcement() {
         let program = crate::parse_program(
-            "(#struct Token ((value u64)))
+            "(#struct Token ((value #u64)))
              (#linear Token)
-             (#fn resume ((live u64) (unused Token)) u64 (#return live))",
+             (#fn resume ((live #u64) (unused Token)) #u64 (#return live))",
         )
         .unwrap();
 
@@ -410,8 +410,8 @@ mod checked_program_tests {
     #[test]
     fn async_capture_requirements_include_cleanup_but_not_dead_parameter_loans() {
         let program = crate::parse_program(
-            "(#struct Token ((value u64))) (#linear Token)
-             (#fn poll-resume-0 ((live u64) (unused Token) (dead (#ref u64))) u64
+            "(#struct Token ((value #u64))) (#linear Token)
+             (#fn poll-resume-0 ((live #u64) (unused Token) (dead (#ref #u64))) #u64
                (#return live))
              (#fn unrelated ((unused Token)) () (#return ()))",
         )
@@ -429,7 +429,7 @@ mod checked_program_tests {
     #[test]
     fn generic_programmatic_declarations_are_rejected_at_the_checked_boundary() {
         let mut function_program =
-            crate::parse_program("(#fn identity ((value u64)) u64 (#return value))").unwrap();
+            crate::parse_program("(#fn identity ((value #u64)) #u64 (#return value))").unwrap();
         let Item::Function(function) = &mut function_program.items[0] else {
             unreachable!()
         };
@@ -444,7 +444,7 @@ mod checked_program_tests {
             "identity"
         );
 
-        let mut type_program = crate::parse_program("(#struct Box ((value u64)))").unwrap();
+        let mut type_program = crate::parse_program("(#struct Box ((value #u64)))").unwrap();
         let Item::Struct {
             name,
             type_parameters,
@@ -468,7 +468,7 @@ mod checked_program_tests {
 
     #[test]
     fn direct_borrow_origin_span_points_at_the_operator() {
-        let source = "(#fn main () u64 (#let owner u64 1u64) (#let view (#ref u64) (#borrow owner)) (#return 0u64))";
+        let source = "(#fn main () #u64 (#let owner #u64 1u64) (#let view (#ref #u64) (#borrow owner)) (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
         let statement = program
             .statement_expressions
@@ -490,16 +490,16 @@ mod checked_program_tests {
     #[test]
     fn semantic_locations_do_not_depend_on_rendered_wording() {
         let cases = [
-            ("(#fn main () u64 (#let value u64 (#u64.+.wrap 1u64 false)) (#return value))", "false"),
-            ("(#fn main () u64 (#let value u64 1u64) (#let flag bool false) (#return (#u64.+.wrap 2u64 flag)))", "flag"),
-            ("(#fn add ((first u64) (second u64)) u64 (#return (#u64.+.wrap first second))) (#fn main () u64 (#return (#call add (: second false : first 1u64))))", "false"),
-            ("(#struct Inner ((value u64))) (#struct Outer ((first Inner) (second Inner))) (#fn main () Outer (#return (#struct-literal Outer ((first (#struct-literal Inner ((value 1u64)))) (second (#struct-literal Inner ((value false))))))))", "false"),
-            ("(#fn main () u64 (#let-mut value u64 0u64) (#let shared (#ref u64) (#borrow value)) (#let mutable (#ref-mut u64) (#borrow-mut shared)) (#return 0u64))", "shared"),
-            ("(#fn main () u64 (#return (#get (#tuple (#tuple u64 u64) 1u64 false) 0)))", "false"),
-            ("(#fn main () u64 (#return (#u64.+.wrap (#if false 1u64 2u64) false)))", "false"),
-            ("(#fn choose ((flag bool) (value u64)) u64 (#return value)) (#fn main () u64 (#return (#call choose (: value false : flag false))))", "false"),
-            ("(#struct Point ((value u64))) (#fn main () u64 (#let-mut owner Point (#struct-literal Point ((value 1u64)))) (#let shared (#ref Point) (#borrow owner)) (#let exclusive (#ref-mut u64) (#borrow-mut (#get shared value))) (#return 0u64))", "(#get shared value)"),
-            ("(#fn main () u64 (#return (#block (#let value u64 1u64) (#u64.+.wrap value 2u64) (#let flag bool false) (#u64.+.wrap flag 2u64))))", "flag"),
+            ("(#fn main () #u64 (#let value #u64 (#u64.+.wrap 1u64 false)) (#return value))", "false"),
+            ("(#fn main () #u64 (#let value #u64 1u64) (#let flag #bool false) (#return (#u64.+.wrap 2u64 flag)))", "flag"),
+            ("(#fn add ((first #u64) (second #u64)) #u64 (#return (#u64.+.wrap first second))) (#fn main () #u64 (#return (#call add (: second false : first 1u64))))", "false"),
+            ("(#struct Inner ((value #u64))) (#struct Outer ((first Inner) (second Inner))) (#fn main () Outer (#return (#struct-literal Outer ((first (#struct-literal Inner ((value 1u64)))) (second (#struct-literal Inner ((value false))))))))", "false"),
+            ("(#fn main () #u64 (#let-mut value #u64 0u64) (#let shared (#ref #u64) (#borrow value)) (#let mutable (#ref-mut #u64) (#borrow-mut shared)) (#return 0u64))", "shared"),
+            ("(#fn main () #u64 (#return (#get (#tuple (#tuple #u64 #u64) 1u64 false) 0)))", "false"),
+            ("(#fn main () #u64 (#return (#u64.+.wrap (#if false 1u64 2u64) false)))", "false"),
+            ("(#fn choose ((flag #bool) (value #u64)) #u64 (#return value)) (#fn main () #u64 (#return (#call choose (: value false : flag false))))", "false"),
+            ("(#struct Point ((value #u64))) (#fn main () #u64 (#let-mut owner Point (#struct-literal Point ((value 1u64)))) (#let shared (#ref Point) (#borrow owner)) (#let exclusive (#ref-mut #u64) (#borrow-mut (#get shared value))) (#return 0u64))", "(#get shared value)"),
+            ("(#fn main () #u64 (#return (#block (#let value #u64 1u64) (#u64.+.wrap value 2u64) (#let flag #bool false) (#u64.+.wrap flag 2u64))))", "flag"),
         ];
         for (source, offending) in cases {
             let program = crate::parse_program(source).unwrap();
@@ -538,8 +538,8 @@ mod checked_program_tests {
 
     #[test]
     fn typed_return_escape_reports_return_and_origin_spans() {
-        let source = "(#fn escape () (#ref u64)
-          (#let owner u64 1u64)
+        let source = "(#fn escape () (#ref #u64)
+          (#let owner #u64 1u64)
           (#return (#borrow owner)))";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
@@ -552,9 +552,9 @@ mod checked_program_tests {
 
     #[test]
     fn typed_match_return_uses_the_arm_local_loan_state() {
-        let source = "(#enum Holder ((Has (#ref u64))))
-          (#fn escape () (#ref u64)
-            (#let owner u64 1u64)
+        let source = "(#enum Holder ((Has (#ref #u64))))
+          (#fn escape () (#ref #u64)
+            (#let owner #u64 1u64)
             (#let holder Holder (Has (#borrow owner)))
             (#return (#match holder (#case (Has view) view))))";
         let program = crate::parse_program(source).unwrap();
@@ -568,8 +568,8 @@ mod checked_program_tests {
 
     #[test]
     fn typed_loop_return_uses_the_break_loan_state() {
-        let source = "(#fn escape () (#ref u64)
-          (#let owner u64 1u64)
+        let source = "(#fn escape () (#ref #u64)
+          (#let owner #u64 1u64)
           (#return (#loop (#break (#borrow owner)))))";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
@@ -582,10 +582,10 @@ mod checked_program_tests {
 
     #[test]
     fn typed_block_return_uses_the_final_expression_state() {
-        let source = "(#fn escape () (#ref u64)
-          (#let owner u64 1u64)
+        let source = "(#fn escape () (#ref #u64)
+          (#let owner #u64 1u64)
           (#return (#block
-            (#let alias (#ref u64) (#borrow owner))
+            (#let alias (#ref #u64) (#borrow owner))
             alias)))";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
@@ -598,10 +598,10 @@ mod checked_program_tests {
 
     #[test]
     fn typed_aggregate_return_uses_nested_match_loan_state() {
-        let source = "(#enum Holder ((Has (#ref u64))))
-          (#struct Wrapped ((view (#ref u64))))
+        let source = "(#enum Holder ((Has (#ref #u64))))
+          (#struct Wrapped ((view (#ref #u64))))
           (#fn escape () Wrapped
-            (#let owner u64 1u64)
+            (#let owner #u64 1u64)
             (#let holder Holder (Has (#borrow owner)))
             (#return (#struct-literal Wrapped
               ((view (#match holder (#case (Has view) view)))))))";
@@ -616,9 +616,9 @@ mod checked_program_tests {
 
     #[test]
     fn typed_repeated_array_return_uses_nested_match_loan_state() {
-        let source = "(#enum Holder ((Has (#ref u64))))
-          (#fn escape () (#array (#ref u64) 2)
-            (#let owner u64 1u64)
+        let source = "(#enum Holder ((Has (#ref #u64))))
+          (#fn escape () (#array (#ref #u64) 2)
+            (#let owner #u64 1u64)
             (#let holder Holder (Has (#borrow owner)))
             (#return (#array-repeat
               (#match holder (#case (Has view) view)))))";
@@ -633,10 +633,10 @@ mod checked_program_tests {
 
     #[test]
     fn typed_reference_call_return_uses_nested_match_loan_state() {
-        let source = "(#enum Holder ((Has (#ref u64))))
-          (#fn identity ((value (#ref u64))) (#ref u64) (#return value))
-          (#fn escape () (#ref u64)
-            (#let owner u64 1u64)
+        let source = "(#enum Holder ((Has (#ref #u64))))
+          (#fn identity ((value (#ref #u64))) (#ref #u64) (#return value))
+          (#fn escape () (#ref #u64)
+            (#let owner #u64 1u64)
             (#let holder Holder (Has (#borrow owner)))
             (#return (#call identity
               (: value (#match holder (#case (Has view) view))))))";
@@ -651,10 +651,10 @@ mod checked_program_tests {
 
     #[test]
     fn typed_projected_return_uses_nested_match_loan_state() {
-        let source = "(#struct RefBox ((view (#ref u64))))
+        let source = "(#struct RefBox ((view (#ref #u64))))
           (#enum Holder ((Has RefBox)))
-          (#fn escape () (#ref u64)
-            (#let owner u64 1u64)
+          (#fn escape () (#ref #u64)
+            (#let owner #u64 1u64)
             (#let holder Holder
               (Has (#struct-literal RefBox ((view (#borrow owner))))))
             (#return (#get
@@ -674,9 +674,9 @@ mod checked_program_tests {
 
     #[test]
     fn typed_nested_loop_return_uses_the_break_loan_state() {
-        let source = "(#struct RefBox ((view (#ref u64))))
+        let source = "(#struct RefBox ((view (#ref #u64))))
           (#fn escape () RefBox
-            (#let owner u64 1u64)
+            (#let owner #u64 1u64)
             (#return (#struct-literal RefBox
               ((view (#loop (#break (#borrow owner))))))))";
         let program = crate::parse_program(source).unwrap();
@@ -690,10 +690,10 @@ mod checked_program_tests {
 
     #[test]
     fn typed_slice_return_uses_the_match_bound_owner() {
-        let source = "(#enum Holder ((Has (#ref (#array u64 2)))))
-          (#fn escape () (#slice u64)
-            (#let owner (#array u64 2)
-              (#array-of (#array u64 2) 1u64 2u64))
+        let source = "(#enum Holder ((Has (#ref (#array #u64 2)))))
+          (#fn escape () (#slice #u64)
+            (#let owner (#array #u64 2)
+              (#array-of (#array #u64 2) 1u64 2u64))
             (#let holder Holder (Has (#borrow owner)))
             (#return (#match holder
               (#case (Has values) (#slice-of values)))))";
@@ -709,11 +709,11 @@ mod checked_program_tests {
 
     #[test]
     fn typed_array_literal_return_uses_the_match_bound_owner() {
-        let source = "(#enum Holder ((Has (#ref u64))))
-          (#fn escape () (#array (#ref u64) 1)
-            (#let owner u64 1u64)
+        let source = "(#enum Holder ((Has (#ref #u64))))
+          (#fn escape () (#array (#ref #u64) 1)
+            (#let owner #u64 1u64)
             (#let holder Holder (Has (#borrow owner)))
-            (#return (#array-of (#array (#ref u64) 1)
+            (#return (#array-of (#array (#ref #u64) 1)
               (#match holder (#case (Has view) view)))))";
         let program = crate::parse_program(source).unwrap();
         let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
@@ -727,8 +727,8 @@ mod checked_program_tests {
 
     #[test]
     fn typed_if_return_joins_parameter_and_local_origins() {
-        let source = "(#fn choose ((flag bool) (input (#ref u64))) (#ref u64)
-          (#let owner u64 1u64)
+        let source = "(#fn choose ((flag #bool) (input (#ref #u64))) (#ref #u64)
+          (#let owner #u64 1u64)
           (#return (#if flag input (#borrow owner))))";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
@@ -741,9 +741,9 @@ mod checked_program_tests {
 
     #[test]
     fn typed_return_escape_recognizes_reference_aliases() {
-        let source = "(#type WordRef (#ref u64))
+        let source = "(#type WordRef (#ref #u64))
           (#fn escape () WordRef
-            (#let owner u64 1u64)
+            (#let owner #u64 1u64)
             (#return (#borrow owner)))";
         let program = crate::parse_program(source).unwrap();
         let (_, _, span, labels) = check_types_with_span(&program).unwrap_err();
@@ -756,10 +756,10 @@ mod checked_program_tests {
 
     #[test]
     fn typed_raw_pointer_borrow_keeps_its_anchor_origin() {
-        let source = "(#fn escape () (#ref u64)
-          (#let owner u64 1u64)
-          (#let pointer (#ptr u64) (#unsafe (#addr-of owner)))
-          (#let anchor (#ref u64) (#borrow owner))
+        let source = "(#fn escape () (#ref #u64)
+          (#let owner #u64 1u64)
+          (#let pointer (#ptr #u64) (#unsafe (#addr-of owner)))
+          (#let anchor (#ref #u64) (#borrow owner))
           (#return (#unsafe (#ptr-borrow anchor pointer))))";
         let program = crate::parse_program(source).unwrap();
         let (message, _, span, labels) = check_types_with_span(&program).unwrap_err();
@@ -777,8 +777,8 @@ mod checked_program_tests {
     #[test]
     fn typed_generated_return_escape_retains_invocation_label() {
         let source = "(#gn make (name)
-            `((#fn ,name () (#ref u64)
-                (#let owner u64 1u64)
+            `((#fn ,name () (#ref #u64)
+                (#let owner #u64 1u64)
                 (#return (#borrow owner)))))
           (@make generated)";
         let program = crate::parse_program(source).unwrap();
@@ -794,7 +794,7 @@ mod checked_program_tests {
 
     #[test]
     fn normal_compilation_checks_once_and_unchecked_emission_still_validates() {
-        let source = "(#fn main () u64 (#return 42u64))";
+        let source = "(#fn main () #u64 (#return 42u64))";
         let directory = std::env::temp_dir().join(format!("lim-checked-{}", std::process::id()));
         SEMANTIC_PASSES.with(|passes| passes.set(0));
         crate::compile_source_to_assembly(
@@ -7459,7 +7459,7 @@ fn list_expression(
                 || (fieldless_enum && !is_integer(&target))
             {
                 return Err(
-                    "as requires numeric, char, or bool operands and a numeric or char target"
+                    "as requires numeric, #char, or #bool operands and a numeric or #char target"
                         .into(),
                 );
             }
@@ -7488,7 +7488,9 @@ fn list_expression(
             require_arity(operator, items, 3)?;
             let scalar = resolve_type(&parse_type(items.get(1))?, aliases)?;
             if !is_atomic_scalar(&scalar) {
-                return Err("atomic-init supports only i8/i16/i32/i64/u8/u16/u32/u64/usize".into());
+                return Err(
+                    "atomic-init supports only #i8/#i16/#i32/#i64/#u8/#u16/#u32/#u64/#usize".into(),
+                );
             }
             let actual = expression(
                 &items[2],
@@ -8194,7 +8196,7 @@ fn list_expression(
                 target,
             } = pointer
             else {
-                return Err("ptr-offset requires a raw pointer and usize element index".into());
+                return Err("ptr-offset requires a raw pointer and #usize element index".into());
             };
             let index_type = expression(
                 &items[2],
@@ -9357,7 +9359,7 @@ fn check_scalar_range_pattern(parts: &[Expr], scrutinee: &Type) -> Result<(), Se
     }
     Err(semantic_at!(
         ErrorSite::PatternRange(false),
-        "range patterns require an integer or char scrutinee"
+        "range patterns require an integer or #char scrutinee"
     ))
 }
 
@@ -10350,7 +10352,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
             ))
         }
     };
-    if qualifier == expected {
+    if qualifier == expected.strip_prefix('#').unwrap_or(expected) {
         Ok(())
     } else {
         Err(semantic_format!(
@@ -10546,8 +10548,8 @@ mod async_planning_tests {
 
     fn context(body: &str) -> (Program, crate::async_interfaces::Registry) {
         let source = format!(
-            "(@async-fn (: names (Frame Poll Pending Ready poll) : waker u64
-                : function (#fn start () u64 (#return 1u64)))) {body}"
+            "(@async-fn (: names (Frame Poll Pending Ready poll) : waker #u64
+                : function (#fn start () #u64 (#return 1u64)))) {body}"
         );
         let prepared = crate::prepare_program_syntax(
             &source,
@@ -10605,9 +10607,9 @@ mod async_planning_tests {
     #[test]
     fn deferred_handle_operations_and_poll_matching_need_no_frame_layout() {
         plan(
-            "(#fn main ((ptr (#ptr Frame)) (items (#slice Frame)) (result Poll)) u64
-                (#let address usize (#ptr-address ptr))
-                (#let length usize (#slice-len items))
+            "(#fn main ((ptr (#ptr Frame)) (items (#slice Frame)) (result Poll)) #u64
+                (#let address #usize (#ptr-address ptr))
+                (#let length #usize (#slice-len items))
                 (#return (#match result
                     (#case (Pending child) 0u64)
                     (#case (Ready value) value))))",
@@ -10618,14 +10620,14 @@ mod async_planning_tests {
     #[test]
     fn selected_unsafe_scope_is_lexical_not_function_wide() {
         plan(
-            "(#fn main ((ptr (#ptr u64))) u64
+            "(#fn main ((ptr (#ptr #u64))) #u64
                 (#return (#unsafe (#ptr-read ptr))))
-             (#fn ignored ((ptr (#ptr u64))) u64 (#return (#ptr-read ptr)))",
+             (#fn ignored ((ptr (#ptr #u64))) #u64 (#return (#ptr-read ptr)))",
         )
         .unwrap();
         let (_, code, span, _) = plan(
-            "(#fn main ((ptr (#ptr u64))) u64
-                (#let first u64 (#unsafe (#ptr-read ptr)))
+            "(#fn main ((ptr (#ptr #u64))) #u64
+                (#let first #u64 (#unsafe (#ptr-read ptr)))
                 (#return (#ptr-read ptr)))",
         )
         .err()
@@ -10637,14 +10639,14 @@ mod async_planning_tests {
     #[test]
     fn planning_skips_nonselected_bodies_and_global_initializers_not_types() {
         plan(
-            "(#let unchecked u64 true)
-             (#fn ignored () u64 (#return true))
-             (#fn main () u64 (#return 1u64))",
+            "(#let unchecked #u64 true)
+             (#fn ignored () #u64 (#return true))
+             (#fn main () #u64 (#return 1u64))",
         )
         .unwrap();
         let (message, code, span, _) = plan(
-            "(#fn ignored ((value Missing)) u64 (#return 1u64))
-             (#fn main () u64 (#return 1u64))",
+            "(#fn ignored ((value Missing)) #u64 (#return 1u64))
+             (#fn main () #u64 (#return 1u64))",
         )
         .err()
         .unwrap();
@@ -10656,8 +10658,8 @@ mod async_planning_tests {
     #[test]
     fn planning_types_are_not_a_stack_lifetime_or_suspension_proof() {
         let (program, registry) = context(
-            "(#fn main () (#ref u64)
-                (#let local u64 1u64)
+            "(#fn main () (#ref #u64)
+                (#let local #u64 1u64)
                 (#return (#borrow local)))",
         );
         let selected = HashSet::from(["main".into()]);
@@ -10698,21 +10700,21 @@ mod typed_ownership_tests {
                 "(#struct-literal Pair (: left reference : right reference))",
             ),
             (
-                "(#tuple (#ref-mut u64) (#ref-mut u64))",
+                "(#tuple (#ref-mut #u64) (#ref-mut #u64))",
                 "(#tuple reference reference)",
             ),
             (
-                "(#array (#ref-mut u64) 2)",
-                "(#array-of (#array (#ref-mut u64) 2) reference reference)",
+                "(#array (#ref-mut #u64) 2)",
+                "(#array-of (#array (#ref-mut #u64) 2) reference reference)",
             ),
             ("Choice", "(Both reference reference)"),
         ] {
             let source = format!(
-                "(#struct Pair (: left (#ref-mut u64) : right (#ref-mut u64)))
-                  (#enum Choice ((Both (#ref-mut u64) (#ref-mut u64))))
+                "(#struct Pair (: left (#ref-mut #u64) : right (#ref-mut #u64)))
+                  (#enum Choice ((Both (#ref-mut #u64) (#ref-mut #u64))))
                   (#fn main () ()
-                    (#let-mut value u64 1u64)
-                    (#let reference (#ref-mut u64) (#borrow-mut value))
+                    (#let-mut value #u64 1u64)
+                    (#let reference (#ref-mut #u64) (#borrow-mut value))
                     (#let output {ty} {constructor})
                     (#forget output) (#return ()))"
             );
@@ -10731,17 +10733,17 @@ mod typed_ownership_tests {
     #[test]
     fn typed_exclusive_handle_moves_invalidate_sources_not_pointees() {
         for (binding, used, valid) in [
-            ("(#let next (#ref-mut u64) reference)", "(#deref next)", true),
-            ("(#let next (#ref-mut u64) reference)", "(#deref reference)", false),
+            ("(#let next (#ref-mut #u64) reference)", "(#deref next)", true),
+            ("(#let next (#ref-mut #u64) reference)", "(#deref reference)", false),
             ("(#let first Pair (#struct-literal Pair (: item reference))) (#let next Pair first)", "(#deref (#get next item))", true),
             ("(#let first Pair (#struct-literal Pair (: item reference))) (#let next Pair first)", "(#deref (#get first item))", false),
-            ("(#let next (#ref-mut u64) (#if choice reference reference))", "(#deref next)", true),
+            ("(#let next (#ref-mut #u64) (#if choice reference reference))", "(#deref next)", true),
         ] {
             let source = format!(
-                "(#struct Pair (: item (#ref-mut u64)))
-                 (#fn main (: choice bool) u64
-                   (#let-mut value u64 40u64)
-                   (#let reference (#ref-mut u64) (#borrow-mut value))
+                "(#struct Pair (: item (#ref-mut #u64)))
+                 (#fn main (: choice #bool) #u64
+                   (#let-mut value #u64 40u64)
+                   (#let reference (#ref-mut #u64) (#borrow-mut value))
                    {binding}
                    (#return {used}))"
             );
@@ -10754,15 +10756,15 @@ mod typed_ownership_tests {
     #[test]
     fn typed_exclusive_handles_need_no_implicit_cleanup_and_calls_reborrow() {
         for statements in [
-            "(#let next (#ref-mut u64) reference) (#return ())",
+            "(#let next (#ref-mut #u64) reference) (#return ())",
             "(#call write (: target reference)) (#deref-set reference 43u64) (#return ())",
             "(#deref-set reference 43u64) (#deref-set reference 44u64) (#return ())",
         ] {
             let source = format!(
-                "(#fn write (: target (#ref-mut u64)) () (#deref-set target 42u64) (#return ()))
+                "(#fn write (: target (#ref-mut #u64)) () (#deref-set target 42u64) (#return ()))
                  (#fn main () ()
-                   (#let-mut value u64 1u64)
-                   (#let reference (#ref-mut u64) (#borrow-mut value))
+                   (#let-mut value #u64 1u64)
+                   (#let reference (#ref-mut #u64) (#borrow-mut value))
                    {statements})"
             );
             assert!(typed_owner_error(&source).is_none(), "{source}");
@@ -10778,8 +10780,8 @@ mod typed_ownership_tests {
             "(#let moved (#tuple (#ref-mut Resource)) (#tuple reference))",
         ] {
             let source = format!(
-                "(#struct Resource (: value u64)) (#linear Resource)
-                 (#fn main (: selected bool) ()
+                "(#struct Resource (: value #u64)) (#linear Resource)
+                 (#fn main (: selected #bool) ()
                    (#let-mut owner Resource (#struct-literal Resource (: value 1u64)))
                    (#let reference (#ref-mut Resource) (#borrow-mut owner))
                    {transfer}
@@ -10816,12 +10818,12 @@ mod typed_ownership_tests {
             "(#deref (#get holder item))",
         ] {
             let source = format!(
-                "(#struct Holder (: item (#ref-mut u64) : other (#ref-mut u64)))
-                 (#fn main () u64
-                   (#let-mut first u64 40u64) (#let-mut second u64 2u64)
+                "(#struct Holder (: item (#ref-mut #u64) : other (#ref-mut #u64)))
+                 (#fn main () #u64
+                   (#let-mut first #u64 40u64) (#let-mut second #u64 2u64)
                    (#let holder Holder (#struct-literal Holder
                      (: item (#borrow-mut first) : other (#borrow-mut second))))
-                   (#let moved (#ref-mut u64) (#get holder item))
+                   (#let moved (#ref-mut #u64) (#get holder item))
                    (#return {access}))"
             );
             let valid = !access.contains("holder item");
@@ -10835,24 +10837,24 @@ mod typed_ownership_tests {
     #[test]
     fn typed_exclusive_projected_moves_survive_source_cleanup() {
         for (declarations, ty, initial, projection) in [
-            ("(#struct Holder (: item (#ref-mut u64) : other (#ref-mut u64)))", "Holder",
+            ("(#struct Holder (: item (#ref-mut #u64) : other (#ref-mut #u64)))", "Holder",
              "(#struct-literal Holder (: item (#borrow-mut first) : other (#borrow-mut second)))", "(#get holder item)"),
-            ("", "(#tuple (#ref-mut u64) (#ref-mut u64))",
+            ("", "(#tuple (#ref-mut #u64) (#ref-mut #u64))",
              "(#tuple (#borrow-mut first) (#borrow-mut second))", "(#get holder 0)"),
-            ("", "(#array (#ref-mut u64) 2)",
-             "(#array-of (#array (#ref-mut u64) 2) (#borrow-mut first) (#borrow-mut second))", "(#index holder 0u64)"),
-            ("(#enum Holder ((Views (#ref-mut u64) (#ref-mut u64))))", "Holder",
+            ("", "(#array (#ref-mut #u64) 2)",
+             "(#array-of (#array (#ref-mut #u64) 2) (#borrow-mut first) (#borrow-mut second))", "(#index holder 0u64)"),
+            ("(#enum Holder ((Views (#ref-mut #u64) (#ref-mut #u64))))", "Holder",
              "(Views (#borrow-mut first) (#borrow-mut second))", "(#get-payload holder Views 0)"),
         ] {
             let source = format!("{declarations}
-                (#fn main () u64
-                  (#let-mut first u64 40u64) (#let-mut second u64 2u64)
+                (#fn main () #u64
+                  (#let-mut first #u64 40u64) (#let-mut second #u64 2u64)
                   (#let holder {ty} {initial})
-                  (#let moved (#ref-mut u64) {projection})
+                  (#let moved (#ref-mut #u64) {projection})
                   (#forget holder)
                   (#set second 3u64)
                   (#deref-set moved 42u64)
-                  (#let answer u64 (#deref moved))
+                  (#let answer #u64 (#deref moved))
                   (#forget moved) (#set first 44u64) (#return answer))");
             assert!(typed_owner_error(&source).is_none(), "{source}");
             crate::check_types(&crate::parse_program(&source).unwrap()).unwrap();
@@ -10869,13 +10871,13 @@ mod typed_ownership_tests {
 
     #[test]
     fn typed_shared_projected_copies_keep_independent_loans() {
-        let source = "(#struct Holder (: item (#ref u64)))
-            (#fn main () u64
-              (#let-mut owner u64 42u64)
+        let source = "(#struct Holder (: item (#ref #u64)))
+            (#fn main () #u64
+              (#let-mut owner #u64 42u64)
               (#let holder Holder (#struct-literal Holder (: item (#borrow owner))))
-              (#let copied (#ref u64) (#get holder item))
+              (#let copied (#ref #u64) (#get holder item))
               (#forget (#get holder item))
-              (#let answer u64 (#deref copied))
+              (#let answer #u64 (#deref copied))
               (#forget copied) (#set owner 43u64) (#return answer))";
         assert!(typed_owner_error(source).is_none());
         crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
@@ -10885,11 +10887,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn typed_exclusive_one_slot_repeat_transfers_its_handle() {
-        let source = "(#fn main () u64
-            (#let-mut owner u64 42u64)
-            (#let reference (#ref-mut u64) (#borrow-mut owner))
-            (#let values (#array (#ref-mut u64) 1) (#array-repeat reference))
-            (#let answer u64 (#deref (#index values 0u64)))
+        let source = "(#fn main () #u64
+            (#let-mut owner #u64 42u64)
+            (#let reference (#ref-mut #u64) (#borrow-mut owner))
+            (#let values (#array (#ref-mut #u64) 1) (#array-repeat reference))
+            (#let answer #u64 (#deref (#index values 0u64)))
             (#forget values) (#return answer))";
         assert!(typed_owner_error(source).is_none());
         crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
@@ -10916,12 +10918,12 @@ mod typed_ownership_tests {
                         "(#loop (#break parent))",
                     ] {
                         let source = format!(
-                            "(#struct Owner (: value u64))
-                        (#struct View (: child ({} u64)))
+                            "(#struct Owner (: value #u64))
+                        (#struct View (: child ({} #u64)))
                         (#struct Wrapped (: view View))
                         (#fn overwrite (: target ({} Owner)) ()
                           {} (#return ()))
-                        (#fn inspect (: parent ({} Owner) : selected bool) ()
+                        (#fn inspect (: parent ({} Owner) : selected #bool) ()
                           (#let view View (#struct-literal View
                             (: child ({} (#get parent value)))))
                           (#let moved View view)
@@ -10947,7 +10949,7 @@ mod typed_ownership_tests {
                             if release {
                                 ""
                             } else {
-                                "(#let observed u64 (#deref (#get (#get wrapped view) child))) (#forget wrapped)"
+                                "(#let observed #u64 (#deref (#get (#get wrapped view) child))) (#forget wrapped)"
                             }
                         );
                         let program = crate::parse_program(&source).unwrap();
@@ -11007,7 +11009,7 @@ mod typed_ownership_tests {
                             let result_type = if aggregate {
                                 "View".into()
                             } else {
-                                format!("({child_type} u64)")
+                                format!("({child_type} #u64)")
                             };
                             let field_borrow = format!(
                                 "({} (#get owner value))",
@@ -11028,20 +11030,20 @@ mod typed_ownership_tests {
                             } else {
                                 "(#drop held)"
                             };
-                            let source = format!("(#struct Owner (: value u64))
-                              (#struct View (: child ({child_type} u64)))
+                            let source = format!("(#struct Owner (: value #u64))
+                              (#struct View (: child ({child_type} #u64)))
                               (#fn child-of (: owner ({parent_type} Owner)) {result_type} (#return {result}))
                               (#fn forward (: owner ({parent_type} Owner)) {result_type}
                                 (#return (#call child-of (: owner owner))))
                               (#fn overwrite (: owner ({parent_type} Owner)) ()
                                 {} (#return ()))
-                              (#fn inspect (: parent ({parent_type} Owner) : selected bool) ()
+                              (#fn inspect (: parent ({parent_type} Owner) : selected #bool) ()
                                 (#let held {result_type} (#call forward (: owner {argument})))
                                 {} (#call overwrite (: owner parent))
                                 {} (#return ()))",
                                 if pinned { "(#unsafe (#pin-set-field owner value 99u64))" } else { "(#deref-set owner (#struct-literal Owner (: value 99u64)))" },
                                 if release { release_held } else { "" },
-                                if release { "".into() } else { format!("(#let observed u64 (#deref {child})) {release_held}") }
+                                if release { "".into() } else { format!("(#let observed #u64 (#deref {child})) {release_held}") }
                             );
                             let program = crate::parse_program(&source).unwrap();
                             let mut declarations =
@@ -11096,16 +11098,16 @@ mod typed_ownership_tests {
                 "(#label result (#loop (#break-to result (#call child-of (: owner parent)))))",
             ] {
                 let source = format!(
-                    "(#struct Owner (: value u64))
+                    "(#struct Owner (: value #u64))
                   (#linear Owner)
-                  (#fn child-of (: owner (#ref-mut Owner)) (#ref-mut u64)
+                  (#fn child-of (: owner (#ref-mut Owner)) (#ref-mut #u64)
                     (#return (#borrow-mut (#get owner value))))
-                  (#fn main () u64
+                  (#fn main () #u64
                     (#let-mut owner Owner (#struct-literal Owner (: value 42u64)))
                     (#let parent (#ref-mut Owner) (#borrow-mut owner))
-                    (#let child (#ref-mut u64) {result})
+                    (#let child (#ref-mut #u64) {result})
                     (#drop parent)
-                    {} (#let answer u64 (#deref child))
+                    {} (#let answer #u64 (#deref child))
                     (#drop child) {} (#return answer))",
                     if destroy_owner { "(#forget owner)" } else { "" },
                     if destroy_owner { "" } else { "(#forget owner)" }
@@ -11167,17 +11169,17 @@ mod typed_ownership_tests {
 
     #[test]
     fn returned_pointer_contents_do_not_borrow_the_container_handle() {
-        let source = "(#struct Holder (: value (#ref u64)))
-          (#fn read-value (: holder (#ref-mut Holder)) (#ref u64)
+        let source = "(#struct Holder (: value (#ref #u64)))
+          (#fn read-value (: holder (#ref-mut Holder)) (#ref #u64)
             (#return (#get holder value)))
-          (#fn replace (: holder (#ref-mut Holder) : value (#ref u64)) ()
+          (#fn replace (: holder (#ref-mut Holder) : value (#ref #u64)) ()
             (#deref-set holder (#struct-literal Holder (: value value))) (#return ()))
-          (#fn main () u64
-            (#let owner u64 42u64)
-            (#let other u64 99u64)
+          (#fn main () #u64
+            (#let owner #u64 42u64)
+            (#let other #u64 99u64)
             (#let-mut holder Holder (#struct-literal Holder (: value (#borrow owner))))
             (#let parent (#ref-mut Holder) (#borrow-mut holder))
-            (#let value (#ref u64) (#call read-value (: holder parent)))
+            (#let value (#ref #u64) (#call read-value (: holder parent)))
             (#call replace (: holder parent : value (#borrow other)))
             (#drop parent) (#forget holder)
             (#return (#deref value)))";
@@ -11202,14 +11204,14 @@ mod typed_ownership_tests {
             "(#loop (#break (#get view child)))",
             "(#label done (#loop (#break-to done (#get view child))))",
         ] {
-            let source = format!("(#struct Owner (: value u64 : other u64))
-                (#struct View (: child (#ref-mut u64)))
-                (#fn increment (: target (#ref-mut u64)) u64
+            let source = format!("(#struct Owner (: value #u64 : other #u64))
+                (#struct View (: child (#ref-mut #u64)))
+                (#fn increment (: target (#ref-mut #u64)) #u64
                   (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return (#deref target)))
-                (#fn inspect (: parent (#ref-mut Owner)) u64
+                (#fn inspect (: parent (#ref-mut Owner)) #u64
                   (#let view View (#struct-literal View (: child (#borrow-mut (#get parent value)))))
-                  (#let answer u64 (#call increment (: target {argument})))
-                  (#let sibling u64 (#get parent other))
+                  (#let answer #u64 (#call increment (: target {argument})))
+                  (#let sibling #u64 (#get parent other))
                   (#forget view) (#return answer))");
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -11231,15 +11233,15 @@ mod typed_ownership_tests {
             for (use_after, offending) in [
                 ("(#return (#deref view))", "(#deref view)"),
                 (
-                    "(#let other (#ref u64) (#clone view)) (#return 0u64)",
+                    "(#let other (#ref #u64) (#clone view)) (#return 0u64)",
                     "(#clone view)",
                 ),
-                ("(#let other (#ref u64) view) (#return 0u64)", "view"),
+                ("(#let other (#ref #u64) view) (#return 0u64)", "view"),
             ] {
                 let source = format!(
-                    "(#fn main () u64
-                      (#let owner u64 1u64)
-                      (#let view (#ref u64) (#borrow owner))
+                    "(#fn main () #u64
+                      (#let owner #u64 1u64)
+                      (#let view (#ref #u64) (#borrow owner))
                       ({release} view)
                       {use_after})"
                 );
@@ -11260,20 +11262,20 @@ mod typed_ownership_tests {
     #[test]
     fn typed_reference_release_preserves_pointees_and_independent_copies() {
         for body in [
-            "(#let other (#ref u64) view) (#drop view) (#return (#deref other))",
-            "(#let other (#ref u64) (#clone view)) (#forget view) (#return (#deref other))",
+            "(#let other (#ref #u64) view) (#drop view) (#return (#deref other))",
+            "(#let other (#ref #u64) (#clone view)) (#forget view) (#return (#deref other))",
             "(#drop view) (#set owner 2u64) (#return owner)",
         ] {
             let source = format!(
-                "(#fn main () u64
-                  (#let-mut owner u64 1u64)
-                  (#let view (#ref u64) (#borrow owner))
+                "(#fn main () #u64
+                  (#let-mut owner #u64 1u64)
+                  (#let view (#ref #u64) (#borrow owner))
                   {body})"
             );
             assert!(typed_owner_error(&source).is_none(), "{source}");
             crate::check_types(&crate::parse_program(&source).unwrap()).unwrap();
         }
-        let source = "(#fn main () u64 (#let owner u64 1u64) (#forget owner) (#return owner))";
+        let source = "(#fn main () #u64 (#let owner #u64 1u64) (#forget owner) (#return owner))";
         assert!(typed_owner_error(source).is_none());
         crate::check_types(&crate::parse_program(source).unwrap()).unwrap();
     }
@@ -11283,30 +11285,30 @@ mod typed_ownership_tests {
         for (declaration, ty, value, projection) in [
             (
                 "",
-                "(#tuple (#ref u64))",
+                "(#tuple (#ref #u64))",
                 "(#tuple (#borrow owner))",
                 "(#get values 0)",
             ),
             (
                 "",
-                "(#array (#ref u64) 1)",
+                "(#array (#ref #u64) 1)",
                 "(#array-repeat (#borrow owner))",
                 "(#index values 0u64)",
             ),
             (
-                "(#type View (#ref u64))",
+                "(#type View (#ref #u64))",
                 "View",
                 "(#borrow owner)",
                 "values",
             ),
             (
-                "(#struct Holder ((view (#ref u64))))",
+                "(#struct Holder ((view (#ref #u64))))",
                 "Holder",
                 "(#struct-literal Holder ((view (#borrow owner))))",
                 "(#get values view)",
             ),
             (
-                "(#enum Holder ((Some (#ref u64)) None))",
+                "(#enum Holder ((Some (#ref #u64)) None))",
                 "Holder",
                 "(Some (#borrow owner))",
                 "(#get-payload values Some 0)",
@@ -11315,8 +11317,8 @@ mod typed_ownership_tests {
             for released in ["values", projection] {
                 let source = format!(
                     "{declaration}
-                     (#fn main () u64
-                       (#let owner u64 1u64)
+                     (#fn main () #u64
+                       (#let owner #u64 1u64)
                        (#let values {ty} {value})
                        (#drop {released})
                        (#return (#deref {projection})))"
@@ -11336,17 +11338,17 @@ mod typed_ownership_tests {
     #[test]
     fn typed_reference_release_invalidates_mutable_handles_and_slice_views() {
         for (ty, value, use_after) in [
-            ("(#ref-mut u64)", "(#borrow-mut owner)", "(#deref view)"),
+            ("(#ref-mut #u64)", "(#borrow-mut owner)", "(#deref view)"),
             (
-                "(#slice u64)",
+                "(#slice #u64)",
                 "(#slice-of (#borrow data))",
                 "(#deref (#slice-idx view 0usize))",
             ),
         ] {
             let source = format!(
-                "(#fn main () u64
-                  (#let-mut owner u64 1u64)
-                  (#let data (#array u64 1) (#array-of (#array u64 1) 2u64))
+                "(#fn main () #u64
+                  (#let-mut owner #u64 1u64)
+                  (#let data (#array #u64 1) (#array-of (#array #u64 1) 2u64))
                   (#let view {ty} {value})
                   (#drop view)
                   (#return {use_after}))"
@@ -11358,12 +11360,12 @@ mod typed_ownership_tests {
                 .any(|(span, _)| &source[span.start..span.end] == "(#drop view)"));
             assert!(crate::check_types(&crate::parse_program(&source).unwrap()).is_err());
         }
-        let source = "(#struct Holder ((number u64)))
-          (#fn main () u64
+        let source = "(#struct Holder ((number #u64)))
+          (#fn main () #u64
             (#let owner Holder (#struct-literal Holder ((number 42u64))))
             (#let view (#ref Holder) (#borrow owner))
             (#drop view)
-            (#let field (#ref u64) (#borrow (#get view number)))
+            (#let field (#ref #u64) (#borrow (#get view number)))
             (#return 0u64))";
         let error =
             typed_owner_error(source).expect("released handle cannot supply a field borrow");
@@ -11380,13 +11382,13 @@ mod typed_ownership_tests {
         for (body, valid) in [
             ("(#if choice (#drop view) ()) (#return (#deref view))", false),
             ("(#if choice (#block (#drop view) (#return 0u64)) ()) (#return (#deref view))", true),
-            ("(#while choice (#let current (#ref u64) (#borrow owner)) (#drop current)) (#return 0u64)", true),
-            ("(#while choice (#let current (#ref u64) view) (#drop view)) (#return 0u64)", false),
+            ("(#while choice (#let current (#ref #u64) (#borrow owner)) (#drop current)) (#return 0u64)", true),
+            ("(#while choice (#let current (#ref #u64) view) (#drop view)) (#return 0u64)", false),
         ] {
             let source = format!(
-                "(#fn main ((choice bool)) u64
-                  (#let owner u64 1u64)
-                  (#let-mut view (#ref u64) (#borrow owner))
+                "(#fn main ((choice #bool)) #u64
+                  (#let owner #u64 1u64)
+                  (#let-mut view (#ref #u64) (#borrow owner))
                   {body})"
             );
             let error = typed_owner_error(&source);
@@ -11398,7 +11400,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn raw_pointer_anchor_does_not_prove_referent_restoration() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) ()
             (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
             (#deref-set target (#struct-literal Resource ((number 2u64))))
@@ -11420,7 +11422,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn raw_pointer_anchor_marker_survives_return_summary_chains() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn raw ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) (#ref-mut Resource)
             (#return (#unsafe (#ptr-borrow-mut anchor pointer))))
           (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource) (#return value))
@@ -11452,13 +11454,13 @@ mod typed_ownership_tests {
 
     #[test]
     fn return_summaries_preserve_referent_field_projections() {
-        let source = "(#struct Point ((x u64) (y u64)))
-          (#fn field ((parent (#ref-mut Point))) (#ref u64)
+        let source = "(#struct Point ((x #u64) (y #u64)))
+          (#fn field ((parent (#ref-mut Point))) (#ref #u64)
             (#return (#borrow (#get parent x))))
-          (#fn forward ((parent (#ref-mut Point))) (#ref u64)
+          (#fn forward ((parent (#ref-mut Point))) (#ref #u64)
             (#return (#call field (: parent parent))))
           (#fn inspect ((parent (#ref-mut Point))) ()
-            (#let target (#ref u64) (#call forward (: parent parent)))
+            (#let target (#ref #u64) (#call forward (: parent parent)))
             (#forget target) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -11493,15 +11495,15 @@ mod typed_ownership_tests {
 
     #[test]
     fn return_summaries_compose_nested_and_alternative_projections() {
-        let source = "(#struct Point ((x u64) (y u64)))
+        let source = "(#struct Point ((x #u64) (y #u64)))
           (#struct Outer ((point Point)))
           (#fn inner ((parent (#ref-mut Outer))) (#ref-mut Point)
             (#return (#borrow-mut (#get parent point))))
-          (#fn field ((parent (#ref-mut Point)) (choose bool)) (#ref u64)
+          (#fn field ((parent (#ref-mut Point)) (choose #bool)) (#ref #u64)
             (#return (#if choose (#borrow (#get parent x)) (#borrow (#get parent y)))))
-          (#fn inspect ((outer (#ref-mut Outer)) (choose bool)) ()
+          (#fn inspect ((outer (#ref-mut Outer)) (choose #bool)) ()
             (#let parent (#ref-mut Point) (#call inner (: parent outer)))
-            (#let target (#ref u64) (#call field (: parent parent : choose choose)))
+            (#let target (#ref #u64) (#call field (: parent parent : choose choose)))
             (#forget target) (#forget parent) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -11537,15 +11539,15 @@ mod typed_ownership_tests {
 
     #[test]
     fn lifetime_only_provenance_survives_aggregate_reborrowing() {
-        let source = "(#struct Resource ((number u64)))
+        let source = "(#struct Resource ((number #u64)))
           (#struct Holder ((value (#ref-mut Resource)) (safe (#ref-mut Resource))))
           (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (safe (#ref-mut Resource))) ()
             (#let raw (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
             (#let-mut holder Holder (#struct-literal Holder ((value raw) (safe safe))))
             (#let parent (#ref-mut Holder) (#borrow-mut holder))
-            (#let derived (#ref-mut u64) (#borrow-mut (#get (#get parent value) number)))
+            (#let derived (#ref-mut #u64) (#borrow-mut (#get (#get parent value) number)))
             (#forget derived)
-            (#let known (#ref-mut u64) (#borrow-mut (#get (#get parent safe) number)))
+            (#let known (#ref-mut #u64) (#borrow-mut (#get (#get parent safe) number)))
             (#forget known) (#forget parent) (#forget holder) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -11582,9 +11584,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn pinned_payload_reborrows_retain_parameter_origins() {
-        let source = "(#enum Slot ((Full u64) Empty))
+        let source = "(#enum Slot ((Full #u64) Empty))
           (#fn inspect ((slot (#pin-ref Slot))) ()
-            (#let view (#pin-ref u64) (#pin-get-payload slot Full 0))
+            (#let view (#pin-ref #u64) (#pin-get-payload slot Full 0))
             (#forget view) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -11621,13 +11623,13 @@ mod typed_ownership_tests {
 
     #[test]
     fn aggregate_parameter_slots_survive_reborrow_return_summaries() {
-        let source = "(#struct Point ((x u64)))
+        let source = "(#struct Point ((x #u64)))
           (#struct Pair ((left (#ref-mut Point)) (right (#ref-mut Point))))
-          (#fn select ((pair Pair)) (#ref u64)
+          (#fn select ((pair Pair)) (#ref #u64)
             (#let parent (#ref-mut Point) (#get pair left))
             (#return (#borrow (#get parent x))))
           (#fn inspect ((pair Pair)) ()
-            (#let view (#ref u64) (#call select (: pair pair)))
+            (#let view (#ref #u64) (#call select (: pair pair)))
             (#forget view) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -11665,9 +11667,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn writing_parameter_pointees_preserves_reference_handle_origins() {
-        let source = "(#fn inspect ((reference (#ref-mut u64))) ()
+        let source = "(#fn inspect ((reference (#ref-mut #u64))) ()
           (#deref-set reference 2u64)
-          (#let alias (#ref-mut u64) reference)
+          (#let alias (#ref-mut #u64) reference)
           (#forget alias) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -11698,9 +11700,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn ambiguous_reference_writes_retain_each_possible_old_loan() {
-        let source = "(#struct Holder ((value (#ref u64))))
-          (#fn inspect ((choice bool)) ()
-            (#let a u64 1u64) (#let b u64 2u64) (#let c u64 3u64)
+        let source = "(#struct Holder ((value (#ref #u64))))
+          (#fn inspect ((choice #bool)) ()
+            (#let a #u64 1u64) (#let b #u64 2u64) (#let c #u64 3u64)
             (#let-mut left Holder (#struct-literal Holder ((value (#borrow a)))))
             (#let-mut right Holder (#struct-literal Holder ((value (#borrow b)))))
             (#let target (#ref-mut Holder) (#if choice (#borrow-mut left) (#borrow-mut right)))
@@ -11753,9 +11755,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn known_reference_writes_replace_old_loans_with_rhs_origins() {
-        let source = "(#struct Holder ((value (#ref u64))))
+        let source = "(#struct Holder ((value (#ref #u64))))
           (#fn inspect () ()
-            (#let a u64 1u64) (#let b u64 2u64)
+            (#let a #u64 1u64) (#let b #u64 2u64)
             (#let-mut holder Holder (#struct-literal Holder ((value (#borrow a)))))
             (#let target (#ref-mut Holder) (#borrow-mut holder))
             (#deref-set target (#struct-literal Holder ((value (#borrow b)))))
@@ -11792,10 +11794,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn computed_reference_writes_transfer_rhs_loan_origins() {
-        let source = "(#struct Holder ((value (#ref u64))))
+        let source = "(#struct Holder ((value (#ref #u64))))
           (#fn identity ((value (#ref-mut Holder))) (#ref-mut Holder) (#return value))
           (#fn inspect () ()
-            (#let a u64 1u64) (#let b u64 2u64)
+            (#let a #u64 1u64) (#let b #u64 2u64)
             (#let-mut holder Holder (#struct-literal Holder ((value (#borrow a)))))
             (#let target (#ref-mut Holder) (#borrow-mut holder))
             (#deref-set (#call identity (: value target))
@@ -11835,10 +11837,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn static_reference_origins_survive_forwarding_calls() {
-        let source = "(#static VALUE u64 1u64)
-          (#fn obtain () (#ref u64) (#return (#unsafe (#borrow VALUE))))
-          (#fn forward () (#ref u64) (#return (#call obtain ())))
-          (#fn inspect () () (#let view (#ref u64) (#call forward ()))
+        let source = "(#static VALUE #u64 1u64)
+          (#fn obtain () (#ref #u64) (#return (#unsafe (#borrow VALUE))))
+          (#fn forward () (#ref #u64) (#return (#call obtain ())))
+          (#fn inspect () () (#let view (#ref #u64) (#call forward ()))
             (#forget view) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -11880,9 +11882,9 @@ mod typed_ownership_tests {
                 ),
             ] {
                 let source = format!(
-                    "(#struct Resource ((number u64))) (#linear Resource)
+                    "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource) (#return value))
-              (#fn inspect ((reference (#ref-mut Resource)) (choice bool)) ()
+              (#fn inspect ((reference (#ref-mut Resource)) (choice #bool)) ()
                 {cleanup}
                 (#deref-set {target} (#struct-literal Resource ((number 2u64))))
                 (#return ()))"
@@ -11912,8 +11914,8 @@ mod typed_ownership_tests {
             ("(#forget (#deref left)) (#forget (#deref right))", true),
         ] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (choice bool)) ()
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (choice #bool)) ()
                 {cleanup}
                 (#let target (#ref-mut Resource) (#if choice left right))
                 (#deref-set target (#struct-literal Resource ((number 2u64))))
@@ -11943,7 +11945,7 @@ mod typed_ownership_tests {
                 ("#pin-ref-mut", false),
             ] {
                 let source = format!(
-                    "(#struct Resource ((number u64))) (#linear Resource)
+                    "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn inspect ((reference ({reference_type} Resource))) ()
                 {operation} (#return ()))"
                 );
@@ -11974,7 +11976,7 @@ mod typed_ownership_tests {
             ("(#forget (#get reference left))", "(#borrow-mut (#get reference left))",
              "(#struct-literal Resource ((number 3u64)))", true),
         ] {
-            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
               (#struct Pair ((left Resource) (right Resource)))
               (#fn inspect ((reference (#ref-mut Pair))) ()
                 {cleanup} (#deref-set {target} {rhs}) (#return ()))");
@@ -11993,8 +11995,8 @@ mod typed_ownership_tests {
             ("(#if choice (#forget (#deref reference)) ())", 1, false),
             ("(#forget (#deref reference)) (#deref-set reference (#struct-literal Resource ((number 2u64))))", 0, false),
         ] {
-            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((reference (#ref-mut Resource)) (choice bool)) ()
+            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn inspect ((reference (#ref-mut Resource)) (choice #bool)) ()
                 {body_source} (#return ()))");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -12018,8 +12020,8 @@ mod typed_ownership_tests {
             } else {
                 "(#deref-set target (#struct-literal Resource ((number 2u64))))"
             };
-            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (choice bool)) ()
+            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (choice #bool)) ()
                 (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
                 {branch} (#return ()))");
             let program = crate::parse_program(&source).unwrap();
@@ -12037,8 +12039,8 @@ mod typed_ownership_tests {
     fn staged_function_effects_intersect_all_normal_returns() {
         for (early_cleanup, definite) in [("", false), ("(#forget (#deref reference))", true)] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((reference (#ref-mut Resource)) (choice bool)) ()
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn inspect ((reference (#ref-mut Resource)) (choice #bool)) ()
                 (#if choice (#block {early_cleanup} (#return ())) ())
                 (#forget (#deref reference)) (#return ()))"
             );
@@ -12066,7 +12068,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_effects_separate_input_slots_from_referent_projections() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
           (#fn inspect ((pair Pair)) ()
             (#let target (#ref-mut Resource) (#get pair left))
@@ -12088,7 +12090,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_consumption_summaries_forward_callee_effects() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
           (#fn forward ((value (#ref-mut Resource))) ()
@@ -12221,10 +12223,10 @@ mod typed_ownership_tests {
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", true),
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", false),
         ] {
-            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
-              (#fn restore ((value (#ref-mut Resource)) (choice bool)) ()
+              (#fn restore ((value (#ref-mut Resource)) (choice #bool)) ()
                 (#call consume (: value value)) {replacement} (#return ()))");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -12272,7 +12274,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_whole_program_replacement_rejects_live_callee_referent() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn inspect ((value (#ref-mut Resource))) () (#return ()))
           (#fn replace ((value (#ref-mut Resource))) ()
             (#call inspect (: value value))
@@ -12310,10 +12312,10 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn consume ((value (#ref-mut Resource)) (choice bool)) ()
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn consume ((value (#ref-mut Resource)) (choice #bool)) ()
                 {consume} (#return ()))
-              (#fn replace ((value (#ref-mut Resource)) (choice bool)) ()
+              (#fn replace ((value (#ref-mut Resource)) (choice #bool)) ()
                 (#call consume (: value value : choice choice))
                 (#deref-set value (#struct-literal Resource ((number 2u64))))
                 (#return ()))"
@@ -12342,7 +12344,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_consumption_maps_to_caller_owned_storage() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) () (#forget (#deref value)) (#return ()))
           (#fn inspect () ()
             (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
@@ -12419,9 +12421,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_effects_are_possible_for_each_ambiguous_caller_target() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) () (#forget (#deref value)) (#return ()))
-          (#fn inspect ((choice bool)) ()
+          (#fn inspect ((choice #bool)) ()
             (#let-mut left Resource (#struct-literal Resource ((number 1u64))))
             (#let-mut right Resource (#struct-literal Resource ((number 2u64))))
             (#let reference (#ref-mut Resource) (#if choice (#borrow-mut left) (#borrow-mut right)))
@@ -12486,11 +12488,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_reader_call_checks_share_inherited_entry_and_restoration() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
-          (#fn read ((value (#ref-mut Resource))) u64 (#return (#get value number)))
-          (#fn caller ((value (#ref-mut Resource))) u64
+          (#fn read ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
+          (#fn caller ((value (#ref-mut Resource))) #u64
             (#call initialize (: value value)) (#return (#call read (: value value))))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -12601,10 +12603,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_caller_use_validation_shares_entry_and_restoration_state() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
-          (#fn caller ((value (#ref-mut Resource))) u64
+          (#fn caller ((value (#ref-mut Resource))) #u64
             (#call initialize (: value value)) (#return (#get value number)))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -12667,7 +12669,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_forwarded_initializer_entry_accepts_inherited_consumption() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn forward ((value (#ref-mut Resource))) ()
@@ -12736,10 +12738,10 @@ mod typed_ownership_tests {
         for both in [false, true] {
             let consume_right = if both { "(#forget (#deref right))" } else { "" };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
-              (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (choice bool)) ()
+              (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (choice #bool)) ()
                 (#let target (#ref-mut Resource) (#if choice left right))
                 (#forget (#deref left)) {consume_right}
                 (#call initialize (: value target)) (#return ()))"
@@ -12851,7 +12853,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
               (#fn caller ((value (#ref-mut Resource))) ()
@@ -12913,12 +12915,12 @@ mod typed_ownership_tests {
     fn staged_write_entry_inference_keeps_independent_parameter_slots_live() {
         for read_slot in ["left", "right"] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
-              (#fn initialize-left ((pair Pair)) u64
+              (#fn initialize-left ((pair Pair)) #u64
                 (#let selected (#ref-mut Resource) (#get pair left))
                 (#let inspected (#ref-mut Resource) (#get pair {read_slot}))
-                (#let number u64 (#get inspected number))
+                (#let number #u64 (#get inspected number))
                 (#deref-set selected (#struct-literal Resource ((number 2u64))))
                 (#return number))"
             );
@@ -12951,13 +12953,13 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_direct_write_entry_inference_rejects_contradictory_consumption() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn replace ((value (#ref-mut Resource))) ()
             (#forget (#deref value))
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
-          (#fn invalid ((value (#ref-mut Resource)) (choice bool)) ()
+          (#fn invalid ((value (#ref-mut Resource)) (choice #bool)) ()
             (#if choice (#forget (#deref value)) ())
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -12986,12 +12988,12 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_direct_body_validation_distinguishes_referent_entry_states() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
-          (#fn read ((value (#ref-mut Resource))) u64 (#return (#get value number)))";
+          (#fn read ((value (#ref-mut Resource))) #u64 (#return (#get value number)))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -13025,15 +13027,15 @@ mod typed_ownership_tests {
     fn staged_call_entry_conflicts_survive_missing_consumption_spans() {
         for read_only in [false, true] {
             let next = if read_only {
-                "(#let number u64 (#call inspect (: value value)))"
+                "(#let number #u64 (#call inspect (: value value)))"
             } else {
                 "(#call consume (: value value))"
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
-              (#fn inspect ((value (#ref-mut Resource))) u64 (#return (#get value number)))
+              (#fn inspect ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
               (#fn caller ((value (#ref-mut Resource))) ()
                 (#call consume (: value value)) {next} (#return ()))"
             );
@@ -13084,8 +13086,8 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((value (#ref-mut Resource))) u64
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn inspect ((value (#ref-mut Resource))) #u64
                 {write} (#return (#get value number)))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -13121,10 +13123,10 @@ mod typed_ownership_tests {
                 "(#if choice (#call initialize (: value value)) ())"
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
-              (#fn read-after ((value (#ref-mut Resource)) (choice bool)) u64
+              (#fn read-after ((value (#ref-mut Resource)) (choice #bool)) #u64
                 {initialize} (#return (#get value number)))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -13145,7 +13147,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_restoration_postconditions_forward_through_helper_calls() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn forward ((value (#ref-mut Resource))) ()
@@ -13182,10 +13184,10 @@ mod typed_ownership_tests {
                 "()"
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
-              (#fn caller ((value (#ref-mut Resource)) (choice bool)) ()
+              (#fn caller ((value (#ref-mut Resource)) (choice #bool)) ()
                 (#forget (#deref value))
                 (#if choice (#call initialize (: value value)) {alternative}) (#return ()))"
             );
@@ -13248,7 +13250,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_call_restoration_clears_consumed_caller_referents() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn caller ((value (#ref-mut Resource))) ()
@@ -13320,10 +13322,10 @@ mod typed_ownership_tests {
                 "(#borrow-mut left)"
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 3u64)))) (#return ()))
-              (#fn caller ((choice bool)) ()
+              (#fn caller ((choice #bool)) ()
                 (#let-mut left Resource (#struct-literal Resource ((number 1u64))))
                 (#let-mut right Resource (#struct-literal Resource ((number 2u64))))
                 (#let target (#ref-mut Resource) {reference})
@@ -13384,7 +13386,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_restoration_postconditions_preserve_parameter_reference_slots() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
           (#fn initialize ((pair Pair)) ()
             (#let selected (#ref-mut Resource) (#get pair left))
@@ -13418,8 +13420,8 @@ mod typed_ownership_tests {
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true),
             ("(#if choice (#block (#return ())) ()) (#deref-set value (#struct-literal Resource ((number 2u64))))", false),
         ] {
-            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
-              (#fn initialize ((value (#ref-mut Resource)) (choice bool)) ()
+            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource)) (choice #bool)) ()
                 {write} (#return ()))");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -13438,10 +13440,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_entry_read_inference_accounts_for_callee_consumption() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
-          (#fn caller ((value (#ref-mut Resource))) u64
+          (#fn caller ((value (#ref-mut Resource))) #u64
             (#forget (#deref value))
             (#deref-set value (#struct-literal Resource ((number 2u64))))
             (#call consume (: value value))
@@ -13477,11 +13479,11 @@ mod typed_ownership_tests {
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", false),
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true),
         ] {
-            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((value (#ref-mut Resource))) u64 (#return (#get value number)))
-              (#fn caller ((value (#ref-mut Resource)) (choice bool)) ()
+            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn inspect ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
+              (#fn caller ((value (#ref-mut Resource)) (choice #bool)) ()
                 (#forget (#deref value)) {restoration}
-                (#let number u64 (#call inspect (: value value))) (#return ()))");
+                (#let number #u64 (#call inspect (: value value))) (#return ()))");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -13511,11 +13513,11 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((value (#ref-mut Resource))) u64 (#return (#get value number)))
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn inspect ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
               (#fn caller ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) {write}
-                (#let number u64 (#call inspect (: value value))) (#return ()))"
+                (#let number #u64 (#call inspect (: value value))) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -13555,9 +13557,9 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64)))
-              (#fn inspect ((value (#ref-mut Resource))) u64 (#return (#get value number)))
-              (#fn forward ((value (#ref-mut Resource))) u64
+                "(#struct Resource ((number #u64)))
+              (#fn inspect ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
+              (#fn forward ((value (#ref-mut Resource))) #u64
                 {write} (#return (#call inspect (: value value))))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -13591,8 +13593,8 @@ mod typed_ownership_tests {
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true, false),
         ] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn inspect ((value (#ref-mut Resource)) (choice bool)) u64
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn inspect ((value (#ref-mut Resource)) (choice #bool)) #u64
                 {write} (#return (#get value number)))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -13622,10 +13624,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_read_only_callee_reads_map_to_caller_storage() {
-        let source = "(#struct Resource ((number u64)))
-          (#fn inspect ((value (#ref Resource))) u64 (#return (#get value number)))
-          (#fn forward ((value (#ref Resource))) u64 (#return (#call inspect (: value value))))
-          (#fn caller () u64
+        let source = "(#struct Resource ((number #u64)))
+          (#fn inspect ((value (#ref Resource))) #u64 (#return (#get value number)))
+          (#fn forward ((value (#ref Resource))) #u64 (#return (#call inspect (: value value))))
+          (#fn caller () #u64
             (#let owner Resource (#struct-literal Resource ((number 1u64))))
             (#return (#call inspect (: value (#borrow owner)))))";
         let program = crate::parse_program(source).unwrap();
@@ -13701,9 +13703,9 @@ mod typed_ownership_tests {
     fn staged_read_facts_separate_input_slots_from_referent_fields() {
         for (slot, index) in [("left", 0), ("right", 1)] {
             let source = format!(
-                "(#struct Resource ((number u64)))
+                "(#struct Resource ((number #u64)))
               (#struct Pair ((left (#ref Resource)) (right (#ref Resource))))
-              (#fn inspect ((pair Pair)) u64
+              (#fn inspect ((pair Pair)) #u64
                 (#let selected (#ref Resource) (#get pair {slot}))
                 (#return (#get selected number)))"
             );
@@ -13725,8 +13727,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_read_only_referent_access_is_independent_of_consumption() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
-          (#fn inspect ((value (#ref Resource))) u64
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+          (#fn inspect ((value (#ref Resource))) #u64
             (#return (#get value number)))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -13758,10 +13760,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_consuming_call_entry_rejects_possible_prior_consumption() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
-          (#fn inspect ((value (#ref-mut Resource)) (choice bool)) ()
+          (#fn inspect ((value (#ref-mut Resource)) (choice #bool)) ()
             (#if choice (#call consume (: value value)) ())
             (#call consume (: value value)) (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -13797,7 +13799,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
               (#fn inspect ((value (#ref-mut Resource))) ()
@@ -13836,13 +13838,13 @@ mod typed_ownership_tests {
     fn staged_reference_field_reads_preserve_parameter_slot_identity() {
         for (slot, accepted) in [("left", false), ("right", true)] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
               (#fn inspect ((pair Pair)) ()
                 (#let consumed (#ref-mut Resource) (#get pair left))
                 (#let selected (#ref-mut Resource) (#get pair {slot}))
                 (#forget (#deref consumed))
-                (#let number u64 (#get selected number)) (#return ()))"
+                (#let number #u64 (#get selected number)) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -13869,11 +13871,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_reference_field_read_detects_consumed_owner() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn inspect ((value (#ref-mut Resource))) ()
             (#let alias (#ref-mut Resource) value)
             (#forget (#deref value))
-            (#let number u64 (#get alias number)) (#return ()))";
+            (#let number #u64 (#get alias number)) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -13895,7 +13897,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_consumption_rejects_reference_alias_reuse() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
           (#fn inspect ((value (#ref-mut Resource))) ()
@@ -13955,7 +13957,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_reference_alias_uses_resolve_to_consumed_storage() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn inspect ((value (#ref-mut Resource))) ()
             (#let alias (#ref-mut Resource) value)
             (#forget (#deref value))
@@ -13978,12 +13980,12 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_diverging_branch_does_not_weaken_returning_consumption() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn diverge () () (#unreachable) (#return ()))
-          (#fn consume ((value (#ref-mut Resource)) (choice bool)) ()
+          (#fn consume ((value (#ref-mut Resource)) (choice #bool)) ()
             (#if choice (#call diverge ()) (#forget (#deref value)))
             (#return ()))
-          (#fn replace ((value (#ref-mut Resource)) (choice bool)) ()
+          (#fn replace ((value (#ref-mut Resource)) (choice #bool)) ()
             (#call consume (: value value : choice choice))
             (#deref-set value (#struct-literal Resource ((number 2u64))))
             (#return ()))";
@@ -14011,7 +14013,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_ownership_summaries_cut_nonreturning_call_continuations() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn diverge () () (#unreachable) (#return ()))
           (#fn caller ((value (#ref-mut Resource))) ()
             (#call diverge ())
@@ -14044,7 +14046,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn nonreturning_helper_contracts_preserve_known_and_unknown_accesses() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
             (#fn consume ((value (#ref-mut Resource))) ()
               (#forget (#deref value)) (#unreachable) (#return ()))
             (#fn forward ((value (#ref-mut Resource))) ()
@@ -14103,8 +14105,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn unresolved_consumption_on_a_trapping_branch_is_not_an_exit_effect() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
-            (#fn consume ((value (#ref-mut Resource)) (selected bool)) ()
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+            (#fn consume ((value (#ref-mut Resource)) (selected #bool)) ()
               (#if selected (#block (#forget (#deref value)) (#unreachable)) ())
               (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -14130,7 +14132,7 @@ mod typed_ownership_tests {
     fn nonreturning_calls_still_require_initialized_referent_inputs() {
         let call = "(#call forward (: value value))";
         let source = format!(
-            "(#struct Resource ((number u64))) (#linear Resource)
+            "(#struct Resource ((number #u64))) (#linear Resource)
              (#fn consume ((value (#ref-mut Resource))) ()
                (#forget (#deref value)) (#unreachable) (#return ()))
              (#fn forward ((value (#ref-mut Resource))) ()
@@ -14161,10 +14163,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn conditional_call_effects_do_not_prove_missing_argument_alternatives() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
             (#fn consume ((value (#ref-mut Resource))) ()
               (#forget (#deref value)) (#return ()))
-            (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (selected bool)) ()
+            (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (selected #bool)) ()
               (#call consume (: value (#if selected left right))) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -14225,12 +14227,12 @@ mod typed_ownership_tests {
             "(#struct-literal Holder ((target (#if selected left right)) (spare spare)))",
         ] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-            (#struct Holder ((target (#ref-mut Resource)) (spare (#ref u64))))
+                "(#struct Resource ((number #u64))) (#linear Resource)
+            (#struct Holder ((target (#ref-mut Resource)) (spare (#ref #u64))))
             (#fn consume ((holder Holder)) ()
               (#forget (#deref (#get holder target))) (#forget holder) (#return ()))
             (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource))
-                         (spare (#ref u64)) (selected bool)) ()
+                         (spare (#ref #u64)) (selected #bool)) ()
               (#call consume (: holder {holder}))
               (#return ()))"
             );
@@ -14285,10 +14287,10 @@ mod typed_ownership_tests {
     fn constructor_slot_effects_preserve_nested_argument_alternatives() {
         for (declaration, getter, argument, spare_type) in [
             (
-                "(#type Holder (#tuple (#ref-mut Resource) (#ref u64)))",
+                "(#type Holder (#tuple (#ref-mut Resource) (#ref #u64)))",
                 "(#get holder 0)",
-                "(#tuple (#tuple (#ref-mut Resource) (#ref u64)) (#if selected left right) spare)",
-                "(#ref u64)",
+                "(#tuple (#tuple (#ref-mut Resource) (#ref #u64)) (#if selected left right) spare)",
+                "(#ref #u64)",
             ),
             (
                 "(#type Holder (#array (#ref-mut Resource) 2))",
@@ -14298,19 +14300,19 @@ mod typed_ownership_tests {
             ),
             (
                 "(#struct Inner ((target (#ref-mut Resource))))
-              (#struct Holder ((inner Inner) (spare (#ref u64))))",
+              (#struct Holder ((inner Inner) (spare (#ref #u64))))",
                 "(#get (#get holder inner) target)",
                 "(#struct-literal Holder ((inner (#struct-literal Inner
                ((target (#if selected left right))))) (spare spare)))",
-                "(#ref u64)",
+                "(#ref #u64)",
             ),
         ] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource) {declaration}
+                "(#struct Resource ((number #u64))) (#linear Resource) {declaration}
                  (#fn consume ((holder Holder)) ()
                    (#forget (#deref {getter})) (#forget holder) (#return ()))
                  (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource))
-                              (spare {spare_type}) (selected bool)) ()
+                              (spare {spare_type}) (selected #bool)) ()
                    (#call consume (: holder {argument})) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -14368,14 +14370,14 @@ mod typed_ownership_tests {
             ("(#if selected (Full left) (Empty))", 1, false),
         ] {
             let source = format!(
-                "(#struct Resource (: number u64)) (#linear Resource)
+                "(#struct Resource (: number #u64)) (#linear Resource)
                 (#enum Choice ((Empty) (Full (#ref-mut Resource))))
                 (#fn consume (: choice Choice) ()
                   (#let done () (#match choice
                     (#case (Empty) ())
                     (#case (Full value) (#block (#forget (#deref value)) ()))))
                   (#return ()))
-                (#fn caller (: left (#ref-mut Resource) : selected bool) ()
+                (#fn caller (: left (#ref-mut Resource) : selected #bool) ()
                   (#let stored Choice (Empty))
                   (#let maybe Choice (#if selected (Full left) (Empty)))
                   (#call consume (: choice {argument})) (#return ()))"
@@ -14427,8 +14429,8 @@ mod typed_ownership_tests {
     #[test]
     fn owned_variant_facts_follow_nested_enum_payload_bindings() {
         let source = "(#fn touch () ()
-          (#let ignored i64 (#unsafe (#linux-syscall i64 39usize ()))) (#return ()))
-          (#enum Choice (Empty (Full u64)))
+          (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
+          (#enum Choice (Empty (Full #u64)))
           (#enum Wrapper (Absent (Wrapped Choice)))
           (#fn inspect () ()
             (#let wrapper Wrapper (Wrapped (Full 1u64)))
@@ -14495,11 +14497,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn owned_variant_facts_intersect_branches_and_invalidate_unknown_calls() {
-        let source = "(#enum Choice ((Empty) (Full u64)))
+        let source = "(#enum Choice ((Empty) (Full #u64)))
             (#struct Holder (: choice Choice))
             (#fn touch () ()
-              (#let ignored i64 (#unsafe (#linux-syscall i64 39usize ()))) (#return ()))
-            (#fn inspect (: selected bool) ()
+              (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
+            (#fn inspect (: selected #bool) ()
               (#let-mut choice Choice (Empty))
               (#let initial Choice choice)
               (#if selected (#block (#set choice (Full 1u64)) ())
@@ -14594,17 +14596,17 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#enum Choice ((Empty) (Full (#ref u64))))
-                (#fn read (: source (#ref Choice)) u64
+                "(#enum Choice ((Empty) (Full (#ref #u64))))
+                (#fn read (: source (#ref Choice)) #u64
                   (#return (#match (#deref source)
                     (#case (Empty) 0u64)
                     (#case (Full value) (#deref value)))))
                 (#fn touch (: target (#ref-mut Choice)) ()
-                  (#let ignored i64 (#unsafe (#linux-syscall i64 39usize ()))) (#return ()))
-                (#fn caller () u64
+                  (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
+                (#fn caller () #u64
                   (#let-mut choice Choice (Empty)) {mutation}
                   (#let borrowed (#ref Choice) (#borrow choice))
-                  (#let result u64 (#call read (: source borrowed)))
+                  (#let result #u64 (#call read (: source borrowed)))
                   (#drop borrowed) (#forget choice) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -14655,14 +14657,14 @@ mod typed_ownership_tests {
 
     #[test]
     fn outer_storage_cannot_retain_a_block_local_reference_after_scope_exit() {
-        let source = "(#struct Holder (: view (#ref u64)))
-            (#fn inspect (: external (#ref u64)) u64
+        let source = "(#struct Holder (: view (#ref #u64)))
+            (#fn inspect (: external (#ref #u64)) #u64
               (#let-mut holder Holder (#struct-literal Holder (: view external)))
               (#let done () (#block
-                (#let local u64 7u64)
+                (#let local #u64 7u64)
                 (#let temporary Holder (#struct-literal Holder (: view (#borrow local))))
                 (#deref-set (#borrow-mut holder) temporary) ()))
-              (#let result u64 (#deref (#get holder view)))
+              (#let result #u64 (#deref (#get holder view)))
               (#forget holder) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -14695,9 +14697,9 @@ mod typed_ownership_tests {
                 "(#deref-set target temporary)"
             };
             let source = format!(
-                "(#struct Holder (: view (#ref u64)))
+                "(#struct Holder (: view (#ref #u64)))
                 (#fn bad (: target ({target} Holder)) ()
-                  (#let local u64 7u64)
+                  (#let local #u64 7u64)
                   (#let temporary Holder (#struct-literal Holder (: view (#borrow local))))
                   {write} (#forget temporary) (#return ()))"
             );
@@ -14729,14 +14731,14 @@ mod typed_ownership_tests {
         for premature in [false, true] {
             let mutation = if premature { "(#set other 1u64)" } else { "" };
             let source = format!(
-                "(#struct Holder (: view (#ref u64)))
-                (#fn main () u64
-                  (#let-mut value u64 7u64) (#let-mut other u64 42u64)
+                "(#struct Holder (: view (#ref #u64)))
+                (#fn main () #u64
+                  (#let-mut value #u64 7u64) (#let-mut other #u64 42u64)
                   (#let-mut holder Holder (#struct-literal Holder (: view (#borrow value))))
                   (#let writer (#ref-mut Holder) (#borrow-mut holder))
                   (#deref-set writer (#struct-literal Holder (: view (#borrow other))))
                   (#drop writer) (#set value 9u64) {mutation}
-                  (#let result u64 (#deref (#get holder view)))
+                  (#let result #u64 (#deref (#get holder view)))
                   (#forget holder) (#set other 1u64) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -14801,10 +14803,10 @@ mod typed_ownership_tests {
                 "later-call" => format!("{clear} (#call touch ()) (#return (Ready))"),
                 _ => unreachable!(),
             };
-            let source = format!("(#struct Part (: view (#ref u64))) (#linear Part)
+            let source = format!("(#struct Part (: view (#ref #u64))) (#linear Part)
                 (#enum Outcome ((Ready) (Pending)))
                 (#fn touch () () (#return ()))
-                (#fn choose (: target (#ref-mut Part) : selected bool : unknown Outcome : replacement (#ref u64)) Outcome {choose})");
+                (#fn choose (: target (#ref-mut Part) : selected #bool : unknown Outcome : replacement (#ref #u64)) Outcome {choose})");
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             declarations.staged_parameter_contents_summaries();
@@ -14873,15 +14875,15 @@ mod typed_ownership_tests {
             // a dead reference would legitimately stop blocking mutation.
             let ready_cleanup = if accepts { "" } else { "(#forget holder)" };
             let source = format!(
-                "(#struct Part (: view (#ref u64))) (#linear Part)
+                "(#struct Part (: view (#ref #u64))) (#linear Part)
                 (#enum Outcome ((Ready) (Pending)))
                 (#fn touch () () (#return ()))
-                (#fn choose (: target (#ref-mut Part) : selected bool : unknown Outcome) Outcome
+                (#fn choose (: target (#ref-mut Part) : selected #bool : unknown Outcome) Outcome
                   (#return (#if selected (#block (#forget (#deref target)) (Ready)) {alternative})))
-                (#fn relay (: target (#ref-mut Part) : selected bool : unknown Outcome) Outcome
+                (#fn relay (: target (#ref-mut Part) : selected #bool : unknown Outcome) Outcome
                   (#let result Outcome (#call choose (: target target : selected selected : unknown unknown)))
                   (#return (#match result (#case (Ready) (Ready)) (#case (Pending) (Pending)))))
-                (#fn main () u64 (#let-mut value u64 42u64)
+                (#fn main () #u64 (#let-mut value #u64 42u64)
                   (#let-mut holder Part (#struct-literal Part (: view (#borrow value))))
                   (#let target (#ref-mut Part) (#borrow-mut holder))
                   (#let outcome Outcome {result}) {between}
@@ -14934,12 +14936,12 @@ mod typed_ownership_tests {
                 format!("(#let outcome Outcome {call})")
             };
             let scrutinee = if direct { call } else { "outcome" };
-            let source = format!("(#struct Part (: view (#ref u64))) (#linear Part)
-                (#enum Outcome ((Ready (#ref u64)) (Pending)))
-                (#fn choose (: target (#ref-mut Part) : selected bool) Outcome
-                  (#return (#if selected (#block (#let saved (#ref u64) (#get target view))
+            let source = format!("(#struct Part (: view (#ref #u64))) (#linear Part)
+                (#enum Outcome ((Ready (#ref #u64)) (Pending)))
+                (#fn choose (: target (#ref-mut Part) : selected #bool) Outcome
+                  (#return (#if selected (#block (#let saved (#ref #u64) (#get target view))
                     (#forget (#deref target)) (Ready saved)) (Pending))))
-                (#fn main () u64 (#let-mut value u64 42u64)
+                (#fn main () #u64 (#let-mut value #u64 42u64)
                   (#let-mut holder Part (#struct-literal Part (: view (#borrow value))))
                   (#let target (#ref-mut Part) (#borrow-mut holder)) {bind}
                   (#return (#match {scrutinee}
@@ -14973,12 +14975,12 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Part (: view (#ref u64))) (#linear Part)
+                "(#struct Part (: view (#ref #u64))) (#linear Part)
                 (#struct Pair (: left Part : right Part))
                 (#enum Outcome ((Ready) (Pending)))
-                (#fn choose (: target (#ref-mut Pair) : selected bool) Outcome
+                (#fn choose (: target (#ref-mut Pair) : selected #bool) Outcome
                   (#return (#if selected (#block (#forget (#get target left)) (Ready)) (Pending))))
-                (#fn main () u64 (#let-mut left-value u64 7u64) (#let-mut right-value u64 42u64)
+                (#fn main () #u64 (#let-mut left-value #u64 7u64) (#let-mut right-value #u64 42u64)
                   (#let-mut holder Pair (#struct-literal Pair
                     (: left (#struct-literal Part (: view (#borrow left-value)))
                      : right (#struct-literal Part (: view (#borrow right-value))))))
@@ -14986,7 +14988,7 @@ mod typed_ownership_tests {
                   (#let outcome Outcome (#call choose (: target target : selected true)))
                   (#return (#match outcome
                     (#case (Ready) (#block (#set left-value 9u64) {mutation}
-                      (#let result u64 (#deref (#get (#get target right) view)))
+                      (#let result #u64 (#deref (#get (#get target right) view)))
                       (#drop target) (#forget (#get holder right)) result))
                     (#case (Pending) (#block (#drop target) (#forget holder) 0u64)))))"
             );
@@ -15034,7 +15036,7 @@ mod typed_ownership_tests {
                 ""
             };
             let read = if mode == "read-before-restore" {
-                "(#let invalid u64 (#get target number))"
+                "(#let invalid #u64 (#get target number))"
             } else {
                 ""
             };
@@ -15045,18 +15047,18 @@ mod typed_ownership_tests {
                 _ => "(Pending)",
             };
             let source = format!(
-                "(#struct Resource (: number u64)) (#linear Resource)
+                "(#struct Resource (: number #u64)) (#linear Resource)
                 (#enum Outcome ((Ready) (Pending)))
                 (#fn touch () () (#return ()))
-                (#fn choose (: target (#ref-mut Resource) : selected bool : unknown Outcome) Outcome
+                (#fn choose (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome
                   (#return (#if selected (#block (#forget (#deref target)) (Ready)) {alternative})))
-                (#fn main () u64
+                (#fn main () #u64
                   (#let-mut holder Resource (#struct-literal Resource (: number 7u64)))
                   (#let target (#ref-mut Resource) (#borrow-mut holder))
                   (#let outcome Outcome (#call choose (: target target : selected true : unknown (Pending)))) {between}
                   (#let-else ({selected}) Outcome outcome (#unreachable))
-                  (#let marker u64 0u64) {read} {restore}
-                  (#let result u64 (#get target number))
+                  (#let marker #u64 0u64) {read} {restore}
+                  (#let result #u64 (#get target number))
                   (#drop target) (#forget holder) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -15142,10 +15144,10 @@ mod typed_ownership_tests {
                 "callee" => "(#return (#if selected (#block (#call consume (: target target)) (Ready)) (Pending)))".into(),
                 _ => unreachable!(),
             };
-            let source = format!("(#struct Resource (: number u64)) (#linear Resource)
+            let source = format!("(#struct Resource (: number #u64)) (#linear Resource)
                 (#enum Outcome ((Ready) (Pending)))
                 (#fn consume (: target (#ref-mut Resource)) () (#forget (#deref target)) (#return ()))
-                (#fn choose (: target (#ref-mut Resource) : selected bool : unknown Outcome) Outcome {implementation})");
+                (#fn choose (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome {implementation})");
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             declarations.staged_parameter_contents_summaries();
@@ -15211,9 +15213,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_variant_exit_contracts_keep_consumed_entry_profiles_separate() {
-        let source = "(#struct Resource (: number u64)) (#linear Resource)
+        let source = "(#struct Resource (: number #u64)) (#linear Resource)
             (#enum Outcome ((Ready) (Pending)))
-            (#fn initialize (: target (#ref-mut Resource) : selected bool) Outcome
+            (#fn initialize (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected
                 (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Ready))
                 (Pending))))";
@@ -15258,7 +15260,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_variant_exit_contracts_do_not_hide_unknown_raw_accesses() {
-        let source = "(#struct Resource (: number u64)) (#linear Resource)
+        let source = "(#struct Resource (: number #u64)) (#linear Resource)
             (#enum Outcome ((Ready) (Pending)))
             (#fn raw (: anchor (#ref-mut Resource) : pointer (#ptr-mut Resource)) Outcome
               (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
@@ -15285,10 +15287,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_variant_exit_contracts_keep_sibling_destinations_distinct() {
-        let source = "(#struct Resource (: number u64)) (#linear Resource)
+        let source = "(#struct Resource (: number #u64)) (#linear Resource)
             (#struct Pair (: left Resource : right Resource))
             (#enum Outcome ((Ready) (Pending)))
-            (#fn choose (: target (#ref-mut Pair) : selected bool) Outcome
+            (#fn choose (: target (#ref-mut Pair) : selected #bool) Outcome
               (#return (#if selected (#block (#forget (#get target left)) (Ready))
                 (#block (#forget (#get target right)) (Pending)))))";
         let program = crate::parse_program(source).unwrap();
@@ -15324,9 +15326,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_variant_exit_contracts_require_a_reachable_normal_return() {
-        let source = "(#struct Resource (: number u64)) (#linear Resource)
+        let source = "(#struct Resource (: number #u64)) (#linear Resource)
             (#enum Outcome ((Ready) (Pending)))
-            (#fn choose (: target (#ref-mut Resource) : selected bool) Outcome
+            (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
               (#if selected (#block (#forget (#deref target)) (#unreachable) (#return (Ready)))
                 (#block (#return (Pending)))) (#return (Ready)))";
         let program = crate::parse_program(source).unwrap();
@@ -15403,20 +15405,20 @@ mod typed_ownership_tests {
             } else {
                 "(#drop target) (#return (#unreachable))"
             };
-            let source = format!("(#struct Resource (: number u64)) (#linear Resource)
+            let source = format!("(#struct Resource (: number #u64)) (#linear Resource)
                 (#enum Outcome ((Ready) (Pending)))
                 (#fn touch () () (#return ()))
-                (#fn choose (: target (#ref-mut Resource) : selected bool : unknown Outcome) Outcome
+                (#fn choose (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome
                   (#return (#if selected (#block (#forget (#deref target)) ({destructive})) {alternative})))
-                (#fn relay (: target (#ref-mut Resource) : selected bool : unknown Outcome) Outcome
+                (#fn relay (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome
                   (#let outcome Outcome (#call choose (: target target : selected selected : unknown unknown)))
                   (#return (#match outcome (#case (Ready) (Ready)) (#case (Pending) (Pending)))))
-                (#fn main () u64
+                (#fn main () #u64
                   (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
                   (#let target (#ref-mut Resource) (#borrow-mut holder)) {before}
                   (#let outcome Outcome {result}) {after}
                   (#let-else ({selected}) Outcome outcome (#unreachable))
-                  (#let result u64 (#get target number))
+                  (#let result #u64 (#get target number))
                   {finish})");
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15480,18 +15482,18 @@ mod typed_ownership_tests {
                 "(#return (#unreachable))"
             };
             let source = format!(
-                "(#struct Resource (: number u64)) (#linear Resource)
+                "(#struct Resource (: number #u64)) (#linear Resource)
                 (#enum Outcome ((Ready) (Pending)))
-                (#fn initialize (: target (#ref-mut Resource) : selected bool) Outcome
+                (#fn initialize (: target (#ref-mut Resource) : selected #bool) Outcome
                   (#return (#if selected (#block (#deref-set target
                     (#struct-literal Resource (: number 42u64))) (Ready)) (Pending))))
-                (#fn caller (: choice bool) u64
+                (#fn caller (: choice #bool) #u64
                   (#let-mut holder Resource (#struct-literal Resource (: number 7u64)))
                   (#let target (#ref-mut Resource) (#borrow-mut holder))
                   (#forget (#deref target)) {setup}
                   (#let outcome Outcome (#call initialize (: target {argument} : selected true)))
                   (#let-else ({selected}) Outcome outcome (#unreachable))
-                  (#let result u64 (#get target number)) {finish})"
+                  (#let result #u64 (#get target number)) {finish})"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15533,20 +15535,20 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_outcome_refinement_revisits_loop_snapshot_dependencies() {
-        let source = "(#struct Resource (: number u64)) (#linear Resource)
+        let source = "(#struct Resource (: number #u64)) (#linear Resource)
             (#enum Outcome ((Ready) (Pending)))
-            (#fn choose (: target (#ref-mut Resource) : selected bool) Outcome
+            (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#forget (#deref target)) (Ready)) (Pending))))
-            (#fn main () u64
+            (#fn main () #u64
               (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
               (#let target (#ref-mut Resource) (#borrow-mut holder))
-              (#let-mut turns u64 0u64)
+              (#let-mut turns #u64 0u64)
               (#loop
                 (#let outcome Outcome (#call choose (: target target : selected false)))
                 (#let-else (Pending) Outcome outcome (#unreachable))
-                (#let read u64 (#get target number))
+                (#let read #u64 (#get target number))
                 (#if (#u64.< turns 1u64) (#block (#set turns 1u64) (#continue)) (#block (#break))))
-              (#let result u64 (#get target number))
+              (#let result #u64 (#get target number))
               (#drop target) (#forget holder) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15568,20 +15570,20 @@ mod typed_ownership_tests {
             };
             let read = format!("(#get (#get target {selected}) number)");
             let source = format!(
-                "(#struct Resource (: number u64)) (#linear Resource)
+                "(#struct Resource (: number #u64)) (#linear Resource)
                 (#struct Pair (: left Resource : right Resource))
                 (#enum Outcome ((Ready) (Pending)))
-                (#fn choose (: target (#ref-mut Pair) : selected bool) Outcome
+                (#fn choose (: target (#ref-mut Pair) : selected #bool) Outcome
                   (#return (#if selected (#block (#forget (#get target left)) (Ready))
                     (#block (#forget (#get target right)) (Pending)))))
-                (#fn main () u64
+                (#fn main () #u64
                   (#let-mut holder Pair (#struct-literal Pair
                     (: left (#struct-literal Resource (: number 42u64))
                      : right (#struct-literal Resource (: number 7u64)))))
                   (#let target (#ref-mut Pair) (#borrow-mut holder))
                   (#let outcome Outcome (#call choose (: target target : selected false)))
                   (#let-else (Pending) Outcome outcome (#unreachable))
-                  (#let result u64 {read}) {finish})"
+                  (#let result #u64 {read}) {finish})"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15605,20 +15607,20 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_outcome_refinement_wakes_on_pre_call_snapshot_changes() {
-        let source = "(#struct Resource (: number u64)) (#linear Resource)
+        let source = "(#struct Resource (: number #u64)) (#linear Resource)
             (#enum Outcome ((Ready) (Pending)))
             (#fn touch () () (#return ()))
-            (#fn choose (: target (#ref-mut Resource) : selected bool) Outcome
+            (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#forget (#deref target)) (#call touch ()) (Ready)) (Pending))))
-            (#fn main () u64
+            (#fn main () #u64
               (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
               (#let target (#ref-mut Resource) (#borrow-mut holder))
-              (#let-mut turns u64 0u64)
+              (#let-mut turns #u64 0u64)
               (#loop
                 (#let outcome Outcome (#call choose (: target target : selected (#u64.< turns 1u64))))
                 (#match outcome
                   (#case (Ready) (#block (#set turns 1u64) (#continue)))
-                  (#case (Pending) (#block (#let read u64 (#get target number)) (#break)))))
+                  (#case (Pending) (#block (#let read #u64 (#get target number)) (#break)))))
               (#return (#unreachable)))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15674,20 +15676,20 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_outcome_refinement_tracks_linear_result_moves() {
-        let source = "(#struct Resource (: number u64)) (#linear Resource)
-            (#struct Metadata (: number u64)) (#linear Metadata)
+        let source = "(#struct Resource (: number #u64)) (#linear Resource)
+            (#struct Metadata (: number #u64)) (#linear Metadata)
             (#enum Outcome ((Ready Metadata) (Pending Metadata)))
-            (#fn choose (: target (#ref-mut Resource) : selected bool) Outcome
+            (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#forget (#deref target))
                 (Ready (#struct-literal Metadata (: number 1u64))))
                 (Pending (#struct-literal Metadata (: number 2u64))))))
-            (#fn main () u64
+            (#fn main () #u64
               (#let-mut holder Resource (#struct-literal Resource (: number 42u64)))
               (#let target (#ref-mut Resource) (#borrow-mut holder))
               (#let outcome Outcome (#call choose (: target target : selected false)))
               (#let saved Outcome outcome)
               (#let-else (Pending metadata) Outcome saved (#unreachable))
-              (#let result u64 (#get target number))
+              (#let result #u64 (#get target number))
               (#forget metadata) (#drop target) (#forget holder) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15701,18 +15703,18 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_outcome_refinement_clears_profiles_even_when_a_run_fails_early() {
-        let source = "(#struct Resource (: number u64)) (#linear Resource)
+        let source = "(#struct Resource (: number #u64)) (#linear Resource)
             (#enum Outcome ((Ready) (Pending)))
-            (#fn initialize (: target (#ref-mut Resource) : selected bool) Outcome
+            (#fn initialize (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#deref-set target
                 (#struct-literal Resource (: number 42u64))) (Ready)) (Pending))))
-            (#fn caller () u64
+            (#fn caller () #u64
               (#let-mut holder Resource (#struct-literal Resource (: number 7u64)))
               (#let target (#ref-mut Resource) (#borrow-mut holder))
               (#forget (#deref target))
               (#let outcome Outcome (#call initialize (: target target : selected true)))
               (#let-else (Ready) Outcome outcome (#unreachable))
-              (#let result u64 (#get target number))
+              (#let result #u64 (#get target number))
               (#drop target) (#forget holder) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15752,26 +15754,26 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_return_variant_constants_intersect_paths_and_forward_calls() {
-        let source = "(#enum Choice ((Empty) (Full (#ref u64))))
+        let source = "(#enum Choice ((Empty) (Full (#ref #u64))))
             (#struct Pair (: left Choice : right Choice))
             (#fn empty () Choice (#return (Empty)))
             (#fn forward () Choice (#return (#call empty ())))
-            (#fn same (: selected bool) Choice (#return (#if selected (Empty) (Empty))))
-            (#fn different (: selected bool : source (#ref u64)) Choice
+            (#fn same (: selected #bool) Choice (#return (#if selected (Empty) (Empty))))
+            (#fn different (: selected #bool : source (#ref #u64)) Choice
               (#return (#if selected (Empty) (Full source))))
             (#fn unknown (: value Choice) Choice (#return value))
             (#fn borrowed (: source (#ref Choice)) (#ref Choice) (#return source))
-            (#fn partial (: selected bool : source (#ref u64)) Pair
+            (#fn partial (: selected #bool : source (#ref #u64)) Pair
               (#return (#struct-literal Pair
                 (: left (#call forward ()) : right (#if selected (Empty) (Full source))))))
-            (#fn early (: selected bool : source (#ref u64)) Choice
+            (#fn early (: selected #bool : source (#ref #u64)) Choice
               (#if selected (#block (#return (Full source)) ())) (#return (Empty)))
-            (#fn raw-write (: source (#ref u64)) Choice
+            (#fn raw-write (: source (#ref #u64)) Choice
               (#let-mut value Choice (Empty))
-              (#let-mut scalar u64 0u64)
+              (#let-mut scalar #u64 0u64)
               (#unsafe (#ptr-write (#addr-of-mut scalar) 1u64)) (#return value))
             (#fn syscall-write () Choice (#let-mut value Choice (Empty))
-              (#let-mut scalar u64 0u64)
+              (#let-mut scalar #u64 0u64)
               (#unsafe (#linux-syscall () 0u64 (0u64 (#addr-of-mut scalar) 0u64))) (#return value))
             (#fn no-return () Choice (#return (#unreachable)))";
         let program = crate::parse_program(source).unwrap();
@@ -15809,10 +15811,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_contents_do_not_hide_reads_of_destroyed_reference_storage() {
-        let source = "(#struct Part (: view (#ref u64))) (#linear Part)
-            (#fn inspect (: target (#ref-mut Part) : replacement (#ref u64)) ()
+        let source = "(#struct Part (: view (#ref #u64))) (#linear Part)
+            (#fn inspect (: target (#ref-mut Part) : replacement (#ref #u64)) ()
               (#forget (#deref target))
-              (#let invalid (#ref u64) (#get target view)) (#drop invalid)
+              (#let invalid (#ref #u64) (#get target view)) (#drop invalid)
               (#deref-set target (#struct-literal Part (: view replacement))) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15900,19 +15902,19 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_contents_and_ownership_share_restore_provenance() {
-        let source = "(#struct Part (: view (#ref u64))) (#linear Part)
-            (#fn replace (: target (#ref-mut Part) : replacement (#ref u64)) ()
+        let source = "(#struct Part (: view (#ref #u64))) (#linear Part)
+            (#fn replace (: target (#ref-mut Part) : replacement (#ref #u64)) ()
               (#forget (#deref target))
               (#deref-set target (#struct-literal Part (: view replacement))) (#return ()))
-            (#fn forward (: target (#ref-mut Part) : replacement (#ref u64)) ()
+            (#fn forward (: target (#ref-mut Part) : replacement (#ref #u64)) ()
               (#call replace (: target target : replacement replacement)) (#return ()))
-            (#fn main () u64
-              (#let-mut old u64 7u64) (#let-mut replacement u64 42u64)
+            (#fn main () #u64
+              (#let-mut old #u64 7u64) (#let-mut replacement #u64 42u64)
               (#let-mut holder Part (#struct-literal Part (: view (#borrow old))))
               (#let target (#ref-mut Part) (#borrow-mut holder))
               (#call forward (: target target : replacement (#borrow replacement)))
               (#drop target) (#set old 9u64)
-              (#let value u64 (#deref (#get holder view))) (#forget holder)
+              (#let value #u64 (#deref (#get holder view))) (#forget holder)
               (#set replacement 9u64) (#return value))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -15936,19 +15938,19 @@ mod typed_ownership_tests {
         for premature in [false, true] {
             let mutation = if premature { "(#set right 9u64)" } else { "" };
             let source = format!(
-                "(#struct Part (: view (#ref u64))) (#linear Part)
+                "(#struct Part (: view (#ref #u64))) (#linear Part)
                  (#struct Pair (: left Part : right Part))
                  (#fn wipe-left (: target (#ref-mut Pair)) ()
                    (#forget (#get target left)) (#return ()))
-                 (#fn main () u64
-                   (#let-mut left u64 7u64) (#let-mut right u64 42u64)
+                 (#fn main () #u64
+                   (#let-mut left #u64 7u64) (#let-mut right #u64 42u64)
                    (#let-mut holder Pair (#struct-literal Pair
                      (: left (#struct-literal Part (: view (#borrow left)))
                       : right (#struct-literal Part (: view (#borrow right))))))
                    (#let target (#ref-mut Pair) (#borrow-mut holder))
                    (#call wipe-left (: target target)) (#drop target)
                    (#set left 9u64) {mutation}
-                   (#let value u64 (#deref (#get (#get holder right) view)))
+                   (#let value #u64 (#deref (#get (#get holder right) view)))
                    (#forget (#get holder right)) (#set right 9u64) (#return value))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -15973,7 +15975,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_nested_callee_destruction_selects_updated_pointer_inputs() {
-        let source = "(#struct Part (: view (#ref u64))) (#linear Part)
+        let source = "(#struct Part (: view (#ref #u64))) (#linear Part)
             (#struct Outer (: inner (#ref-mut Part)))
             (#fn wipe (: target (#ref-mut Outer)) ()
               (#forget (#deref (#get target inner))) (#return ()))
@@ -15997,12 +15999,12 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_destruction_contents_contracts_follow_forwarding_and_restoration() {
-        let source = "(#struct Part (: view (#ref u64))) (#linear Part)
+        let source = "(#struct Part (: view (#ref #u64))) (#linear Part)
             (#fn wipe (: target (#ref-mut Part)) () (#forget (#deref target)) (#return ()))
             (#fn forward (: target (#ref-mut Part)) () (#call wipe (: target target)) (#return ()))
-            (#fn maybe (: target (#ref-mut Part) : selected bool) ()
+            (#fn maybe (: target (#ref-mut Part) : selected #bool) ()
               (#if selected (#forget (#deref target))) (#return ()))
-            (#fn restore (: target (#ref-mut Part) : replacement (#ref u64)) ()
+            (#fn restore (: target (#ref-mut Part) : replacement (#ref #u64)) ()
               (#forget (#deref target)) (#deref-set target (#struct-literal Part (: view replacement))) (#return ()))
             (#fn take (: target (#pin-ref-mut Part)) Part (#return (#unsafe (#pin-read target))))
             (#fn idle () () (#return ()))
@@ -16039,32 +16041,32 @@ mod typed_ownership_tests {
     #[test]
     fn staged_callee_destruction_releases_contents_but_retains_escaped_loans() {
         for escaped in [false, true] {
-            let result_type = if escaped { "(#ref u64)" } else { "()" };
+            let result_type = if escaped { "(#ref #u64)" } else { "()" };
             let capture = if escaped {
-                "(#let escaped (#ref u64) (#get target view))"
+                "(#let escaped (#ref #u64) (#get target view))"
             } else {
                 ""
             };
             let returned = if escaped { "escaped" } else { "()" };
             let invocation = "(#call forward (: target target))";
             let invocation = if escaped {
-                format!("(#let escaped (#ref u64) {invocation})")
+                format!("(#let escaped (#ref #u64) {invocation})")
             } else {
                 invocation.into()
             };
             let finish = if escaped {
-                "(#let value u64 (#deref escaped)) (#drop escaped) (#return value)"
+                "(#let value #u64 (#deref escaped)) (#drop escaped) (#return value)"
             } else {
                 "(#return 42u64)"
             };
             let source = format!(
-                "(#struct Part (: view (#ref u64))) (#linear Part)
+                "(#struct Part (: view (#ref #u64))) (#linear Part)
                  (#fn wipe (: target (#ref-mut Part)) {result_type}
                    {capture} (#forget (#deref target)) (#return {returned}))
                  (#fn forward (: target (#ref-mut Part)) {result_type}
                    (#return (#call wipe (: target target))))
-                 (#fn main () u64
-                   (#let-mut old u64 7u64)
+                 (#fn main () #u64
+                   (#let-mut old #u64 7u64)
                    (#let-mut holder Part (#struct-literal Part (: view (#borrow old))))
                    (#let target (#ref-mut Part) (#borrow-mut holder))
                    {invocation} (#drop target) (#set old 9u64) {finish})"
@@ -16091,8 +16093,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_copy_valued_pin_reads_keep_parameter_contents() {
-        let source = "(#struct Holder (: view (#ref u64)))
-            (#fn peek (: target (#pin-ref-mut Holder)) (#ref u64)
+        let source = "(#struct Holder (: view (#ref #u64)))
+            (#fn peek (: target (#pin-ref-mut Holder)) (#ref #u64)
               (#let copied Holder (#unsafe (#pin-read target))) (#forget copied)
               (#return (#get target view)))";
         let program = crate::parse_program(source).unwrap();
@@ -16116,8 +16118,8 @@ mod typed_ownership_tests {
                 "(#return moved)"
             };
             let source = format!(
-                "(#struct Holder (: view (#ref u64))) (#linear Holder)
-                 (#fn transfer (: target (#pin-ref-mut Holder) : replacement (#ref u64)) Holder
+                "(#struct Holder (: view (#ref #u64))) (#linear Holder)
+                 (#fn transfer (: target (#pin-ref-mut Holder) : replacement (#ref #u64)) Holder
                    (#let moved Holder (#unsafe (#pin-read target)))
                    (#unsafe (#pin-write target (#struct-literal Holder (: view replacement))))
                    {returned})"
@@ -16179,19 +16181,19 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Holder (: view (#ref u64)))
-                 (#fn rewrite (: target (#ref-mut Holder) : replacement (#ref u64)) (#ref u64)
+                "(#struct Holder (: view (#ref #u64)))
+                 (#fn rewrite (: target (#ref-mut Holder) : replacement (#ref #u64)) (#ref #u64)
                    (#deref-set target (#struct-literal Holder (: view replacement)))
                    (#return (#get target view)))
-                 (#fn forward (: target (#ref-mut Holder) : replacement (#ref u64)) (#ref u64)
+                 (#fn forward (: target (#ref-mut Holder) : replacement (#ref #u64)) (#ref #u64)
                    (#return (#call rewrite (: target target : replacement replacement))))
-                 (#fn main () u64
-                   (#let-mut old u64 7u64) (#let-mut replacement u64 42u64)
+                 (#fn main () #u64
+                   (#let-mut old #u64 7u64) (#let-mut replacement #u64 42u64)
                    (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
                    (#let target (#ref-mut Holder) (#borrow-mut holder))
-                   (#let result (#ref u64) (#call forward (: target target : replacement (#borrow replacement))))
+                   (#let result (#ref #u64) (#call forward (: target target : replacement (#borrow replacement))))
                    (#drop target) (#forget holder) (#set old 9u64) {mutation}
-                   (#let value u64 (#deref result)) (#drop result)
+                   (#let value #u64 (#deref result)) (#drop result)
                    (#set replacement 9u64) (#return value))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -16235,7 +16237,7 @@ mod typed_ownership_tests {
             ),
             (
                 "saved-before-write",
-                "(#let saved (#ref u64) (#get target view))
+                "(#let saved (#ref #u64) (#get target view))
                  (#deref-set target (#struct-literal Holder (: view replacement)))",
                 vec![0],
             ),
@@ -16251,13 +16253,13 @@ mod typed_ownership_tests {
                 "(#call read (: target target))"
             };
             let source = format!(
-                "(#struct Holder (: view (#ref u64)))
-                 (#fn replace (: target (#ref-mut Holder) : replacement (#ref u64)) ()
+                "(#struct Holder (: view (#ref #u64)))
+                 (#fn replace (: target (#ref-mut Holder) : replacement (#ref #u64)) ()
                    (#deref-set target (#struct-literal Holder (: view replacement))) (#return ()))
-                 (#fn read (: target {target_type}) (#ref u64) (#return (#get target view)))
-                 (#fn rewrite (: target {target_type} : replacement (#ref u64) : selected bool) (#ref u64)
+                 (#fn read (: target {target_type}) (#ref #u64) (#return (#get target view)))
+                 (#fn rewrite (: target {target_type} : replacement (#ref #u64) : selected #bool) (#ref #u64)
                    {write} (#return {returned}))
-                 (#fn forward (: target {target_type} : replacement (#ref u64) : selected bool) (#ref u64)
+                 (#fn forward (: target {target_type} : replacement (#ref #u64) : selected #bool) (#ref #u64)
                    (#return (#call rewrite (: target target : replacement replacement : selected selected))))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -16283,10 +16285,10 @@ mod typed_ownership_tests {
         // These writes must update the callee's concrete reference contents;
         // the read that follows must retain the replacement's actual loan.
         let native = crate::parse_program(
-            "(#struct Holder (: view (#ref u64)))
-             (#fn load-after-replace (: target (#ref-mut Holder) : replacement (#ref u64)) u64
+            "(#struct Holder (: view (#ref #u64)))
+             (#fn load-after-replace (: target (#ref-mut Holder) : replacement (#ref #u64)) #u64
                (#deref-set target (#struct-literal Holder (: view replacement)))
-               (#let chosen (#ref u64) (#get target view))
+               (#let chosen (#ref #u64) (#get target view))
                (#return (#deref chosen)))",
         )
         .unwrap();
@@ -16339,10 +16341,10 @@ mod typed_ownership_tests {
             } else {
                 "(#get target view)"
             };
-            let source = format!("(#struct Holder (: view (#ref u64)))
-                (#fn replace (: target (#ref-mut Holder) : replacement (#ref u64)) () {direct} (#return ()))
-                (#fn read (: target (#ref-mut Holder)) (#ref u64) (#return (#get target view)))
-                (#fn rewrite (: target ({target_type} Holder) : replacement (#ref u64) : selected bool) (#ref u64)
+            let source = format!("(#struct Holder (: view (#ref #u64)))
+                (#fn replace (: target (#ref-mut Holder) : replacement (#ref #u64)) () {direct} (#return ()))
+                (#fn read (: target (#ref-mut Holder)) (#ref #u64) (#return (#get target view)))
+                (#fn rewrite (: target ({target_type} Holder) : replacement (#ref #u64) : selected #bool) (#ref #u64)
                   {write} (#return {read}))");
             let program = crate::parse_program(&source).unwrap();
             crate::check_types(&program).unwrap_or_else(|error| panic!("{mode}: {error}"));
@@ -16390,9 +16392,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_parameter_contents_keep_nested_pointer_inputs_distinct() {
-        let source = "(#struct Holder (: view (#ref u64)))
+        let source = "(#struct Holder (: view (#ref #u64)))
             (#struct Outer (: inner (#ref-mut Holder)))
-            (#fn rewrite (: target (#ref-mut Outer) : replacement (#ref u64)) (#ref u64)
+            (#fn rewrite (: target (#ref-mut Outer) : replacement (#ref #u64)) (#ref #u64)
               (#let inner (#ref-mut Holder) (#get target inner))
               (#deref-set inner (#struct-literal Holder (: view replacement)))
               (#return (#get inner view)))";
@@ -16435,14 +16437,14 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_nested_pointer_store_retains_the_replacement_loan() {
-        let source = "(#struct Holder (: view (#ref u64)))
-            (#struct Outer (: inner (#ref-mut Holder) : sibling u64))
-            (#fn rewrite (: target (#ref-mut Outer) : replacement (#ref u64)) ()
+        let source = "(#struct Holder (: view (#ref #u64)))
+            (#struct Outer (: inner (#ref-mut Holder) : sibling #u64))
+            (#fn rewrite (: target (#ref-mut Outer) : replacement (#ref #u64)) ()
               (#let inner (#ref-mut Holder) (#get target inner))
               (#deref-set inner (#struct-literal Holder (: view replacement)))
               (#return ()))
             (#fn main () ()
-              (#let old u64 1u64) (#let-mut replacement u64 42u64)
+              (#let old #u64 1u64) (#let-mut replacement #u64 42u64)
               (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
               (#let-mut outer Outer (#struct-literal Outer (: inner (#borrow-mut holder) : sibling 0u64)))
               (#call rewrite (: target (#borrow-mut outer) : replacement (#borrow replacement)))
@@ -16471,8 +16473,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_parameter_contents_preserve_symbolic_array_pointee_facts() {
-        let source = "(#struct Holder (: view (#ref u64)))
-            (#fn rewrite (: targets (#array (#ref-mut Holder) 2) : replacement (#ref u64)) (#ref u64)
+        let source = "(#struct Holder (: view (#ref #u64)))
+            (#fn rewrite (: targets (#array (#ref-mut Holder) 2) : replacement (#ref #u64)) (#ref #u64)
               (#let target (#ref-mut Holder) (#index targets 1usize))
               (#deref-set target (#struct-literal Holder (: view replacement)))
               (#return (#get target view)))";
@@ -16512,13 +16514,13 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Holder (: view (#ref u64)))
-                (#fn main () u64 (#let-mut old u64 7u64) (#let-mut replacement u64 42u64)
+                "(#struct Holder (: view (#ref #u64)))
+                (#fn main () #u64 (#let-mut old #u64 7u64) (#let-mut replacement #u64 42u64)
                   (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
                   (#let target (#pin-ref-mut Holder) (#pin-borrow-mut holder))
                   (#pin-set-field target view (#borrow replacement)) (#drop target)
                   (#set old 9u64) {mutation}
-                  (#let result u64 (#deref (#get holder view)))
+                  (#let result #u64 (#deref (#get holder view)))
                   (#forget holder) (#set replacement 9u64) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -16544,14 +16546,14 @@ mod typed_ownership_tests {
     #[test]
     fn nested_blocks_preserve_loop_control_without_leaking_it_afterward() {
         for source in [
-            "(#fn main () u64 (#let-mut count u64 0u64)
+            "(#fn main () #u64 (#let-mut count #u64 0u64)
               (#while (#u64.< count 2u64)
                 (#block (#set count (#u64.+.wrap count 1u64))
                   (#if (#u64.== count 1u64) (#block (#continue)) ())))
               (#return count))",
-            "(#fn main () u64 (#loop (#block (#break))) (#return 42u64))",
-            "(#fn main () u64 (#let-mut count u64 0u64)
-              (#let result u64 (#loop (#if (#u64.< count 1u64)
+            "(#fn main () #u64 (#loop (#block (#break))) (#return 42u64))",
+            "(#fn main () #u64 (#let-mut count #u64 0u64)
+              (#let result #u64 (#loop (#if (#u64.< count 1u64)
                 (#block (#set count 1u64) (#continue))
                 (#block (#break 42u64))))) (#return result))",
         ] {
@@ -16559,10 +16561,10 @@ mod typed_ownership_tests {
             crate::check_types(&program).unwrap();
         }
         for source in [
-            "(#fn main () u64 (#block (#continue)) (#return 42u64))",
-            "(#fn main () u64 (#while false (#block (#continue)))
+            "(#fn main () #u64 (#block (#continue)) (#return 42u64))",
+            "(#fn main () #u64 (#while false (#block (#continue)))
               (#block (#continue)) (#return 42u64))",
-            "(#fn main () u64 (#loop (#block (#break)))
+            "(#fn main () #u64 (#loop (#block (#break)))
               (#block (#break)) (#return 42u64))",
         ] {
             let program = crate::parse_program(source).unwrap();
@@ -16616,7 +16618,7 @@ mod typed_ownership_tests {
             if mode == "continue-before" {
                 source = source.replace(
                     "(#let second Outcome",
-                    "(#let-mut turns u64 0u64) (#let second Outcome",
+                    "(#let-mut turns #u64 0u64) (#let second Outcome",
                 );
             }
             let program = crate::parse_program(&source).unwrap();
@@ -16699,7 +16701,7 @@ mod typed_ownership_tests {
                 } else {
                     "(#deref-set target (Empty))"
                 };
-                source.push_str(&format!("\n(#fn other-step (: target (#ref-mut Choice) : value (#ref u64) : complete bool) Outcome {writes} (#return (Ready)))"));
+                source.push_str(&format!("\n(#fn other-step (: target (#ref-mut Choice) : value (#ref #u64) : complete #bool) Outcome {writes} (#return (Ready)))"));
             }
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -16734,17 +16736,17 @@ mod typed_ownership_tests {
                 .map(|name| format!("(#set {name} 1u64)"))
                 .unwrap_or_default();
             let source = format!(
-                "(#enum Holder ((Empty) (Full (#ref u64))))
+                "(#enum Holder ((Empty) (Full (#ref #u64))))
                 (#enum Outcome ((Ready) (Pending)))
-                (#fn store (: target (#ref-mut Holder) : value (#ref u64)) Outcome
+                (#fn store (: target (#ref-mut Holder) : value (#ref #u64)) Outcome
                   (#deref-set target (Full value)) (#return (Ready)))
-                (#fn main () u64
-                  (#let-mut left u64 7u64) (#let-mut right u64 42u64)
+                (#fn main () #u64
+                  (#let-mut left #u64 7u64) (#let-mut right #u64 42u64)
                   (#let-mut holder Holder (Empty))
                   (#let result Outcome (#if true
                     (#call store (: target (#borrow-mut holder) : value (#borrow left)))
                     (#call store (: target (#borrow-mut holder) : value (#borrow right)))))
-                  (#let output u64 (#match result
+                  (#let output #u64 (#match result
                     (#case (Ready) (#block {change} 0u64)) (#case (Pending) 0u64)))
                   (#forget holder) (#set left 9u64) (#set right 9u64) (#return output))"
             );
@@ -16774,20 +16776,20 @@ mod typed_ownership_tests {
     fn staged_branch_clearing_keeps_loans_carried_by_the_returned_value() {
         for premature in [false, true] {
             let mutation = if premature { "(#set old 9u64)" } else { "" };
-            let source = format!("(#enum Choice ((Empty) (Full (#ref u64))))
+            let source = format!("(#enum Choice ((Empty) (Full (#ref #u64))))
                 (#enum Outcome ((Ready Choice) (Pending)))
-                (#fn take (: target (#ref-mut Choice) : replacement (#ref u64) : selected bool) Outcome
+                (#fn take (: target (#ref-mut Choice) : replacement (#ref #u64) : selected #bool) Outcome
                   (#return (#if selected
                     (#block (#let previous Choice (#deref target))
                       (#deref-set target (Empty)) (Ready previous))
                     (#block (#deref-set target (Full replacement)) (Pending)))))
-                (#fn main () u64
-                  (#let-mut old u64 7u64) (#let replacement u64 42u64)
+                (#fn main () #u64
+                  (#let-mut old #u64 7u64) (#let replacement #u64 42u64)
                   (#let-mut holder Choice (Full (#borrow old)))
                   (#let result Outcome (#if true
                     (#call take (: target (#borrow-mut holder) : replacement (#borrow replacement) : selected true))
                     (#call take (: target (#borrow-mut holder) : replacement (#borrow replacement) : selected true))))
-                  (#let output u64 (#match result
+                  (#let output #u64 (#match result
                     (#case (Ready previous) (#block {mutation} (#forget previous) 0u64))
                     (#case (Pending) 0u64)))
                   (#forget holder) (#set old 9u64) (#return output))");
@@ -16854,7 +16856,7 @@ mod typed_ownership_tests {
                     let next_use = match mode {
                         "stale-source" => "(#let-mut forwarded Outcome",
                         "stale-intermediate" => "(#let-mut final Outcome",
-                        _ => "(#let output u64",
+                        _ => "(#let output #u64",
                     };
                     source =
                         source.replace(next_use, &format!("(#set {target} (Ready)) {next_use}"));
@@ -16924,7 +16926,7 @@ mod typed_ownership_tests {
                 }
                 "call" | "constructor-effect" => {
                     source.push_str(
-                        "\n(#fn overwrite (: target (#ref-mut Choice) : value (#ref u64)) ()
+                        "\n(#fn overwrite (: target (#ref-mut Choice) : value (#ref #u64)) ()
                         (#deref-set target (Full value)) (#return ()))",
                     );
                     if mode == "call" {
@@ -17024,9 +17026,9 @@ mod typed_ownership_tests {
     #[test]
     fn staged_return_conditioned_contents_include_writes_after_constructor_evaluation() {
         use crate::typed_flow::{FlowAction, FlowNode, FlowNodeId};
-        let source = "(#enum Choice ((Empty) (Full (#ref u64))))
+        let source = "(#enum Choice ((Empty) (Full (#ref #u64))))
             (#enum Outcome ((Ready) (Pending)))
-            (#fn choose (: target (#ref-mut Choice) : value (#ref u64)) Outcome
+            (#fn choose (: target (#ref-mut Choice) : value (#ref #u64)) Outcome
               (#deref-set target (Full value)) (#deref-set target (Empty))
               (#return (Ready)))";
         let program = crate::parse_program(source).unwrap();
@@ -17078,9 +17080,9 @@ mod typed_ownership_tests {
                 "same-variant" => format!("(#return (#if selected (#block {clear} (Ready)) (#block {write} (Ready))))"),
                 _ => unreachable!(),
             };
-            let source = format!("(#enum Choice ((Empty) (Full (#ref u64))))
+            let source = format!("(#enum Choice ((Empty) (Full (#ref #u64))))
                 (#enum Outcome ((Ready) (Pending)))
-                (#fn choose (: target (#ref-mut Choice) : value (#ref u64) : selected bool : unknown Outcome) Outcome {body})");
+                (#fn choose (: target (#ref-mut Choice) : value (#ref #u64) : selected #bool : unknown Outcome) Outcome {body})");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
             let body = &declarations.bodies["choose"];
@@ -17118,10 +17120,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_final_store_sources_follow_callee_updates_to_local_storage() {
-        let source = "(#struct Holder (: view (#ref u64)))
-            (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
+        let source = "(#struct Holder (: view (#ref #u64)))
+            (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
               (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
-            (#fn relay (: destination (#ref-mut Holder) : old (#ref u64) : new (#ref u64)) ()
+            (#fn relay (: destination (#ref-mut Holder) : old (#ref #u64) : new (#ref #u64)) ()
               (#let-mut temporary Holder (#struct-literal Holder (: view old)))
               (#let local (#ref-mut Holder) (#borrow-mut temporary))
               (#call replace (: target local : value new)) (#drop local)
@@ -17141,8 +17143,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn definite_heap_field_write_stays_definite_with_carried_owner_loans() {
-        let source = "(#struct Holder (: link (#ref u64)))
-            (#fn replace-owned (: owner (#pin-own Holder) : value (#ref u64)) (#pin-own Holder)
+        let source = "(#struct Holder (: link (#ref #u64)))
+            (#fn replace-owned (: owner (#pin-own Holder) : value (#ref #u64)) (#pin-own Holder)
               (#let-mut moved (#pin-own Holder) owner)
               (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut moved))
               (#pin-set-field view link value) (#drop view) (#return moved))";
@@ -17211,9 +17213,9 @@ mod typed_ownership_tests {
                 _ => unreachable!(),
             };
             let source = format!(
-                "(#enum Choice ((Empty) (Full (#ref u64))))
+                "(#enum Choice ((Empty) (Full (#ref #u64))))
                 (#fn clear (: target (#ref-mut Choice)) () {clear} (#return ()))
-                (#fn replace (: target (#ref-mut Choice) : value (#ref u64) : selected bool) ()
+                (#fn replace (: target (#ref-mut Choice) : value (#ref #u64) : selected #bool) ()
                   {body} (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -17251,9 +17253,9 @@ mod typed_ownership_tests {
                 "dynamic-index" => ("(#array Choice 2)", "(#deref-set (#borrow-mut (#index target index)) (Full value))".to_owned()),
                 _ => unreachable!(),
             };
-            let source = format!("(#enum Choice ((Empty) (Full (#ref u64))))
+            let source = format!("(#enum Choice ((Empty) (Full (#ref #u64))))
                 (#struct Pair (: left Choice : right Choice))
-                (#fn replace (: target (#ref-mut {target}) : value (#ref u64) : selected bool : index usize) ()
+                (#fn replace (: target (#ref-mut {target}) : value (#ref #u64) : selected #bool : index #usize) ()
                   {body} (#return ()))");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17284,17 +17286,17 @@ mod typed_ownership_tests {
         for premature in [false, true] {
             let mutation = if premature { "(#set value 1u64)" } else { "" };
             let source = format!(
-                "(#enum Choice ((Empty) (Full (#ref u64))))
+                "(#enum Choice ((Empty) (Full (#ref #u64))))
                 (#fn take (: target (#ref-mut Choice)) Choice
                   (#let previous Choice (#deref target))
                   (#deref-set target (Empty)) (#return previous))
-                (#fn main () u64
-                  (#let-mut value u64 42u64)
+                (#fn main () #u64
+                  (#let-mut value #u64 42u64)
                   (#let-mut holder Choice (Full (#borrow value)))
                   (#let target (#ref-mut Choice) (#borrow-mut holder))
                   (#let previous Choice (#call take (: target target)))
                   (#drop target) {mutation}
-                  (#let result u64 (#match previous
+                  (#let result #u64 (#match previous
                     (#case (Empty) 0u64) (#case (Full view) (#deref view))))
                   (#forget previous) (#forget holder)
                   (#set value 1u64) (#return result))"
@@ -17372,18 +17374,18 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_callee_store_into_outer_storage_cannot_hide_a_block_local_escape() {
-        let source = "(#struct Holder (: view (#ref u64)))
-            (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
+        let source = "(#struct Holder (: view (#ref #u64)))
+            (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
               (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
-            (#fn main () u64
-              (#let old u64 7u64)
+            (#fn main () #u64
+              (#let old #u64 7u64)
               (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
               (#block
-                (#let local u64 42u64)
+                (#let local #u64 42u64)
                 (#let target (#ref-mut Holder) (#borrow-mut holder))
                 (#call replace (: target target : value (#borrow local)))
                 (#drop target))
-              (#let result u64 (#deref (#get holder view)))
+              (#let result #u64 (#deref (#get holder view)))
               (#forget holder) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17412,18 +17414,18 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_store_preserves_projected_destination_slots() {
-        let source = "(#struct Holder (: view (#ref u64)))
+        let source = "(#struct Holder (: view (#ref #u64)))
             (#struct Outer (: holder Holder))
-            (#fn replace (: outer (#ref-mut Outer) : value (#ref u64)) ()
+            (#fn replace (: outer (#ref-mut Outer) : value (#ref #u64)) ()
               (#deref-set (#borrow-mut (#get outer holder))
                 (#struct-literal Holder (: view value))) (#return ()))
-            (#fn main () u64
-              (#let old u64 7u64) (#let-mut value u64 42u64)
+            (#fn main () #u64
+              (#let old #u64 7u64) (#let-mut value #u64 42u64)
               (#let-mut outer Outer (#struct-literal Outer
                 (: holder (#struct-literal Holder (: view (#borrow old))))))
               (#call replace (: outer (#borrow-mut outer) : value (#borrow value)))
               (#set value 1u64)
-              (#let result u64 (#deref (#get (#get outer holder) view)))
+              (#let result #u64 (#deref (#get (#get outer holder) view)))
               (#forget outer) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17462,10 +17464,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_store_substitution_requires_actual_input_loans() {
-        let source = "(#struct Holder (: view (#ref u64)))
-            (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
+        let source = "(#struct Holder (: view (#ref #u64)))
+            (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
               (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
-            (#fn relay (: target (#ref-mut Holder) : value (#ref u64)) ()
+            (#fn relay (: target (#ref-mut Holder) : value (#ref #u64)) ()
               (#call replace (: target target : value value)) (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17554,7 +17556,7 @@ mod typed_ownership_tests {
                 _ => "(#deref-set target (#struct-literal Holder (: view value)))",
             };
             let relay = if mode == "forwarded" {
-                "(#fn relay (: target (#ref-mut Holder) : value (#ref u64) : selected bool) ()
+                "(#fn relay (: target (#ref-mut Holder) : value (#ref #u64) : selected #bool) ()
                   (#call replace (: target target : value value : selected selected)) (#return ()))"
             } else {
                 ""
@@ -17570,16 +17572,16 @@ mod typed_ownership_tests {
                 _ => "(#borrow value)",
             };
             let source = format!(
-                "(#struct Holder (: view (#ref u64)))
-                (#fn replace (: target ({target_type} Holder) : value (#ref u64) : selected bool) ()
+                "(#struct Holder (: view (#ref #u64)))
+                (#fn replace (: target ({target_type} Holder) : value (#ref #u64) : selected #bool) ()
                   {write} (#return ())) {relay}
-                (#fn main () u64
-                  (#let old u64 7u64) (#let-mut value u64 42u64)
+                (#fn main () #u64
+                  (#let old #u64 7u64) (#let-mut value #u64 42u64)
                   (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
                   (#let target ({target_type} Holder) ({borrow} holder))
                   (#call {called} (: target target : value {argument} : selected true))
                   (#drop target) (#set value 1u64)
-                  (#let result u64 (#deref (#get holder view)))
+                  (#let result #u64 (#deref (#get holder view)))
                   (#forget holder) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -17639,17 +17641,17 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_callee_reference_store_retains_the_callers_rhs_loan() {
-        let source = "(#struct Holder (: view (#ref u64)))
-            (#fn replace (: target (#ref-mut Holder) : value (#ref u64)) ()
+        let source = "(#struct Holder (: view (#ref #u64)))
+            (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
               (#deref-set target (#struct-literal Holder (: view value)))
               (#return ()))
-            (#fn main () u64
-              (#let old u64 7u64) (#let-mut value u64 42u64)
+            (#fn main () #u64
+              (#let old #u64 7u64) (#let-mut value #u64 42u64)
               (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
               (#let target (#ref-mut Holder) (#borrow-mut holder))
               (#call replace (: target target : value (#borrow value)))
               (#drop target) (#set value 1u64)
-              (#let result u64 (#deref (#get holder view)))
+              (#let result #u64 (#deref (#get holder view)))
               (#forget holder) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17679,16 +17681,16 @@ mod typed_ownership_tests {
 
     #[test]
     fn local_holder_restoration_cannot_duplicate_an_exclusive_loan() {
-        let source = "(#struct Pair (: left (#ref-mut u64) : right (#ref-mut u64)))
-            (#fn main () u64
-              (#let-mut left u64 1u64) (#let-mut right u64 2u64)
-              (#let-mut owner u64 3u64)
+        let source = "(#struct Pair (: left (#ref-mut #u64) : right (#ref-mut #u64)))
+            (#fn main () #u64
+              (#let-mut left #u64 1u64) (#let-mut right #u64 2u64)
+              (#let-mut owner #u64 3u64)
               (#let-mut pair Pair (#struct-literal Pair
                 (: left (#borrow-mut left) : right (#borrow-mut right))))
               (#let target (#pin-ref-mut Pair) (#pin-borrow-mut pair))
               (#let displaced Pair (#unsafe (#pin-read target)))
               (#forget displaced)
-              (#let reference (#ref-mut u64) (#borrow-mut owner))
+              (#let reference (#ref-mut #u64) (#borrow-mut owner))
               (#unsafe (#pin-write target (#struct-literal Pair
                 (: left reference : right reference))))
               (#drop target) (#forget pair) (#return 0u64))";
@@ -17705,16 +17707,16 @@ mod typed_ownership_tests {
         for premature in [false, true] {
             let mutation = if premature { "(#set value 1u64)" } else { "" };
             let source = format!(
-                "(#struct Holder (: view (#ref u64)))
+                "(#struct Holder (: view (#ref #u64)))
                 (#struct Wrapper (: holder Holder))
-                (#fn main () u64
-                  (#let-mut value u64 42u64)
+                (#fn main () #u64
+                  (#let-mut value #u64 42u64)
                   (#let source Holder (#struct-literal Holder (: view (#borrow value))))
                   (#let-mut destination Wrapper (#struct-literal Wrapper (: holder source)))
                   (#let writer (#ref-mut Wrapper) (#borrow-mut destination))
                   (#deref-set writer (#struct-literal Wrapper (: holder source)))
                   (#drop writer) (#forget source) {mutation}
-                  (#let result u64 (#deref (#get (#get destination holder) view)))
+                  (#let result #u64 (#deref (#get (#get destination holder) view)))
                   (#forget destination) (#set value 1u64) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -17735,14 +17737,14 @@ mod typed_ownership_tests {
     fn restoring_a_moved_exclusive_holder_keeps_its_parent_suspended() {
         for premature in [false, true] {
             let access = if premature {
-                "(#let observed u64 (#call observe (: owner parent)))"
+                "(#let observed #u64 (#call observe (: owner parent)))"
             } else {
                 ""
             };
-            let source = format!("(#struct Owner (: number u64)) (#linear Owner)
-                (#struct View (: item (#ref-mut u64))) (#linear View)
-                (#fn observe (: owner (#ref-mut Owner)) u64 (#return (#get owner number)))
-                (#fn main () u64
+            let source = format!("(#struct Owner (: number #u64)) (#linear Owner)
+                (#struct View (: item (#ref-mut #u64))) (#linear View)
+                (#fn observe (: owner (#ref-mut Owner)) #u64 (#return (#get owner number)))
+                (#fn main () #u64
                   (#let-mut owner Owner (#struct-literal Owner (: number 1u64)))
                   (#let parent (#ref-mut Owner) (#borrow-mut owner))
                   (#let-mut view View (#struct-literal View (: item (#borrow-mut (#get parent number)))))
@@ -17751,7 +17753,7 @@ mod typed_ownership_tests {
                   (#unsafe (#pin-write target loaded)) (#drop target) {access}
                   (#deref-set (#get view item) 42u64)
                   (#forget view) (#drop parent)
-                  (#let result u64 (#get owner number)) (#forget owner) (#return result))");
+                  (#let result #u64 (#get owner number)) (#forget owner) (#return result))");
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -17779,8 +17781,8 @@ mod typed_ownership_tests {
     #[test]
     fn indirect_variant_writes_require_one_actual_local_destination() {
         let program = crate::parse_program(
-            "(#enum Choice ((Empty) (Full u64)))
-            (#fn inspect (: selected bool) ()
+            "(#enum Choice ((Empty) (Full #u64)))
+            (#fn inspect (: selected #bool) ()
               (#let-mut left Choice (Empty)) (#let-mut right Choice (Empty))
               (#let target (#ref-mut Choice)
                 (#if selected (#borrow-mut left) (#borrow-mut right)))
@@ -17834,9 +17836,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn repeated_array_call_slots_retain_alternatives_and_reject_missing_elements() {
-        let source = "(#fn read ((values (#array (#ref u64) 2))) u64
+        let source = "(#fn read ((values (#array (#ref #u64) 2))) #u64
               (#return (#deref (#index values 1usize))))
-            (#fn caller ((left (#ref u64)) (right (#ref u64)) (selected bool)) u64
+            (#fn caller ((left (#ref #u64)) (right (#ref #u64)) (selected #bool)) #u64
               (#return (#call read (: values (#array-repeat (#if selected left right))))))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17903,8 +17905,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn array_held_reference_field_reads_preserve_the_concrete_input_slot() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
-            (#fn read ((values (#array (#ref Resource) 2))) u64
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+            (#fn read ((values (#array (#ref Resource) 2))) #u64
               (#return (#get (#index values 1usize) number)))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17941,10 +17943,10 @@ mod typed_ownership_tests {
             ("(#let target (#ref-mut Resource) (#if choice (#borrow-mut left) (#borrow-mut right))) (#call consume (: value target))", false),
             ("(#call consume (: value (#borrow-mut left))) (#call consume (: value (#borrow-mut right)))", true),
         ] {
-            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
-              (#fn replace ((choice bool)) ()
+              (#fn replace ((choice #bool)) ()
                 (#let-mut left Resource (#struct-literal Resource ((number 1u64))))
                 (#let-mut right Resource (#struct-literal Resource ((number 2u64))))
                 {consumption}
@@ -17971,7 +17973,7 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::Place;
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource) (#return value))
           (#fn inspect ((reference (#ref-mut Resource))) ()
             (#forget (#deref reference))
@@ -18001,7 +18003,7 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::Place;
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource))) ()
             (#let-mut handle (#ref-mut Resource) left)
             (#forget (#deref left)) (#forget (#deref right))
@@ -18065,15 +18067,15 @@ mod typed_ownership_tests {
         use crate::typed_body::PlaceRoot;
         use crate::typed_flow::{FlowAction, FlowNodeId};
         for source in [
-            "(#struct Resource ((number u64))) (#linear Resource)
+            "(#struct Resource ((number #u64))) (#linear Resource)
              (#fn inspect () ()
                (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
                (#forget owner) (#set-field owner number 2u64) (#return ()))",
-            "(#struct Resource ((number u64))) (#linear Resource)
+            "(#struct Resource ((number #u64))) (#linear Resource)
              (#fn inspect () ()
                (#let-mut owner (#array Resource 1)
                  (#array (#struct-literal Resource ((number 1u64)))))
-               (#forget (#index owner 0u64)) (#let index u64 0u64)
+               (#forget (#index owner 0u64)) (#let index #u64 0u64)
                (#set-index owner index (#struct-literal Resource ((number 2u64))))
                (#return ()))",
         ] {
@@ -18111,7 +18113,7 @@ mod typed_ownership_tests {
         for early_return in [false, true] {
             let before = if early_return { "(#return ())" } else { "" };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource)
                    (#return value))
                  (#fn inspect ((value (#ref-mut Resource))) ()
@@ -18145,7 +18147,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#fn inspect ((reference (#ref-mut Resource))) ()
                    (#block
                      (#let alias (#ref-mut Resource) reference)
@@ -18183,8 +18185,8 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::Place;
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
-          (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (pick bool)) ()
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+          (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (pick #bool)) ()
             (#block
               (#let alias (#ref-mut Resource) (#if pick left right))
               (#forget (#deref alias))
@@ -18214,7 +18216,7 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::{Place, Segment};
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
           (#fn inspect ((pair Pair)) ()
             (#block
@@ -18258,7 +18260,7 @@ mod typed_ownership_tests {
                  (#let moved Resource (#deref alias))"
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#fn inspect () ()
                    (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
                    (#block {transfer} (#forget moved) ())
@@ -18336,9 +18338,9 @@ mod typed_ownership_tests {
                 };
                 let assignment = format!("({setter} {resource})");
                 let source = format!(
-                    "(#struct Resource ((number u64))) (#linear Resource)
+                    "(#struct Resource ((number #u64))) (#linear Resource)
                      {declaration}
-                     (#fn main () u64
+                     (#fn main () #u64
                        (#let-mut owner {ty} {constructor})
                        {before}
                        {assignment}
@@ -18376,11 +18378,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn unknown_indices_do_not_prove_projected_consumption() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
-          (#fn main () u64
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+          (#fn main () #u64
             (#let-mut owner (#array Resource 1)
               (#array (#struct-literal Resource ((number 1u64)))))
-            (#let index u64 0u64)
+            (#let index #u64 0u64)
             (#forget (#index owner index))
             (#set-index owner index (#struct-literal Resource ((number 2u64))))
             (#forget owner)
@@ -18428,10 +18430,10 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#struct Members ((first Resource) (second Resource)))
                  (#struct Owner ((members Members)))
-                 (#fn main () u64
+                 (#fn main () #u64
                    (#let-mut owner Owner (#struct-literal Owner ((members {members}))))
                    (#forget (#get (#get owner members) first))
                    {second}
@@ -18483,8 +18485,8 @@ mod typed_ownership_tests {
         ] {
             let assignment = format!("(#set value {replacement})");
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-                 (#fn main () u64
+                "(#struct Resource ((number #u64))) (#linear Resource)
+                 (#fn main () #u64
                    (#let-mut value Resource (#struct-literal Resource ((number 1u64))))
                    {before}
                    {assignment}
@@ -18531,9 +18533,9 @@ mod typed_ownership_tests {
                (second (#struct-literal Resource ((number 2u64))))))";
             let assignment = format!("(#set value {constructor})");
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#struct Pair ((first Resource) (second Resource)))
-                 (#fn main () u64
+                 (#fn main () #u64
                    (#let-mut value Pair {constructor})
                    (#forget (#get value first))
                    {second}
@@ -18567,14 +18569,14 @@ mod typed_ownership_tests {
             ("(#clone value)", "Resource", "(#forget result)"),
             ("(#borrow value)", "(#ref Resource)", ""),
             ("(#borrow-mut value)", "(#ref-mut Resource)", ""),
-            ("(#clone (#get value number))", "u64", ""),
+            ("(#clone (#get value number))", "#u64", ""),
         ] {
             for moved in [false, true] {
                 let destruction = if moved { "(#forget value)" } else { "" };
                 let final_destruction = if moved { "" } else { "(#forget value)" };
                 let source = format!(
-                    "(#struct Resource ((number u64))) (#linear Resource)
-                     (#fn main () u64
+                    "(#struct Resource ((number #u64))) (#linear Resource)
+                     (#fn main () #u64
                        (#let-mut value Resource (#struct-literal Resource ((number 1u64))))
                        {destruction}
                        (#let result {ty} {operation})
@@ -18606,7 +18608,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_initializer_entry_contracts_propagate_through_helper_chains() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 1u64))))
             (#return ()))
@@ -18639,7 +18641,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_initializer_entry_contracts_reject_live_local_inputs() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 1u64))))
             (#return ()))
@@ -18681,10 +18683,10 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn initialize ((value (#ref-mut Resource)) (choice bool)) ()
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource)) (choice #bool)) ()
                 {write} (#return ()))
-              (#fn forward ((value (#ref-mut Resource)) (choice bool)) ()
+              (#fn forward ((value (#ref-mut Resource)) (choice #bool)) ()
                 (#call initialize ((value value) (choice choice))) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -18715,8 +18717,8 @@ mod typed_ownership_tests {
     fn staged_referent_replacement_does_not_infer_dynamic_identity() {
         for consume in ["", "(#forget (#index values index))"] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn replace ((values (#ref-mut (#array Resource 2))) (index u64)) ()
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn replace ((values (#ref-mut (#array Resource 2))) (index #u64)) ()
                 {consume}
                 (#deref-set (#borrow-mut (#index values index))
                   (#struct-literal Resource ((number 1u64))))
@@ -18743,7 +18745,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_referent_replacement_accepts_consumed_static_parent() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn replace ((values (#ref-mut (#array Resource 2)))) ()
             (#forget (#deref values))
             (#deref-set (#borrow-mut (#index values 0u64))
@@ -18759,11 +18761,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_initializer_calls_do_not_inherit_dynamic_entry_identities() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 1u64))))
             (#return ()))
-          (#fn caller ((values (#ref-mut (#array Resource 2))) (index u64)) ()
+          (#fn caller ((values (#ref-mut (#array Resource 2))) (index #u64)) ()
             (#forget (#index values index))
             (#call initialize ((value (#borrow-mut (#index values index)))))
             (#return ()))";
@@ -18795,12 +18797,12 @@ mod typed_ownership_tests {
             "(#deref-set value (#struct-literal Resource ((number 2u64))))",
         ] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn initialize ((value (#ref-mut Resource)) (choice bool)) ()
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn initialize ((value (#ref-mut Resource)) (choice #bool)) ()
                 (#if choice (#deref-set value
                   (#struct-literal Resource ((number 1u64)))) ())
                 (#return ()))
-              (#fn caller ((value (#ref-mut Resource)) (choice bool)) ()
+              (#fn caller ((value (#ref-mut Resource)) (choice #bool)) ()
                 (#call initialize ((value value) (choice choice)))
                 {operation} (#return ()))"
             );
@@ -18825,7 +18827,7 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::Place;
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource))) ()
             (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -18862,12 +18864,12 @@ mod typed_ownership_tests {
     fn staged_consumed_exit_contracts_allow_initialization_then_consumption() {
         for read_after in [false, true] {
             let continuation = if read_after {
-                "(#let number u64 (#call read ((value value)))) (#forget number)"
+                "(#let number #u64 (#call read ((value value)))) (#forget number)"
             } else {
                 "(#call initialize ((value value)))"
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn initialize-consume ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 1u64))))
                 (#forget (#deref value)) (#return ()))
@@ -18876,7 +18878,7 @@ mod typed_ownership_tests {
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 2u64))))
                 (#return ()))
-              (#fn read ((value (#ref-mut Resource))) u64
+              (#fn read ((value (#ref-mut Resource))) #u64
                 (#return (#get value number)))
               (#fn caller ((value (#ref-mut Resource))) ()
                 (#call forward ((value value))) {continuation} (#return ()))"
@@ -18920,9 +18922,9 @@ mod typed_ownership_tests {
                 ("(#if choice (#forget (#deref value)) ())", false),
                 ("(#forget (#deref value)) (#deref-set value (#struct-literal Resource ((number 2u64))))", true),
             ] {
-                let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+                let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
                   (#struct View ((value (#ref-mut Resource))))
-                  (#fn make-view ((value (#ref-mut Resource)) (choice bool)) {return_type}
+                  (#fn make-view ((value (#ref-mut Resource)) (choice #bool)) {return_type}
                     {operations} (#return {returned}))");
                 let program = crate::parse_program(&source).unwrap();
                 let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -18950,7 +18952,7 @@ mod typed_ownership_tests {
     fn staged_return_initialization_preserves_parameter_slots_through_calls() {
         for slot in ["left", "right"] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#struct Holder ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
               (#fn forward ((value (#ref-mut Resource))) (#ref-mut Resource)
                 (#return value))
@@ -19007,10 +19009,10 @@ mod typed_ownership_tests {
                 ),
             ] {
                 let source = format!(
-                    "(#struct Resource ((number u64))) (#linear Resource)
+                    "(#struct Resource ((number #u64))) (#linear Resource)
                   (#struct View ((value (#ref-mut Resource))))
                   (#fn choose ((left (#ref-mut Resource)) (right (#ref-mut Resource))
-                               (selected bool)) {ty} (#return {expression}))"
+                               (selected #bool)) {ty} (#return {expression}))"
                 );
                 let program = crate::parse_program(&source).unwrap();
                 crate::check_types(&program).unwrap();
@@ -19037,10 +19039,10 @@ mod typed_ownership_tests {
             // reach the returned-pointee check, not a use of a moved handle.
             "(#block (#let view (#ref-mut Resource) (#if selected (#call reborrow (: target left)) (#call reborrow (: target right)))) (#forget (#deref left)) view)",
         ] {
-            let source = format!("(#struct Resource ((number u64))) (#linear Resource)
+            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
               (#fn reborrow ((target (#ref-mut Resource))) (#ref-mut Resource) (#return target))
               (#fn choose ((left (#ref-mut Resource)) (right (#ref-mut Resource))
-                           (selected bool)) (#ref-mut Resource) (#return {expression}))");
+                           (selected #bool)) (#ref-mut Resource) (#return {expression}))");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -19059,8 +19061,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_return_initialization_rejects_spanless_consumed_entry_state() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
-          (#fn initialize-view ((value (#ref-mut Resource)) (choice bool)) (#ref-mut Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+          (#fn initialize-view ((value (#ref-mut Resource)) (choice #bool)) (#ref-mut Resource)
             (#if choice (#deref-set value
               (#struct-literal Resource ((number 1u64)))) ())
             (#return value))";
@@ -19081,11 +19083,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_unknown_return_alternatives_remove_possible_variant_bounds() {
-        let source = "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
-          (#fn choose ((view (#ref u64)) (other Choice) (selected bool)) Choice
+        let source = "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+          (#fn choose ((view (#ref #u64)) (other Choice) (selected #bool)) Choice
             (#return (#if selected
               (#block (#forget other) (Has view)) other)))
-          (#fn forward ((view (#ref u64)) (other Choice) (selected bool)) Choice
+          (#fn forward ((view (#ref #u64)) (other Choice) (selected #bool)) Choice
             (#return (#call choose (: view view : other other : selected selected))))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
@@ -19123,22 +19125,22 @@ mod typed_ownership_tests {
             "(#loop (#if selected (#block (#break (Has view))) (#block (#break Empty))))",
         ] {
             for consumer in [
-                "(#fn forward ((view (#ref u64)) (selected bool)) Choice
+                "(#fn forward ((view (#ref #u64)) (selected #bool)) Choice
               (#let saved Choice (#call choose (: view view : selected selected)))
               (#return saved))
-             (#fn again ((view (#ref u64)) (selected bool)) Choice
+             (#fn again ((view (#ref #u64)) (selected #bool)) Choice
               (#return (#call forward (: view view : selected selected))))",
-                "(#fn wrap ((view (#ref u64)) (selected bool)) Envelope
+                "(#fn wrap ((view (#ref #u64)) (selected #bool)) Envelope
               (#return (#struct-literal Envelope
                 ((choice (#call choose (: view view : selected selected)))))))
-             (#fn forward ((view (#ref u64)) (selected bool)) Envelope
+             (#fn forward ((view (#ref #u64)) (selected #bool)) Envelope
               (#let saved Envelope (#call wrap (: view view : selected selected)))
               (#return saved))",
             ] {
                 let source = format!(
-                    "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
+                    "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
           (#struct Envelope ((choice Choice)))
-          (#fn choose ((view (#ref u64)) (selected bool)) Choice
+          (#fn choose ((view (#ref #u64)) (selected #bool)) Choice
             (#return {expression})) {consumer}"
                 );
                 let program = crate::parse_program(&source).unwrap();
@@ -19219,12 +19221,12 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#enum Choice ((Full u64) Empty))
+                "(#enum Choice ((Full #u64) Empty))
               (#fn touch () () (#return ()))
-              (#fn choose ((selected bool)) Choice
+              (#fn choose ((selected #bool)) Choice
                 (#let-mut saved Choice {initial})
                 {effects} (#return saved))
-              (#fn forward ((selected bool)) Choice
+              (#fn forward ((selected #bool)) Choice
                 (#return (#call choose (: selected selected))))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -19261,12 +19263,12 @@ mod typed_ownership_tests {
             ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (Other right)))))", None),
             ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (#call ambiguous (: view right : selected selected))))))", None),
         ] {
-        let source = format!("(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
-          (#fn ambiguous ((view (#ref u64)) (selected bool)) Choice
+        let source = format!("(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+          (#fn ambiguous ((view (#ref #u64)) (selected #bool)) Choice
             (#return (#if selected (Has view) (Other view))))
-          (#fn choose ((left (#ref u64)) (right (#ref u64)) (selected bool)) Choice
+          (#fn choose ((left (#ref #u64)) (right (#ref #u64)) (selected #bool)) Choice
             (#return {expression}))
-          (#fn forward ((left (#ref u64)) (right (#ref u64)) (selected bool)) Choice
+          (#fn forward ((left (#ref #u64)) (right (#ref #u64)) (selected #bool)) Choice
             (#return (#call choose (: left left : right right : selected selected))))");
         let stored = source.replace(&format!("(#return {expression})"), &format!("(#let saved Choice {expression}) (#let alias Choice saved) (#return alias)"));
         for source in [source, stored] {
@@ -19300,11 +19302,11 @@ mod typed_ownership_tests {
             ("(#break (Has left)) (#break (Has right))", Some(false)),
             ("(#let ignored Choice (#loop (#break (Other right)))) (#forget ignored) (#break (Has left))", None),
             ("(#if selected (#block (#continue)) (#block (#break (Has left))))", None),
-            ("(#let borrowed (#ref u64) left) (#break (Has borrowed))", None),
+            ("(#let borrowed (#ref #u64) left) (#break (Has borrowed))", None),
         ] {
             let source = format!(
-                "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
-              (#fn choose ((left (#ref u64)) (right (#ref u64)) (selected bool)) Choice
+                "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+              (#fn choose ((left (#ref #u64)) (right (#ref #u64)) (selected #bool)) Choice
                 (#let result Choice (#loop {body}))
                 (#return result))"
             );
@@ -19348,8 +19350,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_enum_local_joins_require_only_reaching_constructor_slots() {
-        let source = "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
-          (#fn choose ((view (#ref u64)) (selected bool)) Choice
+        let source = "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+          (#fn choose ((view (#ref #u64)) (selected #bool)) Choice
             (#let result Choice (#if selected (Has view) Empty))
             (#return result))";
         let alias = source.replace(
@@ -19397,7 +19399,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_unknown_enum_returns_cannot_hide_missing_payload_provenance() {
-        let source = "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
+        let source = "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
           (#fn echo ((value Choice)) Choice (#return value))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
@@ -19437,7 +19439,7 @@ mod typed_ownership_tests {
                 "Empty"
             };
             let source = format!(
-                "(#enum Choice ((Has (#ref u64) (#ref u64)) Empty))
+                "(#enum Choice ((Has (#ref #u64) (#ref #u64)) Empty))
           (#struct Envelope ((item Choice)))
           (#fn echo ((value {ty})) {ty}
             (#match {scrutinee}
@@ -19490,15 +19492,15 @@ mod typed_ownership_tests {
     #[test]
     fn staged_reference_returns_reject_missing_mandatory_slot_provenance() {
         for ty in [
-            "(#ref u64)",
+            "(#ref #u64)",
             "Holder",
-            "(#tuple (#ref u64) (#ref u64))",
-            "(#array (#ref u64) 1)",
-            "(#array (#ref u64) 3)",
-            "(#array (#tuple (#ref u64) (#ref u64)) 2)",
+            "(#tuple (#ref #u64) (#ref #u64))",
+            "(#array (#ref #u64) 1)",
+            "(#array (#ref #u64) 3)",
+            "(#array (#tuple (#ref #u64) (#ref #u64)) 2)",
         ] {
             let source = format!(
-                "(#struct Holder ((left (#ref u64)) (right (#ref u64))))
+                "(#struct Holder ((left (#ref #u64)) (right (#ref #u64))))
               (#fn echo ((value {ty})) {ty} (#return value))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -19556,7 +19558,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_reference_return_alternatives_do_not_hide_missing_origins() {
-        let source = "(#fn choose ((left (#ref u64)) (right (#ref u64)) (choice bool)) (#ref u64)
+        let source =
+            "(#fn choose ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) (#ref #u64)
           (#return (#if choice left right)))";
         let program = crate::parse_program(source).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -19588,9 +19591,9 @@ mod typed_ownership_tests {
     fn staged_return_arrays_require_each_reference_element() {
         for nested in [false, true] {
             let element = if nested {
-                "(#array (#ref u64) 2)"
+                "(#array (#ref #u64) 2)"
             } else {
-                "(#ref u64)"
+                "(#ref #u64)"
             };
             let source = format!(
                 "(#fn make-array ((left {element}) (right {element})) (#array {element} 2)
@@ -19627,8 +19630,8 @@ mod typed_ownership_tests {
     fn staged_return_enum_constructors_require_only_the_active_payload() {
         for returned in ["(Has value)", "(#if choice (Has value) Empty)", "Empty"] {
             let source = format!(
-                "(#enum Choice ((Has (#ref u64)) (Other (#ref u64)) Empty))
-              (#fn make-choice ((value (#ref u64)) (choice bool)) Choice
+                "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+              (#fn make-choice ((value (#ref #u64)) (choice #bool)) Choice
                 (#return {returned}))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -19672,8 +19675,8 @@ mod typed_ownership_tests {
                 "(#struct-literal Wrapper ((choice (Has value))))",
             ),
             (
-                "(#tuple Choice u64)",
-                "(#tuple (#tuple Choice u64) (Has value) 0u64)",
+                "(#tuple Choice #u64)",
+                "(#tuple (#tuple Choice #u64) (Has value) 0u64)",
             ),
             (
                 "(#array Choice 2)",
@@ -19682,9 +19685,9 @@ mod typed_ownership_tests {
             ("Outer", "(Wrap (Has value))"),
         ] {
             let source = format!(
-                "(#enum Choice ((Has (#ref u64)) Empty))
+                "(#enum Choice ((Has (#ref #u64)) Empty))
               (#struct Wrapper ((choice Choice))) (#enum Outer ((Wrap Choice)))
-              (#fn make ((value (#ref u64))) {ty} (#return {returned}))"
+              (#fn make ((value (#ref #u64))) {ty} (#return {returned}))"
             );
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -19724,15 +19727,15 @@ mod typed_ownership_tests {
                 "(#struct-literal View ((value (#if choice left right))))",
             ),
             (
-                "(#tuple (#ref u64) u64)",
-                "(#tuple (#tuple (#ref u64) u64) (#if choice left right) 0u64)",
+                "(#tuple (#ref #u64) #u64)",
+                "(#tuple (#tuple (#ref #u64) #u64) (#if choice left right) 0u64)",
             ),
             (
-                "(#array (#ref u64) 2)",
-                "(#array-of (#array (#ref u64) 2) left (#if choice left right))",
+                "(#array (#ref #u64) 2)",
+                "(#array-of (#array (#ref #u64) 2) left (#if choice left right))",
             ),
             (
-                "(#array (#ref u64) 2)",
+                "(#array (#ref #u64) 2)",
                 "(#array-repeat (#if choice left right))",
             ),
             (
@@ -19741,9 +19744,9 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#struct View ((value (#ref u64))))
-              (#enum Choice ((Has (#ref u64)) Empty)) (#struct Wrapper ((choice Choice)))
-              (#fn make ((left (#ref u64)) (right (#ref u64)) (choice bool)) {ty}
+                "(#struct View ((value (#ref #u64))))
+              (#enum Choice ((Has (#ref #u64)) Empty)) (#struct Wrapper ((choice Choice)))
+              (#fn make ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) {ty}
                 (#return {returned}))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -19778,8 +19781,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_nested_match_results_retain_arm_local_reference_snapshots() {
-        let source = "(#enum Holder ((Has (#ref u64))))
-          (#struct View ((value (#ref u64))))
+        let source = "(#enum Holder ((Has (#ref #u64))))
+          (#struct View ((value (#ref #u64))))
           (#fn make ((holder Holder)) View
             (#return (#struct-literal View
               ((value (#match holder (#case (Has view) view)))))))";
@@ -19807,10 +19810,10 @@ mod typed_ownership_tests {
                     body.into()
                 };
                 let source = format!(
-                    "(#struct Resource ((number u64))) (#linear Resource)
-                  (#fn consume ((value (#ref-mut Resource)) (choice bool)) ()
+                    "(#struct Resource ((number #u64))) (#linear Resource)
+                  (#fn consume ((value (#ref-mut Resource)) (choice #bool)) ()
                     {destruction} (#return ()))
-                  (#fn caller ((choice bool)) () {body} (#return ()))"
+                  (#fn caller ((choice #bool)) () {body} (#return ()))"
                 );
                 let program = crate::parse_program(&source).unwrap();
                 let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -19849,7 +19852,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
               (#fn initialize ((value (#ref-mut Resource))) ()
@@ -19890,7 +19893,7 @@ mod typed_ownership_tests {
             "",
         ] {
             let source = format!(
-                "(#struct Token ((value u64))) (#linear Token)
+                "(#struct Token ((value #u64))) (#linear Token)
               (#enum Choice ((Owned Token) Empty))
               (#fn consume ((value (#ref-mut Token))) ()
                 (#forget (#deref value)) (#return ()))
@@ -19930,10 +19933,10 @@ mod typed_ownership_tests {
                     ""
                 };
                 let source = format!(
-                    "(#struct Resource ((number u64))) (#linear Resource)
+                    "(#struct Resource ((number #u64))) (#linear Resource)
                   (#fn consume ((value (#ref-mut Resource))) ()
                     (#forget (#deref value)) (#return ()))
-                  (#fn caller ((repeat bool)) ()
+                  (#fn caller ((repeat #bool)) ()
                     (#while repeat
                       (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
                       {cleanup} {transfer}) (#return ()))"
@@ -19962,9 +19965,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn guarded_linear_payloads_do_not_need_cleanup_when_the_guard_fails() {
-        let source = "(#struct Token ((value u64))) (#linear Token)
+        let source = "(#struct Token ((value #u64))) (#linear Token)
           (#enum Choice ((Owned Token) Empty))
-          (#fn caller ((selected bool)) ()
+          (#fn caller ((selected #bool)) ()
             (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
             (#match choice
               (#case (Owned first) (#when selected) (#forget first))
@@ -19986,9 +19989,9 @@ mod typed_ownership_tests {
             "(#call discard ((value first)))",
         ] {
             let source = format!(
-                "(#struct Token ((value u64))) (#linear Token)
+                "(#struct Token ((value #u64))) (#linear Token)
               (#enum Choice ((Owned Token) Empty))
-              (#fn discard ((value Token)) bool (#forget value) (#return #false))
+              (#fn discard ((value Token)) #bool (#forget value) (#return #false))
               (#fn caller () ()
                 (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
                 (#match choice
@@ -20022,18 +20025,18 @@ mod typed_ownership_tests {
                  (#deref-set target (#struct-literal Token ((value 2u64))))",
                 )
             } else {
-                ("#ref", "(#let number u64 (#get target value))")
+                ("#ref", "(#let number #u64 (#get target value))")
             };
             let guard = "(#call inspect (: target (#borrow first)))";
             let source = format!(
-                "(#struct Token ((value u64))) (#linear Token)
+                "(#struct Token ((value #u64))) (#linear Token)
                  (#enum Choice ((Owned Token) Empty))
-                 (#fn operation ((target ({reference} Token))) bool
+                 (#fn operation ((target ({reference} Token))) #bool
                    {operation} (#return #false))
-                 (#fn forward ((target ({reference} Token))) bool
+                 (#fn forward ((target ({reference} Token))) #bool
                    (#return (#call operation (: target target))))
-                 (#fn inspect ((target (#ref Token))) bool
-                   (#let number u64 (#get target value)) (#return #false))
+                 (#fn inspect ((target (#ref Token))) #bool
+                   (#let number #u64 (#get target value)) (#return #false))
                  (#fn caller () ()
                    (#let-mut choice Choice (Owned (#struct-literal Token ((value 1u64)))))
                    (#match choice
@@ -20133,7 +20136,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn consuming_access_identity_does_not_depend_on_unique_source_spans() {
-        let source = "(#struct Token ((value u64))) (#linear Token)
+        let source = "(#struct Token ((value #u64))) (#linear Token)
             (#fn consume ((left (#ref-mut Token)) (right (#ref-mut Token))) ()
               (#forget (#deref left)) (#forget (#deref right)) (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -20193,8 +20196,8 @@ mod typed_ownership_tests {
                 "(#struct-literal View ((value left)))",
             ),
         ] {
-            let source = format!("(#struct View ((value (#ref u64)))) (#struct Container ((view View)))
-              (#fn make ((left (#ref u64)) (right (#ref u64)) (choice bool) (target (#ref-mut View))) View
+            let source = format!("(#struct View ((value (#ref #u64)))) (#struct Container ((view View)))
+              (#fn make ((left (#ref #u64)) (right (#ref #u64)) (choice #bool) (target (#ref-mut View))) View
                 {setup} {operation} (#return {returned}))");
             let program = crate::parse_program(&source).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -20229,8 +20232,8 @@ mod typed_ownership_tests {
     fn staged_stored_enum_construction_does_not_hide_missing_active_payloads() {
         let operation = "(#let stored Choice (#if choice (Has left) (Has right)))";
         let source = format!(
-            "(#enum Choice ((Has (#ref u64)) Empty))
-          (#fn make ((left (#ref u64)) (right (#ref u64)) (choice bool)) Choice
+            "(#enum Choice ((Has (#ref #u64)) Empty))
+          (#fn make ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) Choice
             {operation} (#return stored))"
         );
         let program = crate::parse_program(&source).unwrap();
@@ -20261,7 +20264,7 @@ mod typed_ownership_tests {
     #[test]
     fn staged_call_arguments_validate_provenance_before_callee_mapping() {
         for (ty, argument) in [
-            ("(#ref u64)", "(#if choice left right)"),
+            ("(#ref #u64)", "(#if choice left right)"),
             (
                 "View",
                 "(#struct-literal View ((value (#if choice left right))))",
@@ -20270,10 +20273,10 @@ mod typed_ownership_tests {
         ] {
             let call = format!("(#call identity ((value {argument}) (ignored 0u64)))");
             let source = format!(
-                "(#struct View ((value (#ref u64))))
-              (#enum Choice ((Has (#ref u64)) Empty))
-              (#fn identity ((ignored u64) (value {ty})) {ty} (#return value))
-              (#fn caller ((left (#ref u64)) (right (#ref u64)) (choice bool)) {ty}
+                "(#struct View ((value (#ref #u64))))
+              (#enum Choice ((Has (#ref #u64)) Empty))
+              (#fn identity ((ignored #u64) (value {ty})) {ty} (#return value))
+              (#fn caller ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) {ty}
                 (#return {call}))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -20385,8 +20388,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_slice_element_loads_retain_embedded_reference_slots() {
-        let source = "(#struct View ((value (#ref u64)) (other (#ref u64))))
-          (#fn inspect ((sources (#slice View)) (index usize)) u64
+        let source = "(#struct View ((value (#ref #u64)) (other (#ref #u64))))
+          (#fn inspect ((sources (#slice View)) (index #usize)) #u64
             (#let view View (#deref (#slice-idx sources index)))
             (#return (#deref (#get view value))))";
         let program = crate::parse_program(source).unwrap();
@@ -20439,12 +20442,12 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_slice_ranges_select_only_the_bounded_reference_slots() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#struct View ((value (#ref Resource))))
-          (#fn read ((sources (#slice View)) (index usize)) u64
+          (#fn read ((sources (#slice View)) (index #usize)) #u64
             (#let view View (#deref (#slice-idx sources index)))
             (#return (#get (#get view value) number)))
-          (#fn inspect ((left (#ref Resource)) (right (#ref Resource))) u64
+          (#fn inspect ((left (#ref Resource)) (right (#ref Resource))) #u64
             (#let views (#array View 2) (#array-of (#array View 2)
               (#struct-literal View (: value left))
               (#struct-literal View (: value right))))
@@ -20476,8 +20479,8 @@ mod typed_ownership_tests {
 
         let dynamic_source = source
             .replace(
-                "((left (#ref Resource)) (right (#ref Resource))) u64",
-                "((left (#ref Resource)) (right (#ref Resource)) (start usize) (end usize)) u64",
+                "((left (#ref Resource)) (right (#ref Resource))) #u64",
+                "((left (#ref Resource)) (right (#ref Resource)) (start #usize) (end #usize)) #u64",
             )
             .replace(
                 "(#slice-range (#slice-of (#borrow views)) 1usize 2usize)",
@@ -20528,7 +20531,7 @@ mod typed_ownership_tests {
              "(#forget (#get value first))", "", false),
             ("Wrapper", "(#struct-literal Wrapper (: first (#struct-literal Resource (: number 1u64)) : second (#struct-literal Resource (: number 2u64))))",
              "(#forget (#get value first)) (#forget (#get value second))", "(#linear Wrapper)", false),
-            ("(#tuple Resource u64)", "(#tuple (#struct-literal Resource (: number 1u64)) 2u64)",
+            ("(#tuple Resource #u64)", "(#tuple (#struct-literal Resource (: number 1u64)) 2u64)",
              "(#forget (#get value 0))", "", true),
             ("(#array Resource 2)", "(#array-of (#array Resource 2) (#struct-literal Resource (: number 1u64)) (#struct-literal Resource (: number 2u64)))",
              "(#forget (#index value 0usize)) (#forget (#index value 1usize))", "", true),
@@ -20540,9 +20543,9 @@ mod typed_ownership_tests {
                 format!("(#match selected (#case true (#block (#forget value) 42u64)) (#case false (#block {partial} 42u64)))"),
                 format!("(#loop (#if selected (#block (#forget value) (#break 42u64)) (#block {partial} (#break 42u64))))"),
             ] {
-                let source = format!("(#struct Resource (: number u64)) (#linear Resource)
+                let source = format!("(#struct Resource (: number #u64)) (#linear Resource)
                   (#struct Wrapper (: first Resource : second Resource)) {explicit}
-                  (#fn inspect (: selected bool) u64
+                  (#fn inspect (: selected #bool) #u64
                     (#let value {ty} {initializer}) (#return {expression}))");
                 let program = crate::parse_program(&source).unwrap();
                 if valid {
@@ -20579,7 +20582,7 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#fn worker ((other (#ref Resource)) (target (#ref-mut Resource))) ()
                 {operation} (#return ()))
               (@thread-spawn (: task Task : worker worker))"
@@ -20681,17 +20684,17 @@ mod typed_ownership_tests {
                 _ => unreachable!(),
             };
                 let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#enum Outcome ((Restored) (Consumed)))
                  {declarations}
-                 (#fn worker ((target (#ref-mut Resource)) (choose bool)) {result_type}
+                 (#fn worker ((target (#ref-mut Resource)) (choose #bool)) {result_type}
                    (#forget (#deref target))
                    (#return (#if choose
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
                        {restored_output})
                      {consumed_output})))
                  (@thread-spawn (: task Task : worker worker))
-                 (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
+                 (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                    (#return (#match (#call Task-spawn (: target target : choose choose))
                      (#case (Task-spawn-ok task)
                        (#match (#call Task-join (: task task))
@@ -20753,10 +20756,10 @@ mod typed_ownership_tests {
         let program = crate::parse_program(
             "(#enum Outcome ((Before) (After)))
              (#fn change ((target (#ref-mut Outcome))) () (#deref-set target (After)) (#return ()))
-             (#fn factory ((count u64)) (#tuple Outcome ())
+             (#fn factory ((count #u64)) (#tuple Outcome ())
                (#let-mut tag Outcome (Before))
                (#let-mut output (#tuple Outcome ()) (#tuple (Before) ()))
-               (#let-mut index u64 0u64)
+               (#let-mut index #u64 0u64)
                (#while (#u64.< index count)
                  (#set output (#tuple tag (#call change (: target (#borrow-mut tag)))))
                  (#set index (#u64.+.wrap index 1u64)))
@@ -20791,16 +20794,16 @@ mod typed_ownership_tests {
     fn staged_worker_returned_aliases_preserve_nested_outcome_contracts() {
         for slot in [0, 1] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#enum Outcome ((Restored) (Consumed)))
-                 (#fn worker ((target (#ref-mut Resource)) (choose bool)) (#tuple Outcome Outcome)
+                 (#fn worker ((target (#ref-mut Resource)) (choose #bool)) (#tuple Outcome Outcome)
                    (#forget (#deref target))
                    (#return (#if choose
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
                        (#let first (#tuple Outcome Outcome) (#tuple (Restored) (Consumed))) first)
                      (#block (#let second (#tuple Outcome Outcome) (#tuple (Consumed) (Restored))) second))))
                  (@thread-spawn (: task Task : worker worker))
-                 (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
+                 (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                    (#return (#match (#call Task-spawn (: target target : choose choose))
                      (#case (Task-spawn-ok task)
                        (#match (#call Task-join (: task task))
@@ -20831,7 +20834,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_worker_returned_alias_uses_replacement_not_initial_tags() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
             (#enum Outcome ((Restored) (Consumed)))
             (#fn worker ((target (#ref-mut Resource))) (#tuple Outcome Outcome)
               (#forget (#deref target))
@@ -20880,13 +20883,13 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_impossible_result_arms_do_not_require_fabricated_loans() {
-        let source = "(#enum Output ((Pending (#ref u64)) (Ready u64)))
+        let source = "(#enum Output ((Pending (#ref #u64)) (Ready #u64)))
             (#fn factory () Output (#return (Ready 42u64)))
             (#fn wrap () Output
               (#return (#match (#call factory ())
                 (#case (Pending value) (Pending value))
                 (#case (Ready value) (Ready value)))))
-            (#fn main () u64
+            (#fn main () #u64
               (#return (#match (#call wrap ())
                 (#case (Pending value) (#deref value))
                 (#case (Ready value) value))))";
@@ -20908,7 +20911,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn prepared_variant_tags_require_verified_callee_bodies() {
-        let source = "(#enum Choice ((Empty) (Full (#ref u64))))
+        let source = "(#enum Choice ((Empty) (Full (#ref #u64))))
             (#fn noop ((target (#ref-mut Choice))) () (#return ()))
             (#fn forward ((target (#ref-mut Choice))) ()
               (#call noop (: target target)) (#return ()))
@@ -20943,14 +20946,14 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_owned_call_outputs_exclude_absent_input_payload_loans() {
-        let source = "(#enum Task ((Waiting) (Holding (#ref u64))))
-          (#enum Outcome ((Pending Task) (Ready u64)))
+        let source = "(#enum Task ((Waiting) (Holding (#ref #u64))))
+          (#enum Outcome ((Pending Task) (Ready #u64)))
           (#fn poll ((task Task)) Outcome
             (#return (#match task
               (#case (Waiting) (Ready 37u64))
               (#case (Holding held) (Pending (Holding held))))))
           (#fn wrapper () Outcome (#return (#call poll (: task (Waiting)))))
-          (#fn main () u64 (#return (#match (#call wrapper (:))
+          (#fn main () #u64 (#return (#match (#call wrapper (:))
             (#case (Ready value) value)
             (#case (Pending task) (#match task
               (#case (Waiting) 0u64)
@@ -20982,7 +20985,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_call_entry_reads_use_non_singleton_owned_variant_bounds() {
-        let prefix = "(#struct Resource ((number u64))) (#linear Resource)
+        let prefix = "(#struct Resource ((number #u64))) (#linear Resource)
           (#enum Stage ((Start (#ref-mut Resource))
             (WaitA (#ref-mut Resource)) (WaitB (#ref-mut Resource))))
           (#linear Stage)
@@ -20996,9 +20999,9 @@ mod typed_ownership_tests {
             let alternate = if start_possible { "Start" } else { "WaitB" };
             let source = format!(
                 "{prefix}
-              (#fn suspend ((target (#ref-mut Resource)) (choose bool)) Stage
+              (#fn suspend ((target (#ref-mut Resource)) (choose #bool)) Stage
                 (#return (#if choose (WaitA target) ({alternate} target))))
-              (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
+              (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                 (#forget (#deref target))
                 (#let stage Stage (#call suspend (: target target : choose choose)))
                 (#call inspect (: stage stage))
@@ -21024,12 +21027,12 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-                 (#fn read ((target (#ref-mut Resource))) u64 (#return (#get target number)))
-                 (#fn forward ((target (#ref-mut Resource))) u64 (#return (#call read (: target target))))
+                "(#struct Resource ((number #u64))) (#linear Resource)
+                 (#fn read ((target (#ref-mut Resource))) #u64 (#return (#get target number)))
+                 (#fn forward ((target (#ref-mut Resource))) #u64 (#return (#call read (: target target))))
                  (#fn initialize ((target (#ref-mut Resource))) ()
                    (#deref-set target (#struct-literal Resource (: number 42u64))) (#return ()))
-                 (#fn caller ((target (#ref-mut Resource))) u64
+                 (#fn caller ((target (#ref-mut Resource))) #u64
                    (#forget (#deref target)) {initialize}
                    (#return (#call forward (: target target))))"
             );
@@ -21057,8 +21060,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_returned_references_keep_branch_specific_consumption() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
-            (#fn select ((first (#ref-mut Resource)) (second (#ref-mut Resource)) (choose bool))
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+            (#fn select ((first (#ref-mut Resource)) (second (#ref-mut Resource)) (choose #bool))
               (#ref-mut Resource)
               (#return (#if choose
                 (#block (#forget (#deref second)) first)
@@ -21101,9 +21104,9 @@ mod typed_ownership_tests {
 
         // Later constructor operands mutate storage after the reference has
         // been evaluated, so its earlier snapshot cannot prove safe escape.
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
             (#fn reborrow ((target (#ref-mut Resource))) (#ref-mut Resource) (#return target))
-            (#fn select ((first (#ref-mut Resource)) (second (#ref-mut Resource)) (choose bool))
+            (#fn select ((first (#ref-mut Resource)) (second (#ref-mut Resource)) (choose #bool))
               (#tuple (#ref-mut Resource) ())
               (#return (#tuple (#if choose (#call reborrow (: target first)) (#call reborrow (: target second)))
                 (#block (#forget (#deref first)) (#forget (#deref second)) ()))))";
@@ -21130,7 +21133,7 @@ mod typed_ownership_tests {
                     ("(#ref-mut Resource)", "target")
                 };
                 let source = format!(
-                    "(#struct Resource ((number u64))) (#linear Resource)
+                    "(#struct Resource ((number #u64))) (#linear Resource)
                      (#struct Holder ((value (#ref-mut Resource))))
                      (#fn inspect ((target (#ref-mut Resource))) {output}
                        (#forget (#deref target))
@@ -21166,8 +21169,8 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-                 (#fn inspect ((target (#ref-mut Resource))) u64
+                "(#struct Resource ((number #u64))) (#linear Resource)
+                 (#fn inspect ((target (#ref-mut Resource))) #u64
                    (#forget (#deref target))
                    {replacement}
                    (#return (#get target number)))"
@@ -21213,15 +21216,15 @@ mod typed_ownership_tests {
                         _ => unreachable!(),
                     };
                     let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#enum Outcome ((Restored) (Consumed)))
                  (#struct Packet ((first Outcome) (second Outcome)))
                  (#enum Wrapped ((PacketValue Packet)))
-                 (#fn worker ((target (#ref-mut Resource)) (choose bool) (fallback Outcome)) {output_type}
+                 (#fn worker ((target (#ref-mut Resource)) (choose #bool) (fallback Outcome)) {output_type}
                    (#forget (#deref target))
                    (#return {constructor}))
                  (@thread-spawn (: task Task : worker worker))
-                 (#fn caller ((target (#ref-mut Resource)) (choose bool) (fallback Outcome)) ()
+                 (#fn caller ((target (#ref-mut Resource)) (choose #bool) (fallback Outcome)) ()
                    (#return (#match (#call Task-spawn (: target target : choose choose : fallback fallback))
                      (#case (Task-spawn-ok task)
                        (#match (#call Task-join (: task task))
@@ -21259,15 +21262,15 @@ mod typed_ownership_tests {
     fn staged_direct_call_output_projections_select_nested_outcomes() {
         for slot in [0, 1] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#enum Outcome ((Restored) (Consumed)))
-                 (#fn calculate ((target (#ref-mut Resource)) (choose bool)) (#tuple Outcome Outcome)
+                 (#fn calculate ((target (#ref-mut Resource)) (choose #bool)) (#tuple Outcome Outcome)
                    (#forget (#deref target))
                    (#return (#if choose
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
                        (#tuple (Restored) (Consumed)))
                      (#tuple (Consumed) (Restored)))))
-                 (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
+                 (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                    (#return (#match (#get (#call calculate (: target target : choose choose)) {slot})
                      (#case (Restored) (#block (#assert (#u64.== (#get target number) 42u64)) ()))
                      (#case (Consumed) (#panic)))))"
@@ -21292,15 +21295,15 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_nested_worker_outcome_keeps_unknown_return_alternatives() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
             (#enum Outcome ((Restored) (Consumed)))
-            (#fn worker ((target (#ref-mut Resource)) (choose bool) (fallback (#tuple Outcome Outcome))) (#tuple Outcome Outcome)
+            (#fn worker ((target (#ref-mut Resource)) (choose #bool) (fallback (#tuple Outcome Outcome))) (#tuple Outcome Outcome)
               (#forget (#deref target))
               (#return (#if choose
                 (#block (#deref-set target (#struct-literal Resource (: number 42u64)))
                   (#tuple (Restored) (Consumed))) fallback)))
             (@thread-spawn (: task Task : worker worker))
-            (#fn caller ((target (#ref-mut Resource)) (choose bool) (fallback (#tuple Outcome Outcome))) ()
+            (#fn caller ((target (#ref-mut Resource)) (choose #bool) (fallback (#tuple Outcome Outcome))) ()
               (#return (#match (#call Task-spawn (: target target : choose choose : fallback fallback))
                 (#case (Task-spawn-ok task)
                   (#match (#call Task-join (: task task))
@@ -21352,15 +21355,15 @@ mod typed_ownership_tests {
         ] {
             let read = "(#block (#assert (#u64.== (#get target number) 42u64)) ())";
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#enum Outcome ((Restored) (Consumed)))
-                 (#fn worker ((target (#ref-mut Resource)) (choose bool)) Outcome
+                 (#fn worker ((target (#ref-mut Resource)) (choose #bool)) Outcome
                    (#forget (#deref target))
                    (#return (#if choose
                      (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Restored))
                      (Consumed))))
                  (@thread-spawn (: task Task : worker worker))
-                 (#fn caller ((target (#ref-mut Resource)) (choose bool)) ()
+                 (#fn caller ((target (#ref-mut Resource)) (choose #bool)) ()
                    (#return (#match (#call Task-spawn (: target target : choose choose))
                      (#case (Task-spawn-ok task)
                        (#match (#call Task-join (: task task))
@@ -21470,22 +21473,22 @@ mod typed_ownership_tests {
                 |slot| format!("(#get outcome {slot})"),
             );
             let program = crate::parse_program(&format!(
-            "(#struct Holder ((value (#ref u64)))) (#linear Holder)
+            "(#struct Holder ((value (#ref #u64)))) (#linear Holder)
              (#enum Outcome ((FromFirst) (FromSecond)))
-             (#fn worker ((target (#ref-mut Holder)) (first (#ref u64)) (second (#ref u64)) (choose bool)) {result_type}
+             (#fn worker ((target (#ref-mut Holder)) (first (#ref #u64)) (second (#ref #u64)) (choose #bool)) {result_type}
                (#forget (#deref target))
                (#return (#if choose
                  (#block (#deref-set target (#struct-literal Holder (: value first))) {first_output})
                  (#block (#deref-set target (#struct-literal Holder (: value second))) {second_output}))))
              (@thread-spawn (: task Task : worker worker))
-             (#fn caller ((target (#ref-mut Holder)) (first (#ref u64)) (second (#ref u64)) (choose bool)) ()
+             (#fn caller ((target (#ref-mut Holder)) (first (#ref #u64)) (second (#ref #u64)) (choose #bool)) ()
                (#return (#match (#call Task-spawn (: target target : first first : second second : choose choose))
                  (#case (Task-spawn-ok task)
                    (#match (#call Task-join (: task task))
                      (#case (Task-join-ok outcome)
                        (#match {selected}
-                         (#case (FromFirst) (#block (#let observed-first (#ref u64) (#get target value)) ()))
-                         (#case (FromSecond) (#block (#let observed-second (#ref u64) (#get target value)) ()))))
+                         (#case (FromFirst) (#block (#let observed-first (#ref #u64) (#get target value)) ()))
+                         (#case (FromSecond) (#block (#let observed-second (#ref #u64) (#get target value)) ()))))
                      (#case (Task-join-error (#tuple retry error)) (#panic))))
                  (#case (Task-spawn-error error) (#panic)))))",
         )).unwrap();
@@ -21550,7 +21553,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#fn worker ((target (#ref-mut Resource))) ()
                    (#forget (#deref target)) {restore} (#return ()))
                  (@thread-spawn (: task Task : worker worker))
@@ -21594,7 +21597,7 @@ mod typed_ownership_tests {
                 "(#panic)".into()
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#fn worker ((target (#ref-mut Resource))) ()
                    (#forget (#deref target))
                    (#deref-set target (#struct-literal Resource ((number 42u64))))
@@ -21637,7 +21640,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_initializer_requires_consumed_entry_until_completed_join() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
           (#fn worker ((target (#ref-mut Resource))) ()
             (#deref-set target (#struct-literal Resource ((number 42u64)))) (#return ()))
           (@thread-spawn (: task Task : worker worker))
@@ -21669,7 +21672,7 @@ mod typed_ownership_tests {
             (
                 "#ref-mut",
                 "#borrow-mut",
-                "(#let observed u64 owner)",
+                "(#let observed #u64 owner)",
                 "pending",
                 false,
             ),
@@ -21683,14 +21686,14 @@ mod typed_ownership_tests {
             (
                 "#ref-mut",
                 "#borrow-mut",
-                "(#let shared (#ref u64) (#borrow owner))",
+                "(#let shared (#ref #u64) (#borrow owner))",
                 "pending",
                 false,
             ),
             (
                 "#ref",
                 "#borrow",
-                "(#let observed u64 owner)",
+                "(#let observed #u64 owner)",
                 "pending",
                 true,
             ),
@@ -21698,7 +21701,7 @@ mod typed_ownership_tests {
             (
                 "#ref-mut",
                 "#borrow-mut",
-                "(#let observed u64 owner)",
+                "(#let observed #u64 owner)",
                 "completed",
                 true,
             ),
@@ -21719,10 +21722,10 @@ mod typed_ownership_tests {
         ] {
             let at = |selected| if phase == selected { access } else { "" };
             let source = format!(
-                "(#fn worker ((target ({reference} u64))) () (#return ()))
+                "(#fn worker ((target ({reference} #u64))) () (#return ()))
                  (@thread-spawn (: task Task : worker worker))
                  (#fn caller () ()
-                   (#let-mut owner u64 42u64)
+                   (#let-mut owner #u64 42u64)
                    (#let outcome Task-spawn-result (#call Task-spawn (: target ({borrow} owner))))
                    (#return (#match outcome
                      (#case (Task-spawn-ok task)
@@ -21763,19 +21766,19 @@ mod typed_ownership_tests {
     #[test]
     fn staged_moved_unread_task_retains_loans_for_calls_and_new_captures() {
         for access in [
-            "(#let observed u64 owner)",
+            "(#let observed #u64 owner)",
             "(#call read (: input alias))",
             "(#call write (: input alias))",
             "(#call Task-spawn (: target alias))",
         ] {
             let source = format!(
-                "(#fn worker ((target (#ref-mut u64))) () (#return ()))
-                 (#fn read ((input (#ref-mut u64))) u64 (#return (#deref input)))
-                 (#fn write ((input (#ref-mut u64))) () (#deref-set input 7u64) (#return ()))
+                "(#fn worker ((target (#ref-mut #u64))) () (#return ()))
+                 (#fn read ((input (#ref-mut #u64))) #u64 (#return (#deref input)))
+                 (#fn write ((input (#ref-mut #u64))) () (#deref-set input 7u64) (#return ()))
                  (@thread-spawn (: task Task : worker worker))
                  (#fn caller () ()
-                   (#let-mut owner u64 42u64)
-                   (#let alias (#ref-mut u64) (#borrow-mut owner))
+                   (#let-mut owner #u64 42u64)
+                   (#let alias (#ref-mut #u64) (#borrow-mut owner))
                    (#return (#match (#call Task-spawn (: target alias))
                      (#case (Task-spawn-ok task)
                        (#block (#let moved Task task) {access} (#panic)))
@@ -21805,7 +21808,7 @@ mod typed_ownership_tests {
     #[test]
     fn staged_thread_reference_storage_becomes_visible_on_successful_join() {
         for phase in ["completed", "pending", "retry", "failed"] {
-            let read = "(#let loaded (#ref u64) (#get target value))";
+            let read = "(#let loaded (#ref #u64) (#get target value))";
             let pending = if phase == "pending" { read } else { "" };
             let completed = if phase == "completed" { read } else { "" };
             let retry = if phase == "retry" { read } else { "" };
@@ -21815,12 +21818,12 @@ mod typed_ownership_tests {
                 "(#panic)".into()
             };
             let source = format!(
-                "(#struct Holder ((value (#ref u64)))) (#linear Holder)
-          (#fn worker ((target (#ref-mut Holder)) (source (#ref u64))) ()
+                "(#struct Holder ((value (#ref #u64)))) (#linear Holder)
+          (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64))) ()
             (#forget (#deref target))
             (#deref-set target (#struct-literal Holder ((value source)))) (#return ()))
           (@thread-spawn (: task Task : worker worker))
-          (#fn caller ((target (#ref-mut Holder)) (source (#ref u64))) ()
+          (#fn caller ((target (#ref-mut Holder)) (source (#ref #u64))) ()
             (#return (#match (#call Task-spawn (: target target : source source))
               (#case (Task-spawn-ok task)
                 (#block {pending}
@@ -21868,19 +21871,19 @@ mod typed_ownership_tests {
     #[test]
     fn staged_thread_conditional_write_retains_old_and_new_reference_loans() {
         let program = crate::parse_program(
-            "(#struct Holder ((value (#ref u64)))) (#linear Holder)
-             (#fn worker ((target (#ref-mut Holder)) (source (#ref u64)) (choose bool)) ()
+            "(#struct Holder ((value (#ref #u64)))) (#linear Holder)
+             (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)) ()
                (#if choose
                  (#block (#forget (#deref target))
                    (#deref-set target (#struct-literal Holder ((value source))))) ())
                (#return ()))
              (@thread-spawn (: task Task : worker worker))
-             (#fn caller ((target (#ref-mut Holder)) (source (#ref u64)) (choose bool)) ()
+             (#fn caller ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)) ()
                (#return (#match (#call Task-spawn (: target target : source source : choose choose))
                  (#case (Task-spawn-ok task)
                    (#match (#call Task-join (: task task))
                      (#case (Task-join-ok result)
-                       (#block (#let loaded (#ref u64) (#get target value)) ()))
+                       (#block (#let loaded (#ref #u64) (#get target value)) ()))
                      (#case (Task-join-error (#tuple retry error)) (#panic))))
                  (#case (Task-spawn-error error) (#panic)))))",
         )
@@ -21924,7 +21927,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_capture_storage_selectors_preserve_output_positions() {
-        let program = crate::parse_program("(#fn worker ((value (#ref u64))) () (#return ())) (@thread-spawn (: task Task : worker worker))").unwrap();
+        let program = crate::parse_program("(#fn worker ((value (#ref #u64))) () (#return ())) (@thread-spawn (: task Task : worker worker))").unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
         let owner = declarations
             .aggregate_id(&Type::Named("Task".into()))
@@ -21980,7 +21983,7 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#enum Holder ((Filled (#ref u64)) (Empty))) (#linear Holder)
+                "(#enum Holder ((Filled (#ref #u64)) (Empty))) (#linear Holder)
           {declarations_source}
           (#fn worker ((target (#ref-mut {target_type}))) ()
             (#forget (#deref target)) {write} (#return ()))
@@ -22102,9 +22105,9 @@ mod typed_ownership_tests {
     fn staged_join_keeps_worker_variant_unions_and_unknown_outputs() {
         for (parameters, returned, caller_parameters, arguments, known) in [
             (
-                "((choose bool))",
+                "((choose #bool))",
                 "(#if choose (Ready) (Failed))",
-                "((choose bool))",
+                "((choose #bool))",
                 ": choose choose",
                 true,
             ),
@@ -22167,7 +22170,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_global_clears_are_deferred_to_successful_join() {
-        let source = "(#enum Holder ((Empty) (Filled (#ref u64)))) (#linear Holder)
+        let source = "(#enum Holder ((Empty) (Filled (#ref #u64)))) (#linear Holder)
             (#static Snapshot Holder (Empty))
             (#fn worker () () (#unsafe (#forget Snapshot)) (#return ()))
             (@thread-spawn (: task Task : worker worker))
@@ -22223,8 +22226,8 @@ mod typed_ownership_tests {
             (format!("(#if choose (#block {clear} {empty}) ())"), None),
         ] {
             let program = crate::parse_program(&format!(
-                "(#enum Holder ((Filled (#ref u64)) (Empty))) (#linear Holder)
-                 (#fn worker ((target (#ref-mut Holder)) (source (#ref u64)) (choose bool)) ()
+                "(#enum Holder ((Filled (#ref #u64)) (Empty))) (#linear Holder)
+                 (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)) ()
                    {writes} (#return ()))
                  (@thread-spawn (: task Task : worker worker))"
             ))
@@ -22273,7 +22276,7 @@ mod typed_ownership_tests {
             ("(#forget (#deref target))", "(#return (#panic))"),
         ] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#fn worker ((target (#ref-mut Resource))) () {operation} {exit})
                  (@thread-spawn (: task Task : worker worker))"
             );
@@ -22322,8 +22325,8 @@ mod typed_ownership_tests {
         use crate::typed_place::{Place, Segment};
 
         let program = crate::parse_program(
-            "(#static Global u64 7u64)
-             (#fn worker ((target (#ref-mut u64))) () (#return ()))
+            "(#static Global #u64 7u64)
+             (#fn worker ((target (#ref-mut #u64))) () (#return ()))
              (@thread-spawn (: task Task : worker worker))",
         )
         .unwrap();
@@ -22429,11 +22432,11 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_worker_errors_precede_caller_contracts() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
-          (#fn z-worker ((owner (#ref-mut Resource))) u64
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+          (#fn z-worker ((owner (#ref-mut Resource))) #u64
             (#forget (#deref owner)) (#return (#get owner number)))
           (@thread-spawn (: task Task : worker z-worker))
-          (#fn a-caller ((owner (#ref-mut Resource))) u64
+          (#fn a-caller ((owner (#ref-mut Resource))) #u64
             (#return (#match (#call Task-spawn (: owner owner))
               (#case (Task-spawn-ok task)
                 (#match (#call Task-join (: task task))
@@ -22563,14 +22566,14 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_array_captures_specialize_actual_storage_slots() {
-        let source = "(#fn worker ((values (#array (#ref u64) 2))) u64
-            (#let result u64 (#u64.+.wrap (#deref (#index values 0usize)) (#deref (#index values 1usize))))
+        let source = "(#fn worker ((values (#array (#ref #u64) 2))) #u64
+            (#let result #u64 (#u64.+.wrap (#deref (#index values 0usize)) (#deref (#index values 1usize))))
             (#forget values) (#return result))
           (@thread-spawn (: task Task : worker worker))
-          (#fn main () u64
-            (#let left u64 20u64) (#let right u64 22u64)
-            (#let values (#array (#ref u64) 2)
-              (#array-of (#array (#ref u64) 2) (#borrow left) (#borrow right)))
+          (#fn main () #u64
+            (#let left #u64 20u64) (#let right #u64 22u64)
+            (#let values (#array (#ref #u64) 2)
+              (#array-of (#array (#ref #u64) 2) (#borrow left) (#borrow right)))
             (#return (#match (#call Task-spawn (: values values))
               (#case (Task-spawn-ok task)
                 (#match (#call Task-join (: task task))
@@ -22623,15 +22626,15 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_capture_schemas_preserve_slots_without_runtime_fields() {
-        let source = "(#struct Bundle ((shared (#ref u64)) (exclusive (#ref-mut u64))))
-          (#fn worker ((shared (#ref u64)) (exclusive (#ref-mut u64))
-                       (bundle Bundle) (view (#slice (#ref u64)))
-                       (array (#array (#ref u64) 2)) (pinned (#pin-ref u64))
-                       (number u64)) u64
+        let source = "(#struct Bundle ((shared (#ref #u64)) (exclusive (#ref-mut #u64))))
+          (#fn worker ((shared (#ref #u64)) (exclusive (#ref-mut #u64))
+                       (bundle Bundle) (view (#slice (#ref #u64)))
+                       (array (#array (#ref #u64) 2)) (pinned (#pin-ref #u64))
+                       (number #u64)) #u64
             (#forget bundle) (#forget view) (#forget array) (#return number))
           (@thread-spawn (: task Task : worker worker))
           (@thread-spawn (: task OtherTask : worker worker))
-          (#fn main () u64 (#return 0u64))";
+          (#fn main () #u64 (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
         let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -22753,15 +22756,15 @@ mod typed_ownership_tests {
     fn staged_opaque_external_boundaries_remain_unresolved_at_call_site() {
         for (parameters, return_type, caller_parameters, arguments) in [
             (
-                "((value (#ref u64)))",
-                "u64",
-                "((value (#ref u64)))",
+                "((value (#ref #u64)))",
+                "#u64",
+                "((value (#ref #u64)))",
                 ": value value",
             ),
             (
-                "((value (#ref u64)))",
-                "(#ref u64)",
-                "((value (#ref u64)))",
+                "((value (#ref #u64)))",
+                "(#ref #u64)",
+                "((value (#ref #u64)))",
                 ": value value",
             ),
         ] {
@@ -22792,9 +22795,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_raw_pointer_external_boundary_does_not_restore_consumed_referents() {
-        let source = "(#struct Resource ((value u64))) (#linear Resource)
+        let source = "(#struct Resource ((value #u64))) (#linear Resource)
             (#extern-fn #abi-c touch ((address (#ptr-mut Resource))) ())
-            (#fn inspect ((target (#ref-mut Resource)) (address (#ptr-mut Resource))) u64
+            (#fn inspect ((target (#ref-mut Resource)) (address (#ptr-mut Resource))) #u64
               (#forget (#deref target))
               (#unsafe (#call touch (: address address)))
               (#return (#get target value)))";
@@ -22823,9 +22826,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_unsafe_pointer_borrow_reads_do_not_invent_physical_places() {
-        let source = "(#struct Resource ((value u64))) (#linear Resource)
-            (#fn read ((value (#ref Resource))) u64 (#return (#get value value)))
-            (#fn inspect ((anchor (#ref Resource)) (address (#ptr Resource))) u64
+        let source = "(#struct Resource ((value #u64))) (#linear Resource)
+            (#fn read ((value (#ref Resource))) #u64 (#return (#get value value)))
+            (#fn inspect ((anchor (#ref Resource)) (address (#ptr Resource))) #u64
               (#return (#call read (: value (#unsafe (#ptr-borrow anchor address))))))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
@@ -22886,11 +22889,11 @@ mod typed_ownership_tests {
     fn staged_mixed_unsafe_and_physical_read_inputs_keep_physical_requirements() {
         let call = "(#call read (: value (#if choose (#unsafe (#ptr-borrow anchor (#clone address))) other)))";
         let source = format!(
-            "(#struct Resource ((value u64))) (#linear Resource)
-            (#fn read ((value (#ref Resource))) u64 (#return (#get value value)))
+            "(#struct Resource ((value #u64))) (#linear Resource)
+            (#fn read ((value (#ref Resource))) #u64 (#return (#get value value)))
             (#fn inspect ((anchor (#ref Resource)) (other (#ref Resource))
-                          (address (#ptr Resource)) (choose bool)) u64
-              (#let result u64 {call}) (#forget address) (#return result))"
+                          (address (#ptr Resource)) (choose #bool)) #u64
+              (#let result #u64 {call}) (#forget address) (#return result))"
         );
         let program = crate::parse_program(&source).unwrap();
         crate::check_types(&program).unwrap();
@@ -22933,7 +22936,7 @@ mod typed_ownership_tests {
         ] {
             let call = "(#call operate (: value (#unsafe (#ptr-borrow-mut anchor address))))";
             let source = format!(
-                "(#struct Resource ((value u64))) (#linear Resource)
+                "(#struct Resource ((value #u64))) (#linear Resource)
                 (#fn operate ((value (#ref-mut Resource))) () {operation} (#return ()))
                 (#fn inspect ((anchor (#ref-mut Resource)) (address (#ptr-mut Resource))) ()
                   {call} (#return ()))"
@@ -23175,7 +23178,7 @@ mod typed_ownership_tests {
                 "(#get outer-view target)"
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
               (#struct Container ((item Resource)))
               (#struct Holder ((target (#ref Resource))))
               (#fn load ((view (#ref Holder))) (#ref Resource)
@@ -23248,22 +23251,22 @@ mod typed_ownership_tests {
         ] {
             let read_after = result != "0u64";
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#struct Container ((item Resource)))
                  (#struct Holder ((target (#ref-mut Resource))))
                  (#fn consume ((holder (#ref-mut Holder))) ()
                    (#forget (#deref (#get holder target))) (#return ()))
                  (#fn forward ((holder (#ref-mut Holder))) ()
                    (#call consume (: holder holder)) (#return ()))
-                 (#fn read ((holder (#ref-mut Holder))) u64
+                 (#fn read ((holder (#ref-mut Holder))) #u64
                    (#let target (#ref-mut Resource) (#get holder target))
-                   (#let number u64 (#get target number))
+                   (#let number #u64 (#get target number))
                    (#drop target) (#return number))
-                 (#fn caller ((owner (#ref-mut Container))) u64
+                 (#fn caller ((owner (#ref-mut Container))) #u64
                    (#let-mut holder Holder (#struct-literal Holder
                      ((target (#borrow-mut (#get owner item))))))
                    (#call forward (: holder (#borrow-mut holder)))
-                   (#let result u64 {result})
+                   (#let result #u64 {result})
                    (#forget holder) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -23311,7 +23314,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn exclusive_container_access_does_not_make_a_shared_field_exclusive() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
             (#struct Holder ((target (#ref Resource))))
             (#fn consume ((holder (#ref-mut Holder))) ()
               (#forget (#deref (#get holder target))) (#return ()))";
@@ -23340,7 +23343,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn projected_parameter_containers_compose_loaded_reference_slots_in_order() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
             (#struct Container ((item Resource)))
             (#struct Holder ((target (#ref Resource))))
             (#struct Outer ((holder Holder)))
@@ -23416,7 +23419,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#struct Container ((item Resource) (other Resource)))
                  (#struct Views ((left (#ref Resource)) (right (#ref Resource))))
                  (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
@@ -23499,8 +23502,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn pinned_loads_of_branch_local_containers_use_evaluation_snapshots() {
-        let source = "(#struct Views ((left (#ref u64)) (right (#ref u64)))) (#linear Views)
-            (#fn load ((left (#ref u64)) (right (#ref u64)) (flag bool)) Views
+        let source = "(#struct Views ((left (#ref #u64)) (right (#ref #u64)))) (#linear Views)
+            (#fn load ((left (#ref #u64)) (right (#ref #u64)) (flag #bool)) Views
               (#return (#if flag
                 (#block
                   (#let-mut holder Views (#struct-literal Views ((left left) (right right))))
@@ -23546,13 +23549,13 @@ mod typed_ownership_tests {
 
     #[test]
     fn dereferencing_local_reference_storage_retains_the_inner_pointee() {
-        let source = "(#struct Held ((item (#ref u64))))
-            (#fn load ((input (#ref u64))) (#ref u64)
+        let source = "(#struct Held ((item (#ref #u64))))
+            (#fn load ((input (#ref #u64))) (#ref #u64)
             (#let held Held (#struct-literal Held ((item input))))
             (#let outer (#ref Held) (#borrow held))
             (#let loaded Held (#deref outer))
             (#drop outer)
-            (#let result (#ref u64) (#get loaded item))
+            (#let result (#ref #u64) (#get loaded item))
             (#forget held) (#forget loaded) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -23600,18 +23603,18 @@ mod typed_ownership_tests {
     #[test]
     fn typed_unread_holders_retain_loans_until_use_release_or_scope_exit() {
         for (owner_type, owner_value, holder_type, holder_value) in [
-            ("u64", "42u64", "(#ref u64)", "(#borrow owner)"),
-            ("u64", "42u64", "(#ref-mut u64)", "(#borrow-mut owner)"),
+            ("#u64", "42u64", "(#ref #u64)", "(#borrow owner)"),
+            ("#u64", "42u64", "(#ref-mut #u64)", "(#borrow-mut owner)"),
             (
-                "u64",
+                "#u64",
                 "42u64",
                 "Held",
                 "(#struct-literal Held (: item (#borrow owner)))",
             ),
             (
-                "(#array u64 1)",
-                "(#array-of (#array u64 1) 42u64)",
-                "(#slice u64)",
+                "(#array #u64 1)",
+                "(#array-of (#array #u64 1) 42u64)",
+                "(#slice #u64)",
                 "(#slice-of (#borrow owner))",
             ),
         ] {
@@ -23622,8 +23625,8 @@ mod typed_ownership_tests {
                 "(#if selected (#block (#forget holder) ()) (#block (#forget holder) ()))",
             ] {
                 let source = format!(
-                    "(#struct Held (: item (#ref u64)))
-                  (#fn main (: selected bool) ()
+                    "(#struct Held (: item (#ref #u64)))
+                  (#fn main (: selected #bool) ()
                     (#let-mut owner {owner_type} {owner_value})
                     (#let holder {holder_type} {holder_value})
                     {cleanup}
@@ -23658,7 +23661,7 @@ mod typed_ownership_tests {
                 }
             }
             let scoped = format!(
-                "(#struct Held (: item (#ref u64)))
+                "(#struct Held (: item (#ref #u64)))
                 (#fn main () ()
                   (#let-mut owner {owner_type} {owner_value})
                   (#block (#let holder {holder_type} {holder_value}) ())
@@ -23676,19 +23679,19 @@ mod typed_ownership_tests {
                 "(#struct-literal Pair (: left (#borrow-mut owner) : right (#borrow-mut owner)))",
             ),
             (
-                "(#tuple (#ref-mut u64) (#ref-mut u64))",
+                "(#tuple (#ref-mut #u64) (#ref-mut #u64))",
                 "(#tuple (#borrow-mut owner) (#borrow-mut owner))",
             ),
             (
-                "(#array (#ref-mut u64) 2)",
-                "(#array-of (#array (#ref-mut u64) 2) (#borrow-mut owner) (#borrow-mut owner))",
+                "(#array (#ref-mut #u64) 2)",
+                "(#array-of (#array (#ref-mut #u64) 2) (#borrow-mut owner) (#borrow-mut owner))",
             ),
             ("Choice", "(Both (#borrow-mut owner) (#borrow-mut owner))"),
         ] {
             let source = format!(
-                "(#struct Pair (: left (#ref-mut u64) : right (#ref-mut u64)))
-                (#enum Choice ((Both (#ref-mut u64) (#ref-mut u64))))
-                (#fn main () () (#let-mut owner u64 42u64)
+                "(#struct Pair (: left (#ref-mut #u64) : right (#ref-mut #u64)))
+                (#enum Choice ((Both (#ref-mut #u64) (#ref-mut #u64))))
+                (#fn main () () (#let-mut owner #u64 42u64)
                   (#let holder {ty} {constructor}) (#forget holder) (#return ()))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -23708,8 +23711,8 @@ mod typed_ownership_tests {
             assert!(span.start > first.start, "{error:?}");
             assert!(crate::check_types(&program).is_err());
             let disjoint = source.replacen(
-                "(#let-mut owner u64 42u64)",
-                "(#let-mut owner u64 42u64) (#let-mut other u64 43u64)",
+                "(#let-mut owner #u64 42u64)",
+                "(#let-mut owner #u64 42u64) (#let-mut other #u64 43u64)",
                 1,
             );
             let second = disjoint.rfind("(#borrow-mut owner)").unwrap();
@@ -23724,12 +23727,12 @@ mod typed_ownership_tests {
 
     #[test]
     fn typed_aggregate_operand_snapshots_survive_later_handle_reassignment() {
-        let source = "(#struct Pair (: left (#ref u64) : right (#ref-mut u64)))
+        let source = "(#struct Pair (: left (#ref #u64) : right (#ref-mut #u64)))
             (#fn main () ()
-              (#let-mut owner u64 42u64)
-              (#let-mut other u64 43u64)
-              (#let-mut first (#ref u64) (#borrow owner))
-              (#let next (#ref u64) (#borrow other))
+              (#let-mut owner #u64 42u64)
+              (#let-mut other #u64 43u64)
+              (#let-mut first (#ref #u64) (#borrow owner))
+              (#let next (#ref #u64) (#borrow other))
               (#let pair Pair (#struct-literal Pair
                 (: left first : right (#block
                   (#set first next) (#borrow-mut owner)))))
@@ -23752,13 +23755,13 @@ mod typed_ownership_tests {
         assert!(error.contains("borrow"), "{error}");
         let independent = source
             .replace(
-                "(#let-mut other u64 43u64)",
-                "(#let-mut other u64 43u64) (#let-mut third u64 44u64)",
+                "(#let-mut other #u64 43u64)",
+                "(#let-mut other #u64 43u64) (#let-mut third #u64 44u64)",
             )
             .replace("(#borrow-mut owner)", "(#borrow-mut third)");
         crate::check_types(&crate::parse_program(&independent).unwrap()).unwrap();
 
-        let forwarded = "(#struct Views (: left (#ref-mut u64) : right (#ref-mut u64)))
+        let forwarded = "(#struct Views (: left (#ref-mut #u64) : right (#ref-mut #u64)))
             (#fn rebuild (: input Views) Views
               (#return (#struct-literal Views (: left (#get input left) : right (#get input right)))))";
         crate::check_types(&crate::parse_program(forwarded).unwrap()).unwrap();
@@ -23790,9 +23793,9 @@ mod typed_ownership_tests {
                 "(#forget loaded)"
             };
             let source = format!(
-                "(#struct Owner ((number u64)))
-            (#struct Views ((item (#ref u64)))) {annotation}
-            (#fn main () u64
+                "(#struct Owner ((number #u64)))
+            (#struct Views ((item (#ref #u64)))) {annotation}
+            (#fn main () #u64
               (#let-mut owner Owner (#struct-literal Owner ((number 42u64))))
               (#let parent (#ref-mut Owner) (#borrow-mut owner))
               (#let-mut holder Views (#struct-literal Views
@@ -23800,7 +23803,7 @@ mod typed_ownership_tests {
               (#let target (#pin-ref-mut Views) (#pin-borrow-mut holder))
               (#let loaded Views (#unsafe (#pin-read target)))
               (#drop target)
-              (#let result u64 (#deref (#get loaded item)))
+              (#let result #u64 (#deref (#get loaded item)))
               {original} {early} (#drop parent) {late} (#forget owner) (#return result))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -23855,7 +23858,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                 (#fn main () ()
                   (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
                   (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
@@ -23892,10 +23895,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn returning_a_pinned_loaded_value_still_rejects_its_local_pointee() {
-        let source = "(#struct Views ((item (#ref u64))))
+        let source = "(#struct Views ((item (#ref #u64))))
             (#fn leak () Views
               (#return (#block
-                (#let owner u64 42u64)
+                (#let owner #u64 42u64)
                 (#let-mut holder Views (#struct-literal Views ((item (#borrow owner)))))
                 (#unsafe (#pin-read (#pin-borrow-mut holder))))))";
         let program = crate::parse_program(source).unwrap();
@@ -23916,13 +23919,13 @@ mod typed_ownership_tests {
             };
             let cleanup = if restored { "(#forget owner)" } else { "" };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
-              (#fn main () u64
+                "(#struct Resource ((number #u64))) (#linear Resource)
+              (#fn main () #u64
                 (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
                 (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
                 (#let taken Resource (#unsafe (#pin-read target)))
                 (#forget taken) {write}
-                (#let value u64 (#get target number))
+                (#let value #u64 (#get target number))
                 (#drop target) {cleanup} (#return value))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -23940,9 +23943,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn locally_pin_moved_exclusive_reference_slots_transfer_without_duplicate_loans() {
-        let source = "(#struct Owner ((number u64)))
-            (#struct View ((item (#ref-mut u64)))) (#linear View)
-            (#fn main () u64
+        let source = "(#struct Owner ((number #u64)))
+            (#struct View ((item (#ref-mut #u64)))) (#linear View)
+            (#fn main () #u64
               (#let-mut owner Owner (#struct-literal Owner ((number 1u64))))
               (#let parent (#ref-mut Owner) (#borrow-mut owner))
               (#let-mut holder View (#struct-literal View
@@ -23952,7 +23955,7 @@ mod typed_ownership_tests {
               (#drop target)
               (#deref-set (#get loaded item) 42u64)
               (#forget loaded) (#drop parent)
-              (#let result u64 (#get owner number))
+              (#let result #u64 (#get owner number))
               (#forget owner) (#return result))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
@@ -23989,7 +23992,7 @@ mod typed_ownership_tests {
             let reference = if pinned { "#pin-ref" } else { "#ref" };
             let borrow = if pinned { "#pin-borrow" } else { "#borrow" };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#struct Container ((item Resource) (other Resource)))
                  (#struct Views ((left (#ref Resource)) (right (#ref Resource))))
                  (#struct Nested ((views Views)))
@@ -24113,13 +24116,13 @@ mod typed_ownership_tests {
 
     #[test]
     fn static_selection_of_loaded_reference_arrays_preserves_the_selected_input() {
-        let source = "(#struct Outer ((refs (#array (#ref u64) 2))))
-            (#fn select ((outer (#ref Outer))) (#ref u64)
+        let source = "(#struct Outer ((refs (#array (#ref #u64) 2))))
+            (#fn select ((outer (#ref Outer))) (#ref #u64)
               (#return (#index (#get outer refs) 1usize)))
-            (#fn caller ((left (#ref u64)) (right (#ref u64))) (#ref u64)
+            (#fn caller ((left (#ref #u64)) (right (#ref #u64))) (#ref #u64)
               (#let outer Outer (#struct-literal Outer
-                ((refs (#array-of (#array (#ref u64) 2) left right)))))
-              (#let result (#ref u64) (#call select (: outer (#borrow outer))))
+                ((refs (#array-of (#array (#ref #u64) 2) left right)))))
+              (#let result (#ref #u64) (#call select (: outer (#borrow outer))))
               (#forget outer) (#return result))";
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -24177,28 +24180,28 @@ mod typed_ownership_tests {
     fn reference_array_slot_correspondence_survives_returns_but_not_repetition() {
         for repeated in [false, true] {
             let load = if repeated {
-                "(#fn load ((outer (#ref Outer)) (index usize)) (#array (#ref u64) 2)
-                   (#let picked (#ref u64) (#index (#get outer refs) index))
+                "(#fn load ((outer (#ref Outer)) (index #usize)) (#array (#ref #u64) 2)
+                   (#let picked (#ref #u64) (#index (#get outer refs) index))
                    (#return (#array-repeat picked)))"
             } else {
-                "(#fn load ((outer (#ref Outer)) (index usize)) (#array (#ref u64) 2)
+                "(#fn load ((outer (#ref Outer)) (index #usize)) (#array (#ref #u64) 2)
                    (#return (#get outer refs)))"
             };
             let source = format!(
-                "(#struct Outer ((refs (#array (#ref u64) 2))))
+                "(#struct Outer ((refs (#array (#ref #u64) 2))))
                  {load}
-                 (#fn identity ((values (#array (#ref u64) 2))) (#array (#ref u64) 2)
+                 (#fn identity ((values (#array (#ref #u64) 2))) (#array (#ref #u64) 2)
                    (#return values))
-                 (#fn select ((outer (#ref Outer)) (index usize)) (#ref u64)
-                   (#let values (#array (#ref u64) 2)
+                 (#fn select ((outer (#ref Outer)) (index #usize)) (#ref #u64)
+                   (#let values (#array (#ref #u64) 2)
                      (#call load (: outer outer : index index)))
-                   (#let moved (#array (#ref u64) 2)
+                   (#let moved (#array (#ref #u64) 2)
                      (#call identity (: values values)))
                    (#return (#index moved 1usize)))
-                 (#fn caller ((left (#ref u64)) (right (#ref u64)) (index usize)) (#ref u64)
+                 (#fn caller ((left (#ref #u64)) (right (#ref #u64)) (index #usize)) (#ref #u64)
                    (#let outer Outer (#struct-literal Outer
-                     ((refs (#array-of (#array (#ref u64) 2) left right)))))
-                   (#let result (#ref u64)
+                     ((refs (#array-of (#array (#ref #u64) 2) left right)))))
+                   (#let result (#ref #u64)
                      (#call select (: outer (#borrow outer) : index index)))
                    (#forget outer) (#return result))"
             );
@@ -24249,7 +24252,7 @@ mod typed_ownership_tests {
     fn static_reference_array_selection_does_not_require_the_unselected_referent() {
         for consumed in ["item", "other"] {
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#struct Container ((item Resource) (other Resource)))
                  (#struct Outer ((refs (#array (#ref Resource) 2))))
                  (#fn load ((outer (#ref Outer))) (#array (#ref Resource) 2)
@@ -24296,7 +24299,7 @@ mod typed_ownership_tests {
         for mutable in [false, true] {
             let reference = if mutable { "#ref-mut" } else { "#ref" };
             let source = format!(
-                "(#struct Views ((target (#ref-mut u64))))
+                "(#struct Views ((target (#ref-mut #u64))))
                  (#struct Outer ((views Views)))
                  (#fn load ((outer ({reference} Outer))) ()
                    (#let selected Views (#get outer views))
@@ -24342,7 +24345,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#fn cycle ((target (#pin-ref-mut Resource))) ()
                    (#let old Resource (#unsafe (#pin-read target)))
                    {second} (#forget old)
@@ -24379,7 +24382,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn pinned_writes_cannot_implicitly_destroy_live_linear_storage() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
             (#fn main () ()
               (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
               (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
@@ -24415,7 +24418,7 @@ mod typed_ownership_tests {
             };
             let call = "(#call take (: target (#pin-borrow-mut (#get owner item))))";
             let source = format!(
-                "(#struct Resource ((number u64))) (#linear Resource)
+                "(#struct Resource ((number #u64))) (#linear Resource)
                  (#struct Container ((item Resource)))
                  (#fn take ((target (#pin-ref-mut Resource))) ()
                    (#let old Resource (#unsafe (#pin-read target)))
@@ -24449,7 +24452,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn computed_pinned_read_targets_preserve_the_consumed_identity() {
-        let source = "(#struct Resource ((number u64))) (#linear Resource)
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
             (#struct Container ((item Resource)))
             (#fn view ((target (#pin-ref-mut Resource))) (#pin-ref-mut Resource)
               (#return target))

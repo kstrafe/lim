@@ -6,11 +6,11 @@ use std::process::Command;
 fn wake_token_table_reports_invalid_busy_and_exhausted_slots() {
     let source = format!(
         "(#import \"{}/library/wake_tokens.lim\")
-         (#fn main () u64
+         (#fn main () #u64
            (#let-mut table WakeTable4 (#call wake-table4-create (:)))
            (#let invalid WakeRegister4
              (#call wake-table4-register (: table (#borrow-mut table) : slot 4usize)))
-           (#let invalid-ok bool (#match invalid
+           (#let invalid-ok #bool (#match invalid
              (#case WakeInvalid4 true) (#case _ false)))
            (#let first WakeRegister4
              (#call wake-table4-register (: table (#borrow-mut table) : slot 1usize)))
@@ -19,17 +19,17 @@ fn wake_token_table_reports_invalid_busy_and_exhausted_slots() {
              (#case _ (#unreachable))))
            (#let busy WakeRegister4
              (#call wake-table4-register (: table (#borrow-mut table) : slot 1usize)))
-           (#let busy-ok bool (#match busy
+           (#let busy-ok #bool (#match busy
              (#case WakeBusy4 true) (#case _ false)))
            (#let retired WakeRetire4
              (#call wake-table4-retire (: table (#borrow-mut table) : token token)))
-           (#let retired-ok bool (#match retired
+           (#let retired-ok #bool (#match retired
              (#case WakeRetired4 true) (#case WakeStale4 false)))
            (#let-mut exhausted-table WakeTable4
              (#call wake-table4-create-exhausted (:)))
            (#let exhausted WakeRegister4
              (#call wake-table4-register (: table (#borrow-mut exhausted-table) : slot 1usize)))
-           (#let exhausted-ok bool (#match exhausted
+           (#let exhausted-ok #bool (#match exhausted
              (#case WakeExhausted4 true) (#case _ false)))
            (#forget table) (#forget exhausted-table)
            (#return (#if
@@ -65,7 +65,7 @@ fn wake_authority_is_private_to_its_module() {
     for (name, body, expected) in [
         (
             "forge-token",
-            "(#fn main () u64
+            "(#fn main () #u64
                (#let token WakeToken4 (#struct-literal WakeToken4
                  ((slot 0usize) (generation 1u64))))
                (#return 0u64))",
@@ -75,19 +75,19 @@ fn wake_authority_is_private_to_its_module() {
             "forge-global",
             "(#const TOKEN WakeToken4 (#struct-literal WakeToken4
                ((slot 0usize) (generation 1u64))))
-             (#fn main () u64 (#return 0u64))",
+             (#fn main () #u64 (#return 0u64))",
             "cannot construct opaque type 'WakeToken4'",
         ),
         (
             "read-field",
-            "(#fn inspect ((token WakeToken4)) usize
+            "(#fn inspect ((token WakeToken4)) #usize
                (#return (#get token slot)))
-             (#fn main () u64 (#return 0u64))",
+             (#fn main () #u64 (#return 0u64))",
             "cannot access fields of opaque type 'WakeToken4'",
         ),
         (
             "replace-generations",
-            "(#fn main () u64
+            "(#fn main () #u64
                (#let-mut table WakeTable4 (#call wake-table4-create (:)))
                (#set-field table generations (#array-repeat 1u64))
                (#forget table)
@@ -96,7 +96,7 @@ fn wake_authority_is_private_to_its_module() {
         ),
         (
             "clone-authority",
-            "(#fn main () u64
+            "(#fn main () #u64
                (#let table WakeTable4 (#call wake-table4-create (:)))
                (#let duplicate WakeTable4 (#clone table))
                (#forget duplicate)
@@ -127,7 +127,7 @@ fn external_import_prefix_does_not_remove_opacity() {
     let scratch = support::Scratch::new("wake-authority-external");
     let source = format!(
         "(#import-external \"{}/library/wake_tokens.lim\" ext-)
-         (#fn main () u64
+         (#fn main () #u64
            (#let token ext-WakeToken4 (#struct-literal ext-WakeToken4
              ((ext-slot 0usize) (ext-generation 1u64))))
            (#return 0u64))",
@@ -154,14 +154,14 @@ fn opaque_field_is_not_readable_from_a_foreign_global_initializer() {
     let scratch = support::Scratch::new("opaque-global-projection");
     std::fs::write(
         scratch.path().join("module.lim"),
-        "(#struct Private ((value u64)))
+        "(#struct Private ((value #u64)))
          (#opaque Private)
          (#const VALUE Private (#struct-literal Private ((value 42u64))))",
     )
     .unwrap();
     let source = "(#import \"module.lim\")
-      (#const LEAK u64 (#get VALUE value))
-      (#fn main () u64 (#return LEAK))";
+      (#const LEAK #u64 (#get VALUE value))
+      (#fn main () #u64 (#return LEAK))";
     let result = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),

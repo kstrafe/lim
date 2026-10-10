@@ -1,6 +1,6 @@
 (#import "../library/timer_reactor1.lim")
 
-(#fn main () u64
+(#fn main () #u64
   (#let created-first TimerCreate1
     (#call timer-reactor1-create (: nanoseconds 10000000u64)))
   (#let-else (TimerCreated1 first) TimerCreate1 created-first (#unreachable))
@@ -18,13 +18,13 @@
   (#assert (#bool.|| first-woke second-woke))
   (#let first-poll TimerPoll1
     (#call timer-reactor1-poll (: timer (#borrow first))))
-  (#let first-done bool (#match first-poll
+  (#let first-done #bool (#match first-poll
     (#case TimerPending1 false)
     (#case (TimerReady1 count) (#u64.== count 1u64))
     (#case (TimerPollFailed1 error) (#unreachable))))
   (#let second-poll TimerPoll1
     (#call timer-reactor1-poll (: timer (#borrow second))))
-  (#let second-done bool (#match second-poll
+  (#let second-done #bool (#match second-poll
     (#case TimerPending1 false)
     (#case (TimerReady1 count) (#u64.== count 1u64))
     (#case (TimerPollFailed1 error) (#unreachable))))
@@ -46,8 +46,8 @@
           (#case (TimerReady1 count) (#u64.== count 1u64))
           (#case _ false)))
         ())))
-  (#let first-closed i64 (#call timer-reactor1-cancel (: timer first)))
-  (#let second-closed i64 (#call timer-reactor1-cancel (: timer second)))
+  (#let first-closed #i64 (#call timer-reactor1-cancel (: timer first)))
+  (#let second-closed #i64 (#call timer-reactor1-cancel (: timer second)))
   (#return (#if (#bool.&& (#i64.== first-closed 0i64)
                          (#i64.== second-closed 0i64))
     42u64 0u64)))

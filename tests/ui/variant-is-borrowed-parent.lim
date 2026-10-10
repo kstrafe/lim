@@ -1,10 +1,10 @@
-(#enum Choice ((Number u64) Empty))
-(#fn main () u64
+(#enum Choice ((Number #u64) Empty))
+(#fn main () #u64
   (#let-mut value Choice (Number 42u64))
   (#let parent (#pin-ref-mut Choice) (#pin-borrow-mut value))
-  (#let child (#pin-ref-mut u64) (#pin-get-payload-mut parent Number 0))
+  (#let child (#pin-ref-mut #u64) (#pin-get-payload-mut parent Number 0))
   (#variant-is parent Number)
-  (#let result u64 (#deref child))
+  (#let result #u64 (#deref child))
   (#drop child)
   (#drop parent)
   (#forget value)

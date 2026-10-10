@@ -58,7 +58,7 @@
   `((#struct ,result ,(#gn-for-each job jobs (#gn-call executor-field job)))
     (#fn ,run ,(#gn-for-each job jobs (#gn-call executor-parameter job)) ,result
       ,@(#gn-for-each job jobs (#gn-call executor-initialize job))
-      (#let-mut lim.executor.waiting bool true)
+      (#let-mut lim.executor.waiting #bool true)
       (#while lim.executor.waiting
         (#set lim.executor.waiting false)
         ,@(#gn-for-each job jobs (#gn-call executor-poll job)))
@@ -209,7 +209,7 @@
         ((,(#gn-call task-fourth outputs))
          (,(#gn-call task-sixth outputs) ,(#gn-call task-fourth wait-spec))))
       (#enum ,(#gn-first wait-spec)
-        ((,(#gn-call task-second wait-spec) u32)
+        ((,(#gn-call task-second wait-spec) #u32)
          (,(#gn-call task-third wait-spec) ,(#gn-call task-fourth wait-spec))))
       (#fn ,run
         (,@(#gn-for-each job jobs
@@ -224,10 +224,10 @@
              (#gn-call wake-executor-initialize
                (#gn-first task-spec) (#gn-call task-second task-spec)
                (#gn-call task-third task-spec) job))
-        (#let-mut lim.wake-executor.ready-mask u32 15u32)
+        (#let-mut lim.wake-executor.ready-mask #u32 15u32)
         (#let-mut lim.wake-executor.lifecycle
           ,(#gn-call task-third outputs) ,(#gn-call task-fourth outputs))
-        (#let-mut lim.wake-executor.waiting bool true)
+        (#let-mut lim.wake-executor.waiting #bool true)
         (#while lim.wake-executor.waiting
           (#set lim.wake-executor.waiting false)
           ,@(#gn-for-each job jobs

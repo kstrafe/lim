@@ -1,7 +1,7 @@
 ; A callee explicitly clears reference-bearing storage before mutation.
-(#enum Choice ((Empty) (Full (#ref u64))))
+(#enum Choice ((Empty) (Full (#ref #u64))))
 
-(#fn replace-choice (: target (#ref-mut Choice) : value (#ref u64)) ()
+(#fn replace-choice (: target (#ref-mut Choice) : value (#ref #u64)) ()
   (#deref-set target (Full value))
   (#return ()))
 
@@ -9,14 +9,14 @@
   (#deref-set target (Empty))
   (#return ()))
 
-(#fn main () u64
-  (#let old u64 7u64)
-  (#let-mut value u64 42u64)
+(#fn main () #u64
+  (#let old #u64 7u64)
+  (#let-mut value #u64 42u64)
   (#let-mut holder Choice (Full (#borrow old)))
   (#let target (#ref-mut Choice) (#borrow-mut holder))
   (#call replace-choice (: target target : value (#borrow value)))
   (#drop target)
-  (#let result u64
+  (#let result #u64
     (#match holder
       (#case (Empty) 0u64)
       (#case (Full view) (#deref view))))

@@ -1,17 +1,17 @@
 (#import "../library/linux_x86_64.lim")
 
-(#fn main () u64
-  (#let memory (#ptr-mut u32)
-    (#unsafe (#linux-syscall (#ptr-mut u32) LINUX-SYS-MMAP
+(#fn main () #u64
+  (#let memory (#ptr-mut #u32)
+    (#unsafe (#linux-syscall (#ptr-mut #u32) LINUX-SYS-MMAP
       (0usize 4096usize 3usize 34usize -1i64 0usize))))
   (#let value-set () (#unsafe (#ptr-write memory 1u32)))
-  (#let wait-mismatch i64
-    (#unsafe (#call linux-futex (: address memory : operation 128i32 : value 0u32 : timeout (#ptr-null (#ptr-mut i64)) : second-address (#ptr-null (#ptr-mut u32)) : value3 0u32))))
-  (#let wake-without-waiters i64
-    (#unsafe (#call linux-futex (: address memory : operation 129i32 : value 1u32 : timeout (#ptr-null (#ptr-mut i64)) : second-address (#ptr-null (#ptr-mut u32)) : value3 0u32))))
-  (#let value-after u32 (#unsafe (#ptr-read memory)))
-  (#let unmapped i64
-    (#unsafe (#linux-syscall i64 LINUX-SYS-MUNMAP (memory 4096usize))))
+  (#let wait-mismatch #i64
+    (#unsafe (#call linux-futex (: address memory : operation 128i32 : value 0u32 : timeout (#ptr-null (#ptr-mut #i64)) : second-address (#ptr-null (#ptr-mut #u32)) : value3 0u32))))
+  (#let wake-without-waiters #i64
+    (#unsafe (#call linux-futex (: address memory : operation 129i32 : value 1u32 : timeout (#ptr-null (#ptr-mut #i64)) : second-address (#ptr-null (#ptr-mut #u32)) : value3 0u32))))
+  (#let value-after #u32 (#unsafe (#ptr-read memory)))
+  (#let unmapped #i64
+    (#unsafe (#linux-syscall #i64 LINUX-SYS-MUNMAP (memory 4096usize))))
   (#return
     (#if (#bool.&& (#i64.== wait-mismatch -11i64)
       (#bool.&& (#i64.== wake-without-waiters 0i64)

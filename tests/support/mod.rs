@@ -75,7 +75,7 @@ pub fn run(
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| error.to_string())?;
-    let pid = i32::try_from(child.id()).expect("Linux process ID fits i32");
+    let pid = i32::try_from(child.id()).expect("Linux process ID fits #i32");
     assert!(pid > 1);
     let exceeded = Arc::new(AtomicBool::new(false));
     let stdout = child.stdout.take().unwrap();

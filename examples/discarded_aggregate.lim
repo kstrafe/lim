@@ -1,6 +1,6 @@
-(#struct Pair ((left u64) (right u64)))
+(#struct Pair ((left #u64) (right #u64)))
 
-(#fn main () u64
-  (#tuple (#tuple u64 u64) 1 2)
+(#fn main () #u64
+  (#tuple (#tuple #u64 #u64) 1 2)
   (#struct-literal Pair ((left 3) (right 4)))
   (#return 42))
