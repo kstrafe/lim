@@ -126,7 +126,13 @@ mod tests {
     fn unstabilized_owners_and_unchecked_selected_addresses_are_not_emitted() {
         let (graph, place, declarations) = fixture(false, false);
         assert!(Borrow::new(&graph, &place, &declarations, false, true, false).is_err());
-        assert!(Borrow::new(&graph, &place, &declarations, false, false, true).is_err());
+        let ordinary = Borrow::new(&graph, &place, &declarations, false, false, true).unwrap();
+        assert!(matches!(
+            ordinary.output,
+            Type::Reference { mutable: false, .. }
+        ));
+        let generated = ordinary.declaration("project", "input");
+        assert!(generated.contains("#ref-ptr") && generated.contains("#ptr-borrow"));
         let mut bad = place.clone();
         bad.projections.push(AddressProjection::Index(ValueId(0)));
         assert!(Borrow::new(&graph, &bad, &declarations, false, true, true).is_err());
@@ -152,12 +158,6 @@ impl Borrow {
         if !stationary {
             return Err(
                 "local borrows require stable frame-owner storage, not a handle projection".into(),
-            );
-        }
-        if !pinned {
-            return Err(
-                "ordinary local references require a checked projection from pinned owner storage"
-                    .into(),
             );
         }
         let AddressRoot::Local(binding) = place.root else {
@@ -200,9 +200,16 @@ impl Borrow {
                 mutable,
                 target: Box::new(owner),
             },
-            output: Type::PinnedReference {
-                mutable,
-                target: Box::new(target),
+            output: if pinned {
+                Type::PinnedReference {
+                    mutable,
+                    target: Box::new(target),
+                }
+            } else {
+                Type::Reference {
+                    mutable,
+                    target: Box::new(target),
+                }
             },
             fields,
         })
@@ -222,6 +229,18 @@ impl Borrow {
                 "(#pin-borrow{} {place})",
                 if self.mutable { "-mut" } else { "" }
             )
+        };
+        let value = if matches!(self.output, Type::Reference { .. }) {
+            let ty = match &self.output {
+                Type::Reference { target, .. } => target,
+                _ => unreachable!(),
+            };
+            format!("(#block (#let projected {} {value})\n(#let pointer {} (#ref-ptr projected))\n(#unsafe (#ptr-borrow{} projected pointer)))",
+                crate::type_source(&Type::PinnedReference { mutable: self.mutable, target: ty.clone() }),
+                crate::type_source(&Type::RawPointer { mutable: self.mutable, target: ty.clone() }),
+                if self.mutable { "-mut" } else { "" })
+        } else {
+            value
         };
         format!(
             "(#fn {name} (: {argument} {}) {} (#return {value}))",

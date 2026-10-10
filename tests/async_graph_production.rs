@@ -189,25 +189,47 @@ fn graph_route_rejects_missing_wrong_and_private_cleanup_contracts() {
 }
 
 #[test]
-fn unsupported_scoped_borrows_fail_before_cache_publication() {
+fn scoped_local_borrows_use_inspectable_pointer_storage() {
     let source = format!("{CONTEXT} (@#async-fn-pinned (: protocol WorkAwait : waker #u64
       : function (#fn work (: seed #u64) #u64 (#let owner #u64 seed)
         (#return (#borrow owner (#await Child ChildPending ChildReady child-poll (Start 0u64)))))))");
     let scratch = support::Scratch::new("async-graph-fail-closed");
     let cache = scratch.path().join("cache");
-    let error = lim::parse_program_from_path_with_config_and_cache(
+    lim::parse_program_from_path_with_config_and_cache(
         &source,
         &scratch.path().join("input.lim"),
         &config(),
         &cache,
     )
-    .unwrap_err();
-    assert!(
-        error.contains(
-            "ordinary local references require a checked projection from pinned owner storage"
-        ),
-        "{error}"
+    .unwrap();
+    let artifacts = fs::read_dir(scratch.path().join("generated"))
+        .unwrap()
+        .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+        .collect::<Vec<_>>();
+    let source = &artifacts[0];
+    assert!(source.contains("(#ptr #u64)"));
+    assert!(source.contains("#ref-ptr"));
+    assert!(scratch.path().join("generated").exists());
+}
+
+#[test]
+fn invalid_scoped_borrows_fail_before_cache_publication() {
+    let source = format!(
+        "{CONTEXT} (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+      : function (#fn work (: seed #u64) #u64 (#let-mut owner #u64 seed)
+        (#return (#borrow owner (#block (#set owner 1u64)
+          (#await Child ChildPending ChildReady child-poll (Start 0u64))))))))"
     );
+    let scratch = support::Scratch::new("async-graph-invalid-scope");
+    let error = lim::parse_program_from_path_with_config_and_cache(
+        &source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+    )
+    .err()
+    .expect("mutation inside a shared borrow must fail");
+    assert!(error.contains("borrow"), "{error}");
     assert!(!scratch.path().join("generated").exists());
 }
 

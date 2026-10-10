@@ -10,8 +10,9 @@ Graph selection applies to all async invocations in the prepared program,
 including imported and generator-produced invocations. Unsupported lowering
 fails; it does not retry the legacy rewriter. Original source witnesses and the
 completed ordinary emitted program must both pass the existing checkers.
-No async runtime operation, pointer-based provenance recovery, or borrow-checker
-exception is introduced.
+No async runtime operation or borrow-checker exception is introduced. Internal
+thin references in a stationary frame can use generated unsafe raw-pointer
+storage; their permission and escape checks still come from the original source.
 
 Executable compilation and source publication use the same versioned graph
 artifact cache. Keys include the implementation fingerprint, dependency/config
@@ -85,11 +86,41 @@ Scoped external borrows have explicit reference cells, tracked by the physical
 state solver through Pending and cleared on scope exit/cancellation. Their
 materialization preserves checked pinning and exclusivity. Source and ordinary
 generated-code checking can still reject cases requiring unsupported parent
-permissions. Ordinary local-owner references are not silently converted to
-pinned references.
+permissions. Ordinary local-owner references retain their ordinary reference
+type at use sites; they are not silently converted to pinned references.
+
+### Frame-local borrows across suspension
+
+On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
+thin reference locals into stationary frame owners, including checked static
+struct/tuple projections. Declare them with `#borrow`/`#borrow-mut` as in an
+ordinary function. The factory initializes only arguments; owner construction
+and pointer formation occur when polling the pinned frame reaches those source
+statements, never before the caller pins it.
+
+Generated Empty/Full cells hold `#ptr` or `#ptr-mut` for internal handles. The
+generator obtains addresses with the general `#ref-ptr` builtin and reconstructs
+a short-lived reference with unsafe `#ptr-borrow` when an operation needs it.
+Each temporary uses its checked, initialized owner projection as the anchor,
+preserving native reference layout. The checked original source and stationary
+owner cells provide the across-suspension proof. Source checks still reject
+conflicting loans, mutation or
+consumption of borrowed owners, and returning a reference to a source local.
+Cancellation clears these non-owning handles before extracting owning cells.
+External references keep their ordinary lifetime-bearing storage and caller
+contracts. A single handle that can refer either inside or outside the frame
+is rejected instead of erasing its caller lifetime. Handles selecting multiple
+internal referents are also rejected until checked selected-anchor storage is
+available.
+
+This does not yet cover owning aggregates or child futures retaining ordinary
+frame-local borrows. Cleanup currently extracts owning values by value; allowing
+such a child to leave with its referent would invalidate its pointer. These
+cases fail closed until cancellation can destroy dependents in place before
+extracting owners. Movable `@#async-fn` frames cannot use this representation.
 
 The default switch remains gated on legacy public task/state layout adapters,
-the full existing async matrix, general guard aliases and scoped local borrows,
+the full existing async matrix, general guard aliases and retained child borrows,
 broader selected-address/projection contracts, and named poll-handle recycling
 with correct internal-loan permissions. A passing graph fixture does not close
 these gates. No `src/lib.rs` patch is needed to select this explicit route;
@@ -99,6 +130,10 @@ public cancellation-state patterns.
 Focused public-API/native and standalone-artifact regressions are in
 `tests/async_graph_production.rs`. Private graph emitter and frontend migration
 regressions provide additional coverage, not proof of a complete default switch.
+Thin local-reference and cleanup regressions are in `tests/async_self_borrows.rs`
+and `tests/async_self_borrow_cleanup.rs`, including signed narrow writes and
+descending aggregate projections after repeated Pending, warm-cache identity,
+source-spanned loan violations, and unsafe dependent-child extraction rejection.
 
 Checkpoint verification (2026-10-10, through `nix develop -c`): the library
 suite passed 1,295 tests; frontend migration/cache regressions passed 12 tests;

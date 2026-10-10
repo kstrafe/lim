@@ -1718,7 +1718,7 @@ mod async_migration_tests {
                 "(#let owner #u64 seed)
                  (#return (#borrow owner
                    (#await Child ChildPending ChildReady child-poll (Start 0u64))))",
-                "local borrows require stable frame-owner storage",
+                "local borrows require a pinned async frame",
             ),
         ] {
             let text = source(body);

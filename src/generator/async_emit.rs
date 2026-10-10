@@ -44,6 +44,9 @@ struct Slot {
     lend: String,
     lend_argument: String,
     ty: Type,
+    storage: Type,
+    raw: bool,
+    anchor: Option<crate::typed_place::Place>,
     copy: bool,
     linear: bool,
 }
@@ -105,6 +108,17 @@ impl<'a> Emitter<'a> {
             ));
         };
         let body = &planning.declarations.bodies[&function.model.body_name];
+        let self_borrows = crate::generator::async_self_borrow::Plan::new(
+            &function.graph,
+            body,
+            &planning.declarations.flows[&function.model.body_name],
+            &planning.declarations,
+            function.source.pinned_frame.is_some(),
+        )
+        .map_err(|error| Error {
+            message: error.message,
+            span: error.span.unwrap_or(function.source.function.span),
+        })?;
         function
             .graph
             .validate()
@@ -195,6 +209,9 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let slot = emitter.add_slot(format!("binding.{index}"), binding.ty.clone());
+            if let Some(anchor) = self_borrows.bindings.get(&BindingId(index)) {
+                emitter.erase_reference(slot, anchor.clone())?;
+            }
             emitter.bindings.insert(BindingId(index), slot);
         }
         for (index, value) in function.graph.values.iter().enumerate() {
@@ -204,6 +221,9 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let slot = emitter.add_slot(format!("value.{index}"), value.ty.clone());
+            if let Some(anchor) = self_borrows.values.get(&ValueId(index)) {
+                emitter.erase_reference(slot, anchor.clone())?;
+            }
             emitter.values.insert(ValueId(index), slot);
         }
         for located in function
@@ -230,6 +250,15 @@ impl<'a> Emitter<'a> {
                     Type::Reference { mutable, target }
                 };
                 let slot = emitter.add_slot(format!("scope.{}", scope.0), ty);
+                if !pinned && matches!(function.graph.places[place.0].root, AddressRoot::Local(_)) {
+                    if !emitter.pinned {
+                        return Err(fail(function, "local borrows require a pinned async frame"));
+                    }
+                    let anchor =
+                        crate::generator::async_self_borrow::direct_place(&function.graph, place)
+                            .map_err(|message| fail(function, message))?;
+                    emitter.erase_reference(slot, anchor)?;
+                }
                 emitter.scopes.insert(scope, slot);
             }
         }
@@ -379,11 +408,67 @@ impl<'a> Emitter<'a> {
             lend_argument: self.fresh("lend-input"),
             copy: self.types.can_repeat(&ty),
             linear: self.types.is_linear(&ty),
+            storage: ty.clone(),
+            raw: false,
+            anchor: None,
             ty,
         };
         let index = self.slots.len();
         self.slots.push(slot);
         index
+    }
+
+    fn erase_reference(
+        &mut self,
+        index: usize,
+        anchor: crate::typed_place::Place,
+    ) -> Result<(), Error> {
+        let slot = &mut self.slots[index];
+        let (mutable, target) =
+            match crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases)
+                .map_err(|message| fail(self.function, message))?
+            {
+                Type::Reference { mutable, target } | Type::PinnedReference { mutable, target } => {
+                    (mutable, target)
+                }
+                _ => {
+                    return Err(fail(
+                        self.function,
+                        "internal pointer storage requires a thin reference",
+                    ))
+                }
+            };
+        slot.storage = Type::RawPointer { mutable, target };
+        slot.raw = true;
+        slot.anchor = Some(anchor);
+        Ok(())
+    }
+
+    fn internal_anchor(&self, slot: &Slot, mutable: bool) -> String {
+        use crate::typed_place::Segment;
+        let place = slot
+            .anchor
+            .as_ref()
+            .expect("raw internal slot has an owner anchor");
+        let crate::typed_body::PlaceRoot::Local(binding) = place.root else {
+            unreachable!()
+        };
+        let owner = &self.slots[self.bindings[&binding]];
+        let suffix = if mutable { "-mut" } else { "" };
+        let mut anchor = format!(
+            "(#pin-get-payload{suffix} {} {} 0)",
+            Self::slot_ref(owner, mutable),
+            owner.full
+        );
+        for segment in &place.segments {
+            let field = match segment {
+                Segment::Field(id) => self.planning.declarations.field(*id).name.clone(),
+                Segment::Tuple(index) => index.to_string(),
+                _ => unreachable!("internal anchors were checked before emission"),
+            };
+            anchor = format!("(#pin-borrow{suffix} (#get {anchor} {field}))");
+        }
+        anchor
     }
 
     fn slot_ref(slot: &Slot, mutable: bool) -> String {
@@ -396,6 +481,34 @@ impl<'a> Emitter<'a> {
 
     fn read(&self, slot: usize, transfer: bool) -> String {
         let slot = &self.slots[slot];
+        if slot.raw {
+            let pointer = self.fresh("self-pointer");
+            let read = if transfer && !slot.copy {
+                format!(
+                    "(#unsafe (#call {} (: slot {})))",
+                    slot.take,
+                    Self::slot_ref(slot, true)
+                )
+            } else {
+                format!(
+                    "(#call {} (: slot {}))",
+                    slot.peek,
+                    Self::slot_ref(slot, false)
+                )
+            };
+            let mutable = matches!(slot.storage, Type::RawPointer { mutable: true, .. });
+            let pinned = matches!(
+                crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases),
+                Ok(Type::PinnedReference { .. })
+            );
+            return format!(
+                "(#block (#let {pointer} {} {read})\n(#unsafe (#{}ptr-borrow{} {} {pointer})))",
+                crate::type_source(&slot.storage),
+                if pinned { "pin-" } else { "" },
+                if mutable { "-mut" } else { "" },
+                self.internal_anchor(slot, mutable)
+            );
+        }
         if slot.copy && (!transfer || self.types.contains_reference(&slot.ty)) {
             format!(
                 "(#call {} (: slot {}))",
@@ -441,6 +554,9 @@ impl<'a> Emitter<'a> {
                 "an in-place read lease cannot transfer ownership"
             );
             let slot = &self.slots[self.bindings[&lease.binding]];
+            if slot.raw {
+                return self.read(self.bindings[&lease.binding], false);
+            }
             let descriptor = &self.function.graph.places[lease.place.0];
             if !descriptor.projections.is_empty() {
                 return self
@@ -461,6 +577,13 @@ impl<'a> Emitter<'a> {
 
     fn put(&self, slot: usize, value: &str) -> String {
         let slot = &self.slots[slot];
+        if slot.raw {
+            let pointer = self.fresh("stored-self-pointer");
+            // Evaluate and erase the incoming temporary loan before obtaining
+            // exclusive access to the destination pointer cell.
+            return format!("(#block (#let {pointer} {} (#ref-ptr {value}))\n(#call {} (: slot {} : value {pointer})) ())",
+                crate::type_source(&slot.storage), slot.put, Self::slot_ref(slot, true));
+        }
         if !slot.copy && self.types.contains_reference(&slot.ty) {
             let old = self.fresh("stored-occupied");
             // Stage the input before touching the destination, as a normal
@@ -531,7 +654,7 @@ impl<'a> Emitter<'a> {
             }),
         );
         self.slots.iter().enumerate().map(|(index, slot)| {
-            let ty = crate::type_source(&slot.ty);
+            let ty = crate::type_source(&slot.storage);
             let lend = if lenders.contains(&index) {
                 format!("(#fn {} (: {} {ty}) {ty} (#return {}))\n",
                     slot.lend, slot.lend_argument, slot.lend_argument)
@@ -544,10 +667,12 @@ impl<'a> Emitter<'a> {
             let empty_guard = if slot.linear {
                 format!("(#assert (#variant-is slot {}))", slot.empty)
             } else { String::new() };
-            let peek = if slot.copy {
-                format!("(#fn {} ((slot (#pin-ref {}))) {ty}\n  (#return (#deref (#pin-get-payload slot {} 0))))", slot.peek, slot.name, slot.full)
+            let peek = if slot.copy || slot.raw {
+                let read = format!("(#deref (#pin-get-payload slot {} 0))", slot.full);
+                let read = if slot.raw { format!("(#clone {read})") } else { read };
+                format!("(#fn {} ((slot (#pin-ref {}))) {ty}\n  (#return {read}))", slot.peek, slot.name)
             } else { String::new() };
-            if slot.copy && self.types.contains_reference(&slot.ty) {
+            if slot.copy && self.types.contains_reference(&slot.storage) {
                 // A shared handle is copied, not extracted through a moving
                 // cell helper. End all old loaded aliases before restoration.
                 // Full source checking and ordinary call contracts still
@@ -569,7 +694,7 @@ impl<'a> Emitter<'a> {
                     name=slot.name, empty=slot.empty, full=slot.full,
                     put=slot.put, finish=slot.finish, clear=slot.clear);
             }
-            if self.types.contains_reference(&slot.ty) {
+            if self.types.contains_reference(&slot.storage) {
                 // Owned reference transfers are emitted at the actual local
                 // cell, where input-slot identities and Empty/Full tags stay
                 // visible. Do not emit unused abstract take/put helpers.
@@ -1212,7 +1337,12 @@ impl<'a> Emitter<'a> {
         let (mut steps, mut reference) = if exclusive {
             // Keep the exclusive handle in its owner. Naming a loaded
             // #ref-mut would be an owned move, not this nonmoving read.
-            let reference = if self.leases.get(value).is_some() {
+            let reference = if self.leases.get(value).is_some()
+                || self
+                    .values
+                    .get(&value)
+                    .is_some_and(|slot| self.slots[*slot].raw)
+            {
                 self.value(value, false)
             } else {
                 let slot = &self.slots[self.values[&value]];
@@ -1405,6 +1535,17 @@ impl<'a> Emitter<'a> {
     }
 
     fn nonmoving_handle(&self, root: ValueId, ty: &Type) -> Result<String, Error> {
+        if self
+            .values
+            .get(&root)
+            .is_some_and(|index| self.slots[*index].raw)
+            || self
+                .leases
+                .get(root)
+                .is_some_and(|lease| self.slots[self.bindings[&lease.binding]].raw)
+        {
+            return Ok(self.value(root, false));
+        }
         Ok(
             if matches!(
                 crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases)
@@ -1750,6 +1891,18 @@ impl<'a> Emitter<'a> {
                 let Some(slot) = self.bindings.get(&binding) else {
                     return Ok(self.put_value(*dst, "()"));
                 };
+                if self.slots[*slot].raw {
+                    if self.leases.get(*dst).is_some() {
+                        return Ok(String::new());
+                    }
+                    let transfer = located
+                        .source
+                        .and_then(|source| self.lending.as_ref()?.access(source))
+                        .is_some_and(|access| {
+                            matches!(access, crate::generator::async_lend::Access::Move(_))
+                        });
+                    return Ok(self.put_value(*dst, &self.read(*slot, transfer)));
+                }
                 if *kind == LoadKind::Read
                     && !self.slots[*slot].copy
                     && self.types.contains_reference(&self.slots[*slot].ty)
