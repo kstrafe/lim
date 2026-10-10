@@ -45,7 +45,7 @@
         libxi
         libxrandr
         valgrind
-      ] ++ lib.optionals stdenv.isLinux [ strace ];
+      ] ++ lib.optionals stdenv.isLinux [ strace qemu-user ];
     in
       {
         devShells.default = pkgs.mkShell {
