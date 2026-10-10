@@ -2,7 +2,7 @@
 (#fn main () #u64
   (#let source (#array #char 4) "Aλ😀!")
   (#let text String
-    (#match (#call String-from-chars (: text (#slice-of (#borrow source))))
+    (#match (#call String-from-chars (: text (#borrow-slice source)))
       (#case (StringCreated created) created)
       (#case (StringCreateFailed error) (#panic))))
   (#let whole StringView (#call String-view (: string (#borrow text))))

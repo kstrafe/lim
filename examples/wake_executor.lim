@@ -112,7 +112,7 @@
         (#call timer-reactor1-source (: timer (#borrow timer))))
       (#let source-array (#array AsyncPollSource4 2)
         (#array-of (#array AsyncPollSource4 2) first-source second-source))
-      (#let sources (#slice AsyncPollSource4) (#slice-of (#borrow source-array)))
+      (#let sources (#slice AsyncPollSource4) (#borrow-slice source-array))
       (#let-mut wait-context WakeWaitContext
         (#struct-literal WakeWaitContext ((sources sources) (waits 0u64))))
       (#let outcome JobOutcome

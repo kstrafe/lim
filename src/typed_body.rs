@@ -2467,6 +2467,8 @@ impl Builder<'_> {
                                 head.as_str(),
                                 "borrow"
                                     | "borrow-mut"
+                                    | "borrow-slice"
+                                    | "borrow-slice-mut"
                                     | "pin"
                                     | "pin-shared"
                                     | "pin-borrow"

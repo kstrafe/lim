@@ -330,6 +330,7 @@ exit 42 shift_bounds.lim - -
 exit 21 six_field_struct.lim - -
 exit 32 size_of.lim - -
 exit 23 slice.lim - -
+exit 42 slice_borrows.lim - -
 exit 93 static_aggregate.lim - -
 exit 42 static_float_array.lim - -
 exit 42 static.lim - -

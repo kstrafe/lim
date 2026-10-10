@@ -18,7 +18,7 @@
       (
         #call
         String-from-chars
-        (: text (#slice-of (#borrow chars)))      )
+        (: text (#borrow-slice chars))      )
       (
         #case
         (StringCreated text)

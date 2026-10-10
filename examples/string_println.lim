@@ -25,7 +25,7 @@
       (
         #call
         String-from-chars
-        (: text (#slice-of (#borrow greeting)))      )
+        (: text (#borrow-slice greeting))      )
       (
         #case
         (StringCreated created-message)
@@ -45,7 +45,7 @@
       (
         #call
         String-from-chars
-        (: text (#slice-of (#borrow suffix)))      )
+        (: text (#borrow-slice suffix))      )
       (
         #case
         (StringCreated created-tail)

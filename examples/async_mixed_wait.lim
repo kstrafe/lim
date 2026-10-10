@@ -25,7 +25,7 @@
       (#clone timer-source) (#clone read-source) (#clone timer-source)
       (#clone read-source) (#clone timer-source)))
   (#let five-sources (#slice AsyncPollSource4)
-    (#slice-of (#borrow five-array)))
+    (#borrow-slice five-array))
   (#let too-many AsyncPoll4Result
     (#call async-poll4-wait
       (: sources five-sources : timeout-ms -1i32)))
@@ -37,7 +37,7 @@
     (#array-of (#array AsyncPollSource4 2)
       timer-source read-source))
   (#let both-sources (#slice AsyncPollSource4)
-    (#slice-of (#borrow both-array)))
+    (#borrow-slice both-array))
   (#let first-wait AsyncPoll4Result
     (#call async-poll4-wait
       (: sources both-sources : timeout-ms -1i32)))
@@ -52,7 +52,7 @@
         (#let timer-array (#array AsyncPollSource4 1)
           (#array-of (#array AsyncPollSource4 1) (#clone timer-source)))
         (#let timer-sources (#slice AsyncPollSource4)
-          (#slice-of (#borrow timer-array)))
+          (#borrow-slice timer-array))
         (#let timer-wait AsyncPoll4Result
           (#call async-poll4-wait
             (: sources timer-sources : timeout-ms -1i32)))
@@ -65,7 +65,7 @@
         (#let read-array (#array AsyncPollSource4 1)
           (#array-of (#array AsyncPollSource4 1) (#clone read-source)))
         (#let read-sources (#slice AsyncPollSource4)
-          (#slice-of (#borrow read-array)))
+          (#borrow-slice read-array))
         (#let read-wait AsyncPoll4Result
           (#call async-poll4-wait
             (: sources read-sources : timeout-ms -1i32)))

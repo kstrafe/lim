@@ -2983,6 +2983,8 @@ impl FlowGraph {
                     | "index"
                     | "borrow"
                     | "borrow-mut"
+                    | "borrow-slice"
+                    | "borrow-slice-mut"
                     | "pin"
                     | "pin-shared"
                     | "pin-borrow"
@@ -6644,6 +6646,9 @@ impl FlowGraph {
                         | "borrow"
                         | "borrow-mut"
                         | "pin-own-borrow"
+                        | "borrow-slice"
+                        | "borrow-slice-mut"
+                        | "slice-mut-range"
                         | "pin-own-borrow-mut"
                         | "clone"
                         | "drop"
@@ -9570,9 +9575,15 @@ impl FlowGraph {
                         matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut")
                             && children.len() == 4
                             && (head == "pin-get-payload-mut") == *mutable;
-                    let slice_form = matches!(head.as_str(), "slice-idx" | "slice-mut-idx")
+                    let slice_form = (matches!(head.as_str(), "slice-idx" | "slice-mut-idx")
                         && children.len() == 3
-                        && (head == "slice-mut-idx") == *mutable;
+                        || matches!(head.as_str(), "borrow-slice" | "borrow-slice-mut")
+                            && matches!(children.len(), 2 | 4)
+                        || head == "slice-mut-range" && children.len() == 4)
+                        && matches!(
+                            head.as_str(),
+                            "slice-mut-idx" | "borrow-slice-mut" | "slice-mut-range"
+                        ) == *mutable;
                     let expected_place = if slice_form || pinned_payload_form {
                         Place::from_expression(body, *value)
                     } else {
@@ -11872,17 +11883,7 @@ fn record_slice_range(body: &Body, children: &[NodeId], origin: &mut LoanOrigin)
     if origin.lifetime_only {
         return;
     }
-    let range = children
-        .get(2)
-        .and_then(|start| crate::typed_place::literal_index(body, *start))
-        .zip(
-            children
-                .get(3)
-                .and_then(|end| crate::typed_place::literal_index(body, *end)),
-        )
-        .filter(|(start, end)| start <= end)
-        .map(|(start, end)| Segment::SliceRange { start, end })
-        .unwrap_or(Segment::SliceRangeUnknown);
+    let range = crate::typed_place::slice_range_segment(body, children);
     let range = if origin.storage.is_empty() {
         match (origin.place.segments.last(), range) {
             (
@@ -11909,6 +11910,32 @@ fn record_slice_range(body: &Body, children: &[NodeId], origin: &mut LoanOrigin)
         origin.place.segments.pop();
     }
     origin.place.segments.push(range);
+}
+
+fn direct_slice_origins(
+    body: &Body,
+    value: NodeId,
+    children: &[NodeId],
+    state: &LoanState,
+    events: Option<(&FlowGraph, LoanSnapshots<'_>)>,
+) -> Vec<LoanOrigin> {
+    let NodeKind::Form { head, .. } = &body.nodes[value.0].kind else {
+        unreachable!()
+    };
+    let borrowed_from = reference_binding(body, children[1]);
+    borrow_address_origins(body, children[1], state, events)
+        .into_iter()
+        .map(|mut origin| {
+            origin.borrowed_from = borrowed_from;
+            origin.call_reborrow = false;
+            origin.mutable = head == "borrow-slice-mut";
+            origin.span = body.nodes[value.0].span;
+            if children.len() == 4 {
+                record_slice_range(body, children, &mut origin);
+            }
+            origin
+        })
+        .collect()
 }
 
 fn append_slice_index(place: &mut Place, index: Segment) {
@@ -12014,6 +12041,11 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         } => state[binding.0].clone(),
         NodeKind::Declaration(DeclarationId::Global(global)) => {
             loaded_parameter_value_origins(&global_storage_address(*global, node.span), state)
+        }
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "borrow-slice" | "borrow-slice-mut") =>
+        {
+            direct_slice_origins(body, id, children, state, None)
         }
         NodeKind::Form { head, children, .. }
             if matches!(
@@ -12162,7 +12194,12 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         NodeKind::Form { head, children, .. }
             if matches!(
                 head.as_str(),
-                "slice-of" | "slice-mut-of" | "slice-range" | "slice-idx" | "slice-mut-idx"
+                "slice-of"
+                    | "slice-mut-of"
+                    | "slice-range"
+                    | "slice-mut-range"
+                    | "slice-idx"
+                    | "slice-mut-idx"
             ) =>
         {
             let mut origins = children
@@ -12177,7 +12214,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     origin.borrowed_from = borrowed_from;
                     origin.call_reborrow = false;
                 }
-                if head == "slice-range" {
+                if matches!(head.as_str(), "slice-range" | "slice-mut-range") {
                     record_slice_range(body, children, origin);
                 }
             }
@@ -12536,6 +12573,9 @@ fn value_loan_origins_at_events(
             }
             return loans;
         }
+        if matches!(head.as_str(), "borrow-slice" | "borrow-slice-mut") {
+            return direct_slice_origins(body, value, children, state, Some((flow, before)));
+        }
         if matches!(
             head.as_str(),
             "borrow" | "borrow-mut" | "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
@@ -12615,7 +12655,12 @@ fn value_loan_origins_at_events(
         }
         if matches!(
             head.as_str(),
-            "slice-of" | "slice-mut-of" | "slice-range" | "slice-idx" | "slice-mut-idx"
+            "slice-of"
+                | "slice-mut-of"
+                | "slice-range"
+                | "slice-mut-range"
+                | "slice-idx"
+                | "slice-mut-idx"
         ) {
             let mut loans = children.get(1).map_or_else(Vec::new, |source| {
                 value_loan_origins_at_events(body, flow, before, *source, state)
@@ -12628,7 +12673,7 @@ fn value_loan_origins_at_events(
                     origin.borrowed_from = borrowed_from;
                     origin.call_reborrow = false;
                 }
-                if head == "slice-range" {
+                if matches!(head.as_str(), "slice-range" | "slice-mut-range") {
                     record_slice_range(body, children, origin);
                 }
             }
@@ -13045,6 +13090,9 @@ fn tag_preserving_evaluation(
                         | "array-of"
                         | "array-repeat"
                         | "slice-of"
+                        | "borrow-slice"
+                        | "borrow-slice-mut"
+                        | "slice-mut-range"
                         | "slice-len"
                         | "#variant-is"
                         | "slice-idx"
@@ -14616,6 +14664,29 @@ impl Builder<'_> {
                 let done = self.push(action, span, vec![next]);
                 let index = self.expression(children[2], done, targets, None)?;
                 self.expression(children[1], index, targets, None)
+            }
+            NodeKind::Form { head, children, .. }
+                if matches!(
+                    head.as_str(),
+                    "borrow-slice" | "borrow-slice-mut" | "slice-mut-range"
+                ) =>
+            {
+                let place = Place::from_expression(self.body, id)
+                    .ok_or_else(|| "slice borrowing requires a resolved place".to_owned())?;
+                let done = self.push(
+                    FlowAction::Borrow {
+                        value: id,
+                        place,
+                        mutable: head != "borrow-slice",
+                    },
+                    span,
+                    vec![next],
+                );
+                let mut entry = done;
+                for child in children.iter().skip(1).rev() {
+                    entry = self.expression(*child, entry, targets, None)?;
+                }
+                Ok(entry)
             }
             NodeKind::Form { head, children, .. }
                 if matches!(head.as_str(), "borrow" | "borrow-mut") && children.len() == 3 =>

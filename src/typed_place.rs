@@ -101,6 +101,13 @@ impl Place {
                     "index" if children.len() == 3 => {
                         place.segments.push(index_segment(body, children[2]));
                     }
+                    "borrow-slice" | "borrow-slice-mut" | "slice-mut-range"
+                        if matches!(children.len(), 2 | 4) =>
+                    {
+                        if children.len() == 4 {
+                            place.segments.push(slice_range_segment(body, children));
+                        }
+                    }
                     "slice-idx" | "slice-mut-idx" if children.len() == 3 => {
                         place.segments.push(match index_segment(body, children[2]) {
                             Segment::Index(index) => Segment::SliceIndex(index),
@@ -185,6 +192,16 @@ pub(crate) fn literal_index(body: &Body, id: NodeId) -> Option<u128> {
         }
         _ => None,
     }
+}
+
+pub(crate) fn slice_range_segment(body: &Body, children: &[NodeId]) -> Segment {
+    children
+        .get(2)
+        .and_then(|id| literal_index(body, *id))
+        .zip(children.get(3).and_then(|id| literal_index(body, *id)))
+        .filter(|(start, end)| start <= end)
+        .map(|(start, end)| Segment::SliceRange { start, end })
+        .unwrap_or(Segment::SliceRangeUnknown)
 }
 
 /// Classify an access using checked base types, including nested projections.

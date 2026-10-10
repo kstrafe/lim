@@ -1130,6 +1130,14 @@ fn check_expr(
             } else if head == "slice-mut-idx" && items.len() == 3 {
                 check_expr(&items[1], bindings, moved, globals, true, types)?;
                 check_expr(&items[2], bindings, moved, globals, false, types)?;
+            } else if matches!(
+                head,
+                "borrow-slice" | "borrow-slice-mut" | "slice-mut-range"
+            ) {
+                check_expr(&items[1], bindings, moved, globals, true, types)?;
+                for bound in &items[2..] {
+                    check_expr(bound, bindings, moved, globals, false, types)?;
+                }
             } else if head == "slice-mut-len" && items.len() == 2 {
                 check_expr(&items[1], bindings, moved, globals, true, types)?;
             } else if head == "tuple" || head == "array" {

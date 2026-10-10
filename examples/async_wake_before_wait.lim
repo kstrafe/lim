@@ -15,7 +15,7 @@
     (#call async-poll4-source
       (: fd -1i64 : queue (#borrow queue) : token token)))
   (#let entries (#array AsyncPollSource4 1) (#array-of (#array AsyncPollSource4 1) source))
-  (#let sources (#slice AsyncPollSource4) (#slice-of (#borrow entries)))
+  (#let sources (#slice AsyncPollSource4) (#borrow-slice entries))
   (#let result AsyncPoll4Result
     (#call async-poll4-wait (: sources sources : timeout-ms -1i32)))
   (#let ready #bool (#match result

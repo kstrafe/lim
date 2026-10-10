@@ -1287,8 +1287,12 @@ distinct from the `#array` type form:
   (#array-of (#array #u32 3) 10u32 20u32 30u32))
 ```
 
-An immutable slice type is written `(#slice T)`. Create a full-array view with
-`(#slice-of (#borrow array))`; the array's borrow is retained by the slice. Use
+An immutable slice type is written `(#slice T)`. Borrow an array directly with
+`(#borrow-slice array)`, or select `[start, end)` with
+`(#borrow-slice array start end)`. These operations explicitly borrow storage;
+they neither move the array nor allocate. Both bounds must be `#usize`.
+`(#slice-of array-reference)` instead converts an existing immutable array
+reference into a slice without extending its backing storage's lifetime. Use
 `(#slice-len view)` for its runtime length and
 `(#slice-idx view index)` to get a shared reference to an element. Indexing
 checks the index against the slice length and traps if it is out of bounds.
@@ -1326,7 +1330,7 @@ is an ordinary library, not a new builtin or an implicit allocation.
 (#fn main () #u64
   (#let text (#array #char 3) "Aé🙂")
   (#return
-    (#match (#call String-from-chars (: text (#slice-of (#borrow text))))
+    (#match (#call String-from-chars (: text (#borrow-slice text)))
       (#case (StringCreated owned)
         (#block
           (#let length #usize (#call String-len (: string (#borrow owned))))
@@ -1365,11 +1369,11 @@ second owned string by shared borrow, and releases both owners:
   (#let greeting (#array #char 5) "Hello")
   (#let suffix (#array #char 9) ", world 🙂")
   (#let-mut message String
-    (#match (#call String-from-chars (: text (#slice-of (#borrow greeting))))
+    (#match (#call String-from-chars (: text (#borrow-slice greeting)))
       (#case (StringCreated created-message) created-message)
       (#case (StringCreateFailed error) (#panic))))
   (#let tail String
-    (#match (#call String-from-chars (: text (#slice-of (#borrow suffix))))
+    (#match (#call String-from-chars (: text (#borrow-slice suffix)))
       (#case (StringCreated created-tail) created-tail)
       (#case (StringCreateFailed error) (#panic))))
   (#assert (#match (#call String-push-string (: string (#borrow-mut message) : text (#borrow tail)))
@@ -1415,7 +1419,7 @@ view, choose its public name and source layout explicitly:
 (#fn main () #u64
   (#let bytes (#array #u8 2) (#array-of (#array #u8 2) 195u8 169u8))
   (#let view BorrowedText
-    (#match (#call BorrowedText-from-owner (: owner (#slice-of (#borrow bytes))))
+    (#match (#call BorrowedText-from-owner (: owner (#borrow-slice bytes)))
       (#case (BorrowedTextValid accepted) accepted)
       (#case _ (#panic))))
   (#let-mut iterator BorrowedTextChars (#call BorrowedText-chars (: view view)))
@@ -1808,7 +1812,9 @@ Aggregate projections can be updated with `#set-index`, `#set-field`, and
 ```
 
 Mutable slices use a separate type and constructors: `(#slice-mut #u64)`,
-`#slice-mut-of` from a mutable array reference, `#slice-mut-idx` for exclusive
+`#borrow-slice-mut array` to borrow a full mutable array, or
+`#borrow-slice-mut array start end` to select a half-open range.
+`#slice-mut-of` converts an existing mutable array reference, `#slice-mut-idx` provides exclusive
 element access, and `#slice-mut-split view at` to consume a view and produce
 two disjoint halves. The split point is a checked `#usize` index; an index
 greater than the length traps, and the halves cover `[0, at)` and `[at, len)`.
@@ -1818,9 +1824,20 @@ half must itself be consumed (for example, passed to a function or explicitly
 `#forget`-ted). Mutable slices can be returned when their inferred provenance
 comes from a function argument; a view of a local array cannot escape.
 
+`(#slice-mut-range parent start end)` reborrows an existing named mutable slice
+handle. It does not consume the parent. Parent access,
+transfer and destruction are suspended until the child is released. Nested views
+retain the original backing storage's lifetime and physical offsets. All range
+constructors check `start <= end <= length` and trap on failure; empty ranges are
+valid. Constant disjoint regions permit independent exclusive borrows (or an
+exclusive and a shared borrow). Dynamic bounds are conservatively overlapping;
+use `#slice-mut-split` for two runtime-disjoint mutable regions. Direct array
+borrowing accepts owned array places and array fields through ordinary references;
+it does not silently convert an array reference or erase a pinned reference.
+
 ```lisp fragment=slices
 (#let-mut values (#array #u64 4) (#array (#array #u64 4) 1u64 2u64 3u64 4u64))
-(#let whole (#slice-mut #u64) (#slice-mut-of (#borrow-mut values)))
+(#let whole (#slice-mut #u64) (#borrow-slice-mut values))
 (#let (#tuple left right)
   (#tuple (#slice-mut #u64) (#slice-mut #u64))
   (#slice-mut-split whole 2usize))
@@ -2070,6 +2087,8 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#bool` | `#bool` | `(#fn identity ((value #bool)) #bool (#return value))` (function signature) | Boolean scalar type; values are `true` and `false`. |
 | `#borrow` | `(#borrow place)` or `(#borrow place body)` | `(#let r (#ref #u64) (#borrow value))` (binding) | Creates a shared reference, or scopes a shared borrow around a body. |
 | `#borrow-mut` | `(#borrow-mut place)` or `(#borrow-mut place body)` | `(#let r (#ref-mut #u64) (#borrow-mut value))` (binding) | Creates an exclusive mutable reference, or scopes a mutable borrow around a body. |
+| `#borrow-slice` | `(#borrow-slice array-place)` or `(#borrow-slice array-place start end)` | `(#let view (#slice #u64) (#borrow-slice values 1usize 3usize))` (binding) | Explicitly borrows a full array or checked half-open range as an immutable slice; retains the owner's lifetime without allocation. Bounds are #usize. |
+| `#borrow-slice-mut` | `(#borrow-slice-mut mutable-array-place)` or `(#borrow-slice-mut mutable-array-place start end)` | `(#let view (#slice-mut #u64) (#borrow-slice-mut values 1usize 3usize))` (binding) | Exclusively borrows a full array or checked half-open range. Constant disjoint ranges can coexist; dynamic bounds conservatively overlap. |
 | `#break` | `(#break)` or `(#break value)` | `(#loop (#break 42u64))` (expression in a function) | Exits the innermost loop, optionally supplying its expression value. |
 | `#break-to` | `(#break-to label)` or `(#break-to label value)` | `(#break-to outer 42u64)` (labeled loop body) | Exits a named enclosing loop, optionally with a loop value. |
 | `#call` | `(#call function (: name value : ...))` | `(#call add (: left 20u64 : right 22u64))` (expression) | Calls a statically named function; every argument is named and checked against its signature. |
@@ -2197,6 +2216,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#slice-mut-idx` | `(#slice-mut-idx slice usize-index)` | `(#deref-set (#slice-mut-idx view 0usize) 9u8)` (expression) | Bounds-checks and returns a mutable reference to an element. |
 | `#slice-mut-len` | `(#slice-mut-len slice)` | `(#slice-mut-len view)` (expression) | Returns the mutable slice length as `#usize`. |
 | `#slice-mut-of` | `(#slice-mut-of mutable-array-reference)` | `(#slice-mut-of (#borrow-mut bytes))` (expression) | Creates a mutable slice over an array while retaining its exclusive borrow. |
+| `#slice-mut-range` | `(#slice-mut-range mutable-slice-handle start end)` | `(#let child (#slice-mut #u8) (#slice-mut-range parent 1usize 3usize))` (binding) | Reborrows a checked half-open mutable subrange of a named handle without consuming the parent; parent access and release are suspended while the child is live. Bounds are #usize. |
 | `#slice-mut-split` | `(#slice-mut-split slice usize-index)` | `(#let pair (#tuple (#slice-mut #u8) (#slice-mut #u8)) (#slice-mut-split view 2usize))` (expression) | Consumes a mutable slice and returns two disjoint mutable slices. |
 | `#slice-of` | `(#slice-of shared-array-reference)` | `(#slice-of (#borrow bytes))` (expression) | Creates a full immutable slice while retaining the source borrow. |
 | `#slice-range` | `(#slice-range slice start end)` | `(#slice-range view 1usize 3usize)` (expression) | Creates a checked half-open immutable subslice `[start,end)`. |

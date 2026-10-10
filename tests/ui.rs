@@ -11,6 +11,24 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "slice-borrow-bound-type",
+            diagnostic_code: "E4000",
+            offending_line: "  (#let view (#slice #u64) (#borrow-slice values 0u32 2usize))",
+            line_number: 3,
+        },
+        Case {
+            name: "slice-borrow-overlap",
+            diagnostic_code: "E4100",
+            offending_line: "  (#let right (#slice-mut #u64) (#borrow-slice-mut values 1usize 3usize))",
+            line_number: 4,
+        },
+        Case {
+            name: "slice-range-parent-use",
+            diagnostic_code: "E4100",
+            offending_line: "  (#let length #usize (#slice-mut-len parent))",
+            line_number: 5,
+        },
+        Case {
             name: "println-missing-std",
             diagnostic_code: "E4000",
             offending_line: "  (#println 1u64)",
@@ -1203,6 +1221,9 @@ fn compilation_errors_render_the_offending_source_line() {
             "non-slice-len" => Some("value"),
             "non-slice-idx" => Some("value"),
             "non-array-slice-of" => Some("value"),
+            "slice-borrow-bound-type" => Some("0u32"),
+            "slice-borrow-overlap" => Some("#borrow-slice-mut"),
+            "slice-range-parent-use" => Some("parent"),
             "non-struct-get" => Some("value"),
             "non-enum-payload" => Some("value"),
             "unknown-get-field" => Some("missing"),

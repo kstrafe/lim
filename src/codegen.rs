@@ -7360,6 +7360,19 @@ impl FunctionContext<'_> {
                     };
                     Some(Type::Slice(element))
                 }
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "borrow-slice" | "borrow-slice-mut")
+                        && matches!(items.len(), 2 | 4) =>
+                {
+                    let Type::Array(element, _) = self.expression_type(&items[1])? else {
+                        return None;
+                    };
+                    Some(if operator == "borrow-slice-mut" {
+                        Type::MutableSlice(element)
+                    } else {
+                        Type::Slice(element)
+                    })
+                }
                 Some(Expr::Symbol(operator)) if operator == "slice-mut-of" && items.len() == 2 => {
                     let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
                         self.expression_type(&items[1])?
@@ -7372,9 +7385,17 @@ impl FunctionContext<'_> {
                     Some(Type::MutableSlice(element))
                 }
                 Some(Expr::Symbol(operator)) if operator == "slice-len" => Some(Type::Usize),
-                Some(Expr::Symbol(operator)) if operator == "slice-range" && items.len() == 4 => {
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "slice-range" | "slice-mut-range")
+                        && items.len() == 4 =>
+                {
                     match self.expression_type(&items[1])? {
-                        Type::Slice(element) => Some(Type::Slice(element)),
+                        Type::Slice(element) if operator == "slice-range" => {
+                            Some(Type::Slice(element))
+                        }
+                        Type::MutableSlice(element) if operator == "slice-mut-range" => {
+                            Some(Type::MutableSlice(element))
+                        }
                         _ => None,
                     }
                 }
@@ -9715,11 +9736,20 @@ impl FunctionContext<'_> {
             return Err("borrow requires a variable-rooted place".into());
         };
         if self.is_local_symbol_expression(owner_expression, owner) {
-            let slot = self
-                .local_slots_for_symbol(owner_expression, owner)?
-                .first()
-                .copied()
-                .ok_or_else(|| format!("cannot borrow zero-sized variable '{owner}'"))?;
+            let slots = self.local_slots_for_symbol(owner_expression, owner)?;
+            let slot = if let Some(slot) = slots.first() {
+                *slot
+            } else {
+                let ty = self
+                    .expression_type(owner_expression)
+                    .ok_or_else(|| format!("cannot determine borrowed variable '{owner}' type"))?;
+                if storage_word_count(&ty, &self.structs, &self.enums)? != 0 {
+                    return Err(format!("borrowed variable '{owner}' has no storage"));
+                }
+                // Zero-sized aggregates need an aligned, non-null identity,
+                // not backing bytes. Element bounds still apply to slices.
+                0
+            };
             self.output
                 .push_str(&format!("    lea rax, [rbp-{}]\n", slot * 8));
             if self
@@ -10388,15 +10418,28 @@ impl FunctionContext<'_> {
             ));
             return Ok(());
         }
-        if operator == "slice-range" {
-            if items.len() != 4 {
-                return Err("slice-range requires a slice and half-open start/end bounds".into());
+        if matches!(
+            operator,
+            "slice-range" | "slice-mut-range" | "borrow-slice" | "borrow-slice-mut"
+        ) {
+            let direct = matches!(operator, "borrow-slice" | "borrow-slice-mut");
+            if items.len() != 4 && !(direct && items.len() == 2) {
+                return Err(format!(
+                    "{operator} requires a source and optional half-open start/end bounds"
+                ));
             }
             let element_type = match self.expression_type(&items[1]) {
-                Some(Type::Slice(element)) => *element,
-                _ => return Err("slice-range requires a slice".into()),
+                Some(Type::Slice(element) | Type::MutableSlice(element)) if !direct => *element,
+                Some(Type::Array(element, _)) if direct => *element,
+                _ => return Err(format!("cannot determine {operator} source type")),
             };
-            if let Expr::Symbol(name) = &items[1] {
+            if direct {
+                let Some(Type::Array(_, length)) = self.expression_type(&items[1]) else {
+                    unreachable!()
+                };
+                self.borrow_place_address(&items[1])?;
+                self.output.push_str(&format!("    mov rdx, {length}\n"));
+            } else if let Expr::Symbol(name) = &items[1] {
                 if let Some(Storage::Tuple(slots)) =
                     self.local_storage_for_symbol(&items[1], name)?
                 {
@@ -10410,6 +10453,9 @@ impl FunctionContext<'_> {
                 }
             } else {
                 self.expression(&items[1])?;
+            }
+            if items.len() == 2 {
+                return Ok(());
             }
             self.output.push_str("    push rax\n    push rdx\n");
             self.stack_depth += 2;

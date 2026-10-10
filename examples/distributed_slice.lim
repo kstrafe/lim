@@ -6,7 +6,7 @@
 
 (#fn main () #u64
   (#return (#unsafe (#block
-    (#let values (#slice #u64) (#slice-of (#borrow Table)))
+    (#let values (#slice #u64) (#borrow-slice Table))
     (#assert (#usize.== (#slice-len values) 2usize))
     (#let tail (#slice #u64) (#slice-range values 1usize 2usize))
     (#assert (#u64.== (#deref (#slice-idx tail 0usize)) 22u64))

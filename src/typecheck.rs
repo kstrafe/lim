@@ -6961,6 +6961,7 @@ fn list_expression(
                 | "ptr-offset"
                 | "slice-idx"
                 | "slice-range"
+                | "slice-mut-range"
                 | "slice-mut-idx"
                 | "slice-mut-split"
         ) {
@@ -6987,7 +6988,8 @@ fn list_expression(
                             Type::RawPointer { target, .. },
                         ) => *target,
                         (
-                            "slice-idx" | "slice-range" | "slice-mut-idx" | "slice-mut-split",
+                            "slice-idx" | "slice-range" | "slice-mut-range" | "slice-mut-idx"
+                            | "slice-mut-split",
                             Type::Slice(target) | Type::MutableSlice(target),
                         ) => *target,
                         (
@@ -7569,6 +7571,52 @@ fn list_expression(
                 Ok(*scalar)
             }
         }
+        "borrow-slice" | "borrow-slice-mut" => {
+            if !matches!(items.len(), 2 | 4) {
+                return Err(semantic_format!("{operator} expects an array place, optionally followed by start and end bounds"));
+            }
+            let (can_mutate, pinned) = borrow_projection_permissions(
+                &items[1], variables, functions, structs, enums, mutable, aliases,
+            )?;
+            let source = expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let Type::Array(element, _) = source else {
+                return Err(semantic_at!(ErrorSite::Argument(operator.into(), 1),
+                    "{operator} requires an array place; use #slice-of or #slice-mut-of for an array reference"));
+            };
+            if pinned {
+                return Err(semantic_at!(
+                    ErrorSite::Argument(operator.into(), 1),
+                    "{operator} cannot erase pinning through a pinned reference"
+                ));
+            }
+            if operator == "borrow-slice-mut" && !can_mutate {
+                return Err(semantic_at!(
+                    ErrorSite::Argument(operator.into(), 1),
+                    "cannot mutably borrow an immutable array place"
+                ));
+            }
+            for (index, bound) in items.iter().enumerate().skip(2) {
+                let actual = expression(
+                    bound,
+                    variables,
+                    functions,
+                    structs,
+                    enums,
+                    mutable,
+                    aliases,
+                    Some(&Type::Usize),
+                )?;
+                require_type(&actual, &Type::Usize, "slice range bound")
+                    .map_err(|error| error.at(ErrorSite::Argument(operator.into(), index)))?;
+            }
+            Ok(if operator == "borrow-slice-mut" {
+                Type::MutableSlice(element)
+            } else {
+                Type::Slice(element)
+            })
+        }
         "slice-of" => {
             require_arity(operator, items, 2)?;
             let source = expression(
@@ -7650,15 +7698,28 @@ fn list_expression(
                 target: element,
             })
         }
-        "slice-range" => {
+        "slice-range" | "slice-mut-range" => {
             require_arity(operator, items, 4)?;
-            let Type::Slice(element) = expression(
+            if operator == "slice-mut-range" && !matches!(&items[1], Expr::Symbol(_)) {
+                return Err(semantic_at!(
+                    ErrorSite::Argument(operator.into(), 1),
+                    "slice-mut-range requires a named mutable slice handle"
+                ));
+            }
+            let source = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
-            )?
-            else {
-                return Err("slice-range requires a slice".into());
+            )?;
+            let element = match (operator, source) {
+                ("slice-range", Type::Slice(element))
+                | ("slice-mut-range", Type::MutableSlice(element)) => element,
+                _ => {
+                    return Err(semantic_at!(
+                        ErrorSite::Argument(operator.into(), 1),
+                        "{operator} requires a matching immutable or mutable slice"
+                    ))
+                }
             };
-            for bound in &items[2..4] {
+            for (index, bound) in items.iter().enumerate().skip(2) {
                 let ty = expression(
                     bound,
                     variables,
@@ -7669,9 +7730,14 @@ fn list_expression(
                     aliases,
                     Some(&Type::Usize),
                 )?;
-                require_type(&ty, &Type::Usize, "slice range bound")?;
+                require_type(&ty, &Type::Usize, "slice range bound")
+                    .map_err(|error| error.at(ErrorSite::Argument(operator.into(), index)))?;
             }
-            Ok(Type::Slice(element))
+            Ok(if operator == "slice-mut-range" {
+                Type::MutableSlice(element)
+            } else {
+                Type::Slice(element)
+            })
         }
         "slice-mut-len" | "slice-mut-idx" | "slice-mut-split" => {
             let expected_arity = match operator {

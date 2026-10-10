@@ -182,7 +182,14 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
         let computed_targets = match node.action {
             FlowAction::Borrow { value, .. } => match &body.nodes[value.0].kind {
                 NodeKind::Form { head, .. }
-                    if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut") =>
+                    if matches!(
+                        head.as_str(),
+                        "pin-own-borrow"
+                            | "pin-own-borrow-mut"
+                            | "borrow-slice"
+                            | "borrow-slice-mut"
+                            | "slice-mut-range"
+                    ) =>
                 {
                     origins
                         .value_before(body, flow, FlowNodeId(index), value)
@@ -686,14 +693,14 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
     )
 }
 
-/// A mutable-slice handle read used only as the receiver of `#slice-mut-idx`
+/// A mutable-slice handle read used only as the receiver of an element/range borrow
 /// is not an access to the suspended slice contents. The resulting indexed
 /// borrow event checks overlap against existing element loans precisely.
 fn is_mutable_slice_index_base(body: &Body, value: NodeId) -> bool {
     body.nodes.iter().any(|node| {
         matches!(&node.kind,
             NodeKind::Form { head, children, .. }
-                if head == "slice-mut-idx" && children.get(1) == Some(&value))
+                if matches!(head.as_str(), "slice-mut-idx" | "slice-mut-range") && children.get(1) == Some(&value))
     })
 }
 
