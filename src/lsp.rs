@@ -534,7 +534,10 @@ impl Server<'_> {
         name: &str,
     ) -> Option<String> {
         let expression = program.declaration_expressions.get(name)?;
-        let span = expression.children.get(1)?.span;
+        let span = expression
+            .children
+            .get(declaration_name_index(expression))?
+            .span;
         let file = program.source_files.get(span.source_id as usize)?;
         if let Some(path) = file_source_path(&file.path.to_string_lossy()) {
             return Some(format!(
@@ -741,6 +744,14 @@ struct Declaration {
     whole: Span,
     name_span: Span,
 }
+fn declaration_name_index(expression: &SpannedExpr) -> usize {
+    if matches!(expression.children.first().map(|child| &child.expr), Some(Expr::Symbol(head)) if head == "#extern-fn")
+    {
+        2 // The explicit #abi-c convention precedes the function name.
+    } else {
+        1
+    }
+}
 fn call_callee(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
     for expression in expressions {
         if byte < expression.span.start || byte >= expression.span.end {
@@ -802,10 +813,16 @@ fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
             continue;
         }
         let index = match head {
-            Some("#let" | "#let-mut" | "#type") => Some(2),
+            Some("#let" | "#let-mut" | "#const" | "#static" | "#type") => Some(2),
             Some("#struct-literal") => Some(1),
             Some("#struct" | "#enum") => {
-                if let Some(fields) = expr.children.get(2) {
+                let fields_index = if matches!(expr.children.get(2).map(|child| &child.expr), Some(Expr::Symbol(name)) if name == "#repr-c")
+                {
+                    3
+                } else {
+                    2
+                };
+                if let Some(fields) = expr.children.get(fields_index) {
                     for field in &fields.children {
                         for ty in field.children.iter().skip(1) {
                             if let Some(name) = in_type(ty, byte) {
@@ -817,14 +834,15 @@ fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
                 None
             }
             Some("#fn" | "#unsafe-fn" | "#extern-fn") => {
-                if let Some(args) = expr.children.get(2) {
+                let name_index = declaration_name_index(expr);
+                if let Some(args) = expr.children.get(name_index + 1) {
                     for arg in &args.children {
                         if let Some(name) = arg.children.get(1).and_then(|ty| in_type(ty, byte)) {
                             return Some(name);
                         }
                     }
                 }
-                Some(3)
+                Some(name_index + 2)
             }
             _ => None,
         };
@@ -856,7 +874,7 @@ fn declarations(source: &str) -> Vec<Declaration> {
                 "#let" | "#let-mut" => 13,
                 _ => return None,
             };
-            let name = expr.children.get(1)?;
+            let name = expr.children.get(declaration_name_index(expr))?;
             let Expr::Symbol(value) = &name.expr else {
                 return None;
             };

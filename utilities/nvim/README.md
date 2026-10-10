@@ -86,6 +86,22 @@ symbol index is provided. Changes to unopened files are picked up on the next
 open-buffer change/save/close event. The server handles local absolute `file:`
 URIs and rejects remote authorities and malformed percent escapes.
 
+Run the LSP regression suites from the repository root:
+
+```sh
+nix develop -c cargo test --test lsp --test lsp_context --test lsp_end_to_end
+```
+
+The end-to-end suite launches the actual `lim lsp` executable and exercises
+complete editing sessions with bounded response waits. It covers transitive
+and prefixed imports, conditional compilation, exact UTF-16 ranges and Unicode
+paths, FFI/type navigation, unsaved edits and versioning, context reloads,
+generated snapshot reuse and protection, diagnostics, formatting, document
+symbols, malformed protocol recovery, ambiguous definitions, and shutdown.
+Fixtures use isolated temporary projects; neither user configuration nor
+repository examples are modified. This supplements the in-memory protocol
+and compilation-context tests, rather than claiming exhaustive LSP coverage.
+
 Run the highlighting regression tests from the repository root:
 
 ```sh
