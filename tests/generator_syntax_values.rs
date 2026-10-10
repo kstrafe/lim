@@ -219,11 +219,12 @@ fn gensym_example_reuses_identical_inspectable_cached_files() {
     };
     let cold = compile();
     let files = artifacts();
-    let functions = files.iter().flat_map(|(_, source)| lim::parse(source).unwrap())
+    let mut functions = files.iter().flat_map(|(_, source)| lim::parse(source).unwrap())
         .filter_map(|node| match node.expr {
             lim::Expr::List(items) if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#fn") => Some(items[1].clone()),
             _ => None,
         }).collect::<Vec<_>>();
+    functions.sort_by_key(|name| format!("{name:?}"));
     assert_eq!(
         functions,
         [

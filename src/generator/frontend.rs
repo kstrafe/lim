@@ -582,7 +582,6 @@ pub(crate) struct PreparedProgramSyntax {
     pub(crate) expressions: Vec<SpannedExpr>,
     pub(crate) source_files: Vec<SourceFile>,
     pub(crate) dependency_context: String,
-    pub(crate) user_generated: Vec<Expr>,
     pub(crate) generator_origins: generator::Origins,
     pub(crate) async_copy_types: HashSet<String>,
     pub(crate) async_types: async_fn::AsyncTypeEnvironment,
@@ -603,7 +602,8 @@ pub(crate) fn prepare_program_syntax(
         .expand(loaded, false)
         .map_err(|error| error.attach(&source_files))?;
     let mut generator_origins = generator::Origins::default();
-    let (expanded, user_generated) = generator::expand_with_origins(
+    generator_origins.source_paths = source_files.iter().map(|file| file.path.clone()).collect();
+    let (expanded, _) = generator::expand_with_origins(
         loaded,
         cache_directory,
         &dependency_context,
@@ -710,7 +710,6 @@ pub(crate) fn prepare_program_syntax(
         expressions,
         source_files,
         dependency_context,
-        user_generated,
         generator_origins,
         async_copy_types,
         async_types,
@@ -1117,7 +1116,11 @@ pub(crate) fn write_generated_sources_in_directory(
     config: &CompileConfig,
     cache_directory: Option<&Path>,
 ) -> Result<(), SourceError> {
-    let prepared = prepare_program_syntax(source, base, source_path, config, cache_directory)?;
+    let generated_cache = cache_directory
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| directory.join("cache"));
+    let prepared =
+        prepare_program_syntax(source, base, source_path, config, Some(&generated_cache))?;
     let has_async = prepared.expressions.iter().any(|expression| matches!(&expression.expr,
         Expr::List(items) if matches!(items.first(), Some(Expr::At))
             && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "async-fn" | "async-fn-pinned"))));
@@ -1136,7 +1139,6 @@ pub(crate) fn write_prepared_generated_sources(
     async_plans: &ExpansionPlans,
 ) -> Result<(), SourceError> {
     let expanded = &prepared.expressions;
-    let user_generated = &prepared.user_generated;
     let dependency_context = &prepared.dependency_context;
     let worker_functions = &prepared.worker_functions;
     let copy_types = &prepared.async_copy_types;
@@ -1230,30 +1232,6 @@ pub(crate) fn write_prepared_generated_sources(
                 }
             },
         )?;
-    }
-    if !user_generated.is_empty() {
-        let source = user_generated
-            .iter()
-            .map(expression_source)
-            .collect::<Result<Vec<_>, _>>()?
-            .join("\n");
-        let key = format!(
-            "lim-inspectable-user-generator-source-v2\ncompiler={}\ntarget={}-{}\ndependency-context={}\nsource={source}",
-            env!("CARGO_PKG_VERSION"),
-            std::env::consts::ARCH,
-            std::env::consts::OS,
-            dependency_context,
-        );
-        let origins = prepared
-            .generator_origins
-            .user
-            .iter()
-            .copied()
-            .map(location)
-            .collect::<Vec<_>>();
-        generator::cached_generated_source_with_origins(&generated_cache, &key, &origins, || {
-            Ok(source)
-        })?;
     }
     Ok(())
 }

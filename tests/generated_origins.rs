@@ -117,6 +117,100 @@ fn identical_user_generator_calls_from_imports_keep_both_origins() {
 }
 
 #[test]
+fn user_generator_artifacts_are_per_invocation_cache_payloads() {
+    let scratch = support::Scratch::new("generated-invocation-payloads");
+    let root = scratch.path();
+    write_module(
+        root,
+        "defs.lim",
+        "(#gn child (name) `((#type ,name #u64)))\n(#gn parent (name) `((@child ,name)))\n",
+    );
+    write_module(
+        root,
+        "a.lim",
+        "(#import \"defs.lim\")\n(@parent First)\n(@child Second)\n",
+    );
+    write_module(root, "b.lim", "(#import \"defs.lim\")\n(@parent First)\n");
+    write_module(
+        root,
+        "main.lim",
+        "(#import \"a.lim\")\n(#import \"b.lim\")\n",
+    );
+    let mut cold = materialize(root, "main.lim", "generated", "cache");
+    assert_eq!(
+        cold.len(),
+        3,
+        "parent and two child invocations have separate payloads"
+    );
+    for source in &cold {
+        if source.contains("First") {
+            assert_origins(
+                source,
+                &[
+                    absolute_origin(root, "a.lim", 2),
+                    absolute_origin(root, "b.lim", 2),
+                ],
+            );
+        }
+    }
+    assert!(fs::read_dir(root.join("cache")).unwrap().all(|entry| entry
+        .unwrap()
+        .path()
+        .extension()
+        .is_some_and(|extension| extension == "key")));
+    let paths = fs::read_dir(root.join("generated"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<_>>();
+    let modified = paths
+        .iter()
+        .map(|path| fs::metadata(path).unwrap().modified().unwrap())
+        .collect::<Vec<_>>();
+    let mut warm = materialize(root, "main.lim", "generated", "cache");
+    cold.sort();
+    warm.sort();
+    assert_eq!(cold, warm);
+    assert_eq!(
+        modified,
+        paths
+            .iter()
+            .map(|path| fs::metadata(path).unwrap().modified().unwrap())
+            .collect::<Vec<_>>()
+    );
+    let child = paths
+        .iter()
+        .find(|path| {
+            fs::read_to_string(path)
+                .unwrap()
+                .contains("(#type First #u64)")
+        })
+        .unwrap();
+    fs::write(child, "(#type Corrupted #u64)").unwrap();
+    let mut repaired = materialize(root, "main.lim", "generated", "cache");
+    repaired.sort();
+    assert_eq!(
+        repaired, cold,
+        "the actual compilation payload is integrity checked and regenerated"
+    );
+}
+
+#[test]
+fn inspectable_user_generator_output_cannot_be_silently_discarded() {
+    let scratch = support::Scratch::new("generated-unwritable-cache");
+    let root = scratch.path();
+    let cache = root.join("cache");
+    fs::write(&cache, "this is a file, not a cache directory").unwrap();
+    let result = lim::write_generated_sources_from_path_with_config_and_cache(
+        "(#gn emit () `((#type Value #u64))) (@emit)",
+        &root.join("main.lim"),
+        &root.join("generated"),
+        &lim::CompileConfig::default(),
+        &cache,
+    );
+    assert!(result.is_err(), "an unavailable source artifact must fail materialization");
+}
+
+#[test]
 fn nested_generator_builtin_origins_include_both_source_invocations() {
     let scratch = support::Scratch::new("generated-origins-nested");
     let root = scratch.path();
@@ -139,7 +233,7 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
     assert_eq!(
         warm.len(),
         2,
-        "nested generation emits aggregate and builtin artifacts"
+        "nested generation emits invocation and builtin artifacts"
     );
     let origins = [
         absolute_origin(root, "a.lim", 2),
@@ -150,11 +244,11 @@ fn nested_generator_builtin_origins_include_both_source_invocations() {
         .find(|source| source.contains("Nested?-construct"))
         .expect("nested optional expansion was materialized");
     assert_origins(artifact, &origins);
-    let aggregate = warm
+    let invocation = warm
         .iter()
         .find(|source| source.contains("(@ optional") && !source.contains("Nested?-construct"))
-        .expect("nested user-generator aggregate was materialized");
-    assert_origins(aggregate, &origins);
+        .expect("nested user-generator invocation was materialized");
+    assert_origins(invocation, &origins);
 }
 
 #[test]

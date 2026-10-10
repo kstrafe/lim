@@ -194,6 +194,7 @@ fn hash_capability_definitions(capabilities: &Capabilities) -> u128 {
 pub(crate) struct Origins {
     pub user: HashSet<Span>,
     pub builtins: HashMap<String, Vec<Span>>,
+    pub source_paths: Vec<PathBuf>,
 }
 
 pub(crate) fn expand_with_origins(
@@ -785,7 +786,8 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     if let Some(span) = context.invocation_span {
         context.origins.user.insert(span);
     }
-    if !context.seen_invocations.insert(invocation_key.clone()) {
+    let duplicate = !context.seen_invocations.insert(invocation_key.clone());
+    if duplicate && context.cache_dir.is_none() {
         for builtin in context
             .invocation_builtins
             .get(&invocation_key)
@@ -807,10 +809,40 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         &arguments,
     );
     let scope = context.gensyms.open(&cache_key)?;
+    let origins = context
+        .invocation_span
+        .and_then(|span| {
+            context
+                .origins
+                .source_paths
+                .get(span.source_id as usize)
+                .map(|path| format!("{}:{}", path.display(), span.line))
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
     let cached = context
         .cache_dir
-        .and_then(|directory| read_cached_expansion(directory, &cache_key))
+        .and_then(|directory| read_generated_expansion(directory, &cache_key, &origins))
         .filter(|forms| context.gensyms.restore(forms, &scope));
+    if duplicate {
+        // A second caller must also be recorded on cached child artifacts.
+        if let Some(forms) = cached {
+            for form in forms {
+                if matches!(&form, Expr::List(items) if matches!(items.first(), Some(Expr::At))) {
+                    expand_top(form, context)?;
+                }
+            }
+        }
+        for builtin in context
+            .invocation_builtins
+            .get(&invocation_key)
+            .cloned()
+            .unwrap_or_default()
+        {
+            record_builtin_origin(context, builtin);
+        }
+        return Ok(Vec::new());
+    }
     if let Some(directory) = context.cache_dir {
         let path = cache_path(directory, &cache_key);
         crate::cache_report::record(
@@ -865,7 +897,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
                 return Err(format!("@{name} must return a list of generated forms"));
             };
             if let Some(directory) = context.cache_dir {
-                write_cached_expansion(directory, &cache_key, &forms);
+                write_generated_expansion(directory, &cache_key, &forms, &origins)?;
             }
             forms
         }
@@ -1140,6 +1172,9 @@ fn collect_template_function_calls(expression: &Expr, depth: usize, calls: &mut 
 }
 
 pub(crate) fn cache_path(directory: &Path, key: &str) -> PathBuf {
+    if key.starts_with("lim-generator-cache-") {
+        return generated_expansion_paths(directory, key).0;
+    }
     // Stable FNV-1a 128-bit naming; the complete key is stored and compared
     // inside each file, so a digest collision can never produce a false hit.
     directory.join(format!(
@@ -1148,7 +1183,7 @@ pub(crate) fn cache_path(directory: &Path, key: &str) -> PathBuf {
     ))
 }
 
-/// Keep inspectable Lim separate from serialized syntax and cache metadata.
+/// Keep inspectable Lim separate from analysis caches and cache metadata.
 pub(crate) fn generated_source_directory(cache: &Path) -> PathBuf {
     if cache.file_name().is_some_and(|name| name == "cache") {
         cache
@@ -1447,7 +1482,98 @@ fn stable_hash_parts(parts: &[&[u8]]) -> u128 {
     hash
 }
 
+fn generated_expansion_paths(directory: &Path, key: &str) -> (PathBuf, PathBuf) {
+    let digest = stable_hash(key.as_bytes());
+    (
+        generated_source_directory(directory).join(format!("generated-{digest:032x}.lim")),
+        directory.join(format!("generated-{digest:032x}.key")),
+    )
+}
+
+// The readable artifact is the cache payload, not a second copy of it.
+// Nested invocations remain in this file and get their own cached artifacts.
+fn read_generated_expansion(directory: &Path, key: &str, origins: &[String]) -> Option<Vec<Expr>> {
+    let (path, key_path) = generated_expansion_paths(directory, key);
+    cleanup_abandoned_staging(directory);
+    cleanup_abandoned_staging(&generated_source_directory(directory));
+    let metadata = read_bounded_cache_text(&key_path)?;
+    let (expected_digest, existing_key) = metadata.split_once('\n')?;
+    if existing_key != key {
+        return None;
+    }
+    let source = read_bounded_cache_text(&path)?;
+    if expected_digest != generated_source_digest(key, &source) {
+        return None;
+    }
+    let forms = crate::parse(&source)
+        .ok()?
+        .into_iter()
+        .map(|node| node.expr)
+        .collect();
+    let recorded = recorded_generated_origins(&source);
+    if !origins
+        .iter()
+        .all(|origin| recorded.contains(&origin.replace(['\r', '\n'], " ")))
+    {
+        let annotated = annotate_generated_source(&source, origins);
+        publish_cache_file(&path, annotated.as_bytes(), "generated source").ok()?;
+        publish_cache_file(
+            &key_path,
+            format!("{}\n{key}", generated_source_digest(key, &annotated)).as_bytes(),
+            "generated-source cache metadata",
+        )
+        .ok()?;
+    }
+    Some(forms)
+}
+
+fn write_generated_expansion(
+    directory: &Path,
+    key: &str,
+    expressions: &[Expr],
+    origins: &[String],
+) -> Result<(), String> {
+    let (path, key_path) = generated_expansion_paths(directory, key);
+    // Refuse to overwrite a different full key, even on a digest collision.
+    if read_bounded_cache_text(&key_path).is_some_and(|existing| {
+        existing
+            .split_once('\n')
+            .is_some_and(|(_, existing_key)| existing_key != key)
+    }) {
+        return Err(format!(
+            "generated-source cache hash collision at {}",
+            path.display()
+        ));
+    }
+    let source = expressions
+        .iter()
+        .map(crate::expression_source)
+        .collect::<Result<Vec<_>, _>>()?;
+    let source = format_generated_source(&source.join("\n"))?;
+    let mut origins = origins.to_vec();
+    if let Some(previous) = read_bounded_cache_text(&path) {
+        origins.extend(recorded_generated_origins(&previous));
+    }
+    let source = annotate_generated_source(&source, &origins);
+    (|| -> Result<(), String> {
+        fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+        fs::create_dir_all(generated_source_directory(directory))
+            .map_err(|error| error.to_string())?;
+        publish_cache_file(&path, source.as_bytes(), "generated source")?;
+        // One metadata read checks both the full key and source integrity.
+        // Publish it last so interrupted source writes cannot become cache hits.
+        publish_cache_file(
+            &key_path,
+            format!("{}\n{key}", generated_source_digest(key, &source)).as_bytes(),
+            "generated-source cache metadata",
+        )
+    })()
+}
+
 pub(crate) fn read_cached_expansion(directory: &Path, key: &str) -> Option<Vec<Expr>> {
+    if key.starts_with("lim-generator-cache-") {
+        return read_generated_expansion(directory, key, &[]);
+    }
     cleanup_abandoned_staging(directory);
     let bytes = read_bounded_cache_file(&cache_path(directory, key))?;
     if bytes.get(..8)? != b"LIMGEN2\0" {
@@ -1505,6 +1631,10 @@ fn read_cache_length(bytes: &[u8], cursor: &mut usize) -> Option<usize> {
 }
 
 pub(crate) fn write_cached_expansion(directory: &Path, key: &str, expressions: &[Expr]) {
+    if key.starts_with("lim-generator-cache-") {
+        let _ = write_generated_expansion(directory, key, expressions, &[]);
+        return;
+    }
     let source = expressions
         .iter()
         .map(crate::expression_source)
@@ -2581,13 +2711,10 @@ mod tests {
             .unwrap()
             .filter_map(Result::ok)
             .map(|entry| entry.path())
-            .find(|path| {
-                path.extension()
-                    .is_some_and(|extension| extension == "cache")
-            })
+            .find(|path| path.extension().is_some_and(|extension| extension == "key"))
             .unwrap();
-        let bytes = fs::read(&path).unwrap();
-        let key = std::str::from_utf8(cached_expansion_key(&bytes).unwrap()).unwrap();
+        let key = fs::read_to_string(&path).unwrap();
+        let (_, key) = key.split_once('\n').unwrap();
         let mut forms = read_cached_expansion(&directory, key).unwrap();
         let Expr::List(items) = &mut forms[0] else {
             panic!()
@@ -2689,12 +2816,12 @@ mod tests {
             second_hits >= 1,
             "an identical generator call should hit disk cache"
         );
-        for entry in fs::read_dir(&directory).unwrap().filter_map(Result::ok) {
+        for entry in fs::read_dir(generated_source_directory(&directory))
+            .unwrap()
+            .filter_map(Result::ok)
+        {
             let path = entry.path();
-            if path
-                .extension()
-                .is_some_and(|extension| extension == "cache")
-            {
+            if path.extension().is_some_and(|extension| extension == "lim") {
                 let mut contents = fs::read(&path).unwrap();
                 let cached = b"CachedType";
                 let edited = b"HackedType";

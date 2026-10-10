@@ -866,3 +866,58 @@ Reference-heavy improves by 2.4–2.6%; async's 0.9% slowdown is small and
 does not establish a general improvement or regression. Executable bytes
 are identical for every comparison. The allocation reduction is deterministic.
 The much larger pending semantic-analysis migration is outside this commit.
+
+## Use inspectable Lim as the user-generator cache payload
+
+User-generator invocations now write one `.lim/generated/generated-HASH.lim`
+file each. Compilation parses that exact file on a cache hit rather than
+reading a second copy from a serialized `.cache` artifact. There is no
+additional aggregate user-generator output file. Nested invocations remain
+visible in their parent's output and cache their own output separately.
+
+Each invocation has one `.lim/cache/generated-HASH.key` metadata file: its
+first line is the source-integrity digest and the remainder is the complete
+invocation/dependency key. Readers check both before parsing. The metadata
+is published after the source, so an interrupted or mixed publication is
+not accepted. Full-key comparisons also prevent false hash-collision hits.
+Caller comments accumulate `file:line` origins, including duplicate and
+nested callers; unchanged headers and metadata are not rewritten. The
+separate async capture-analysis cache remains because it stores analysis,
+not another copy of generated program code. Older cache artifacts are
+ignored, not automatically deleted.
+
+Measurements use release CLI binaries before and after this change on an
+Intel Core i7-13700KF, with no concurrent builds or tests. Baseline and new
+binary alternate execution order on each iteration, using separate fixture
+directories. Times include process startup and native binary emission.
+Cold means an absent `.lim` directory, not a cold OS page cache. Reported
+values are medians over 20 cold and 100 warm compilations per binary.
+
+| Workload | Cold before | Cold after | Warm before | Warm after |
+| --- | ---: | ---: | ---: | ---: |
+| custom_generator | 1.607 ms | 1.481 ms | 1.457 ms | 1.403 ms |
+| generator_functions | 2.123 ms | 2.231 ms | 1.459 ms | 1.371 ms |
+| 256 independent generator invocations | 15.729 ms | 18.404 ms | 9.325 ms | 10.736 ms |
+| async_fn | 81.697 ms | 82.104 ms | 65.528 ms | 64.887 ms |
+
+The synthetic fixture declares `(#gn alias (name) \`((#type ,name #u64)))`,
+invokes it for `Alias0` through `Alias255`, and returns 42 from main.
+The other fixtures are the corresponding files under `examples/`.
+
+Small warm user-generator builds improve by 3.7–6.0% in this final run;
+these are machine-specific measurements, not universal guarantees.
+Publishing separate readable source and metadata files for each of 256
+invocations makes that cold build 17.0% slower, and the warm build is 15.1%
+slower in this run. An earlier paired run measured the same fixture at
+8.642 -> 12.476 ms cold (+44.4%) and 6.527 -> 6.237 ms warm (-4.4%), so
+the larger workload's timings vary substantially. The async differences
+are around 1%, not evidence of a meaningful performance change. Executable
+exit statuses and stdout/stderr match for all four fixtures. This change
+simplifies cache ownership and inspection; it is not an across-the-board
+compilation optimization.
+
+An additional warm-only check, alternating binaries for 20 unmeasured
+warmups followed by 200 measured builds each, measured the 256-invocation
+fixture at 6.072 -> 6.664 ms (+9.7%). Means were 7.151 -> 7.766 ms.
+Avoiding cold-cache publication between samples reduces timing variation,
+but the extra per-invocation metadata read still has a measurable cost.

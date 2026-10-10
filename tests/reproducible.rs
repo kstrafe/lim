@@ -29,6 +29,27 @@ fn snapshot(root: &Path, directory: &Path, output: &mut BTreeMap<String, Vec<u8>
                 }
                 assert_eq!(contents, format!("{hash:032x}").as_bytes());
                 contents = b"verified source checksum".to_vec();
+            } else if path.extension().is_some_and(|extension| extension == "key")
+                && contents.get(32) == Some(&b'\n')
+            {
+                // Per-invocation metadata combines the source checksum and
+                // full key. Check the location-dependent checksum before
+                // normalizing it, just as for the builtin .hash sidecars.
+                let metadata = String::from_utf8(contents).unwrap();
+                let (checksum, key) = metadata.split_once('\n').unwrap();
+                let source = fs::read(
+                    root.join(".lim/generated")
+                        .join(path.file_name().unwrap())
+                        .with_extension("lim"),
+                )
+                .unwrap();
+                let mut hash = 0x6c62272e07bb014262b821756295c58du128;
+                for byte in key.as_bytes().iter().chain([0].iter()).chain(source.iter()) {
+                    hash ^= u128::from(*byte);
+                    hash = hash.wrapping_mul(0x0000000001000000000000000000013bu128);
+                }
+                assert_eq!(checksum, format!("{hash:032x}"));
+                contents = format!("verified source checksum\n{key}").into_bytes();
             } else if path.extension().is_some_and(|extension| extension == "lim") {
                 // Normalize only provenance comments, never executable source.
                 let source = String::from_utf8(contents).unwrap();
