@@ -410,6 +410,55 @@ pub(crate) fn expand_program_in_directory(
 pub(crate) fn expand_prepared_program(
     prepared: &PreparedProgramSyntax,
 ) -> Result<(Program, ExpansionPlans), SourceError> {
+    expand_prepared_program_with_route(prepared, DEFAULT_ASYNC_ROUTE)
+}
+
+/// One selection for executable and inspectable output. Keep legacy production
+/// emission until graph storage and public frame interfaces cover existing users.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AsyncRoute {
+    Legacy,
+    #[allow(dead_code)] // Explicit migration route, exercised below.
+    Graph,
+}
+
+const DEFAULT_ASYNC_ROUTE: AsyncRoute = AsyncRoute::Legacy;
+
+fn graph_generated_program(
+    prepared: &PreparedProgramSyntax,
+) -> Result<(Program, Vec<super::async_emit::Generated>), SourceError> {
+    let planning = super::async_prepare::prepare(prepared)?;
+    let generated = super::async_emit::generate(&planning).map_err(|error| {
+        SourceError::new(error.message, DiagnosticCode::Type)
+            .at(error.span)
+            .attach(&planning.program.source_files)
+    })?;
+    let program = super::async_emit::program(&planning, &generated)?;
+    // Planning is not an ownership proof. Validate both the original witnesses
+    // and the emitted ordinary code before accepting or publishing graph output.
+    typecheck::CheckedProgram::validate_with_span(&program).map_err(
+        |(message, code, span, labels)| {
+            let mut error = SourceError::new(message, code);
+            if let Some(span) = span {
+                error = error.at(span);
+            }
+            for (span, message) in labels {
+                error = error.with_label(span, message);
+            }
+            error.attach(&program.source_files)
+        },
+    )?;
+    Ok((program, generated))
+}
+
+fn expand_prepared_program_with_route(
+    prepared: &PreparedProgramSyntax,
+    route: AsyncRoute,
+) -> Result<(Program, ExpansionPlans), SourceError> {
+    if route == AsyncRoute::Graph && prepared.expressions.iter().any(is_async_invocation) {
+        let (program, _) = graph_generated_program(prepared)?;
+        return Ok((program, ExpansionPlans::new()));
+    }
     let capture_cache_key = format!(
         "lim-async-captures-v1\nimplementation={}\n{}",
         env!("LIM_BUILD_FINGERPRINT"),
@@ -1138,6 +1187,22 @@ pub(crate) fn write_prepared_generated_sources(
     cache_directory: Option<&Path>,
     async_plans: &ExpansionPlans,
 ) -> Result<(), SourceError> {
+    write_prepared_generated_sources_with_route(
+        prepared,
+        directory,
+        cache_directory,
+        async_plans,
+        DEFAULT_ASYNC_ROUTE,
+    )
+}
+
+fn write_prepared_generated_sources_with_route(
+    prepared: &PreparedProgramSyntax,
+    directory: &Path,
+    cache_directory: Option<&Path>,
+    async_plans: &ExpansionPlans,
+    route: AsyncRoute,
+) -> Result<(), SourceError> {
     let expanded = &prepared.expressions;
     let dependency_context = &prepared.dependency_context;
     let worker_functions = &prepared.worker_functions;
@@ -1167,6 +1232,12 @@ pub(crate) fn write_prepared_generated_sources(
             )
         })
         .collect::<HashMap<_, _>>();
+    let graph_output = if route == AsyncRoute::Graph && expanded.iter().any(is_async_invocation) {
+        graph_generated_program(prepared)?.1
+    } else {
+        Vec::new()
+    };
+    let mut graph_output = graph_output.into_iter();
     let mut written_builtin_keys = HashSet::new();
     for expression in expanded {
         if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
@@ -1180,6 +1251,35 @@ pub(crate) fn write_prepared_generated_sources(
         );
         let capture_plan = async_plans.get(&capture_key);
         let invocation = expression_source(&expression.expr)?;
+        if route == AsyncRoute::Graph && is_async_invocation(expression) {
+            // The planner and this loop both preserve invocation order, including
+            // generator-produced forms whose original trees needed reparsing.
+            let generated = graph_output.next().ok_or_else(|| {
+                SourceError::new(
+                    "missing graph output for async invocation",
+                    DiagnosticCode::Type,
+                )
+                .at(expression.span)
+                .attach(&prepared.source_files)
+            })?;
+            let key = format!(
+                "lim-inspectable-async-graph-v1\ncompiler={}\nimplementation={}\ntarget=x86_64-sysv\ndependency-context={}\ninvocation={invocation}",
+                env!("CARGO_PKG_VERSION"),
+                env!("LIM_BUILD_FINGERPRINT"),
+                dependency_context,
+            );
+            let origins = builtin_origins
+                .get(&invocation)
+                .cloned()
+                .unwrap_or_else(|| vec![location(expression.span)]);
+            generator::cached_generated_source_with_origins(
+                &generated_cache,
+                &key,
+                &origins,
+                || Ok(generated.source),
+            )?;
+            continue;
+        }
         let original = normalize_builtin_generator_invocation(&expression.expr)?;
         let Expr::List(forms) = normalize_keywords(original.clone()) else {
             continue;
@@ -1238,4 +1338,312 @@ pub(crate) fn write_prepared_generated_sources(
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod async_migration_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    const CONTEXT: &str = "
+      (#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+        (#return (#match task
+          (#case (Start value) (ChildPending (Resume value)))
+          (#case (Resume value) (ChildReady value)))))";
+
+    fn source(body: &str) -> String {
+        format!(
+            "{CONTEXT}
+          (@async-fn (: protocol WorkAwait : waker #u64 : function
+            (#fn work (: seed #u64) #u64 {body})))"
+        )
+    }
+
+    fn syntax(text: &str, cache: Option<&Path>) -> PreparedProgramSyntax {
+        prepare_program_syntax(text, Path::new("."), None, &CompileConfig::default(), cache)
+            .unwrap()
+    }
+
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "lim-async-migration-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed),
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn graph_route_checks_and_publishes_the_same_ordinary_output_with_cache_and_headers() {
+        let scratch = Scratch::new();
+        let text =
+            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
+        let prepared = syntax(&text, Some(&scratch.0));
+        let (program, plans) =
+            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        assert!(plans.is_empty());
+        assert!(program.generator_validation.is_some());
+        let graph_file = program
+            .source_files
+            .iter()
+            .find(|file| file.path.to_string_lossy().starts_with("<async graph "))
+            .unwrap();
+        assert!(graph_file.source.contains("(#loop"));
+        assert!(!graph_file.source.contains("poll-resume-"));
+        for _ in 0..2 {
+            write_prepared_generated_sources_with_route(
+                &prepared,
+                &scratch.0,
+                Some(&scratch.0),
+                &plans,
+                AsyncRoute::Graph,
+            )
+            .unwrap();
+            let (cached, _) =
+                expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+            assert_eq!(
+                cached.source_files.last().unwrap().source,
+                graph_file.source
+            );
+        }
+        let sources = fs::read_dir(generator::generated_source_directory(&scratch.0))
+            .unwrap()
+            .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(sources.len(), 1);
+        assert!(sources[0].starts_with("; Generated from:\n"));
+        assert!(sources[0].ends_with(&graph_file.source));
+        let ordinary = parse_program(&format!("{CONTEXT}\n{}", sources[0])).unwrap();
+        typecheck::CheckedProgram::validate_with_span(&ordinary).unwrap();
+        let keys = fs::read_dir(&scratch.0)
+            .unwrap()
+            .filter_map(|entry| {
+                let path = entry.unwrap().path();
+                (path.extension().and_then(|ext| ext.to_str()) == Some("key"))
+                    .then(|| fs::read_to_string(path).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert!(keys
+            .iter()
+            .any(|key| key.contains("lim-inspectable-async-graph-v1")));
+        assert!(!keys.iter().any(|key| key.contains("async-capture-plan=")));
+    }
+
+    #[test]
+    fn graph_route_never_falls_back_for_unsupported_scoped_borrows_or_awaiting_guards() {
+        for (body, expected) in [
+            (
+                "(#let owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) seed 2u64))
+              (#let view (#ref #u64) (#borrow (#get owner 0)))
+              (#return (#u64.+.wrap (#deref view)
+                (#await Child ChildPending ChildReady child-poll (Start 2u64))))",
+                "local borrows require stable frame-owner storage",
+            ),
+            (
+                "(#let task Child (Start seed))
+              (#return (#match task (#case (Start value)
+                (#when (#bool.! (#u64.==
+                  (#await Child ChildPending ChildReady child-poll (Start 0u64)) 1u64)))
+                (#await Child ChildPending ChildReady child-poll (Start value)))
+                (#case (Resume value) value) (#case _ 0u64)))",
+                "stationary storage aliases",
+            ),
+        ] {
+            let text = source(body);
+            let prepared = syntax(&text, None);
+            let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
+                .err()
+                .unwrap();
+            assert!(error.message.contains(expected), "{error}");
+            assert!(error.span.is_some());
+            let scratch = Scratch::new();
+            let error = write_prepared_generated_sources_with_route(
+                &prepared,
+                &scratch.0,
+                Some(&scratch.0),
+                &ExpansionPlans::new(),
+                AsyncRoute::Graph,
+            )
+            .unwrap_err();
+            assert!(error.message.contains(expected), "{error}");
+            assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
+        }
+    }
+
+    #[test]
+    fn graph_route_rejects_custom_cancellation_dispatcher() {
+        let text = source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))")
+            .replace("@async-fn", "@async-fn-pinned")
+            .replace(": function", ": cancel (work-cancel ((work-frame-start cancel-start) (work-frame-await-0 cancel-await))) : function");
+        let prepared = syntax(&text, None);
+        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.message,
+            "graph cancellation requires state-specific checked cleanup contracts"
+        );
+        assert!(text[error.span.unwrap().start..error.span.unwrap().end].starts_with("(#fn work"));
+    }
+
+    #[test]
+    fn graph_route_preserves_exact_original_type_errors() {
+        let text = source("(#let answer #u64 true) (#return answer)");
+        let prepared = syntax(&text, None);
+        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
+            .err()
+            .unwrap();
+        assert_eq!(error.code, DiagnosticCode::Type);
+        let span = error.span.unwrap();
+        assert_eq!(&text[span.start..span.end], "true");
+    }
+
+    #[test]
+    fn graph_route_runs_through_pending_and_ready_as_ordinary_native_code() {
+        let scratch = Scratch::new();
+        let text = format!(
+            "{}
+          (#fn main () #u64
+            (#let waker #u64 0u64)
+            (#let first work-poll-result (#call work-poll
+              (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
+            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
+              (#case (work-ready value) value)
+              (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))",
+            source(
+                "(#let answer #u64 (#await Child ChildPending ChildReady child-poll (Start seed)))
+              (#return (#u64.+.wrap answer 2u64))"
+            )
+        );
+        let prepared = syntax(&text, None);
+        let (program, _) =
+            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        let assembly = crate::generate_assembly(&program).unwrap();
+        let binary = scratch.0.join("graph-runtime");
+        crate::link_native_binary(
+            &assembly,
+            &binary,
+            &[],
+            &[],
+            crate::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+        let output = std::process::Command::new(binary).output().unwrap();
+        assert_eq!(output.status.code(), Some(42), "{:?}", output.stderr);
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+    }
+
+    #[test]
+    fn graph_route_handles_generator_produced_async_forms_and_multiple_outputs() {
+        let text = format!(
+            "{CONTEXT}
+          (#gn produce () `((@async-fn (: protocol WorkAwait : waker #u64 : function
+            (#fn work (: seed #u64) #u64
+              (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))))
+          (@produce)
+          (@async-fn (: protocol SecondAwait : waker #u64 : function
+            (#fn second (: seed #u64) #u64
+              (#return (#await work-task work-pending work-ready work-poll
+                (#call work (: seed seed)))))))"
+        );
+        let scratch = Scratch::new();
+        let prepared = syntax(&text, Some(&scratch.0));
+        let (program, plans) =
+            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        assert_eq!(
+            program
+                .source_files
+                .iter()
+                .filter(|file| file.path.to_string_lossy().starts_with("<async graph "))
+                .count(),
+            2
+        );
+        write_prepared_generated_sources_with_route(
+            &prepared,
+            &scratch.0,
+            Some(&scratch.0),
+            &plans,
+            AsyncRoute::Graph,
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_dir(generator::generated_source_directory(&scratch.0))
+                .unwrap()
+                .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+                .filter(|source| source.contains("(#fn work-poll ")
+                    || source.contains("(#fn second-poll "))
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn graph_route_still_requires_the_completed_ordinary_program_check() {
+        let text = format!(
+            "{}\n(#fn invalid-ordinary () #u64 (#return true))",
+            source("(#return seed)")
+        );
+        let prepared = syntax(&text, None);
+        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
+            .err()
+            .unwrap();
+        assert_eq!(error.code, DiagnosticCode::Type);
+        let span = error.span.unwrap();
+        assert_eq!(&text[span.start..span.end], "true");
+    }
+
+    #[test]
+    fn legacy_public_cancellation_state_patterns_are_a_production_switch_gate() {
+        let text = format!(
+            "{}
+          (#fn cancel-frame (: task work-frame-state) ()
+            (#match task
+              (#case (work-frame-start seed) (#forget seed))
+              (#case (work-frame-await-0 seed child) (#block (#forget seed) (#forget child)))
+              (#case work-frame-done ()))
+            (#return ()))",
+            source(
+                "(#let answer #u64 (#await Child ChildPending ChildReady child-poll (Start seed)))
+              (#return (#u64.+.wrap answer seed))"
+            )
+            .replace("@async-fn", "@async-fn-pinned")
+        );
+        let prepared = syntax(&text, None);
+        let (legacy, _) = expand_prepared_program(&prepared).unwrap();
+        typecheck::CheckedProgram::validate_with_span(&legacy).unwrap();
+        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
+            .err()
+            .unwrap();
+        assert!(error.message.contains("struct match pattern"), "{error}");
+    }
+
+    #[test]
+    fn default_stays_legacy_and_non_async_programs_keep_the_existing_route() {
+        assert!(DEFAULT_ASYNC_ROUTE == AsyncRoute::Legacy);
+        let prepared = syntax(&source("(#return seed)"), None);
+        let (default, _) = expand_prepared_program(&prepared).unwrap();
+        assert!(!default
+            .source_files
+            .iter()
+            .any(|file| file.path.to_string_lossy().starts_with("<async graph ")));
+        let prepared = syntax("(#fn main () #u64 (#return 42u64))", None);
+        let (program, plans) =
+            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        assert!(plans.is_empty());
+        assert!(program.generator_validation.is_none());
+    }
 }
