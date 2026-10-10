@@ -1411,11 +1411,12 @@ impl Declarations {
                         return true;
                     }
                 }
-                let mut summary = flow.referent_function_effects_with_restorations(
+                let mut summary = flow.referent_function_effects_with_origins(
                     body,
                     types,
                     &calls,
                     &restorations,
+                    &origins,
                 );
                 let (mut entry_reads, _) = flow.referent_reads(body);
                 // Consuming an entry value also requires initialized storage,
@@ -1887,69 +1888,33 @@ impl Declarations {
             }
             let body = &self.bodies[&name];
             let flow = &self.flows[&name];
-            let origins = if include_parameter_contents {
-                flow.staged_parameter_store_loan_origins(body)
-            } else {
-                flow.loan_origins(body)
-            };
-            let mut returned = Vec::new();
-            // Contents-aware return and store analysis have identical seeds.
-            // Share this immutable result; the legacy store-only mode remains
-            // a distinct solve because its call-store transfer differs.
-            let legacy_store_origins;
-            let store_origins = if include_parameter_contents {
-                &origins
-            } else {
-                legacy_store_origins = flow.staged_store_loan_origins(body);
-                &legacy_store_origins
-            };
-            let stores = flow.parameter_store_summaries(body, store_origins);
-            let mutations = flow.parameter_tag_mutations(body, store_origins);
-            let output_stores = flow.parameter_output_store_variant_summaries(body, store_origins);
+            let crate::typed_flow::ParameterSummary {
+                returned,
+                stores,
+                mutations,
+                output_stores,
+                clears,
+                bounds: returned_bounds,
+                output_clears,
+            } = flow.parameter_summary(body, include_parameter_contents);
             let variants = output_stores
                 .iter()
                 .filter_map(|((path, variant), stores)| {
                     path.is_empty().then_some((*variant, stores.clone()))
                 })
                 .collect();
-            let clears = if include_parameter_contents {
-                flow.parameter_clear_summaries(body, &store_origins)
-            } else {
-                Vec::new()
-            };
-            let returned_bounds = flow.returned_variant_bounds(body, &store_origins);
             let returned_variants = returned_bounds
                 .iter()
                 .filter_map(|(path, variants)| {
                     (variants.len() == 1).then(|| (path.clone(), *variants.iter().next().unwrap()))
                 })
                 .collect();
-            let output_clears = if include_parameter_contents {
-                flow.parameter_output_clear_variant_summaries(body, &store_origins)
-            } else {
-                HashMap::new()
-            };
             let conditional_clears = output_clears
                 .iter()
                 .filter_map(|((path, variant), clears)| {
                     path.is_empty().then_some((*variant, clears.clone()))
                 })
                 .collect();
-            for (index, node) in flow.nodes.iter().enumerate() {
-                let crate::typed_flow::FlowAction::Return(Some(value)) = &node.action else {
-                    continue;
-                };
-                for origin in
-                    origins.value_before(body, flow, crate::typed_flow::FlowNodeId(index), *value)
-                {
-                    let Some(summary) = origin.parameter_summary() else {
-                        continue;
-                    };
-                    if !returned.contains(&summary) {
-                        returned.push(summary);
-                    }
-                }
-            }
             if let Some(id) = self.function_id(&name) {
                 // An empty summary distinguishes a known body with no
                 // parameter-derived loans from an unavailable external body.

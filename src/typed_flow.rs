@@ -1814,6 +1814,22 @@ fn display_linear_place(body: &Body, place: &Place) -> String {
 
 pub(crate) type VariantBounds = HashMap<Vec<Segment>, HashSet<VariantId>>;
 
+/// Related interprocedural facts computed from the same immutable body and
+/// transfer mode. Keeping them together prevents independently solving the
+/// same provenance and outcome graphs for each consumer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ParameterSummary {
+    pub returned: Vec<crate::typed_body::ParameterLoanSummary>,
+    pub stores: Vec<crate::typed_body::ParameterStoreSummary>,
+    pub mutations: Option<Vec<crate::typed_body::ParameterLoanSummary>>,
+    pub clears: Vec<crate::typed_body::ParameterLoanSummary>,
+    pub bounds: VariantBounds,
+    pub output_stores:
+        HashMap<(Vec<Segment>, VariantId), Vec<crate::typed_body::ParameterStoreSummary>>,
+    pub output_clears:
+        HashMap<(Vec<Segment>, VariantId), Vec<crate::typed_body::ParameterLoanSummary>>,
+}
+
 fn inactive_variant_bound_slot(bounds: &VariantBounds, path: &[Segment]) -> bool {
     path.iter().enumerate().any(|(index, segment)| {
         let Segment::Payload(wanted, _) = segment else {
@@ -4025,6 +4041,7 @@ impl FlowGraph {
             .collect()
     }
 
+    #[cfg(test)]
     pub fn parameter_output_store_variant_summaries(
         &self,
         body: &Body,
@@ -4036,6 +4053,68 @@ impl FlowGraph {
             .collect()
     }
 
+    pub fn parameter_summary(&self, body: &Body, contents: bool) -> ParameterSummary {
+        let origins = if contents {
+            self.staged_parameter_store_loan_origins(body)
+        } else {
+            self.loan_origins(body)
+        };
+        let legacy_stores;
+        let store_origins = if contents {
+            &origins
+        } else {
+            legacy_stores = self.staged_store_loan_origins(body);
+            &legacy_stores
+        };
+        // Outcome graphs always use contents-aware seeds, including during
+        // legacy initialization. Reuse ordinary origins only in that mode.
+        let graphs = if contents {
+            self.return_output_variant_graphs_with_origins(body, &origins)
+        } else {
+            self.return_output_variant_graphs(body)
+        };
+        let mut output_stores = HashMap::new();
+        let mut output_clears = HashMap::new();
+        for (selector, graph) in graphs {
+            output_stores.insert(
+                selector.clone(),
+                graph.parameter_store_summaries(body, store_origins),
+            );
+            if contents {
+                output_clears.insert(
+                    selector,
+                    graph.parameter_clear_summaries(body, store_origins),
+                );
+            }
+        }
+        let mut returned = Vec::new();
+        for (index, node) in self.nodes.iter().enumerate() {
+            if let FlowAction::Return(Some(value)) = node.action {
+                for origin in origins.value_before(body, self, FlowNodeId(index), value) {
+                    if let Some(summary) = origin.parameter_summary() {
+                        if !returned.contains(&summary) {
+                            returned.push(summary);
+                        }
+                    }
+                }
+            }
+        }
+        ParameterSummary {
+            returned,
+            stores: self.parameter_store_summaries(body, store_origins),
+            mutations: self.parameter_tag_mutations(body, store_origins),
+            clears: if contents {
+                self.parameter_clear_summaries(body, store_origins)
+            } else {
+                Vec::new()
+            },
+            bounds: self.returned_variant_bounds(body, store_origins),
+            output_stores,
+            output_clears,
+        }
+    }
+
+    #[cfg(test)]
     pub fn parameter_output_clear_variant_summaries(
         &self,
         body: &Body,
@@ -4062,7 +4141,17 @@ impl FlowGraph {
         body: &Body,
     ) -> HashMap<(Vec<Segment>, VariantId), Self> {
         let origins = self.staged_parameter_store_loan_origins(body);
-        let states = self.variant_facts_with_origins(body, &origins);
+        self.return_output_variant_graphs_with_origins(body, &origins)
+    }
+
+    fn return_output_variant_graphs_with_origins(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> HashMap<(Vec<Segment>, VariantId), Self> {
+        let states = origins
+            .variants
+            .get_or_init(|| self.variant_facts_with_origins(body, origins));
         let mut alternatives = Vec::new();
         for node in &self.nodes {
             if let FlowAction::Return(Some(value)) = node.action {
@@ -5216,8 +5305,27 @@ impl FlowGraph {
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
         restorations: &[(FlowNodeId, Vec<Place>)],
     ) -> ReferentFunctionEffects {
-        let moves =
-            self.referent_consumptions_with_restorations(body, types, calls, restorations, &[]);
+        let origins = self.loan_origins(body);
+        self.referent_function_effects_with_origins(body, types, calls, restorations, &origins)
+    }
+
+    pub fn referent_function_effects_with_origins(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        origins: &FlowLoanOrigins,
+    ) -> ReferentFunctionEffects {
+        let moves = self.referent_consumptions_with_origins(
+            body,
+            types,
+            calls,
+            restorations,
+            &[],
+            &[],
+            origins,
+        );
         let exits = self.referent_exit_effects_from_moves(body, &moves);
         let mut summary = self.referent_function_effects_from_exits(body, exits);
         summary.consuming_accesses = self.referent_consuming_accesses_from_moves(body, &moves);
@@ -5972,6 +6080,28 @@ impl FlowGraph {
         entry_consumed: &[Place],
         possible_restorations: &[(FlowNodeId, Vec<Place>)],
     ) -> FlowConsumptions {
+        let origins = self.loan_origins(body);
+        self.referent_consumptions_with_origins(
+            body,
+            types,
+            calls,
+            restorations,
+            entry_consumed,
+            possible_restorations,
+            &origins,
+        )
+    }
+
+    fn referent_consumptions_with_origins(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        entry_consumed: &[Place],
+        possible_restorations: &[(FlowNodeId, Vec<Place>)],
+        origins: &FlowLoanOrigins,
+    ) -> FlowConsumptions {
         let mut calls = calls
             .iter()
             .map(|(event, effects, unresolved)| {
@@ -6009,7 +6139,6 @@ impl FlowGraph {
                 .possibly_restored
                 .extend(restored.iter().cloned());
         }
-        let origins = self.loan_origins(body);
         // A fresh matched outcome can prove that a callee's conditional
         // destructive access actually happened. Empty loan contents alone
         // cannot establish this: use only the separately inferred consuming
@@ -14663,6 +14792,83 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_parameter_facts_match_independent_solves_in_both_modes() {
+        let program = crate::parse_program(
+            "(#struct Holder (: value (#ref #u64)))
+            (#enum Choice ((Found Holder) Missing))
+            (#fn choose (: owner (#ref #u64) : flag #bool) Choice
+              (#return (#if flag (Found (#struct-literal Holder (: value owner))) Missing)))
+            (#fn set (: slot (#ref-mut (#ref #u64)) : value (#ref #u64)) ()
+              (#deref-set slot value) (#return ()))
+            (#fn identity (: owner (#ref #u64)) (#ref #u64) (#return owner))
+            (#fn main () #u64 (#return 42u64))",
+        )
+        .unwrap();
+        let mut declarations =
+            crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        for name in ["choose", "set", "identity", "main"] {
+            let graph = &declarations.flows[name];
+            for contents in [false, true] {
+                let body = declarations.bodies.get_mut(name).unwrap();
+                body.staged_parameter_contents = contents;
+                let actual = graph.parameter_summary(&body, contents);
+                let origins = if contents {
+                    graph.staged_parameter_store_loan_origins(&body)
+                } else {
+                    graph.loan_origins(&body)
+                };
+                let stores = if contents {
+                    graph.staged_parameter_store_loan_origins(&body)
+                } else {
+                    graph.staged_store_loan_origins(&body)
+                };
+                let mut returned = Vec::new();
+                for (index, node) in graph.nodes.iter().enumerate() {
+                    if let FlowAction::Return(Some(value)) = node.action {
+                        for origin in origins.value_before(&body, graph, FlowNodeId(index), value) {
+                            if let Some(summary) = origin.parameter_summary() {
+                                if !returned.contains(&summary) {
+                                    returned.push(summary);
+                                }
+                            }
+                        }
+                    }
+                }
+                assert_eq!(actual.returned, returned);
+                assert_eq!(
+                    actual.stores,
+                    graph.parameter_store_summaries(&body, &stores)
+                );
+                assert_eq!(
+                    actual.mutations,
+                    graph.parameter_tag_mutations(&body, &stores)
+                );
+                assert_eq!(actual.bounds, graph.returned_variant_bounds(&body, &stores));
+                assert_eq!(
+                    actual.output_stores,
+                    graph.parameter_output_store_variant_summaries(&body, &stores)
+                );
+                assert_eq!(
+                    actual.clears,
+                    if contents {
+                        graph.parameter_clear_summaries(&body, &stores)
+                    } else {
+                        Vec::new()
+                    }
+                );
+                assert_eq!(
+                    actual.output_clears,
+                    if contents {
+                        graph.parameter_output_clear_variant_summaries(&body, &stores)
+                    } else {
+                        HashMap::new()
+                    }
+                );
+            }
+        }
+    }
 
     #[test]
     fn loan_snapshots_share_containers_and_isolate_branch_mutations() {

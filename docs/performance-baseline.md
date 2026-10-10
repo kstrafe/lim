@@ -1023,3 +1023,23 @@ example manifest, UI diagnostics, UTF-8 oracle tests, String/standard-library
 and documentation tests, LSP end-to-end tests, and additional reference,
 slice, heap-borrow and pinning regressions. Formatting and all-target checking
 also pass. No ownership or borrow-validation gate was removed.
+
+## Shared per-function semantic facts (2026-10-10)
+
+Related return, store, clear and variant summaries now share one provenance
+solution and one set of outcome graphs for each compatible transfer mode.
+Staged referent effects also reuse the provenance already solved by the caller.
+Different contents modes and modified outcome graphs remain independent.
+A differential test compares every summary component to independent solves
+in both modes. All 1,283 unit tests, 213 async tests, adversarial borrow tests,
+native examples and UI diagnostics pass.
+
+Using the same alternating, CPU-pinned, 40-pair warm benchmark protocol above:
+
+| Warm median | Before | After | Reduction |
+| --- | ---: | ---: | ---: |
+| `string_view` | 82.514 ms | 79.068 ms | 4.2% |
+| `string_println` | 81.197 ms | 78.166 ms | 3.7% |
+| `async_fn` | 64.970 ms | 63.784 ms | 1.8% |
+
+Executable bytes and runtime results are identical for all three workloads.
