@@ -40,6 +40,38 @@ impl Planning {
         self.linear_types
             .get_or_init(|| crate::linearcheck::LinearTypes::from_program(&self.program))
     }
+
+    /// Check source discards before emission or a generated-source cache hit.
+    pub(crate) fn validate_discarded_results(&self) -> Result<(), SourceError> {
+        for function in &self.functions {
+            for value in &function.graph.discarded_values {
+                let value = &function.graph.values[value.0];
+                // Primitive values and references need no destruction. Keep
+                // declarative classification lazy for ordinary scalar polls.
+                if !matches!(
+                    &value.ty,
+                    crate::Type::Named(_)
+                        | crate::Type::Tuple(_)
+                        | crate::Type::Array(..)
+                        | crate::Type::MutableSlice(_)
+                        | crate::Type::Atomic(_)
+                        | crate::Type::PinOwned(_)
+                ) || !self.linear_types().is_linear(&value.ty)
+                {
+                    continue;
+                }
+                return Err(attach(
+                    SourceError::new(
+                        "linear expression result must be consumed explicitly; use #forget or a destruction function",
+                        DiagnosticCode::Linear,
+                    )
+                    .at(value.span.unwrap_or(function.source.function.span)),
+                    &self.program,
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Generator output can itself be an async invocation. Reparse its own text
@@ -229,14 +261,16 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
             graph,
         });
     }
-    Ok(Planning {
+    let planning = Planning {
         public_cleanup: false,
         program,
         interfaces,
         declarations,
         functions,
         linear_types: OnceCell::new(),
-    })
+    };
+    planning.validate_discarded_results()?;
+    Ok(planning)
 }
 
 #[cfg(test)]
@@ -276,10 +310,11 @@ mod tests {
             "{}
           (@#async-fn (: protocol OtherAwait : waker #u64
             : function (#fn other () #u64 (#return 42u64))))",
-            work("(#return (#await Child ChildPending ChildReady step-poll (Waiting 1u64)))")
+            work("1u64 (#return (#await Child ChildPending ChildReady step-poll (Waiting 1u64)))")
         );
         let planning = prepare(&syntax(&text)).unwrap();
         assert_eq!(planning.functions.len(), 2);
+        assert!(!planning.functions[0].graph.discarded_values.is_empty());
         assert!(planning.linear_types.get().is_none());
         let types = planning.linear_types();
         assert!(std::ptr::eq(types, planning.linear_types()));

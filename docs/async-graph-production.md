@@ -910,6 +910,29 @@ Failure kinds still require separate treatment:
 The 167/62 counts describe the pre-global-fix audit, not a completed migration.
 Graph-default selection and legacy removal remain required work.
 
+### Explicit consumption of discarded source results
+
+The audit's parse-phase failures were not all obsolete expectations. A final
+graph compilation accepted a discarded linear value-loop result: the builder
+evaluated the statement but did not record that its result was ignored.
+Executable graph metadata now records these statement results separately from
+ordinary dead operands. Planning checks their already-known types and rejects
+linear results with a Linear diagnostic at the discarded source expression.
+Use an explicit binding and destruction function or `#forget` to consume them;
+there is no implicit destruction.
+
+This check precedes generated-source cache lookup, so an old cached artifact
+cannot skip the source obligation. Primitive and reference results remain
+exempt. Declarative type classification stays lazy for scalar statements and
+is shared with emission rather than reconstructed for every discard.
+
+Regressions check discarded Ready payloads in statement, prefix-block,
+tail-block, conditional, match and value-loop contexts. Payload types obtained
+from the declared child protocol receive the same check. The return/continue
+loop regression now runs both scalar and linear results on graph explicitly,
+and attempts to reuse the consumed linear return are rejected instead of
+asserting a legacy-private enum name.
+
 ### Earlier audit
 
 A temporary graph default followed by `cargo test --test async_fn --quiet`

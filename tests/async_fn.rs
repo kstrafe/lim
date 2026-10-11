@@ -2759,11 +2759,8 @@ fn async_value_loop_statement_cannot_discard_a_linear_break_result() {
             (#break value))
           (#return 42u64))))
       (#fn main () #u64 (#return 0u64))";
-    let error = lim::parse_program(source).unwrap_err();
-    assert!(
-        error.contains("cannot discard a non-Copy result from an awaited #loop"),
-        "{error}"
-    );
+    let error = graph_compile_error(source, "discarded-linear-loop-result");
+    assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
 }
 
 #[test]
@@ -3329,6 +3326,13 @@ fn async_function_suspends_on_a_discarded_copy_await_in_a_block() {
 
 #[test]
 fn async_function_rejects_discarding_a_linear_await_result_in_a_block() {
+    let rejected = |source: &str, label: &str| {
+        let error = graph_compile_error(source, label);
+        assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
+        assert!(error.message.contains("consumed explicitly"), "{error:?}");
+        let span = error.span.expect("discarded expression source span");
+        assert!(source[span.start..span.end].contains("#await"), "{error:?}");
+    };
     let source = "(#struct Resource ((value #u64)))
       (#linear Resource)
       (#enum ChildTask (Start Resume))
@@ -3345,72 +3349,42 @@ fn async_function_rejects_discarding_a_linear_await_result_in_a_block() {
               (#await Resource ChildTask Pending Ready child-poll Start)
               42u64))
           (#return result))))";
-    let error = lim::parse_program(source).unwrap_err();
-    assert!(
-        error.contains("cannot discard a non-Copy #await result"),
-        "{error}"
-    );
+    rejected(source, "discarded-linear-await-prefix");
 
     let direct_source = source.replace(
         "          (#let result #u64\n            (#block\n              (#await Resource ChildTask Pending Ready child-poll Start)\n              42u64))\n          (#return result)",
         "          (#await Resource ChildTask Pending Ready child-poll Start)\n          (#return 42u64)",
     );
     assert_ne!(direct_source, source);
-    let direct_error = lim::parse_program(&direct_source).unwrap_err();
-    assert!(
-        direct_error.contains("cannot discard a non-Copy #await result"),
-        "{direct_error}"
-    );
+    rejected(&direct_source, "discarded-linear-await-statement");
 
     let untyped_source = direct_source.replace(
         "#await Resource ChildTask Pending",
         "#await ChildTask Pending",
     );
     assert_ne!(untyped_source, direct_source);
-    let untyped_error = lim::parse_program(&untyped_source).unwrap_err();
-    assert!(
-        untyped_error.contains("discarded #await result requires an explicit type"),
-        "{untyped_error}"
-    );
+    rejected(&untyped_source, "discarded-linear-await-payload-type");
 
     let terminal_block_source = source.replace(
         "          (#let result #u64\n            (#block\n              (#await Resource ChildTask Pending Ready child-poll Start)\n              42u64))\n          (#return result)",
         "          (#block\n            (#await Resource ChildTask Pending Ready child-poll Start))\n          (#return 42u64)",
     );
     assert_ne!(terminal_block_source, source);
-    let type_error = lim::parse_program(&terminal_block_source).unwrap_err();
-    assert!(
-        type_error.contains("cannot discard a non-Copy #await result"),
-        "{type_error}"
-    );
+    rejected(&terminal_block_source, "discarded-linear-await-tail-block");
 
     let conditional_source = source.replace(
         "          (#let result #u64\n            (#block\n              (#await Resource ChildTask Pending Ready child-poll Start)\n              42u64))\n          (#return result)",
         "          (#if true\n            (#await Resource ChildTask Pending Ready child-poll Start)\n            (#await Resource ChildTask Pending Ready child-poll Resume))\n          (#return 42u64)",
     );
     assert_ne!(conditional_source, source);
-    let conditional_error = match lim::parse_program(&conditional_source) {
-        Err(error) => error,
-        Ok(program) => lim::check_types(&program)
-            .expect_err("discarding an awaited linear if result must be rejected"),
-    };
-    assert!(
-        conditional_error.contains("cannot discard a non-Copy #await result")
-            || conditional_error.contains("linear value")
-            || conditional_error.contains("must be consumed"),
-        "{conditional_error}"
-    );
+    rejected(&conditional_source, "discarded-linear-await-if");
 
     let match_source = source.replace(
         "          (#let result #u64\n            (#block\n              (#await Resource ChildTask Pending Ready child-poll Start)\n              42u64))\n          (#return result)",
         "          (#match true\n            (#case true (#await Resource ChildTask Pending Ready child-poll Start))\n            (#case false (#await Resource ChildTask Pending Ready child-poll Resume)))\n          (#return 42u64)",
     );
     assert_ne!(match_source, source);
-    let match_error = lim::parse_program(&match_source).unwrap_err();
-    assert!(
-        match_error.contains("cannot discard a non-Copy #await result"),
-        "{match_error}"
-    );
+    rejected(&match_source, "discarded-linear-await-match");
 }
 
 #[test]
@@ -6348,7 +6322,7 @@ fn async_awaited_while_return_branch_and_continue_branch_resume_correctly() {
         (#let-else (work-ready continued) Work-poll-result continue-ready (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap returned continued)))";
-    build_and_run(source, 18);
+    build_and_run_graph(source, 18);
 
     let linear_source = source
         .replace(
@@ -6375,11 +6349,15 @@ fn async_awaited_while_return_branch_and_continue_branch_resume_correctly() {
              (#forget continued)\n\
              (#return (#u64.+.wrap returned-value continued-value))",
         );
-    let generated = build_and_run(&linear_source, 18);
-    assert!(
-        generated.contains("#linear Lim.async.work.choice"),
-        "{generated}"
+    build_and_run_graph(&linear_source, 18);
+    let reused = linear_source.replace(
+        "(#forget returned)",
+        "(#let duplicate Payload returned) (#forget returned) (#forget duplicate)",
     );
+    assert_ne!(reused, linear_source);
+    let error = graph_compile_error(&reused, "linear-while-return-reused");
+    assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
+    assert!(error.span.is_some());
 }
 
 #[test]

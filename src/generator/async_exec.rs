@@ -291,6 +291,8 @@ pub(crate) struct Graph {
     pub bindings: Vec<Binding>,
     pub parameter_count: usize,
     pub values: Vec<Value>,
+    /// Results intentionally ignored by source statements, not dead operands.
+    pub discarded_values: Vec<ValueId>,
     pub places: Vec<PlaceDescriptor>,
     pub awaits: Vec<Await>,
     /// Owned checked metadata/pattern nodes; not executable subtrees.
@@ -477,6 +479,7 @@ pub(crate) fn build(body: &Body, sites: &[CheckedAwait]) -> Result<Graph, Error>
             bindings: body.bindings.clone(),
             parameter_count: body.parameter_count,
             values: Vec::new(),
+            discarded_values: Vec::new(),
             places: Vec::new(),
             awaits,
             metadata: HashMap::new(),
@@ -764,7 +767,13 @@ impl Builder<'_> {
                 }
                 Ok(end)
             }
-            Control::Evaluate(source) => self.expression(*source, block).map(|(end, _)| end),
+            Control::Evaluate(source) => {
+                let (end, value) = self.expression(*source, block)?;
+                if end.is_some() {
+                    self.graph.discarded_values.push(value);
+                }
+                Ok(end)
+            }
             Control::Assign(root, projection, source) => {
                 let (end, place) = self.assignment_place(root, projection, *source, block)?;
                 let Some(end) = end else {
@@ -2414,6 +2423,9 @@ impl Graph {
     /// Checks executable structure and definite evaluation/storage availability,
     /// NOT initialization of owner contents, move legality or loan lifetimes.
     pub(crate) fn validate(&self) -> Result<(), Error> {
+        for value in &self.discarded_values {
+            self.value_type(*value)?;
+        }
         if self.entry.0 >= self.blocks.len()
             || self.parameter_count > self.bindings.len()
             || !self.blocks[self.entry.0].parameters.is_empty()
