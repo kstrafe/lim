@@ -88,6 +88,7 @@ struct Emitter<'a> {
     cleanup_occupied_cache: OnceCell<HashSet<usize>>,
     projections: Vec<String>,
     array_anchors: crate::generator::async_array_anchor::Recipes,
+    slice_anchors: crate::generator::async_slice_anchor::Recipes,
     addresses: HashMap<PlaceId, usize>,
     owned_indices: HashMap<PlaceId, Vec<OwnedIndex>>,
     address_retirement: Option<crate::generator::async_addresses::Plan>,
@@ -219,6 +220,7 @@ impl<'a> Emitter<'a> {
             cleanup_occupied_cache: OnceCell::new(),
             projections: Vec::new(),
             array_anchors: Default::default(),
+            slice_anchors: Default::default(),
             addresses: HashMap::new(),
             owned_indices: HashMap::new(),
             address_retirement: None,
@@ -470,13 +472,32 @@ impl<'a> Emitter<'a> {
             .cloned()
             .collect::<Vec<_>>();
         let mut recipes = crate::generator::async_array_anchor::Recipes::new(
-            places,
+            places
+                .iter()
+                .filter(|place| {
+                    crate::generator::async_slice_anchor::parameter(
+                        place,
+                        &function.graph,
+                        &planning.declarations,
+                    )
+                    .is_none()
+                })
+                .cloned(),
             &function.graph,
             &planning.declarations,
             |role| emitter.fresh(role),
         );
         emitter.projections.append(&mut recipes.declarations);
         emitter.array_anchors = recipes;
+        let mut recipes = crate::generator::async_slice_anchor::Recipes::new(
+            places,
+            &function.graph,
+            &planning.declarations,
+            |role| emitter.fresh(role),
+        )
+        .map_err(|message| fail(function, message))?;
+        emitter.projections.append(&mut recipes.declarations);
+        emitter.slice_anchors = recipes;
         Ok(emitter)
     }
 
@@ -640,6 +661,18 @@ impl<'a> Emitter<'a> {
         mutable: bool,
         pointer: &str,
     ) -> String {
+        if let Some(binding) = crate::generator::async_slice_anchor::parameter(
+            place,
+            &self.function.graph,
+            &self.planning.declarations,
+        ) {
+            return self.slice_anchors.materialize(
+                place,
+                &self.slice_holder(binding),
+                pointer,
+                mutable,
+            );
+        }
         let mut indices = HashMap::new();
         let mut statements = Vec::new();
         for (position, segment) in place.segments.iter().enumerate() {
@@ -764,6 +797,15 @@ impl<'a> Emitter<'a> {
     /// It cannot supply a selected address, so never probe that payload when
     /// materializing a reference formed by another branch.
     fn anchor_in_bounds(&self, place: &crate::typed_place::Place) -> bool {
+        if crate::generator::async_slice_anchor::parameter(
+            place,
+            &self.function.graph,
+            &self.planning.declarations,
+        )
+        .is_some()
+        {
+            return true;
+        }
         use crate::typed_place::Segment;
         let (binding, external) = match place.root {
             crate::typed_body::PlaceRoot::Local(binding) => (binding, false),
@@ -803,6 +845,15 @@ impl<'a> Emitter<'a> {
     }
 
     fn anchor_probe(&self, place: &crate::typed_place::Place, pointer: &str) -> String {
+        if let Some(binding) = crate::generator::async_slice_anchor::parameter(
+            place,
+            &self.function.graph,
+            &self.planning.declarations,
+        ) {
+            return self
+                .slice_anchors
+                .probe(place, &self.slice_holder(binding), pointer);
+        }
         fn probe(
             emitter: &Emitter<'_>,
             place: &crate::typed_place::Place,
@@ -869,9 +920,11 @@ impl<'a> Emitter<'a> {
             }
             let index = match place.root {
                 crate::typed_body::PlaceRoot::Local(binding) => self.bindings[&binding],
-                crate::typed_body::PlaceRoot::Parameter(binding) => {
-                    self.external_captures[&binding]
-                }
+                crate::typed_body::PlaceRoot::Parameter(binding) => self
+                    .external_captures
+                    .get(&binding)
+                    .copied()
+                    .unwrap_or(self.bindings[&binding]),
                 _ => unreachable!(),
             };
             let owner = &self.slots[index];
@@ -893,6 +946,20 @@ impl<'a> Emitter<'a> {
             "(#pin-borrow{} (#get task {}))",
             if mutable { "-mut" } else { "" },
             slot.field
+        )
+    }
+
+    fn slice_holder(&self, binding: BindingId) -> String {
+        let slot = &self.slots[self.bindings[&binding]];
+        let mutable = matches!(
+            crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases),
+            Ok(Type::MutableSlice(_))
+        );
+        format!(
+            "(#pin-get-payload{} {} {} 0)",
+            if mutable { "-mut" } else { "" },
+            Self::slot_ref(slot, mutable),
+            slot.full
         )
     }
 
@@ -1266,7 +1333,7 @@ impl<'a> Emitter<'a> {
                 }
             })
             .unwrap_or_default();
-        let slots = cells
+        let mut slots = cells
             .iter()
             .filter_map(|cell| match cell {
                 crate::generator::async_cells::Cell::Binding(binding) => {
@@ -1291,6 +1358,17 @@ impl<'a> Emitter<'a> {
                 }
             })
             .collect::<Vec<_>>();
+        if exit {
+            // Selected addresses have their own liveness plan, independent of
+            // binding/value cells. Every address is retired after its last
+            // consumer before Return. Later calls can invalidate the ordinary
+            // checker's stored tag facts, so publish their Empty invariant as
+            // well before extracting the complete frame. A checked assertion
+            // catches disagreement with actual address retirement at runtime.
+            slots.extend(self.addresses.values().copied());
+            slots.sort_unstable();
+            slots.dedup();
+        }
         // These cells were proved Empty by the physical graph solver. Expose
         // that invariant with a checked tag assertion before ordinary
         // empty-cell extraction/restoration. A user cleanup call may consume

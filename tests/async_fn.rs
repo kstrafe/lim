@@ -10455,6 +10455,154 @@ fn graph_external_mutable_slice_indices_preserve_lending_and_pending() {
 }
 
 #[test]
+fn graph_external_mutable_slice_element_reference_survives_pending() {
+    let source = external_mutable_slice_source();
+    let retained = source.replace("(#forget view)", "").replace(
+        "(#let answer #u64 (#deref (#slice-mut-idx items 0usize)))",
+        "(#let answer #u64 (#deref view)) (#forget view)",
+    );
+    let generated = build_and_run_graph(&retained, 42);
+    let runtime = retained.split_once("(@#async-fn").unwrap().0;
+    let main = retained.split_once("(#fn main").unwrap().1;
+    build_and_run_graph(&format!("{runtime}\n{generated}\n(#fn main{main}"), 42);
+    let indexed = retained
+        .replace(
+            "(#let view (#ref-mut #u64)",
+            "(#let-mut index #usize 2usize)\n          (#let view (#ref-mut #u64)",
+        )
+        .replace(
+            "(#slice-mut-idx items 0usize)",
+            "(#slice-mut-idx items index)",
+        )
+        .replace(
+            "(#await () ChildTask",
+            "(#set index 0usize) (#await () ChildTask",
+        )
+        .replace("(#array #u64 1)", "(#array #u64 3)")
+        .replace(
+            "(#array-of (#array #u64 3) 41u64)",
+            "(#array-of (#array #u64 3) 1u64 2u64 41u64)",
+        )
+        .replace("(#index values 0usize)", "(#index values 2usize)");
+    build_and_run_graph(&indexed, 42);
+    let aliased = format!(
+        "(#type Items (#slice-mut #u64))\n{}",
+        indexed.replace(": items (#slice-mut #u64)", ": items Items")
+    );
+    build_and_run_graph(&aliased, 42);
+    let conflicting = indexed.replace(
+        "(#let answer #u64 (#match",
+        "(#set-index values 2usize 0u64)\n        (#let answer #u64 (#match",
+    );
+    let error = graph_compile_error(&conflicting, "retained-slice-element-owner-write");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&conflicting[span.start..span.end], "#set-index");
+}
+
+#[test]
+fn graph_slice_element_anchors_preserve_wide_shared_and_zero_sized_layouts() {
+    let retained = external_mutable_slice_source()
+        .replace("(#forget view)", "")
+        .replace(
+            "(#let answer #u64 (#deref (#slice-mut-idx items 0usize)))",
+            "(#let answer #u64 (#deref view)) (#forget view)",
+        )
+        .replace(
+            "(#let view (#ref-mut #u64)",
+            "(#let index #usize 1usize) (#let view (#ref-mut #u64)",
+        )
+        .replace(
+            "(#slice-mut-idx items 0usize)",
+            "(#slice-mut-idx items index)",
+        )
+        .replace("(#array #u64 1)", "(#array #u64 2)")
+        .replace(
+            "(#array-of (#array #u64 2) 41u64)",
+            "(#array-of (#array #u64 2) 3u64 41u64)",
+        )
+        .replace("(#index values 0usize)", "(#index values 1usize)");
+    build_and_run_graph(&retained.replace("u64", "u128"), 42);
+    let shared = retained
+        .replace("(#deref-set view (#u64.+.wrap (#deref view) 1u64))", "")
+        .replace("41u64", "42u64")
+        .replace("#ref-mut", "#ref")
+        .replace("#slice-mut", "#slice")
+        .replace("#borrow-mut values", "#borrow values");
+    build_and_run_graph(&shared, 42);
+
+    let runtime = external_mutable_slice_source()
+        .split_once("(@#async-fn")
+        .unwrap()
+        .0;
+    let source = format!(
+        r#"{runtime}
+      (#struct Empty ())
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : function (#fn work (: items (#slice-mut Empty)) #u64
+          (#let index #usize 2usize)
+          (#let view (#ref-mut Empty) (#slice-mut-idx items index))
+          (#await () ChildTask ChildPending ChildReady child-poll Start)
+          (#let observed Empty (#deref view)) (#forget observed)
+          (#forget view) (#forget items) (#return 42u64))))
+      (#fn main () #u64
+        (#let-mut values (#array Empty 3) (#array-of (#array Empty 3)
+          (#struct-literal Empty ()) (#struct-literal Empty ()) (#struct-literal Empty ())))
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result
+          (#call work-poll (: task (#call work (: items (#slice-mut-of (#borrow-mut values)))) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))"#
+    );
+    build_and_run_graph(&source, 42);
+}
+
+#[test]
+fn graph_slice_element_reference_selects_external_holders_across_branches() {
+    let source = external_mutable_slice_source()
+        .replace("(#forget view)", "")
+        .replace(
+            "(#let answer #u64 (#deref (#slice-mut-idx items 0usize)))",
+            "(#let answer #u64 (#deref view)) (#forget view)",
+        )
+        .replace(
+            ": items (#slice-mut #u64)",
+            ": items (#slice-mut #u64) : other (#slice-mut #u64) : choose #bool",
+        )
+        .replace(
+            "(#slice-mut-idx items 0usize)",
+            "(#if choose (#slice-mut-idx items 0usize) (#slice-mut-idx other 0usize))",
+        )
+        .replace("(#forget items)", "(#forget items) (#forget other)")
+        .replace(
+            "(#let waker #u64 0u64)",
+            "(#let-mut second (#array #u64 1) (#array-of (#array #u64 1) 41u64)) (#let waker #u64 0u64)",
+        )
+        .replace(
+            ": items (#slice-mut-of (#borrow-mut values))",
+            ": items (#slice-mut-of (#borrow-mut values)) : other (#slice-mut-of (#borrow-mut second)) : choose true",
+        )
+        .replace(
+            "(#u64.== (#index values 0usize) 42u64)",
+            "(#u64.== (#u64.+.wrap (#index values 0usize) (#index second 0usize)) 83u64)",
+        );
+    build_and_run_graph(&source, 42);
+    build_and_run_graph(&source.replace(": choose true", ": choose false"), 42);
+    for owner in ["values", "second"] {
+        let conflicting = source.replace(
+            "(#let answer #u64 (#match",
+            &format!("(#set-index {owner} 0usize 0u64) (#let answer #u64 (#match"),
+        );
+        let error = graph_compile_error(&conflicting, "branched-slice-owner-write");
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        let span = error.span.unwrap();
+        assert_eq!(&conflicting[span.start..span.end], "#set-index");
+    }
+}
+
+#[test]
 fn dereference_reborrows_keep_exclusivity_and_pin_kind() {
     let source = r#"(#fn main () #u64
       (#let-mut value #u64 41u64)

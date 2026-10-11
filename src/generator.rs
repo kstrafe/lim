@@ -83,6 +83,7 @@ pub(crate) mod async_projection;
 pub(crate) mod async_render;
 pub(crate) mod async_retire;
 pub(crate) mod async_self_borrow;
+pub(crate) mod async_slice_anchor;
 pub(crate) mod async_source;
 pub(crate) mod async_types;
 pub(crate) mod builtins;

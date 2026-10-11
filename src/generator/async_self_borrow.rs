@@ -89,6 +89,44 @@ fn anchor(origins: &[LoanOrigin]) -> Result<Option<Vec<crate::typed_place::Place
     Ok(Some(places))
 }
 
+fn selected_anchor(
+    origins: &[LoanOrigin],
+    graph: &Graph,
+    declarations: &Declarations,
+) -> Result<Option<Vec<crate::typed_place::Place>>, String> {
+    if let Some(places) = anchor(origins)? {
+        return Ok(Some(places));
+    }
+    let slice = |origin: &LoanOrigin| {
+        let PlaceRoot::Parameter(binding) = origin.place.root else {
+            return false;
+        };
+        !origin.lifetime_only
+            && !origin.owned_allocation
+            && matches!(
+                crate::typed_ir::resolve_type(&graph.bindings[binding.0].ty, &declarations.aliases),
+                Ok(Type::Slice(_) | Type::MutableSlice(_))
+            )
+            && matches!(
+                origin.place.segments.first(),
+                Some(
+                    crate::typed_place::Segment::Index(_)
+                        | crate::typed_place::Segment::DynamicIndex
+                )
+            )
+    };
+    if !origins.is_empty() && origins.iter().all(slice) {
+        let mut places = Vec::new();
+        for origin in origins {
+            if !places.contains(&origin.place) {
+                places.push(origin.place.clone());
+            }
+        }
+        return Ok(Some(places));
+    }
+    Ok(None)
+}
+
 pub(crate) fn direct_place(
     graph: &Graph,
     body: &Body,
@@ -129,7 +167,12 @@ impl Plan {
         declarations: &Declarations,
         stationary: bool,
     ) -> Result<Self, Error> {
-        if !graph
+        if !graph.bindings.iter().any(|binding| {
+            matches!(
+                crate::typed_ir::resolve_type(&binding.ty, &declarations.aliases),
+                Ok(Type::Slice(_) | Type::MutableSlice(_))
+            )
+        }) && !graph
             .blocks
             .iter()
             .flat_map(|block| &block.actions)
@@ -161,7 +204,7 @@ impl Plan {
                 }
                 continue;
             }
-            if let Some(place) = at(anchor(all), binding.span)? {
+            if let Some(place) = at(selected_anchor(all, graph, declarations), binding.span)? {
                 plan.bindings.insert(BindingId(index), place);
             }
         }
@@ -175,7 +218,7 @@ impl Plan {
                     }
                     continue;
                 }
-                if let Some(place) = at(anchor(&loans), value.span)? {
+                if let Some(place) = at(selected_anchor(&loans, graph, declarations), value.span)? {
                     plan.values.insert(ValueId(index), place);
                 }
             }
@@ -216,6 +259,17 @@ impl Plan {
         }
         for place in plan.bindings.values().chain(plan.values.values()).flatten() {
             if let PlaceRoot::Parameter(binding) = place.root {
+                if matches!(
+                    crate::typed_ir::resolve_type(
+                        &graph.bindings[binding.0].ty,
+                        &declarations.aliases
+                    ),
+                    Ok(Type::Slice(_) | Type::MutableSlice(_))
+                ) {
+                    // The linear slice holder itself is the lifetime capture;
+                    // do not duplicate or erase that owning source binding.
+                    continue;
+                }
                 if !thin(&graph.bindings[binding.0].ty) {
                     return Err(Error {
                         message:
@@ -537,6 +591,29 @@ mod tests {
             true,
         )
         .map_err(|error| error.message)
+    }
+
+    #[test]
+    fn slice_element_addresses_retain_the_original_parameter_holder() {
+        let plan = plan(
+            "(#fn work (: items (#slice-mut #u64) : index #usize) #u64
+          (#let view (#ref-mut #u64) (#slice-mut-idx items index))
+          (#let answer #u64 (#deref view)) (#forget view) (#forget items) (#return answer))",
+        )
+        .unwrap();
+        assert!(
+            !plan.bindings.is_empty(),
+            "selected element needs address storage"
+        );
+        assert!(
+            plan.external_parameters.is_empty(),
+            "the slice must not be duplicated"
+        );
+        assert!(plan
+            .bindings
+            .values()
+            .flatten()
+            .all(|place| matches!(place.root, PlaceRoot::Parameter(_))));
     }
 
     #[test]

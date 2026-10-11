@@ -248,11 +248,27 @@ release that element reference, await, and index again after resumption; the
 emitted ordinary program runs independently too. Backing-array writes while
 the task is Pending are still rejected at the original source span.
 
-Retaining a derived exclusive element reference across Pending alongside its
-linear mutable-slice parent remains a separate gate: the public frame currently
-exposes overlapping parent/child loans. This needs representation and lifetime
-capture work, not a weaker caller alias check. Mutable slices of local frame
-arrays and effectful index windows likewise remain unfinished.
+Derived thin element references can now survive Pending while their original
+external slice holder remains the sole lifetime-bearing capture. The generator
+stores selected element addresses, not a second retained reference loan. Each
+poll reconstructs an ordinary checked element anchor from that holder before
+using the saved address. Runtime selection is recovered using sampled leaf
+addresses and actual stride/direction, not the later value of the source index.
+Zero stride selects the canonical indistinguishable zero-sized element; empty
+slices cannot supply an element anchor. Alias layouts are resolved before
+projection. Source permissions and pin kinds are not upgraded, and both source
+witnesses and emitted ordinary code remain checked.
+
+Native regressions cover wide (`#u128`), shared, and zero-sized slice elements,
+and references selecting either of two external slice holders across branches.
+Both holders retain their source loans while Pending. Selected address cells
+use a separate retirement plan; checked Empty assertions republish their exit
+invariant before extracting a completed movable frame, even when intervening
+calls have invalidated the ordinary checker's earlier stored tag facts.
+
+Mutable slices of local frame arrays, nested runtime slice coordinates,
+mixed external slice/non-slice selections without an internal anchor, and
+effectful index windows remain unfinished. These are still default-switch gates.
 
 On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
 thin reference locals into stationary frame owners, including checked static
