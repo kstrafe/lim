@@ -86,6 +86,40 @@ fn expected_output(root: &Path, name: &str) -> Vec<u8> {
 }
 
 #[test]
+fn example_type_declarations_start_with_an_uppercase_letter() {
+    fn check(expr: &lim::Expr, path: &str) {
+        let lim::Expr::List(items) = expr else {
+            return;
+        };
+        if matches!(items.first(), Some(lim::Expr::Symbol(head))
+            if matches!(head.as_str(), "#struct" | "#enum" | "#type"))
+        {
+            if let Some(lim::Expr::Symbol(name)) = items.get(1) {
+                assert!(
+                    name.chars().next().is_some_and(char::is_uppercase),
+                    "{path}: type {name} must start with an uppercase letter"
+                );
+            }
+        }
+        for item in items {
+            check(item, path);
+        }
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    for line in include_str!("../examples/outcomes.txt").lines() {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        if fields.len() != 5 || fields[0] == "error" || line.starts_with('#') {
+            continue;
+        }
+        let source = fs::read_to_string(root.join("examples").join(fields[2])).unwrap();
+        for node in lim::parse(&source).unwrap() {
+            check(&node.expr, fields[2]);
+        }
+    }
+}
+
+#[test]
 fn every_native_example_has_its_declared_outcome() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let examples = root.join("examples");
