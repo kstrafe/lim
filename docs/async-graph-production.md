@@ -1334,3 +1334,20 @@ in 29.40 seconds. A fresh temporary graph-default audit passed 219 and failed
 after the audit and the ordinary compiler rebuilt. The remaining interface,
 diagnostic and unsupported-legacy expectations still need migration before
 the default switch and legacy removal.
+
+## Loop-return interface verification
+
+The loop-return regressions now explicitly run graph lowering for returning
+after an awaited condition and after an awaited body. Both decision branches,
+the explicitly typed condition, and the linear payload return are compiled
+and executed with their original expected results (7 or 18). Generated output
+must expose the single public `work-poll` dispatcher, without requiring
+legacy-private choice or expression-ready helper names.
+
+An incorrect explicit condition result type is checked through the complete
+graph compilation pipeline. It must produce a type diagnostic for the Ready
+payload mismatch and underline the original `#u64` type token. All 229 async
+integration tests passed in 35.01 seconds after this change. The default is
+still legacy; this verification does not establish completion of the route
+removal or the full async safety goal. Legacy is to be removed, not retained
+as a backward-compatibility interface for the unreleased language.

@@ -5556,23 +5556,26 @@ fn async_while_body_can_return_after_awaited_condition() {
         (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
-    let generated = build_and_run(source, 7);
-    assert!(
-        generated.contains("(#if Lim.async.work.choice-0"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 7);
+    assert_single_poll(&generated, "work-poll");
 
     let explicitly_typed = source.replace("#while (#await Child", "#while (#await #bool Child");
     assert_ne!(explicitly_typed, source);
-    build_and_run(&explicitly_typed, 7);
+    build_and_run_graph(&explicitly_typed, 7);
 
     let wrong_result_type = source.replace("#while (#await Child", "#while (#await #u64 Child");
-    let error = lim::parse_program(&wrong_result_type).unwrap_err();
+    let error = graph_compile_error(&wrong_result_type, "async-while-condition-result-type");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
     assert!(
-        error.contains("result type does not match loop condition")
-            && error.contains("found #u64, expected #bool"),
-        "{error}"
+        error
+            .message
+            .contains("#await result type does not match its Ready payload"),
+        "{error:?}"
     );
+    let span = error
+        .span
+        .expect("explicit await type must retain its source span");
+    assert_eq!(&wrong_result_type[span.start..span.end], "#u64");
 }
 
 #[test]
@@ -5876,8 +5879,8 @@ fn async_while_body_can_return_after_body_await() {
         (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
-    let generated = build_and_run(source, 18);
-    assert!(generated.contains("choice"), "{generated}");
+    let generated = build_and_run_graph(source, 18);
+    assert_single_poll(&generated, "work-poll");
 
     let linear_source = source
         .replace(
@@ -5904,11 +5907,8 @@ fn async_while_body_can_return_after_body_await() {
              (#forget false-result)\n\
              (#return (#u64.+.wrap true-value false-value))",
         );
-    let generated = build_and_run(&linear_source, 18);
-    assert!(
-        generated.contains("expression-ready Payload"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(&linear_source, 18);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
