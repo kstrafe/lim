@@ -10807,8 +10807,19 @@ fn collect_pattern_bindings(body: &Body, id: NodeId, bindings: &mut HashSet<Bind
 fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
     let mut changed = false;
     if !existing.bindings.shares_storage(&incoming.bindings) {
-        for (held, other) in existing.iter_mut().zip(incoming.iter()) {
-            changed |= merge_loan_origins(held, other);
+        for (index, other) in incoming.iter().take(existing.len()).enumerate() {
+            // Inspect through the shared container before obtaining a mutable
+            // binding: many distinct snapshots already contain these origins.
+            // Preserve source order and the existing representative's span.
+            if let Some(first_new) = other
+                .iter()
+                .position(|origin| !existing[index].contains(origin))
+            {
+                let held = &mut existing[index];
+                held.push(other[first_new].clone());
+                merge_loan_origins(held, &other[first_new + 1..]);
+                changed = true;
+            }
         }
     }
     if !existing
@@ -16539,6 +16550,69 @@ mod tests {
         assert!(state
             .global_known_contents
             .shares_storage(&snapshot.global_known_contents));
+    }
+
+    #[test]
+    fn distinct_snapshot_joins_detach_only_for_new_binding_origins() {
+        let first = allocation_origin(NodeId(0), Vec::new(), None);
+        let second = allocation_origin(NodeId(1), Vec::new(), None);
+        let mut third = first.clone();
+        third.mutable = true;
+        third.storage.push(Segment::Index(1));
+        let pool = [first, second, third];
+        for held_mask in 0..8 {
+            for incoming_mask in 0..8 {
+                for reverse in [false, true] {
+                    let select = |mask: usize| {
+                        let mut origins = pool
+                            .iter()
+                            .enumerate()
+                            .filter(|(index, _)| mask & (1 << index) != 0)
+                            .map(|(_, origin)| origin.clone())
+                            .collect::<Vec<_>>();
+                        if reverse {
+                            origins.reverse();
+                        }
+                        origins
+                    };
+                    let original: LoanState = vec![select(held_mask), select(7)].into();
+                    let mut incoming: LoanState = vec![select(incoming_mask), select(3)].into();
+                    // Duplicate an input and vary only its diagnostic span;
+                    // equal provenance must preserve the first representative.
+                    if let Some(origin) = incoming[0].first().cloned() {
+                        let mut duplicate = origin;
+                        duplicate.span = Some(Span {
+                            start: 1,
+                            end: 2,
+                            line: 1,
+                            column: 2,
+                            source_id: 0,
+                        });
+                        incoming[0].push(duplicate);
+                    }
+                    let mut eager = original.clone();
+                    let mut expected_changed = false;
+                    for (held, other) in eager.iter_mut().zip(incoming.iter()) {
+                        expected_changed |= merge_loan_origins(held, other);
+                    }
+                    let mut actual = original.clone();
+                    let changed = merge_loan_states(&mut actual, &incoming);
+                    assert_eq!(changed, expected_changed);
+                    assert_eq!(&*actual, &*eager);
+                    for (actual, expected) in actual.iter().zip(eager.iter()) {
+                        assert_eq!(
+                            actual.iter().map(|origin| origin.span).collect::<Vec<_>>(),
+                            expected
+                                .iter()
+                                .map(|origin| origin.span)
+                                .collect::<Vec<_>>()
+                        );
+                    }
+                    assert_eq!(actual.bindings.shares_storage(&original.bindings), !changed);
+                    assert_eq!(original[0], select(held_mask));
+                }
+            }
+        }
     }
 
     #[test]

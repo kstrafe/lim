@@ -63,6 +63,11 @@ Snapshot sharing reduces warm total check time 5.8–15.6% on four measured asyn
 fixtures without reusing facts across independent entry/outcome analyses.
 Whole-check speedups are fixture-dependent and sometimes absent; paired
 measurements and their limits are recorded in the production-route journal.
+Read-only binding-origin joins now avoid copying unchanged contents between
+distinct snapshots. A repeated warm suspended-reference-guard comparison shows
+10.2% less total checking time, with non-overlapping ranges; smaller examples
+are mixed. This does not close the broader analysis-performance audit or the
+whole-aggregate storage gap above.
 
 Earlier suite counts and migration gates below are historical evidence. They
 must not be read as the current verification count or as outstanding legacy

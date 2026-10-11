@@ -2221,3 +2221,55 @@ do not establish a useful whole-check improvement. The prototype and its test
 were removed. Flow-graph copying has not been demonstrated to be the dominant
 cost; further work needs a current symbolized profile, not an assumption based
 on older profiles or allocation counts.
+
+## Keeping unchanged binding origins shared at joins
+
+A fresh optimized, symbolized profile of seven warm suspended-reference-guard
+checks on CPU 8 identified loan-origin equality (7.93% of core-cycle samples),
+cloning (5.85%) and provenance solving (7.05%) rather than flow-graph copying as
+important costs. The call-stack report was deliberately stopped after excessive
+reporting CPU time; a flat-symbol report completed using the same captured data.
+These are sampled shares for this fixture, not compiler-wide percentages.
+
+`merge_loan_states` previously obtained a mutable binding iterator immediately
+for distinct containers, copying shared binding contents even if every incoming
+origin was already represented. The join now inspects each binding read-only
+and detaches only when it finds a new origin. After that first new origin, it
+merges the remaining input suffix normally; it does not compare the already
+checked prefix again. Source order, first-representative diagnostic spans and
+every provenance qualifier retain the original merge behavior. Allocation,
+parameter and global-content merges are unchanged, including empty-key policy.
+No facts are shared across independent entry or outcome analyses.
+
+Twenty-one alternating warm release pairs on CPU 8, after three warmups per
+binary and without concurrent builds/tests, measured total-check medians:
+
+| Fixture | Baseline (ms) | Shared unchanged joins (ms) |
+| --- | ---: | ---: |
+| Nested partial struct | 61.966 | 63.112 |
+| While-let dependencies | 56.475 | 56.317 |
+| Local self-reference | 55.845 | 54.672 |
+| Partial borrow | 97.187 | 97.907 |
+| Small linear guard | 1.030 | 1.039 |
+| Suspended reference guard | 255.001 | 229.115 |
+
+The suspended guard's provenance median drops 145.294 / 123.465 ms and its
+contract median 125.161 / 108.816 ms; these nested stages must not be added to
+infer total savings. Process-wall medians are 259.076 / 233.028 ms.
+
+A 31-pair repeat after four warmups confirms guard totals of 254.340 /
+228.397 ms (10.2% less), with non-overlapping ranges of 249.402–262.288 /
+225.453–236.688 ms. Provenance medians are 143.243 / 122.707 ms; contract
+medians are 124.563 / 109.294 ms. The repeated nested-struct control measures
+62.239 / 62.544 ms, with overlapping ranges of 60.206–68.463 /
+60.899–67.508 ms. Smaller examples are mixed; this is a demonstrated improvement
+for complex guarded analysis, not a universal compile-time improvement.
+
+The new join parity test covers 128 distinct-container combinations, reordered
+and duplicate origins, diagnostic spans and mutation isolation. No-op joins
+must retain the original shared binding container; changing joins must detach.
+All 1,368 library tests pass (seven ignored), along with 103 selected async,
+generated-boundary, adversarial, UI and native-example integration tests.
+All-target checking and whitespace checks pass. Six representative fixtures
+emit identical assembly; four type/borrow/pinning diagnostics are identical.
+Original-source and ordinary generated-code validation remain mandatory.
