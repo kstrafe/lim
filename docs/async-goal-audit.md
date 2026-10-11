@@ -47,6 +47,25 @@ obligations in ordinary generated-code checking. General partial-initialization
 storage is a possible language-level solution, not yet implemented or approved
 as a new public primitive; no async-only checker exemption is proposed.
 
+An existing-primitives control in
+`tests/fixtures/pinned_partial_field_calls.lim` retains a pinned mutable field
+reference before consuming that field. Ordinary helper calls consume and then
+restore the referent through the same handle. After forgetting that handle,
+the whole restored owner can be borrowed while a shared sibling reference
+remains live. The native program returns 42 and compares the sibling's exact
+address before and after restoration. Adversarial controls check both primary
+and consumption/loan-origin spans: recreating a field reference after consuming
+its referent is rejected, reading the unrestored owner through a helper is
+rejected at that call, and an exclusive pinned sibling borrow conflicts with
+the retained shared loan. These controls pass without checker changes.
+
+This is evidence for exploring contiguous pinned payloads with retained field
+handles, not proof of a complete async storage implementation. The fixture
+does not suspend, return Pending, or cancel a partially initialized frame.
+Those boundaries and cleanup obligations still need independently checked
+generated-code coverage. A new general storage primitive remains a proposal,
+not a demonstrated prerequisite for every possible lowering design.
+
 ### Storage proposal for review (not implemented)
 
 The desired positive async case is now kept in

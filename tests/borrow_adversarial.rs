@@ -21,11 +21,9 @@ fn compile(source: &str, name: &str) -> Result<String, lim::Diagnostic> {
     )
 }
 
-#[test]
-fn restored_whole_borrow_preserves_live_sibling_address_and_alias_rules() {
-    let source = include_str!("fixtures/partial_aggregate_whole_borrow.lim");
-    let assembly = compile(source, "restored-whole-borrow").unwrap();
-    let scratch = support::Scratch::new("restored-whole-borrow-native");
+fn assert_native_42(source: &str, name: &str) {
+    let assembly = compile(source, name).unwrap();
+    let scratch = support::Scratch::new(name);
     let binary = scratch.path().join("program");
     lim::link_native_binary(
         &assembly,
@@ -44,6 +42,81 @@ fn restored_whole_borrow_preserves_live_sibling_address_and_alias_rules() {
     assert_eq!(status.code(), Some(42), "{stderr:?}");
     assert!(stdout.is_empty());
     assert!(stderr.is_empty());
+}
+
+#[test]
+fn retained_pinned_field_restores_across_calls_without_relocation() {
+    let source = include_str!("fixtures/pinned_partial_field_calls.lim");
+    assert_native_42(source, "pinned-partial-field-calls");
+    for (name, replacement, offending) in [
+        (
+            "reborrow-empty-pinned-field",
+            "(#call restore-item (: item (#pin-borrow-mut (#get owner item))))",
+            "(#pin-borrow-mut (#get owner item))",
+        ),
+        (
+            "read-unrestored-pinned-owner",
+            "()",
+            "(#call inspect (: target whole))",
+        ),
+    ] {
+        let mut invalid = source.replace("(#call restore-item (: item item))", replacement);
+        if name == "reborrow-empty-pinned-field" {
+            // End the first call-duration field borrow before trying the new
+            // one, so this tests initialization rather than overlapping loans.
+            invalid = invalid
+                .replace(
+                    "(#let item (#pin-ref-mut Token) (#pin-borrow-mut (#get owner item)))",
+                    "",
+                )
+                .replace(
+                    "(#call consume-item (: item item))",
+                    "(#call consume-item (: item (#pin-borrow-mut (#get owner item))))",
+                )
+                .replace("(#forget item)", "");
+        }
+        let diagnostic = compile(&invalid, name).unwrap_err();
+        assert_eq!(diagnostic.code, DiagnosticCode::Linear, "{diagnostic:?}");
+        let span = diagnostic.span.unwrap();
+        assert_eq!(
+            span.start,
+            invalid.rfind(offending).unwrap(),
+            "{diagnostic:?}"
+        );
+        assert_eq!(&invalid[span.start..span.end], offending, "{diagnostic:?}");
+        let consumed = invalid.find("(#pin-read item)").unwrap();
+        assert!(
+            diagnostic
+                .labels
+                .iter()
+                .any(|label| label.span.start == consumed),
+            "{diagnostic:?}"
+        );
+    }
+    let invalid = source.replace("(#call consume-item (: item item))",
+        "(#let excluded (#pin-ref-mut #u64) (#pin-borrow-mut (#get owner kept))) (#forget excluded) (#call consume-item (: item item))");
+    let diagnostic = compile(&invalid, "mutate-pinned-shared-sibling").unwrap_err();
+    assert_eq!(diagnostic.code, DiagnosticCode::Borrow, "{diagnostic:?}");
+    let span = diagnostic.span.unwrap();
+    assert_eq!(
+        &invalid[span.start..span.end],
+        "#pin-borrow-mut",
+        "{diagnostic:?}"
+    );
+    let origin = invalid.find("#borrow (#get owner kept)").unwrap();
+    assert!(
+        diagnostic
+            .labels
+            .iter()
+            .any(|label| label.span.start == origin),
+        "{diagnostic:?}"
+    );
+}
+
+#[test]
+fn restored_whole_borrow_preserves_live_sibling_address_and_alias_rules() {
+    let source = include_str!("fixtures/partial_aggregate_whole_borrow.lim");
+    assert_native_42(source, "restored-whole-borrow-native");
 
     // Restoration permits a shared whole borrow, not an overlapping exclusive
     // borrow. Borrowing the already-shared sibling exclusively is also invalid.
