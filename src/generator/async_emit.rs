@@ -1611,7 +1611,19 @@ impl<'a> Emitter<'a> {
         );
         let name = self.fresh("immediate-owner-project");
         let argument = self.fresh("immediate-owner-input");
-        self.projections.push(owner.declaration(&name, &argument));
+        let input = if self.pinned || borrow.mutable {
+            self.projections.push(owner.declaration(&name, &argument));
+            input
+        } else {
+            self.projections.push(
+                owner.declaration_from_unpinned_slot(&name, &argument, &slot.name, &slot.full),
+            );
+            format!(
+                "(#borrow{} (#get task {}))",
+                if borrow.mutable { "-mut" } else { "" },
+                slot.field
+            )
+        };
         Ok(format!("(#call {name} (: {argument} {input}))"))
     }
 

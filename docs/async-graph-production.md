@@ -194,10 +194,10 @@ a local, and effectful intervening evaluation do not receive this certificate.
 Cold/warm native tests and independent ordinary artifacts cover
 `async_while_let_body.lim`, `async_for_effect_step.lim`, and two disjoint mutable
 field arguments. An aliasing variant still fails with an original-source borrow
-diagnostic. The heap-owner example gets past its immediate handle borrow, but
-still fails nested reference-slot provenance; it is not a supported migration
-gate yet. A root-example check audit now passes 33/42 examples with no timeouts;
-the remaining nine failures still prevent the default-route switch.
+diagnostic. The heap-owner example now preserves nested reference-slot
+provenance and passes native and standalone generated-source regressions.
+A root-example check audit passes 35/42 examples with no timeouts; the
+remaining seven failures still prevent the default-route switch.
 
 ## Compilation measurements
 
@@ -266,6 +266,14 @@ anchors, and does not turn a shared view into an ownership transfer. Ordinary
 checking accepts pinned-cell extraction helper definitions and still rejects
 returning an extracted owner whose stored reference targets a local variable.
 
-This is only the value-provenance part of heap-owner extraction. Propagating
-referent entry contracts through a call returning that extracted owner remains
-unresolved; `async_heap_reference.lim` is not yet accepted by graph lowering.
+Returning an owner selected from borrowed storage now selects the actual owned
+slot before checking allocation identity. A borrowed container is not itself an
+allocation handle, but it can contain one. Non-owning stored loans and
+lifetime-only anchors still cannot supply an owning-pointer return summary.
+
+Shared operation-local borrows in movable frames use ordinary storage
+projections rather than raw-pointer reconstruction. Their actual pointee and
+nested contents therefore remain available to ordinary call-contract checking.
+Mutable access and pinned frames keep the existing guarded lowering. The
+`async_heap_reference.lim` regression checks cold and warm compilation, native
+execution, and independent ordinary checking of the emitted source.

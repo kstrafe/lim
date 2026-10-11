@@ -248,4 +248,42 @@ impl Borrow {
             crate::type_source(&self.output)
         )
     }
+
+    /// Operation-local borrows of a movable frame use its ordinary storage
+    /// capability directly. No raw-pointer reconstruction or pin weakening is
+    /// needed while the frame remains on the synchronous poll call's stack.
+    pub fn declaration_from_unpinned_slot(
+        &self,
+        name: &str,
+        argument: &str,
+        slot: &str,
+        full: &str,
+    ) -> String {
+        let Type::PinnedReference { target, .. } = &self.input else {
+            unreachable!()
+        };
+        let borrow = if self.mutable {
+            "#borrow-mut"
+        } else {
+            "#borrow"
+        };
+        let base = "projected";
+        let place = self.fields.iter().fold(base.to_owned(), |place, field| {
+            format!("(#get {place} {field})")
+        });
+        let value = if self.fields.is_empty() {
+            base.to_owned()
+        } else {
+            format!("({borrow} {place})")
+        };
+        format!(
+            "(#fn {name} (: {argument} (#ref{} {slot})) {}\n\
+          (#let {base} (#ref{} {}) ({borrow} (#get-payload {argument} {full} 0)))\n\
+          (#return {value}))",
+            if self.mutable { "-mut" } else { "" },
+            crate::type_source(&self.output),
+            if self.mutable { "-mut" } else { "" },
+            crate::type_source(target)
+        )
+    }
 }

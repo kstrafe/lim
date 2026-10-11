@@ -25,7 +25,19 @@ fn run(source: &str) {
             None,
             &output,
         )
-        .unwrap_or_else(|error| panic!("{error:?}"));
+        .unwrap_or_else(|error| {
+            let line = error.span.map_or(1, |span| span.line);
+            let excerpt = error
+                .source_text
+                .as_deref()
+                .unwrap_or("")
+                .lines()
+                .skip(line.saturating_sub(3))
+                .take(6)
+                .collect::<Vec<_>>()
+                .join("\n");
+            panic!("{} at line {line}\n{excerpt}", error.message)
+        });
         if let Some(previous) = previous.as_ref() {
             assert_eq!(&assembly, previous);
         }
@@ -68,6 +80,11 @@ fn run(source: &str) {
         }
         previous = Some(assembly);
     }
+}
+
+#[test]
+fn external_heap_contents_survive_owner_extraction_and_later_poll_calls() {
+    run(include_str!("../examples/async_heap_reference.lim"));
 }
 
 #[test]
