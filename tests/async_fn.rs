@@ -10389,6 +10389,71 @@ fn pinned_mutable_slice_holder_reborrows_elements_without_moving_holder() {
     assert!(error.message.contains("exclusive"), "{error:?}");
 }
 
+fn external_mutable_slice_source() -> &'static str {
+    r#"
+      (#enum ChildTask (Start Resume))
+      (#linear ChildTask)
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady ())))
+      (#fn child-poll (: task ChildTask : waker (#ref #u64)) ChildPoll
+        (#return (#match task
+          (#case Start (ChildPending Resume))
+          (#case Resume (ChildReady ())))))
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : function (#fn work (: items (#slice-mut #u64)) #u64
+          (#let view (#ref-mut #u64) (#slice-mut-idx items 0usize))
+          (#deref-set view (#u64.+.wrap (#deref view) 1u64))
+          (#forget view)
+          (#await () ChildTask ChildPending ChildReady child-poll Start)
+          (#let answer #u64 (#deref (#slice-mut-idx items 0usize)))
+          (#forget items)
+          (#return answer))))
+      (#fn main () #u64
+        (#let-mut values (#array #u64 1) (#array-of (#array #u64 1) 41u64))
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result
+          (#call work-poll (: task (#call work (: items (#slice-mut-of (#borrow-mut values)))) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#assert (#u64.== (#index values 0usize) 42u64))
+        (#return answer))
+    "#
+}
+
+#[test]
+fn graph_external_mutable_slice_indices_preserve_lending_and_pending() {
+    let source = external_mutable_slice_source();
+    let generated = build_and_run_graph(source, 42);
+    let runtime = source.split_once("(@#async-fn").unwrap().0;
+    let main = source.split_once("(#fn main").unwrap().1;
+    let standalone = format!("{runtime}\n{generated}\n(#fn main{main}");
+    build_and_run_graph(&standalone, 42);
+    let aliased = format!(
+        "(#type Items (#slice-mut #u64))\n{}",
+        source.replace(": items (#slice-mut #u64)", ": items Items")
+    );
+    build_and_run_graph(&aliased, 42);
+    let indexed = source
+        .replace(
+            "(#let view (#ref-mut #u64)",
+            "(#let index #usize 0usize)\n          (#let view (#ref-mut #u64)",
+        )
+        .replace(
+            "(#slice-mut-idx items 0usize)",
+            "(#slice-mut-idx items index)",
+        );
+    build_and_run_graph(&indexed, 42);
+    let conflicting = source.replace(
+        "(#let answer #u64 (#match",
+        "(#set-index values 0usize 0u64)\n        (#let answer #u64 (#match",
+    );
+    let error = graph_compile_error(&conflicting, "graph-slice-pending-owner-write");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&conflicting[span.start..span.end], "#set-index");
+}
+
 #[test]
 fn async_for_void_await_step_respects_continue_break_and_false_condition() {
     let source = r#"

@@ -387,7 +387,7 @@ impl<'a> Emitter<'a> {
                 .map_err(|message| fail(function, message))?
                 {
                     Type::PinnedReference { .. } => true,
-                    Type::Reference { .. } => false,
+                    Type::Reference { .. } | Type::Slice(_) | Type::MutableSlice(_) => false,
                     _ => {
                         return Err(selection_error(
                             "selected addresses require safe checked references",
@@ -432,11 +432,12 @@ impl<'a> Emitter<'a> {
                 exclusive_handles.insert(*value);
             }
         }
-        emitter.retirement = crate::generator::async_retire::Plan::with_exclusive_handles(
+        emitter.retirement = crate::generator::async_retire::Plan::with_lending_snapshots(
             &function.graph,
             &emitter.types,
             &exclusive_handles,
             &planning.declarations.aliases,
+            Some(&emitter.leases),
         );
         if let Some(plan) = &mut emitter.retirement {
             let mut anchors = HashSet::new();
@@ -1060,8 +1061,13 @@ impl<'a> Emitter<'a> {
         self.slots.iter().enumerate().map(|(index, slot)| {
             let ty = crate::type_source(&slot.storage);
             let lend = if lenders.contains(&index) {
-                format!("(#fn {} (: {} {ty}) {ty} (#return {}))\n",
-                    slot.lend, slot.lend_argument, slot.lend_argument)
+                if matches!(crate::typed_ir::resolve_type(&slot.storage, &self.planning.declarations.aliases), Ok(Type::MutableSlice(_))) {
+                    format!("(#fn {} (: {} (#pin-ref-mut {ty})) {ty}\n  (#return (#slice-mut-range (#deref {}) 0usize (#slice-mut-len (#deref {})))))\n",
+                        slot.lend, slot.lend_argument, slot.lend_argument, slot.lend_argument)
+                } else {
+                    format!("(#fn {} (: {} {ty}) {ty} (#return {}))\n",
+                        slot.lend, slot.lend_argument, slot.lend_argument)
+                }
             } else { String::new() };
             let occupied = if slot.linear {
                 // This branch is a violated compiler/source invariant, not an
@@ -1565,14 +1571,44 @@ impl<'a> Emitter<'a> {
                 AddressRoot::Value(value)
                     if matches!(
                         descriptor.projections.first(),
-                        Some(AddressProjection::Dereference)
+                        Some(AddressProjection::Dereference | AddressProjection::SliceIndex(_))
                     ) =>
                 {
-                    (
-                        self.nonmoving_handle(value, &self.function.graph.values[value.0].ty)?,
-                        self.function.graph.values[value.0].ty.clone(),
-                        1,
-                    )
+                    let ty = self.function.graph.values[value.0].ty.clone();
+                    let resolved =
+                        crate::typed_ir::resolve_type(&ty, &self.planning.declarations.aliases)
+                            .map_err(|message| fail(self.function, message))?;
+                    if matches!(resolved, Type::MutableSlice(_)) {
+                        let index = if let Some(lease) = self.leases.get(value) {
+                            self.bindings[&lease.binding]
+                        } else {
+                            self.values[&value]
+                        };
+                        let slot = &self.slots[index];
+                        // Borrow the holder; extracting its linear slice through
+                        // a pinned payload reference would move the pointee.
+                        (
+                            format!(
+                                "(#pin-get-payload-mut {} {} 0)",
+                                Self::slot_ref(slot, true),
+                                slot.full
+                            ),
+                            Type::PinnedReference {
+                                mutable: true,
+                                target: Box::new(ty),
+                            },
+                            0,
+                        )
+                    } else {
+                        (
+                            self.nonmoving_handle(value, &ty)?,
+                            ty,
+                            usize::from(matches!(
+                                descriptor.projections.first(),
+                                Some(AddressProjection::Dereference)
+                            )),
+                        )
+                    }
                 }
                 _ => {
                     return Err(fail(
@@ -1593,8 +1629,11 @@ impl<'a> Emitter<'a> {
         let resolved =
             crate::typed_ir::resolve_type(&input_type, &self.planning.declarations.aliases)
                 .map_err(|message| fail(self.function, message))?;
+        let mut slice_holder = matches!(&resolved, Type::PinnedReference { target, .. }
+            if matches!(crate::typed_ir::resolve_type(target, &self.planning.declarations.aliases), Ok(Type::MutableSlice(_))));
         let mut target = match resolved {
             Type::Reference { target, .. } | Type::PinnedReference { target, .. } => *target,
+            slice @ (Type::Slice(_) | Type::MutableSlice(_)) => slice,
             _ => {
                 return Err(fail(
                     self.function,
@@ -1602,6 +1641,8 @@ impl<'a> Emitter<'a> {
                 ))
             }
         };
+        target = crate::typed_ir::resolve_type(&target, &self.planning.declarations.aliases)
+            .map_err(|message| fail(self.function, message))?;
         let mut steps = Vec::new();
         for projection in &descriptor.projections[start..] {
             let expression = match projection {
@@ -1615,6 +1656,20 @@ impl<'a> Emitter<'a> {
                     signature.push(format!("({name} #usize)"));
                     arguments.push(format!("({name} {})", self.value(*index, false)));
                     format!("({borrow} (#index {reference} {name}))")
+                }
+                AddressProjection::SliceIndex(index) => {
+                    let name = self.fresh("select-index");
+                    signature.push(format!("({name} #usize)"));
+                    arguments.push(format!("({name} {})", self.value(*index, false)));
+                    let base = if slice_holder {
+                        format!("(#deref {reference})")
+                    } else {
+                        reference.clone()
+                    };
+                    format!(
+                        "(#slice{}-idx {base} {name})",
+                        if mutable { "-mut" } else { "" }
+                    )
                 }
                 AddressProjection::Payload(variant, index) => {
                     let name = &self.planning.declarations.variant(*variant).name;
@@ -1658,6 +1713,15 @@ impl<'a> Emitter<'a> {
                     };
                     *element
                 }
+                AddressProjection::SliceIndex(_) => {
+                    let (Type::Slice(element) | Type::MutableSlice(element)) = target else {
+                        return Err(fail(
+                            self.function,
+                            "selected slice index has no checked slice type",
+                        ));
+                    };
+                    *element
+                }
                 AddressProjection::Payload(variant, index) => self
                     .planning
                     .declarations
@@ -1687,6 +1751,7 @@ impl<'a> Emitter<'a> {
                 crate::type_source(&selected_type)
             ));
             reference = selected;
+            slice_holder = false;
         }
         self.projections.push(format!(
             "(#fn {helper} ({}) {} {} (#return {reference}))",
@@ -2675,12 +2740,25 @@ impl<'a> Emitter<'a> {
                             }
                             if self.leases.snapshot(*dst) == Some(binding) {
                                 let slot = &self.slots[*slot];
-                                let reborrow = format!(
-                                    "(#call {} (: {} (#deref (#pin-get-payload-mut {} {} 0))))",
-                                    slot.lend,
-                                    slot.lend_argument,
+                                let holder = format!(
+                                    "(#pin-get-payload-mut {} {} 0)",
                                     Self::slot_ref(slot, true),
                                     slot.full
+                                );
+                                let input = if matches!(
+                                    crate::typed_ir::resolve_type(
+                                        &slot.ty,
+                                        &self.planning.declarations.aliases
+                                    ),
+                                    Ok(Type::MutableSlice(_))
+                                ) {
+                                    holder
+                                } else {
+                                    format!("(#deref {holder})")
+                                };
+                                let reborrow = format!(
+                                    "(#call {} (: {} {input}))",
+                                    slot.lend, slot.lend_argument,
                                 );
                                 return Ok(self.put_value(*dst, &reborrow));
                             }

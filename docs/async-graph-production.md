@@ -237,6 +237,23 @@ This is not across-suspension slice support: pinned, dynamically selected and
 non-Copy array storage still require a nonmoving storage lease and fail closed.
 No unsafe fat-reference reconstruction is used by this projection.
 
+Graph lowering also accepts an external mutable-slice parameter retained
+across Pending. Its whole-binding lending read can feed one checked slice-index
+selection directly, borrowing the stored holder rather than moving or copying
+the slice into a second frame cell. Literal indices and effect-free numeric
+binding reads preserve this window; calls and other effects do not. Indexing
+uses the ordinary checked builtin at the original selection point. Alias types
+retain their resolved element layout. Native regressions mutate an element,
+release that element reference, await, and index again after resumption; the
+emitted ordinary program runs independently too. Backing-array writes while
+the task is Pending are still rejected at the original source span.
+
+Retaining a derived exclusive element reference across Pending alongside its
+linear mutable-slice parent remains a separate gate: the public frame currently
+exposes overlapping parent/child loans. This needs representation and lifetime
+capture work, not a weaker caller alias check. Mutable slices of local frame
+arrays and effectful index windows likewise remain unfinished.
+
 On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
 thin reference locals into stationary frame owners, including checked static
 struct/tuple projections. Declare them with `#borrow`/`#borrow-mut` as in an

@@ -30,6 +30,7 @@ use crate::Type;
 pub(crate) enum Consumer {
     Leaf,
     Call,
+    SliceIndex,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -159,6 +160,7 @@ impl Plan {
                     ty,
                     Type::Reference { mutable: true, .. }
                         | Type::PinnedReference { mutable: true, .. }
+                        | Type::MutableSlice(_)
                 ) {
                     continue;
                 }
@@ -179,6 +181,7 @@ impl Plan {
                     projected_snapshots.insert(dst, place);
                 }
                 let mut consumer = None;
+                let mut selected_slice = None;
                 let mut valid = !escapes[dst.0];
                 for &(user_block, index) in &users[dst.0] {
                     let user = &graph.blocks[user_block.0].actions[index];
@@ -187,6 +190,28 @@ impl Plan {
                         continue;
                     }
                     match &user.action {
+                        Action::Place {
+                            dst: selected,
+                            descriptor,
+                        } if matches!(ty, Type::MutableSlice(_))
+                            && graph.places[place.0].projections.is_empty()
+                            && descriptor.root == AddressRoot::Value(dst)
+                            && matches!(
+                                descriptor.projections.as_slice(),
+                                [AddressProjection::SliceIndex(_)]
+                            ) =>
+                        {
+                            selected_slice = Some(*selected);
+                            if consumer.replace((index, Consumer::SliceIndex)).is_some() {
+                                valid = false;
+                            }
+                        }
+                        // These reads use the selected address snapshot, not
+                        // a reevaluated slice handle. Selection itself remains
+                        // the only consumer of the holder's lending window.
+                        Action::Borrow {
+                            place: selected, ..
+                        } if selected_slice == Some(*selected) => {}
                         Action::Place { descriptor, .. } if pure_path(descriptor, dst) => {}
                         Action::Load { place, .. }
                             if pure_path(&graph.places[place.0], dst)
@@ -227,8 +252,56 @@ impl Plan {
                 // writes, checks, and unrelated operations can change the
                 // evaluated pointer or permissions. Nothing effectful may
                 // occur between the original handle read and its consumer.
-                if !valid || graph.blocks[block.0].actions[load + 1..read].iter().any(|user|
-                    !matches!(&user.action, Action::Place { descriptor, .. } if pure_path(descriptor, dst))) {
+                let pure_window = |user: &crate::generator::async_exec::LocatedAction| {
+                    if matches!(&user.action, Action::Place { descriptor, .. } if pure_path(descriptor, dst))
+                    {
+                        return true;
+                    }
+                    if consumer != Consumer::SliceIndex {
+                        return false;
+                    }
+                    match &user.action {
+                        Action::Place { descriptor, .. } => {
+                            descriptor.projections.is_empty()
+                                && matches!(descriptor.root, AddressRoot::Local(_))
+                                && types.can_repeat(&descriptor.ty)
+                                && !types.contains_reference(&descriptor.ty)
+                        }
+                        Action::Compute {
+                            operation:
+                                Compute::Atom {
+                                    kind: crate::typed_body::NodeKind::Literal(_),
+                                    ..
+                                },
+                            ..
+                        } => true,
+                        Action::Compute {
+                            operation: Compute::Checked(operation),
+                            ..
+                        } => {
+                            operation.head == "literal"
+                                && operation.callee.is_none()
+                                && operation.operands.is_empty()
+                        }
+                        Action::Load {
+                            place,
+                            kind: LoadKind::Read,
+                            ..
+                        } => {
+                            let descriptor = &graph.places[place.0];
+                            descriptor.projections.is_empty()
+                                && matches!(descriptor.root, AddressRoot::Local(_))
+                                && types.can_repeat(&descriptor.ty)
+                                && !types.contains_reference(&descriptor.ty)
+                        }
+                        _ => false,
+                    }
+                };
+                if !valid
+                    || !graph.blocks[block.0].actions[load + 1..read]
+                        .iter()
+                        .all(pure_window)
+                {
                     continue;
                 }
                 leases.insert(
@@ -310,6 +383,51 @@ mod tests {
             )
             .unwrap()
         }
+    }
+
+    #[test]
+    fn slice_selection_lends_only_through_effect_free_index_windows() {
+        for index in ["0usize", "index"] {
+            let checked = Checked::new(&format!(
+                "(#fn work (: items (#slice-mut #u64) : index #usize) #u64
+                  (#let answer #u64 (#deref (#slice-mut-idx items {index})))
+                  (#forget items) (#return answer))"
+            ));
+            let plan = checked.plan();
+            assert_eq!(plan.leases.len(), 1);
+            let lease = plan.leases.values().next().unwrap();
+            assert_eq!(lease.consumer, Consumer::SliceIndex);
+            assert!(plan.snapshot(*plan.leases.keys().next().unwrap()).is_none());
+        }
+        let checked = Checked::new(
+            "(#fn choose () #usize (#return 0usize))
+             (#fn work (: items (#slice-mut #u64)) #u64
+               (#let answer #u64 (#deref (#slice-mut-idx items (#call choose ()))))
+               (#forget items) (#return answer))",
+        );
+        let plan = checked.plan();
+        assert!(
+            plan.leases.is_empty(),
+            "a call cannot be moved across the slice read"
+        );
+        assert_eq!(plan.snapshots.len(), 1);
+    }
+
+    #[test]
+    fn owned_slice_transfers_cannot_be_retired_as_lending_snapshots() {
+        let checked = Checked::new(
+            "(#fn work (: items (#slice-mut #u64)) (#slice-mut #u64) (#return items))",
+        );
+        let plan = checked.plan();
+        let requested = (0..checked.graph.values.len()).map(ValueId).collect();
+        assert!(super::super::async_retire::Plan::with_lending_snapshots(
+            &checked.graph,
+            &checked.types,
+            &requested,
+            &checked.aliases,
+            Some(&plan)
+        )
+        .is_none());
     }
 
     #[test]

@@ -242,6 +242,19 @@ impl Plan {
         handles: &HashSet<ValueId>,
         aliases: &HashMap<String, crate::Type>,
     ) -> Option<Self> {
+        Self::with_lending_snapshots(graph, types, handles, aliases, None)
+    }
+
+    /// Synthetic slice reborrows may end after their last physical use. Their
+    /// source holders remain linear and require explicit source consumption.
+    /// Only a checked lending certificate authorizes these extra candidates.
+    pub fn with_lending_snapshots(
+        graph: &Graph,
+        types: &LinearTypes,
+        handles: &HashSet<ValueId>,
+        aliases: &HashMap<String, crate::Type>,
+        lending: Option<&super::async_lease::Plan>,
+    ) -> Option<Self> {
         let candidates = graph
             .values
             .iter()
@@ -255,7 +268,14 @@ impl Plan {
                                 crate::Type::Reference { mutable: true, .. }
                                     | crate::Type::PinnedReference { mutable: true, .. }
                             )
-                        })))
+                        }))
+                    || (lending.is_some_and(|plan| {
+                        plan.snapshot(ValueId(index)).is_some()
+                            || plan.projected_snapshot(ValueId(index)).is_some()
+                    }) && matches!(
+                        crate::typed_ir::resolve_type(&value.ty, aliases),
+                        Ok(crate::Type::MutableSlice(_))
+                    )))
                 .then_some(ValueId(index))
             })
             .collect::<HashSet<_>>();
