@@ -875,6 +875,43 @@ separately and passed.
 
 ## Default-route audit after movable poll-local reference support
 
+### October 11 re-audit and whole global reads
+
+At commit `6bc2b2f`, temporarily selecting graph as the default and running
+`cargo test --test async_fn -- --test-threads=4` completed with 167 passing and
+62 failing tests (229 total, 88.53 seconds). Legacy was restored immediately
+after the audit. The earlier 145/68 audit below used a smaller test suite;
+these counts are not a like-for-like defect metric.
+
+Failure kinds still require separate treatment:
+
+- Legacy-private generated-name assertions: the first failed loop test runs
+  both its scalar and linear-return native programs successfully, then expects
+  `#linear Lim.async.work.choice`. Replace layout-specific assertions with the
+  intended semantic/ownership invariant rather than recreating legacy stages.
+- Explicit legacy-private type annotations in user test functions: generated
+  declarations reference `Lim.async.work.choice-2-sequence-task` or
+  `Lim.async.work.choice-0-body-frame`. Migrate these cancellation/interface
+  probes to the public graph frame protocol and verify equivalent behavior.
+- Diagnostic/phase expectations: some parse-only calls now return a program
+  instead of rejecting an old unsupported lowering; other failures compare
+  source spans or error categories. Check final ordinary validation before
+  deciding whether these are stale expectations or missing safety checks.
+- A genuine whole-global-read lowering gap: the async condition's global
+  `#const fallback` was rejected as an unsupported projected address. Whole
+  Copy globals now load by their resolved declaration identity without adding
+  a factory capture. Explicit clone dispatch and the original unsafe context
+  are preserved. Native tests execute both the constant fallback and an unsafe
+  static fallback; a static read outside `#unsafe` still rejects at `fallback`.
+- The aggregate while-let test hit the 20-second compilation timeout. This is
+  not proof of a semantic failure; isolate and measure it before changing its
+  meaning or weakening the test.
+
+The 167/62 counts describe the pre-global-fix audit, not a completed migration.
+Graph-default selection and legacy removal remain required work.
+
+### Earlier audit
+
 A temporary graph default followed by `cargo test --test async_fn --quiet`
 completed with 145 passing and 68 failing tests (213 total, 45.11 seconds).
 The temporary default was restored to legacy after the audit. This is not a

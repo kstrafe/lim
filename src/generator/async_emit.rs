@@ -2814,7 +2814,9 @@ impl<'a> Emitter<'a> {
                     });
                 let computed_value = matches!(descriptor.root, AddressRoot::Value(_))
                     && descriptor.projections.is_empty();
-                if (!simple_owned && !simple_handle && !computed_value)
+                let global_value = matches!(descriptor.root, AddressRoot::Global(_))
+                    && descriptor.projections.is_empty();
+                if (!simple_owned && !simple_handle && !computed_value && !global_value)
                     || (!descriptor.checks().is_empty() && !static_owned)
                 {
                     return Err(error(
@@ -2825,6 +2827,24 @@ impl<'a> Emitter<'a> {
             }
             Action::Load { dst, place, kind } => {
                 let descriptor = &graph.places[place.0];
+                if let AddressRoot::Global(global) = descriptor.root {
+                    if !descriptor.projections.is_empty() || !self.types.can_repeat(&descriptor.ty)
+                    {
+                        return Err(error("global loads require a whole Copy value"));
+                    }
+                    let mut read = self
+                        .planning
+                        .declarations
+                        .declaration_name(crate::typed_ir::DeclarationId::Global(global))
+                        .to_owned();
+                    if *kind == LoadKind::Clone {
+                        read = self.clone_read(&descriptor.ty, &read);
+                    }
+                    if located.unsafe_context {
+                        read = format!("(#unsafe {read})");
+                    }
+                    return Ok(self.put_value(*dst, &read));
+                }
                 if let AddressRoot::Value(value) = descriptor.root {
                     if descriptor.projections.is_empty() {
                         if !self.types.can_repeat(&descriptor.ty) {

@@ -5289,8 +5289,45 @@ fn async_while_condition_keeps_global_names_out_of_frame_captures() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    let runtime = source.split_once("(@#async-fn").unwrap().0;
+    let parsed = lim::parse_program(&format!("{runtime}\n{generated}")).unwrap();
+    assert!(
+        parsed.items.iter().all(|item| match item {
+            lim::Item::Struct { fields, .. } => fields.iter().all(|field| field.name != "fallback"),
+            _ => true,
+        }),
+        "globals must not become frame captures: {generated}"
+    );
+    assert!(parsed.items.iter().any(|item| matches!(item,
+        lim::Item::Function(function) if function.name == "work" && function.parameters.is_empty()
+    )), "global reads must not add factory arguments: {generated}");
+    let fallback = source
+        .replace("(ChildReady true)", "(ChildReady false)")
+        .replace(
+            "(#let-else (work-pending second-frame) Work-poll-result second (#unreachable))",
+            "",
+        )
+        .replace(
+            "(#let third Work-poll-result (#call work-poll (: task second-frame : waker (#borrow waker))))",
+            "(#let third Work-poll-result second)",
+        );
+    build_and_run_graph(&fallback, 42);
+    let static_fallback = fallback
+        .replace(
+            "(#const fallback #bool false)",
+            "(#static fallback #bool false)",
+        )
+        .replace(
+            "              fallback)",
+            "              (#unsafe fallback))",
+        );
+    build_and_run_graph(&static_fallback, 42);
+    let safe_static = static_fallback.replace("(#unsafe fallback)", "fallback");
+    let error = graph_compile_error(&safe_static, "async-safe-static-read");
+    assert_eq!(error.code, lim::DiagnosticCode::Unsafe, "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&safe_static[span.start..span.end], "fallback");
     let invalid_source = source
         .replace(
             "(#const fallback #bool false)",
