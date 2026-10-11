@@ -137,6 +137,16 @@ pub(crate) struct LinearTypes {
         Option<std::sync::Arc<std::collections::HashMap<usize, crate::typed_ir::ExpressionId>>>,
     checked_local_pin_reads: std::collections::HashMap<crate::typed_ir::ExpressionId, String>,
     checked_local_pin_writes: std::collections::HashMap<crate::typed_ir::ExpressionId, String>,
+    /// Root-query results only, scoped to these immutable declarations.
+    /// Recursive traversals keep their own cycle context and never consult it.
+    properties: std::cell::RefCell<std::collections::HashMap<String, [Option<bool>; 3]>>,
+}
+
+#[derive(Clone, Copy)]
+enum TypeProperty {
+    Linear,
+    ExclusiveReference,
+    Reference,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -187,7 +197,40 @@ impl LinearTypes {
     }
 
     pub(crate) fn is_linear(&self, ty: &Type) -> bool {
-        is_linear(ty, self, &mut HashSet::new())
+        self.property(ty, TypeProperty::Linear)
+    }
+
+    fn property(&self, ty: &Type, property: TypeProperty) -> bool {
+        // Scalars and reference handles are already constant-time. Avoid
+        // hashing compound type trees and cache only named root queries.
+        let name = if let Type::Named(name) = ty {
+            Some(name)
+        } else {
+            None
+        };
+        if let Some(name) = name {
+            if let Some(value) = self
+                .properties
+                .borrow()
+                .get(name)
+                .and_then(|values| values[property as usize])
+            {
+                return value;
+            }
+        }
+        let mut seen = HashSet::new();
+        let value = match property {
+            TypeProperty::Linear => is_linear(ty, self, &mut seen),
+            TypeProperty::ExclusiveReference => contains_exclusive_reference(ty, self, &mut seen),
+            TypeProperty::Reference => contains_reference(ty, self, &mut seen),
+        };
+        if let Some(name) = name {
+            self.properties
+                .borrow_mut()
+                .entry(name.clone())
+                .or_insert([None; 3])[property as usize] = Some(value);
+        }
+        value
     }
 
     /// Return the indivisible linear leaves which must be consumed from a
@@ -266,7 +309,7 @@ impl LinearTypes {
     /// or exclusive reference identity. References need no explicit cleanup,
     /// but mutable references still cannot be duplicated.
     pub(crate) fn can_repeat(&self, ty: &Type) -> bool {
-        !self.is_linear(ty) && !contains_exclusive_reference(ty, self, &mut HashSet::new())
+        !self.is_linear(ty) && !self.property(ty, TypeProperty::ExclusiveReference)
     }
 
     /// Move-only handles need unique ownership without necessarily requiring
@@ -278,7 +321,7 @@ impl LinearTypes {
     /// Explicit release invalidates reference-bearing handles even when
     /// they are Copy and do not create a linear cleanup obligation.
     pub(crate) fn contains_reference(&self, ty: &Type) -> bool {
-        contains_reference(ty, self, &mut HashSet::new())
+        self.property(ty, TypeProperty::Reference)
     }
 
     fn binding_consumed(&self, name: &str, moved: &Moves) -> bool {
@@ -1646,6 +1689,118 @@ fn check_expr_with_place(
 #[cfg(test)]
 mod tests {
     use crate::{check_types, parse_program};
+
+    #[test]
+    fn named_property_cache_preserves_root_walks_and_cycle_contexts() {
+        use super::{
+            contains_exclusive_reference, contains_reference, is_linear, LinearTypes, TypeProperty,
+        };
+        use crate::Type;
+        use std::collections::HashSet;
+        let program = parse_program(
+            "(#struct Plain (: value #u64))
+             (#struct Forced (: value #u64)) (#linear Forced)
+             (#struct Shared (: link (#ref #u64)))
+             (#struct Exclusive (: link (#ref-mut #u64)))
+             (#struct Nested (: child (#pin-own Exclusive)))
+             (#struct Diamond (: left Shared : right Shared))
+             (#struct EmptyArray (: items (#array Forced 0)))
+             (#enum Choice ((Data Plain) (View Shared) Empty))
+             (#type Alias Choice) (#type Pair (#tuple Plain Exclusive))
+             (#type LoopA LoopB) (#type LoopB LoopA)
+             (#struct Recursive (: next (#ref Recursive)))
+             (#struct UnknownCarrier (: value Missing))",
+        )
+        .unwrap();
+        let types = LinearTypes::from_program(&program);
+        let mut queries = [
+            "Plain",
+            "Forced",
+            "Shared",
+            "Exclusive",
+            "Nested",
+            "Diamond",
+            "EmptyArray",
+            "Choice",
+            "Alias",
+            "Pair",
+            "LoopA",
+            "LoopB",
+            "Recursive",
+            "UnknownCarrier",
+            "Missing",
+        ]
+        .into_iter()
+        .map(|name| Type::Named(name.to_owned()))
+        .collect::<Vec<_>>();
+        queries.extend([
+            Type::U64,
+            Type::Unit,
+            Type::Never,
+            Type::Generic("T".into()),
+            Type::Array(Box::new(Type::Named("Alias".into())), 2),
+            Type::Tuple(vec![
+                Type::Named("Plain".into()),
+                Type::Named("Shared".into()),
+            ]),
+            Type::PinnedReference {
+                mutable: true,
+                target: Box::new(Type::Named("Plain".into())),
+            },
+        ]);
+        assert!(types.properties.borrow().is_empty());
+        let forced = Type::Named("Forced".into());
+        assert!(types.is_linear(&forced));
+        assert!(!types.can_repeat(&forced));
+        assert_eq!(
+            types.properties.borrow()["Forced"],
+            [Some(true), None, None]
+        );
+        assert!(types.contains_reference(&Type::Named("LoopA".into())));
+        assert!(
+            !types.properties.borrow().contains_key("LoopB"),
+            "inner cycle-context queries must not become root cache entries"
+        );
+        for _ in 0..3 {
+            for ty in &queries {
+                let linear = is_linear(ty, &types, &mut HashSet::new());
+                let exclusive = contains_exclusive_reference(ty, &types, &mut HashSet::new());
+                let reference = contains_reference(ty, &types, &mut HashSet::new());
+                assert_eq!(types.is_linear(ty), linear, "{ty:?}");
+                assert_eq!(
+                    types.property(ty, TypeProperty::ExclusiveReference),
+                    exclusive,
+                    "{ty:?}"
+                );
+                assert_eq!(types.contains_reference(ty), reference, "{ty:?}");
+                assert_eq!(types.can_repeat(ty), !linear && !exclusive, "{ty:?}");
+                assert_eq!(types.requires_move(ty), linear || exclusive, "{ty:?}");
+            }
+            queries.reverse();
+        }
+        assert_eq!(
+            types.properties.borrow().len(),
+            15,
+            "compound/scalar roots must not populate the name cache"
+        );
+    }
+
+    #[test]
+    fn property_caches_are_separate_for_different_declarations() {
+        use super::LinearTypes;
+        let copy =
+            LinearTypes::from_program(&parse_program("(#struct Value (: item #u64))").unwrap());
+        let exclusive = LinearTypes::from_program(
+            &parse_program("(#struct Value (: item (#ref-mut #u64)))").unwrap(),
+        );
+        let ty = crate::Type::Named("Value".into());
+        for _ in 0..3 {
+            assert!(copy.can_repeat(&ty));
+            assert!(!copy.contains_reference(&ty));
+            assert!(!exclusive.can_repeat(&ty));
+            assert!(exclusive.contains_reference(&ty));
+        }
+    }
 
     #[test]
     fn owning_pins_include_their_pointees_reference_obligations() {

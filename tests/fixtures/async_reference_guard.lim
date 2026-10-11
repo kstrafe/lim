@@ -1,0 +1,34 @@
+; Warm-cache performance fixture, also run cold/warm and independently in the
+; graph-production suite. A rejected suspended guard retains its source loan.
+(#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
+(#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+(#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+  (#return (#match task
+    (#case (Start value) (ChildPending (Resume value)))
+    (#case (Resume value) (ChildReady value)))))
+(#fn cancel-child (: child Child) () (#forget child) (#return ()))
+(#enum Holder ((Holding (#ref #u64)))) (#linear Holder)
+(@#async-fn-pinned (: protocol WorkAwait : waker #u64
+  : function (#fn work (: source (#ref #u64)) #u64
+    (#let holder Holder (Holding source))
+    (#return (#match holder
+      (#case (Holding view)
+        (#when (#u64.==
+          (#await Child ChildPending ChildReady child-poll (Start 0u64))
+          (#deref view)))
+        (#deref view))
+      (#case (Holding view)
+        (#await Child ChildPending ChildReady child-poll (Start (#deref view)))))))))
+(#fn main () #u64 (#let waker #u64 0u64) (#let owner #u64 42u64)
+  (#let-mut frame Work-frame (#call work (: source (#borrow owner))))
+  (#let first Work-poll-result
+    (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+  (#let-else (work-pending next) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result
+    (#call work-poll (: task next : waker (#borrow waker))))
+  (#let-else (work-pending last) Work-poll-result second (#unreachable))
+  (#let answer #u64 (#match
+    (#call work-poll (: task last : waker (#borrow waker)))
+    (#case (work-ready result) result)
+    (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+  (#forget frame) (#return answer))

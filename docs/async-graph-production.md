@@ -2080,3 +2080,66 @@ dependent-cancellation, dynamic-array, generated-boundary, frame-restoration,
 heap-contents and self-borrow suites also pass with four workers. Their cold/warm
 and independent ordinary generated-code matrices retain source and emitted-code
 validation; the existing compiler timeouts are unchanged.
+
+## Named type-property reuse
+
+Linearity, exclusive-reference containment and reference containment are fixed
+by a `LinearTypes` instance's declaration tables. Repeated named root queries
+now reuse their positive or negative results in that instance. Properties are
+calculated lazily and independently. Scalar, reference-handle and compound root
+queries do not hash their type trees or populate the name cache. Recursive
+traversals retain fresh cycle contexts and never consult or populate root-query
+entries; a result computed beneath an ancestor is not interchangeable with a
+complete root query. Separate programs, even with identical type names, have
+separate caches. No ownership state, loan permission, entry fact or filtered
+graph solution is reused by this optimization.
+
+Tests compare all three predicates and derived repeat/move classifications with
+the unchanged recursive routines across aliases, nested ownership, shared and
+exclusive references, zero-length arrays, repeated paths, cyclic metadata and
+unknown names. They vary query order, check lazy property calculation, require
+that inner cycle-context queries do not create root entries, and distinguish
+same-named types in separate declaration environments.
+
+The existing graph-production reference-guard program is now a reusable source
+fixture at `tests/fixtures/async_reference_guard.lim`, used by that same native
+cold/warm and independent-artifact test. It retains a caller loan through a
+suspended rejected preview and a subsequently suspended fallback arm.
+
+Twenty-one alternating warm release `--check --timings` pairs, after three
+warmups per compiler on CPU 8 with no concurrent builds/tests, compare against
+the retained compiler at `ec4e984` (production code unchanged since `048e0b4`):
+
+| Fixture | Total check before/after (ms) | Wall before/after (ms) |
+| --- | --- | --- |
+| async_nested_partial_struct | 61.752 / 61.094 | 63.468 / 62.949 |
+| async_while_let_dependencies | 56.743 / 56.341 | 58.349 / 58.245 |
+| async_fn_local_self_reference | 55.211 / 54.936 | 56.777 / 56.555 |
+| async_partial_borrow | 95.850 / 95.241 | 98.320 / 97.752 |
+| match_linear_guard | 1.036 / 1.039 | 1.493 / 1.498 |
+| async_reference_guard | 259.718 / 254.755 | 263.165 / 258.084 |
+
+The four async examples improve 0.5–1.1% in total checking; the small guard
+control is essentially unchanged. The suspended guard improves 1.9%, with a
+31-pair repeat measuring 255.913 / 253.500 ms (0.9%). Stage measurements are
+noisy: that guard's contract medians worsen 120.603 / 127.366 ms in the first
+run, then improve 125.689 / 124.820 ms in the repeat, with overlapping ranges.
+Do not claim a general contract-solver improvement from these results. This
+removes repeated type traversal, not the underlying guarded/lending analyses.
+
+An earlier experiment skipped unchanged consumption-record writes before
+copy-on-write detachment. It slightly worsened consumption timings, including
+20.256 / 20.999 ms on the suspended guard, and was removed rather than retained
+as a presumed optimization. Those results are not attributed to the name cache.
+
+All six fixtures emit identical assembly before/after and retain native exits
+44, 40, 42, 45, 7 and 42. Four representative type/borrow/pinning diagnostics are
+identical. All 1,367 library tests pass (seven ignored), together with native
+examples, three adversarial tests, three UI tests and all-target checking.
+All 337 selected async integration tests pass across the main run and targeted
+reruns. Extracting the fixture exposed one whitespace-dependent test rewrite
+that omitted its intended commit mutation: its matcher now follows the fixture
+and explicitly asserts that the mutation is present. That test passes with the
+unchanged expected native result, 43; neither checker rules nor timeouts were
+relaxed. The remaining guard cases and independently checked cold/warm artifacts
+passed, as did the heap-contents and self-borrow suites.

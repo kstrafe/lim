@@ -413,34 +413,7 @@ fn guard_preview_keeps_linear_scrutinee_through_rejection_and_resumption() {
 }
 
 fn shared_reference_guard_source() -> String {
-    format!(
-        "{CONTEXT}
-      (#enum Holder ((Holding (#ref #u64)))) (#linear Holder)
-      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
-        : function (#fn work (: source (#ref #u64)) #u64
-          (#let holder Holder (Holding source))
-          (#return (#match holder
-            (#case (Holding view)
-              (#when (#u64.==
-                (#await Child ChildPending ChildReady child-poll (Start 0u64))
-                (#deref view)))
-              (#deref view))
-            (#case (Holding view)
-              (#await Child ChildPending ChildReady child-poll (Start (#deref view)))))))))
-      (#fn main () #u64 (#let waker #u64 0u64) (#let owner #u64 42u64)
-        (#let-mut frame Work-frame (#call work (: source (#borrow owner))))
-        (#let first Work-poll-result
-          (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-        (#let-else (work-pending next) Work-poll-result first (#unreachable))
-        (#let second Work-poll-result
-          (#call work-poll (: task next : waker (#borrow waker))))
-        (#let-else (work-pending last) Work-poll-result second (#unreachable))
-        (#let answer #u64 (#match
-          (#call work-poll (: task last : waker (#borrow waker)))
-          (#case (work-ready result) result)
-          (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
-        (#forget frame) (#return answer))"
-    )
+    include_str!("fixtures/async_reference_guard.lim").to_owned()
 }
 
 #[test]
@@ -687,9 +660,13 @@ fn exclusive_guard_commit_releases_the_preview_before_mutating_the_payload() {
     let declarations = source[..source.find("(#fn main").unwrap()]
         .replace("(Start 0u64)", "(Start 42u64)")
         .replace(
-            "(#deref view))\n            (#case",
-            "(#block (#deref-set view 43u64) (#deref view)))\n            (#case",
+            "(#deref view))\n      (#case",
+            "(#block (#deref-set view 43u64) (#deref view)))\n      (#case",
         );
+    assert!(
+        declarations.contains("(#deref-set view 43u64)"),
+        "the commit mutation must be present in the transformed fixture"
+    );
     let source = format!(
         "{declarations}
       (#fn main () #u64 (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
