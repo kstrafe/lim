@@ -13,7 +13,13 @@
         (StepPending (Step-waiting value (#u64.-.wrap remaining 1u64))))))))
 
 (#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
-(@#async-fn-pinned ( : protocol WorkAwait : waker #u64 : function
+(#fn cancel-step (: task Step) ()
+  (#forget task)
+  (#return ()))
+
+(@#async-fn-pinned ( : protocol WorkAwait : waker #u64
+  : cancel (cancel-work ((await-0 cancel-step) (await-1 cancel-step)))
+  : function
   (#fn work () #u64
     ;; The first child is immediately work-ready: work-poll advances to await-1 without
     ;; returning to the caller or calling a generated resume function.
@@ -42,14 +48,9 @@
 (#fn destroy-frame (: pin PinnedFrame) ()
   (#let view (#pin-ref-mut Work-frame)
     (#unsafe (#call PinnedFrame-into-view (: pin pin))))
-  (#let state Work-frame-state (#call work-poll-cancel (: task view)))
-  ;; Cleanup dispatches on the same initialized payloads as before. This also
-  ;; works before the first work-poll or while a child remains work-pending.
-  (#match state
-    (#case work-frame-start ())
-    (#case (work-frame-await-0 child) (#forget child))
-    (#case (work-frame-await-1 first child) (#block (#forget child) ()))
-    (#case work-frame-done ()))
+  ;; Source-named cleanup handles entry, Pending and completed frames without
+  ;; exposing private program counters or generated state variants.
+  (#call cancel-work (: task (#call work-poll-cleanup (: task view))))
   (#return ()))
 
 (#fn main () #u64

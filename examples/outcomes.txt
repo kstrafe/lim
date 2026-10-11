@@ -420,6 +420,6 @@ exit 47 async_pattern_blocks.lim - -
 exit 47 async_prefix_cleanup.lim - -
 exit 42 async_for_patterns.lim - -
 exit 42 async_block_loop.lim - -
-exit 42 async_single_poll.lim - -
+graph-exit 42 async_single_poll.lim - -
 exit 42 call_identity.lim - -
 exit 42 string_view.lim - -

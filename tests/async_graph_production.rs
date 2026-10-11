@@ -97,8 +97,17 @@ fn public_cancellation_examples_use_cleanup_slots_not_legacy_state_variants() {
             "async-pinned-cleanup-slots",
             41,
         ),
+        (
+            include_str!("../examples/async_single_poll.lim"),
+            "async-single-poll-cleanup-slots",
+            42,
+        ),
     ] {
-        run_expected(source, label, expected);
+        let source = source.replace(
+            "\"../library/pin.lim\"",
+            &format!("\"{}/library/pin.lim\"", env!("CARGO_MANIFEST_DIR")),
+        );
+        run_expected(&source, label, expected);
     }
 }
 

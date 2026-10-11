@@ -313,13 +313,19 @@ than matching a legacy frame-state enum. Their native outcomes remain 42 and 41.
 Public-API regressions independently check their emitted ordinary declarations
 and exercise cold/warm generation before executing them.
 
+`async_single_poll.lim` uses the same public cleanup
+contract after polling two children through a single poll entry point, while
+its pin scope owns stationary storage until destruction completes. The native
+and standalone generated-code regressions verify its result is still 42.
+
 The native outcome manifest marks migrated examples as `graph-exit`, selecting
 graph configuration for both native execution and the staged contract audit.
 This is migration bookkeeping, not a second runtime API: the default route is
 still legacy, and the selectors must be removed when the default switch lands.
 
-The printing example additionally needs place-preserving `#borrow-slice`
-lowering: removing its legacy cancellation patterns reveals a generated borrow
-of an accessor temporary, rejected by the ordinary variable-rooted-place rule.
-Its prints and slice borrowing must be preserved when migrating that example;
-the remaining work is not solely renaming cancellation types.
+The printing example additionally needs Pending-return slice-cell provenance.
+Operation-local Copy array slices now project ordinary storage instead of
+borrowing accessor temporaries, but the resumed caller still cannot prove
+retired slice cells Empty. Its prints and slice borrowing must be preserved
+when migrating that example; the remaining work is not solely renaming
+cancellation types.
