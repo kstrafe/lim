@@ -133,7 +133,6 @@ pub(crate) enum Provenance {
     Ordinary,
     AsyncStart,
     AsyncPoll,
-    PinnedCancel,
     GraphCleanup,
     CancelDispatcher,
     GraphDestroy,
@@ -261,14 +260,14 @@ impl Registry {
             .collect::<Vec<_>>();
         for (poll, span) in polls {
             let task = poll.parameters[0].ty.clone();
-            let (frame, state) = match &task {
+            let frame = match &task {
                 Type::PinnedReference { target, .. } => {
                     let Type::Named(frame) = target.as_ref() else {
                         continue;
                     };
-                    (frame.clone(), format!("{frame}-state"))
+                    frame.clone()
                 }
-                Type::Named(frame) => (frame.clone(), frame.clone()),
+                Type::Named(frame) => frame.clone(),
                 _ => continue,
             };
             let cleanup = format!("{frame}-cleanup");
@@ -306,13 +305,6 @@ impl Registry {
                     provenance: Provenance::GraphCleanup,
                 },
             );
-            for interface in self.functions.values_mut() {
-                if interface.provenance == Provenance::CancelDispatcher
-                    && interface.declaration.parameters[0].ty == Type::Named(state.clone())
-                {
-                    interface.declaration.parameters[0].ty = Type::Named(cleanup.clone());
-                }
-            }
             if matches!(task, Type::PinnedReference { .. })
                 && self.functions.values().any(|interface| {
                     interface.provenance == Provenance::CancelDispatcher
@@ -556,11 +548,7 @@ impl Registry {
         }
         let waker =
             crate::parse_type(Some(&crate::normalize_keywords(parts[3].clone()))).map_err(fail)?;
-        let state = if pinned {
-            format!("{frame}-state")
-        } else {
-            frame.clone()
-        };
+        let cleanup = format!("{frame}-cleanup");
         let mut declarations = vec![Function {
             name: original.name.clone(),
             parameters: original.parameters.clone(),
@@ -607,26 +595,6 @@ impl Registry {
         let mut provenances = vec![Provenance::AsyncStart, Provenance::AsyncPoll];
         let mut reserved = names.clone();
         reserved.push(original.name.clone());
-        if pinned {
-            reserved.push(state.clone());
-            let cancel = format!("{poll_name}-cancel");
-            reserved.push(cancel.clone());
-            declarations.push(Function {
-                name: cancel,
-                parameters: vec![Parameter {
-                    name: "task".into(),
-                    ty: task.clone(),
-                    mutable: false,
-                }],
-                return_type: Type::Named(state.clone()),
-                body: Vec::new(),
-                type_parameters: Vec::new(),
-                unsafe_call: false,
-                external: false,
-                calling_convention: CallingConvention::Lim,
-            });
-            provenances.push(Provenance::PinnedCancel);
-        }
         if let Some(config) = parts.get(5) {
             let Expr::List(config) = config else {
                 return Err(fail("invalid async cancellation configuration".into()));
@@ -653,7 +621,7 @@ impl Registry {
                 name: cancel.clone(),
                 parameters: vec![Parameter {
                     name: "task".into(),
-                    ty: Type::Named(state.clone()),
+                    ty: Type::Named(cleanup.clone()),
                     mutable: false,
                 }],
                 return_type: Type::Unit,
@@ -684,25 +652,11 @@ impl Registry {
         self.deferred_layouts.insert(
             frame.clone(),
             DeferredLayout {
-                kind: if pinned {
-                    LayoutKind::Struct
-                } else {
-                    LayoutKind::Enum
-                },
+                kind: LayoutKind::Struct,
                 span,
                 linear: true,
             },
         );
-        if pinned {
-            self.deferred_layouts.insert(
-                state,
-                DeferredLayout {
-                    kind: LayoutKind::Enum,
-                    span,
-                    linear: true,
-                },
-            );
-        }
         self.protocols.insert(
             poll_type.clone(),
             vec![

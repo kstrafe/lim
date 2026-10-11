@@ -301,8 +301,7 @@ fn graph_generated_owned_program(
     cache_directory: Option<&Path>,
     validation_context: Option<(&CompileConfig, &str)>,
 ) -> Result<(typecheck::OwnedProgram, Vec<super::async_emit::Generated>), SourceError> {
-    let mut planning = super::async_prepare::prepare(prepared)?;
-    planning.public_cleanup = true;
+    let planning = super::async_prepare::prepare(prepared)?;
     let invocations = prepared
         .expressions
         .iter()
@@ -1412,8 +1411,7 @@ mod async_migration_tests {
 
         // Model an artifact accepted by the former graph path: its syntax,
         // key and digest are valid, but its public frame shadows the protocol.
-        let mut planning = super::super::async_prepare::prepare(&prepared).unwrap();
-        planning.public_cleanup = true;
+        let planning = super::super::async_prepare::prepare(&prepared).unwrap();
         let invocation = prepared
             .expressions
             .iter()
@@ -1644,7 +1642,12 @@ mod async_migration_tests {
         );
         let prepared = syntax(&text, None);
         let error = expand_prepared_program(&prepared).err().unwrap();
-        assert!(error.message.contains("struct match pattern"), "{error}");
+        assert!(
+            error.message.contains("undeclared type 'Work-frame-state'"),
+            "{error}"
+        );
+        let span = error.span.unwrap();
+        assert_eq!(&text[span.start..span.end], "Work-frame-state");
     }
 
     #[test]

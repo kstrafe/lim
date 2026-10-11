@@ -24,7 +24,6 @@ pub(crate) struct Function {
 /// This is deliberately not CheckedProgram. In particular, no method exposes
 /// native code generation or claims that deferred layouts can be accessed.
 pub(crate) struct Planning {
-    pub public_cleanup: bool,
     pub program: Program,
     pub interfaces: Registry,
     pub declarations: crate::typed_ir::Declarations,
@@ -290,7 +289,6 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
         });
     }
     let planning = Planning {
-        public_cleanup: false,
         program,
         interfaces,
         declarations,

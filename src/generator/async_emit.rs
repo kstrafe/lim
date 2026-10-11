@@ -3747,8 +3747,8 @@ impl<'a> Emitter<'a> {
         Ok(handlers)
     }
 
-    /// Cancel dependent values before extracting any referent. Both public and
-    /// private cleanup use this sequence, so neither can export a dangling child.
+    /// Cancel dependent values before extracting any referent. Cleanup and
+    /// configured destruction share this sequence and cannot export a dangling child.
     fn in_place_cleanup(&self) -> Result<String, Error> {
         let occupied = self.cleanup_occupied();
         let names = self.cleanup_names(occupied)?;
@@ -3875,15 +3875,6 @@ impl<'a> Emitter<'a> {
     /// Export cancellation obligations by source declaration/await identity.
     /// Private cell numbers and the dispatcher PC are never part of this ABI.
     fn cleanup_interface(&self, receiver: &str) -> Result<String, Error> {
-        if !self.planning.public_cleanup {
-            if self.function.cancel.is_some() {
-                return Err(fail(
-                    self.function,
-                    "graph cancellation requires state-specific checked cleanup contracts",
-                ));
-            }
-            return Ok(String::new());
-        }
         let occupied = self.cleanup_occupied();
         let names = self.cleanup_names(occupied)?;
         let cleanup = format!("{}-cleanup", self.frame);
@@ -3939,9 +3930,24 @@ impl<'a> Emitter<'a> {
                 !slot.dependencies.is_empty(),
             ));
         }
+        let state_type = if self.pinned {
+            let name = self.fresh("cleanup-state-type");
+            let fields = self
+                .slots
+                .iter()
+                .map(|slot| format!("({} {})", slot.field, slot.name))
+                .collect::<Vec<_>>()
+                .join(" ");
+            definitions.push(format!(
+                "(#struct {name} ((pc #u32) {fields}))\n(#linear {name})"
+            ));
+            name
+        } else {
+            self.frame.clone()
+        };
         let extraction = if self.pinned {
             // Keep loan clearing and extraction in this ordinary function.
-            // A wrapper around private cancel loses entry/clearing correlation
+            // A separate raw-state exporter loses entry/clearing correlation
             // in nested caller contracts for conditional internal references.
             let clear = self.in_place_cleanup()?;
             let pc = self.fresh("cleanup-pc");
@@ -3959,11 +3965,9 @@ impl<'a> Emitter<'a> {
                 captures.push(format!("({} {value})", slot.field));
             }
             format!(
-                "{clear}\n{}\n{}\n(#let state {}-state (#struct-literal {}-state ({})))",
+                "{clear}\n{}\n{}\n(#let state {state_type} (#struct-literal {state_type} ({})))",
                 takes.join("\n"),
                 self.set_pc(u32::MAX),
-                self.frame,
-                self.frame,
                 captures.join(" ")
             )
         } else {
@@ -4333,38 +4337,6 @@ impl<'a> Emitter<'a> {
         } else {
             self.frame.clone()
         };
-        let cancel = if self.pinned {
-            let state = format!("{}-state", self.frame);
-            let clear = self.in_place_cleanup()?;
-            let pc = self.fresh("cancelled-pc");
-            let mut takes = vec![format!("(#let {pc} #u32 (#get task pc))")];
-            let mut captured = vec![format!("(pc {pc})")];
-            for index in 0..self.slots.len() {
-                let value = self.fresh("cancelled-slot");
-                let slot = &self.slots[index];
-                takes.push(format!(
-                    "(#let {value} {} (#unsafe (#pin-read {})))\n\
-                    (#unsafe (#pin-write {} ({})))",
-                    slot.name,
-                    Self::slot_ref(slot, true),
-                    Self::slot_ref(slot, true),
-                    slot.empty
-                ));
-                captured.push(format!("({} {value})", slot.field));
-            }
-            format!(
-                "(#struct {state} ((pc #u32) {fields}))\n(#linear {state})\n\
-                (#fn {}-cancel (: task {receiver}) {state}\n\
-                  {clear}\n{}\n{}\n\
-                  (#return (#struct-literal {state} ({}))))\n",
-                self.poll,
-                takes.join("\n"),
-                self.set_pc(u32::MAX),
-                captured.join(" ")
-            )
-        } else {
-            String::new()
-        };
         let source = format!(
             "{}\n\
           (#struct {} ((pc #u32) {fields}))\n(#linear {})\n\
@@ -4403,7 +4375,7 @@ impl<'a> Emitter<'a> {
         let cleanup = self.cleanup_interface(&receiver)?;
         let access = self.parameter_access()?;
         let source = crate::generator::format_generated_source(&format!(
-            "{source}\n{cancel}\n{cleanup}\n{projections}\n{access}"
+            "{source}\n{cleanup}\n{projections}\n{access}"
         ))
         .map_err(|message| fail(self.function, message))?;
         Ok(Generated {
@@ -4878,8 +4850,29 @@ mod tests {
         (#return (#unreachable)))";
 
     #[test]
-    fn public_and_private_cancellation_share_one_owner_inclusive_solve() {
-        let mut planning = prepare_generator(
+    fn cleanup_is_uniform_and_does_not_reserve_a_private_state_api() {
+        for kind in ["#async-fn", "#async-fn-pinned"] {
+            let planning = prepare_generator(
+                kind,
+                "(#fn work (: seed #u64) #u64
+                  (#return (#await Child ChildPending ChildReady child-poll (Start seed))))",
+                "(#struct Work-frame-state (: value #u64))",
+            );
+            let generated = generate(&planning).unwrap();
+            let output = &generated[0];
+            assert!(output.source.contains("(#fn work-poll-cleanup "));
+            assert!(output
+                .source
+                .contains(&format!("(#struct {}-cleanup ", output.frame)));
+            assert!(!output.source.contains("work-poll-cancel"));
+            assert!(!output.source.contains("Work-frame-state"));
+            crate::CheckedProgram::validate(&program(&planning, &generated).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn cleanup_and_destroy_share_one_owner_inclusive_solve() {
+        let planning = prepare_generator(
             "#async-fn-pinned",
             "(#fn work (: seed #u64) #u64
               (#let owner Child (Start seed))
@@ -4887,7 +4880,6 @@ mod tests {
               (#forget owner) (#return (#u64.+.wrap seed amount)))",
             "",
         );
-        planning.public_cleanup = true;
         let function = &planning.functions[0];
         let mut emitter = Emitter::new(&planning, function).unwrap();
         let owner = BindingId(
@@ -4922,7 +4914,7 @@ mod tests {
             before + 2
         );
         // Extra test storage is not part of the graph; use a fresh emitter to
-        // exercise all actual private/public cleanup emission call paths.
+        // exercise all actual cleanup/destroy emission call paths.
         let before = crate::generator::async_cells::CANCELLATION_SOLVES.with(|count| count.get());
         let generated = Emitter::new(&planning, function).unwrap().emit().unwrap();
         assert_eq!(
@@ -5647,7 +5639,7 @@ mod tests {
                   (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
                     (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
                     {polls}
-                    (#let state Work-frame-state (#call work-poll-cancel (: task {handle})))
+                    (#let state Work-frame-cleanup (#call work-poll-cleanup (: task {handle})))
                     (#forget state) (#forget task)
                     (#assert (#u64.== value {expected}u64)) (#set value 99u64)
                     (#return 42u64))"
@@ -5657,11 +5649,11 @@ mod tests {
             // cleanup, and allow the referent again only after that cleanup.
             runtime_planned(prepare_generator("#async-fn-pinned", function, &main), 42);
             if expected == 41 {
-                let cleanup = "(#fn echo-state (: state Work-frame-state) Work-frame-state
+                let cleanup = "(#fn echo-state (: state Work-frame-cleanup) Work-frame-cleanup
                     (#return state))";
                 let conflicting = format!("{cleanup}\n{}", main.replace(
                     "(#forget state) (#forget task)",
-                    "(#set value 99u64) (#let observed Work-frame-state (#call echo-state (: state state))) (#forget observed) (#forget task)",
+                    "(#set value 99u64) (#let observed Work-frame-cleanup (#call echo-state (: state state))) (#forget observed) (#forget task)",
                 ));
                 let planning = prepare_generator("#async-fn-pinned", function, &conflicting);
                 let generated = generate(&planning).unwrap();
@@ -5838,24 +5830,15 @@ mod tests {
             );
             // Inspect the proposed storage declarations, rather than assuming
             // a private fresh-name numbering scheme in the cleanup function.
-            let child = planning.functions[0]
-                .graph
-                .blocks
-                .iter()
-                .find_map(|block| match block.terminator {
-                    Terminator::Await { child, .. } => Some(child),
-                    _ => None,
-                })
-                .unwrap();
             let mut generated = generate(&planning).unwrap();
             let parsed = program(&planning, &generated).unwrap();
             let slot_type = parsed
                 .items
                 .iter()
                 .find_map(|item| match item {
-                    Item::Struct { name, fields, .. } if name == "Work-frame-state" => fields
+                    Item::Struct { name, fields, .. } if name == "Work-frame-cleanup" => fields
                         .iter()
-                        .find(|field| field.name == format!("value.{}", child.0))
+                        .find(|field| field.name == "await-0")
                         .map(|field| field.ty.clone()),
                     _ => None,
                 })
@@ -5901,8 +5884,8 @@ mod tests {
                     (#case (Start value) (#assert false))
                     (#case (Resume value) (#assert (#u64.== value 2u64))))
                   (#deref-set count (#u64.+.wrap (#deref count) 1u64)) (#return ()))
-                (#fn destroy-state (: state Work-frame-state : count (#ref-mut #u64)) ()
-                  (#match (#get state value.{child})
+                (#fn destroy-state (: state Work-frame-cleanup : count (#ref-mut #u64)) ()
+                  (#match (#get state await-0)
                     (#case {empty} ())
                     (#case ({full} child) (#call cancel-child (: task child : count count))))
                   (#forget state) (#return ()))
@@ -5910,15 +5893,14 @@ mod tests {
                   (#let waker #u64 0u64) (#let-mut value #u64 40u64) (#let-mut count #u64 0u64)
                   (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
                   {polls}
-                  (#let state Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
+                  (#let state Work-frame-cleanup (#call work-poll-cleanup (: task (#pin-borrow-mut task))))
                   (#call destroy-state (: state state : count (#borrow-mut count)))
                   (#set value 99u64)
-                  (#let again Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
-                  (#assert (#u32.== (#get again pc) 4294967295u32))
+                  (#let again Work-frame-cleanup (#call work-poll-cleanup (: task (#pin-borrow-mut task))))
+                  (#assert (#u32.== (#get task pc) 4294967295u32))
                   (#call destroy-state (: state again : count (#borrow-mut count)))
                   (#assert (#u64.== count {expected_count}u64))
-                  (#forget task) (#return 42u64))",
-                child = child.0
+                  (#forget task) (#return 42u64))"
             );
             generated[0].source = crate::generator::format_generated_source(&format!(
                 "{}\n{extra}",
@@ -6040,11 +6022,11 @@ mod tests {
     }
 
     #[test]
-    fn manual_pinned_cancellation_waits_for_checked_state_contracts() {
+    fn cleanup_handlers_are_required_by_source_identity() {
         let source = format!(
             "{CONTEXT}
           (@#async-fn-pinned (: protocol work-await : waker #u64
-            : cancel (work-cancel ((work-frame-start cancel-start) (work-frame-await-0 cancel-await)))
+            : cancel (work-cancel ((unknown-slot cancel-start)))
             : function (#fn work (: seed #u64) #u64
               (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))"
         );
@@ -6060,7 +6042,7 @@ mod tests {
         let error = generate(&planning).err().unwrap();
         assert_eq!(
             error.message,
-            "graph cancellation requires state-specific checked cleanup contracts"
+            "missing graph cleanup handler for source slot 'await-0'"
         );
         let original = &planning.program.source_files[error.span.source_id as usize].source;
         assert!(original[error.span.start..error.span.end].starts_with("(#fn work"));
@@ -6209,7 +6191,9 @@ mod tests {
                 .items
                 .iter()
                 .find_map(|item| match item {
-                    Item::Struct { name, fields, .. } if name == "Work-frame-state" => Some(fields),
+                    Item::Struct { name, fields, .. } if name == "Work-frame-cleanup" => {
+                        Some(fields)
+                    }
                     _ => None,
                 })
                 .unwrap();
@@ -6262,16 +6246,16 @@ mod tests {
                 "{phase}: no actual owner storage inspected"
             );
             let extra = format!("(#fn destroy-state
-                (: state Work-frame-state : owners (#ref-mut #u64) : children (#ref-mut #u64)) ()
+                (: state Work-frame-cleanup : owners (#ref-mut #u64) : children (#ref-mut #u64)) ()
                 {} (#forget state) (#return ()))
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut owners #u64 0u64) (#let-mut children #u64 0u64)
                 (#let-mut task Work-frame (#call work (: seed 35u64)))
                 {polls}
-                (#let state Work-frame-state (#call work-poll-cancel (: task {receiver})))
+                (#let state Work-frame-cleanup (#call work-poll-cleanup (: task {receiver})))
                 (#call destroy-state (: state state : owners (#borrow-mut owners) : children (#borrow-mut children)))
-                (#let again Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
-                (#assert (#u32.== (#get again pc) 4294967295u32))
+                (#let again Work-frame-cleanup (#call work-poll-cleanup (: task (#pin-borrow-mut task))))
+                (#assert (#u32.== (#get task pc) 4294967295u32))
                 (#call destroy-state (: state again : owners (#borrow-mut owners) : children (#borrow-mut children)))
                 (#assert (#u64.== owners {owners}u64))
                 (#assert (#u64.== children {children}u64))
@@ -6389,24 +6373,12 @@ mod tests {
             (#call bump-counter (: count count))
             (#forget owner) (#return ()))";
         let planning = prepare_generator("#async-fn-pinned", function, declarations);
-        let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
-        let binding = BindingId(
-            emitter
-                .body
-                .bindings
-                .iter()
-                .position(|binding| binding.name == "owner")
-                .unwrap(),
-        );
-        let slot = &emitter.slots[emitter.bindings[&binding]];
-        let cleanup = format!(
-            "(#fn cancel-state (: state Work-frame-state : count (#ref Counter)) ()
-            (#match (#get state {})
-              (#case {} ())
-              (#case ({} owner) (#call destroy-owner (: owner owner : count count))))
-            (#forget state) (#return ()))",
-            slot.field, slot.empty, slot.full
-        );
+        let cleanup = "(#fn cancel-state (: state Work-frame-cleanup : count (#ref Counter)) ()
+            (#match (#get state owner)
+              (#case Work-frame-cleanup-owner-empty ())
+              (#case (Work-frame-cleanup-owner-full owner)
+                (#call destroy-owner (: owner owner : count count))))
+            (#forget state) (#return ()))";
         let first = "(#let first Work-poll-result
             (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
             (#let-else (work-pending next) Work-poll-result first (#unreachable))";
@@ -6437,11 +6409,11 @@ mod tests {
                 (#assert (#u64.== (#call read-counter (: count (#borrow created))) 0u64)) {polls}
                 (#assert (#u64.== (#call read-counter (: count (#borrow created))) {constructed}u64))
                 (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {prior_destroyed}u64))
-                (#let state Work-frame-state (#call work-poll-cancel (: task {handle})))
+                (#let state Work-frame-cleanup (#call work-poll-cleanup (: task {handle})))
                 (#call cancel-state (: state state : count (#borrow destroyed)))
                 (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {constructed}u64))
-                (#let again Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
-                (#assert (#u32.== (#get again pc) 4294967295u32))
+                (#let again Work-frame-cleanup (#call work-poll-cleanup (: task (#pin-borrow-mut task))))
+                (#assert (#u32.== (#get task pc) 4294967295u32))
                 (#call cancel-state (: state again : count (#borrow destroyed)))
                 (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {constructed}u64))
                 (#forget task) (#forget created) (#forget destroyed) (#return 42u64))");
@@ -6591,7 +6563,7 @@ mod tests {
               (#let-mut task Work-frame (#call work (: view ({borrow} owner))))
               (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
               (#let-else (work-pending next) Work-poll-result first (#unreachable)) (#drop next)
-              (#let state Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
+              (#let state Work-frame-cleanup (#call work-poll-cleanup (: task (#pin-borrow-mut task))))
               (#forget state) (#forget task) (#set-field owner amount 42u64)
               (#let answer #u64 (#get owner amount)) (#forget owner) (#return answer))"
             );
@@ -7389,7 +7361,7 @@ mod tests {
           (#let-mut task Work-frame (#call work (: seed 42u64)))
           (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
           (#let-else (work-pending next) Work-poll-result first (#unreachable))
-          (#let state Work-frame-state (#call work-poll-cancel (: task next)))
+          (#let state Work-frame-cleanup (#call work-poll-cleanup (: task next)))
           (#forget state) (#forget task) (#return 99u64))";
         let planning = prepare_generator("#async-fn-pinned", &invalid, main);
         let generated = generate(&planning).unwrap();
@@ -7432,7 +7404,7 @@ mod tests {
           (#let-mut task Work-frame (#call work (: seed 42u64)))
           (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
           (#let-else (work-pending next) Work-poll-result first (#unreachable))
-          (#let state Work-frame-state (#call work-poll-cancel (: task next)))
+          (#let state Work-frame-cleanup (#call work-poll-cleanup (: task next)))
           (#forget state) (#forget task) (#return 99u64))";
         let planning = prepare_generator("#async-fn-pinned", &invalid, main);
         let generated = generate(&planning).unwrap();

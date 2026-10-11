@@ -69,11 +69,10 @@ dispatcher has the ordinary signature
 returns empty cells and does not repeat destruction. Movable cleanup consumes
 the frame, so reusing that frame is rejected.
 
-This contract intentionally differs from the legacy per-state cancellation
-mapping. Selecting the graph route for legacy mappings requires migrating them
-to source-slot handlers. The old private graph `work-poll-cancel` storage record
-remains available for staged regression compatibility; its fields are not the
-public cleanup interface.
+Cleanup uses source-slot handlers, not per-state cancellation mappings.
+Graph is the only lowering implementation. No raw-state `poll-cancel` export or
+fixed public `Frame-state` type is generated; temporary extraction storage uses
+a fresh internal name. Both movable and pinned generators expose cleanup.
 
 ## Post-terminal parameter access
 
@@ -1476,3 +1475,32 @@ The timed region includes source loading/preparation, checking and generated-cac
 writes; it excludes compiler process startup, backend emission and native linking.
 This is a measurement of the standalone source writer, not a claimed 46% speedup
 for normal executable compilation, which already retains its checked output.
+
+## One cancellation interface in planning and emission
+
+The public-cleanup mode switch is gone. Graph generation always provides
+source-slot cleanup, whether called by production compilation or structural
+tests. The raw-state `poll-cancel` exporter and fixed `Frame-state` declaration
+are deleted; extraction uses a fresh internal struct name. Declaration planning
+no longer reserves or invents these removed APIs, and registers the actual
+struct frame kind for both movable and pinned generators. Configured cancellation
+dispatchers take the cleanup aggregate directly, without rewriting a legacy
+state signature in a later pass.
+
+Unit fixtures now inspect public cleanup cells by source binding/await identity.
+Their original destruction counts, entry/Pending/Ready cases, repeated cleanup,
+external-loan conflicts, and child-before-referent checks remain enabled. A new
+structural test checks the same cleanup contract for both generators and permits
+a user declaration using the removed `Work-frame-state` name. Negative tests
+reject the absent type/function through ordinary source diagnostics, without a
+migration mode or special compatibility diagnostic; errors precede publication.
+
+Verification passed all-target checking, 1,350 library tests (four manual
+benchmarks ignored), all 229 async tests, ten dependent-cancellation tests, five
+independent generated-code boundary tests, three heap-contents tests, two
+self-borrow cleanup tests, the complete five-test native-example suite, and
+relocated cold/warm reproducibility. The 32-test graph-production run passed 31
+and encountered one `ETXTBSY` process-launch error; the affected aggregate-guard
+cleanup matrix passed its isolated rerun. This does not prove the launch race
+eliminated. The full requirement-by-requirement safety and performance audit
+remains outstanding; interface unification is not goal completion by itself.

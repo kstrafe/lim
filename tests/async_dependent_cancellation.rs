@@ -207,13 +207,35 @@ fn pinned_child_rejects_a_by_value_cancellation_handler() {
 }
 
 #[test]
-fn private_cancellation_cannot_export_a_live_dependent() {
+fn removed_work_poll_cancel_is_an_unknown_function() {
     let program = source().replace(
-        "(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task pending)))\n        (#assert (#variant-is (#borrow (#get cleanup await-0)) Work-frame-cleanup-await-0-empty))\n        (#call work-cancel (: task cleanup))",
-        "(#let cleanup Work-frame-state (#call work-poll-cancel (: task pending)))\n        (#forget cleanup)",
+        "(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task pending)))",
+        "(#let cleanup Work-frame-cleanup (#call work-poll-cancel (: task pending)))",
     );
     assert_ne!(program, source());
-    run(&program, "async-dependent-private-cancellation");
+    let scratch = support::Scratch::new("async-dependent-removed-cancellation");
+    let mut config = lim::CompileConfig::default();
+    config.set("async-lowering", "graph");
+    let error = lim::compile_source_to_assembly(
+        &program,
+        &scratch.path().join("input.lim"),
+        &config,
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .expect_err("the removed work-poll-cancel function must not compile");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
+    assert!(
+        error
+            .message
+            .contains("unknown function 'work-poll-cancel'"),
+        "{error:?}"
+    );
+    let span = error
+        .span
+        .expect("unknown function diagnostic should have a source span");
+    assert_eq!(&program[span.start..span.end], "work-poll-cancel");
+    assert!(!scratch.path().join("generated").exists());
 }
 
 fn run(source: &str, label: &str) {

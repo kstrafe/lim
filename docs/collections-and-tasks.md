@@ -301,29 +301,28 @@ bare `@#async-wake` expansion does not perform registration itself. See
 ## Compiler-lowered async functions (sequential subset)
 
 `@#async-fn` is a built-in inspectable code generator. It reads a `#fn` form
-whose declared result type is the eventual value, then emits an ordinary
-linear frame enum, poll-result enum, start function (using the source function
-name), and one state-dispatching poll function per concrete future. The frame
-enum's discriminant is the state index: Start runs the initial body, await-N
-polls the saved child, and Ready advances to the next state in the same poll
-call. Pending returns to the caller without reconstructing that child. There
-are no generated start/child/resume poll helpers in executable output. Ordinary
-source function calls and polls of separate child futures remain calls.
-`@#async-fn-pinned` emits a stable `Frame`
-struct shell with a separate `Frame-state` field. Pin the returned frame in a
-mutable local, and each Pending result carries the same `#pin-ref-mut Frame`
-into the next poll. Polling moves only the state field through an explicitly
-unsafe transition; it does not move the pinned shell. A Ready result consumes
-that pin reference and leaves the state field Done. Its `poll-cancel` helper
-consumes the pin reference, marks the state Done, and returns the previous
-`Frame-state` so caller-defined cleanup can release captured values. This
-establishes stable storage for the supported internal-reference forms described
-below. `examples/async_single_poll.lim` constructs a frame, gives it to
-`@#pin-scope` for privately owned stationary storage, and repeatedly calls the
-same poll function through an opaque `@#pin` handle. The low-level adapter that
-unwraps this handle requires `#unsafe`; the storage remains owned by the scope
-until in-place cleanup completes. A completed or cancelled pinned frame is
-marked Done; polling it again traps instead of restarting the body.
+whose result type is the eventual value, then emits an ordinary linear frame
+struct with an explicit program counter and tagged storage cells, a poll-result
+enum, the source-named constructor, and one dispatcher poll function. Pending
+retains the already evaluated child; Ready advances to the next block in the
+same poll. Calls to ordinary functions and separate child futures remain calls.
+
+`@#async-fn-pinned` uses stationary frame storage. Pin the constructed frame in
+a mutable local (or use a checked owned pin wrapper), then poll its
+`#pin-ref-mut`. Pending returns the same capability for the next poll. Owner
+fields do not move while their internal references or borrowing children live.
+Ready consumes the poll capability and retires the frame's program counter;
+polling a completed or cancelled frame traps instead of restarting its body.
+
+Both generators provide `poll-cleanup`, returning source-named Empty/Full cells
+for explicit destruction. Pinned cleanup consumes the poll capability and
+empties the stationary frame before transferring independent owning values.
+Dependent children are cancelled in place before their referents are extracted.
+There is no public `Frame-state` or raw-state cancellation export.
+`examples/async_single_poll.lim` shows repeated polling through an opaque
+`@#pin` handle whose storage is owned by `@#pin-scope`; its low-level adapter
+requires `#unsafe`, and cleanup completes before the scope releases storage.
+
 The emitted Lim is stored in `.lim/generated`, with cache metadata in
 `.lim/cache`, and undergoes normal type, borrow, linearity, and code generation
 checks.
@@ -432,39 +431,26 @@ condition evaluation. See `examples/async_condition_dependencies.lim` for
 three condition evaluations, an early continue, and a suspending body. These
 extensions do not complete general typed control-flow lowering.
 Sequential suspension points have no fixed language-level count limit.
-For movable `@#async-fn`, references into pre-suspension stack locals cannot be
-retained in the frame; the ordinary borrow checker rejects them. Pinned
-`@#async-fn-pinned` only supports the parameter-backed internal-reference shape
-described below; references into body locals remain rejected.
-An `@#async-fn-pinned` function may capture a caller-owned `#pin-ref` and use it
-after resume. The frame retains that external loan while it is alive, so its
-owner cannot be mutated in the meantime; explicitly consume or forget the
-completed frame before reusing the owner. It can also form an immutable
-self-reference from an owned function parameter using a top-level
-`(#let view (#pin-ref T) (#pin-borrow owner))`. The generator moves `owner`
-into a stable sibling field of the pinned frame and forms the reference only
-after the frame is pinned. In this initial form, use the owner only to
-initialize the self-reference; use `view` for later access. The reference is
-retained in suspended state across Pending/resume. The borrow may select a
-field, including a nested path through inline structs, for example
-`(#pin-borrow (#get (#get owner payload) value))`. Projections cannot cross a
-reference or pointer boundary. Arbitrary borrows from body locals are not
-supported yet. A body-local owner can be promoted when it is an immutable
-`#let` in the first function statement; its initializer may use function
-parameters. Other
-control-flow-dependent initializer shapes are rejected for now. After
-`poll-cancel`,
-consume and end the returned state's scope before accessing or destroying the
-owner; the borrow checker keeps the internal loan alive until that state is
-cleaned up.
+A movable `@#async-fn` cannot retain references into its own frame across
+Pending. Poll-local borrows are allowed when checked physical storage proves
+all internal handles retired before suspension. Use `@#async-fn-pinned` for
+references into parent-owned storage that survive an await.
 
-Cancellation is explicit. A free-standing function can match each generated
-frame state, or the optional `:cancel` mapping can generate that dispatcher.
-In either case, user handlers consume each state's captured values and call
-the relevant child cancellation function. Adding a new `#await` requires a
-handler for the new state. With `@#async-fn-pinned`, first call `poll-cancel` to
-consume the pinned handle and recover the state to clean up. `examples/async_fn.lim`
-shows the manually written movable-frame protocol;
+Pinned functions may borrow caller-owned storage or their own locals, including
+owners initialized after an await or inside branches and loops. Shared and
+exclusive references retain their actual selected field, tuple, array, or slice
+projection. Index selection is checked and evaluated once; changing an index
+later does not retarget a retained reference. Original-source borrow checking
+still forbids conflicting access, moving referents, or exporting local loans.
+
+Cancellation is explicit. `poll-cleanup` retires internal handles and returns
+source-slot cleanup cells; consume these cells before accessing any external
+referents they retain. A borrowing child requires a checked cancellation handler
+that finishes before the parent's referents are destroyed. Pinned children are
+cancelled through a pinned mutable reference, not moved out of their storage.
+With a `:cancel` mapping, the generated dispatcher consumes independent Full
+cells, and pinned `poll-destroy` performs cancellation and destruction in place.
+`examples/async_fn.lim` shows the movable-frame protocol;
 `examples/async_fn_cancel_dispatch.lim` shows generated dispatch;
 `examples/async_fn_pinned.lim` shows in-place Pending/resume and cancellation;
 `examples/async_fn_two_awaits.lim` exercises sequential awaits;
@@ -485,30 +471,29 @@ returns `()`. Cleanup occurs only when this function is explicitly called.
 There is no automatic cancellation when a task goes out of scope. `#forget`
 intentionally bypasses cleanup; it is not a cancellation operation.
 
-`@#async-fn` and `@#async-fn-pinned` can generate the state dispatcher for you
-with an optional `:cancel` argument. Name every generated state variant and
-the handler that consumes its payload:
+`@#async-fn` and `@#async-fn-pinned` can generate a cleanup dispatcher with an
+optional `:cancel` argument. Map source binding names and `await-N` identities
+to concrete handlers, not private program-counter states:
 
 ```lisp
-(@#async-fn
+(@#async-fn-pinned
   (: protocol WorkAwait
    : waker LocalWaker
-   : cancel (cancel-work
-     ((work-task-start cancel-work-start)
-      (work-task-await-0 cancel-work-await)))
+   : cancel (cancel-work ((owner destroy-owner) (await-0 cancel-child)))
    : function
-   (#fn work ((input #u64)) #u64
+   (#fn work (: owner Owner) #u64
      ...)))
 ```
 
-The compiler checks that the mapping covers exactly the start and await
-states generated by the function. Each handler receives the state's owned
-payload (a tuple when that state contains multiple fields), so it can call the
-appropriate explicit destruction functions and recursively cancel child
-tasks. For pinned frames, first use the generated `work-poll-cancel` function
-to extract and retire the pinned state, then pass that state to
-`cancel-work`. A pinned frame's owner fields remain in the frame and must only
-be destroyed after its state-held references have been consumed.
+Every exposed owning slot requires a handler. Missing, duplicate, unknown,
+unsafe, or incorrectly typed handlers are rejected. Independent handlers consume
+one concrete owned value and return `()`. Only Full cells invoke them, so
+repeated pinned cleanup does not repeat destruction. `work-poll-cleanup` returns
+`Work-frame-cleanup`; pass that aggregate to `cancel-work`, or use the generated
+pinned `work-poll-destroy` entry point to perform both operations in place.
+Dependent children are retired before their lenders, rather than returned beside
+their borrowed parent storage. A pinned dependent handler takes a pinned mutable
+reference and returns `()`.
 
 A handler for an external operation must finish cancellation before releasing
 any borrowed storage the operation can still access. The compiler checks
