@@ -847,10 +847,12 @@ fn async_generated_code_does_not_allow_shadowing_in_nested_branches() {
           (#return result))))";
     let scratch = support::Scratch::new("async-shadow");
     let input = scratch.path().join("shadow.lim");
+    let mut config = lim::CompileConfig::default();
+    config.set("async-lowering", "graph");
     let diagnostic = lim::compile_source_to_assembly(
         source,
         &input,
-        &lim::CompileConfig::default(),
+        &config,
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
@@ -863,6 +865,24 @@ fn async_generated_code_does_not_allow_shadowing_in_nested_branches() {
     );
     let span = diagnostic.span.expect("shadowed binding source span");
     assert_eq!(&source[span.start..span.end], "value");
+    assert_eq!(
+        span.start,
+        source.find("#let value").unwrap() + "#let ".len()
+    );
+    let matched = format!(
+        "(#enum Maybe ((Some #u64) None))\n{}",
+        source.replace(
+            "(#block (#let value #u64 2u64) ())",
+            "(#match (Some 2u64) (#case (Some value) ()) (#case None ()))",
+        )
+    );
+    let error = graph_compile_error(&matched, "async-match-arm-shadow");
+    assert!(error.message.contains("shadow"), "{error:?}");
+    let span = error
+        .span
+        .expect("match shadow has an original binder span");
+    assert_eq!(&matched[span.start..span.end], "value");
+    assert_eq!(span.start, matched.find("value) ()").unwrap());
 }
 
 #[test]
@@ -10229,11 +10249,13 @@ fn terminalized_async_branches_preserve_lexical_scope_and_shadowing_rules() {
     );
     let scratch = support::Scratch::new("async-terminal-scope");
     let input = scratch.path().join("scope.lim");
+    let mut config = lim::CompileConfig::default();
+    config.set("async-lowering", "graph");
     let leaked = scoped.replace("(#u64.+.wrap value index)", "(#u64.+.wrap value local)");
     let error = lim::compile_source_to_assembly(
         &leaked,
         &input,
-        &lim::CompileConfig::default(),
+        &config,
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
@@ -10252,7 +10274,7 @@ fn terminalized_async_branches_preserve_lexical_scope_and_shadowing_rules() {
     let error = lim::compile_source_to_assembly(
         &shadowed,
         &input,
-        &lim::CompileConfig::default(),
+        &config,
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
@@ -10260,16 +10282,28 @@ fn terminalized_async_branches_preserve_lexical_scope_and_shadowing_rules() {
     assert!(error.message.contains("shadow"), "{error:?}");
     let span = error.span.expect("original shadowed declaration span");
     assert_eq!(&shadowed[span.start..span.end], "index");
+    assert_eq!(
+        span.start,
+        shadowed.find("#let index").unwrap() + "#let ".len()
+    );
     let global_shadow = format!("(#const local #u64 9u64)\n{scoped}");
     let error = lim::compile_source_to_assembly(
         &global_shadow,
         &input,
-        &lim::CompileConfig::default(),
+        &config,
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
     .unwrap_err();
     assert!(error.message.contains("shadow"), "{error:?}");
+    let span = error
+        .span
+        .expect("global shadow has an original binder span");
+    assert_eq!(&global_shadow[span.start..span.end], "local");
+    assert_eq!(
+        span.start,
+        global_shadow.find("#let local").unwrap() + "#let ".len()
+    );
     let resource = format!(
         "(#struct Resource ((value #u64))) (#linear Resource)\n{}",
         scoped.replace(
@@ -10280,7 +10314,7 @@ fn terminalized_async_branches_preserve_lexical_scope_and_shadowing_rules() {
     let error = lim::compile_source_to_assembly(
         &resource,
         &input,
-        &lim::CompileConfig::default(),
+        &config,
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
@@ -10290,7 +10324,7 @@ fn terminalized_async_branches_preserve_lexical_scope_and_shadowing_rules() {
         "{error:?}"
     );
     let consumed = resource.replace("(#continue)", "(#forget local) (#continue)");
-    build_and_run(&consumed, 42);
+    build_and_run_graph(&consumed, 42);
 }
 
 #[test]

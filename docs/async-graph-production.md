@@ -1036,6 +1036,35 @@ and standalone generated-code checks, shared/exclusive reference-bearing guard
 previews, rejected-guard cleanup and caller-loan rejection. This does not prove
 all five production gates complete; Legacy is still the default.
 
+### Original declaration spans for async shadowing
+
+Graph source validation now retains the original binder span for shadowing
+instead of underlining the entire `#fn`. The shared diagnostic helper walks
+declaration positions and lexical scopes in the original syntax tree. Earlier
+condition reads, named call keys, comments, strings and pattern type/variant
+heads cannot steal the highlighted location. Ordinary shadowing validation
+still decides whether a declaration is invalid; the span helper grants no
+ownership or borrowing permissions.
+
+Literal-function shadowing validation also uses the canonical match-case
+normalization before inspecting patterns, so `#case` wrappers no longer hide
+arm binders. Graph source validation uses the same global-value and enum-variant
+context as ordinary local renaming: global collisions are rejected before
+source model resolution reports a generic duplicate-local error.
+
+Explicit graph regressions verify exact byte offsets for nested local, match
+arm and global-value collisions, plus escaped branch-local uses and linear
+cleanup on continue paths. Structural span tests cover mutable declarations,
+tuple destructuring, if-let/while-let patterns, range and general for loops,
+let-else failure binders, repeated declarations within one block, independent
+sibling scopes and Unicode binder columns. These changes resolve diagnostic
+gates from the temporary default audit; they do not make graph the default or
+remove Legacy.
+
+Verification passed all 229 async integration tests, 1,353 library tests
+(three manual benchmarks ignored), the targeted graph shadowing regressions,
+the structural span matrix, formatting and whitespace checks.
+
 ### Earlier audit
 
 A temporary graph default followed by `cargo test --test async_fn --quiet`

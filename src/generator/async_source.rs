@@ -614,10 +614,37 @@ fn lower_source(
             span: source.span,
         });
     }
-    crate::validate_function_shadowing(&source.expr).map_err(|message| Error {
+    let globals = base
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Let { name, .. } | Item::Static { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let variants = base
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum { variants, .. } => Some(variants),
+            _ => None,
+        })
+        .flatten()
+        .map(|variant| variant.name.clone())
+        .collect::<HashSet<_>>();
+    if let Some((name, _)) = crate::function_shadowing_in_scope(&source.expr, &globals, &variants)
+        .map_err(|message| Error {
         message,
         span: source.span,
-    })?;
+    })? {
+        return Err(Error {
+            message: format!(
+                "binding '{name}' shadows an existing binding; shadowing is not allowed"
+            ),
+            span: crate::function_shadowing_span(source, &name, globals.contains(&name))
+                .unwrap_or(source.span),
+        });
+    }
     let source_name = symbol(&source.children[1])
         .ok_or_else(|| Error {
             message: "async source function name must be an identifier".into(),

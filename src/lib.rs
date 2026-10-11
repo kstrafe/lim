@@ -3689,18 +3689,160 @@ pub(crate) fn validate_function_shadowing(expression: &Expr) -> Result<(), Strin
     Ok(())
 }
 
+/// Locate an already diagnosed shadowing declaration in original syntax.
+/// This refines a diagnostic only; `function_shadowing` decides validity.
+pub(crate) fn function_shadowing_span(
+    source: &SpannedExpr,
+    name: &str,
+    mut bound: bool,
+) -> Option<Span> {
+    fn head(node: &SpannedExpr) -> &str {
+        match node.children.first().map(|child| &child.expr) {
+            Some(Expr::Symbol(head)) => head.as_str(),
+            _ => "",
+        }
+    }
+    fn declare(node: &SpannedExpr, name: &str, bound: &mut bool) -> Option<Span> {
+        match &node.expr {
+            Expr::Symbol(symbol) if symbol == name => {
+                if *bound {
+                    Some(node.span)
+                } else {
+                    *bound = true;
+                    None
+                }
+            }
+            Expr::List(_) if !matches!(head(node), "#literal" | "#range" | "#range-inclusive") => {
+                node.children
+                    .iter()
+                    .skip(1)
+                    .find_map(|child| declare(child, name, bound))
+            }
+            _ => None,
+        }
+    }
+    fn sequence(nodes: &[SpannedExpr], name: &str, bound: &mut bool) -> Option<Span> {
+        nodes.iter().find_map(|node| visit(node, name, bound))
+    }
+    fn scoped(nodes: &[SpannedExpr], name: &str, mut bound: bool) -> Option<Span> {
+        sequence(nodes, name, &mut bound)
+    }
+    fn visit(node: &SpannedExpr, name: &str, bound: &mut bool) -> Option<Span> {
+        let children = &node.children;
+        match head(node) {
+            "#let" | "#let-mut" | "#let-else" if children.len() >= 4 => {
+                // Initializers execute before their new binding is visible.
+                if let Some(span) = visit(&children[3], name, bound) {
+                    return Some(span);
+                }
+                if head(node) == "#let-else" {
+                    let mut failure = *bound;
+                    for fallback in &children[4..] {
+                        let span = if head(fallback) == "#else" {
+                            declare(fallback.children.get(1)?, name, &mut failure)
+                                .or_else(|| sequence(&fallback.children[2..], name, &mut failure))
+                        } else {
+                            visit(fallback, name, &mut failure)
+                        };
+                        if span.is_some() {
+                            return span;
+                        }
+                    }
+                }
+                declare(&children[1], name, bound)
+            }
+            "#block" | "#loop" => scoped(&children[1..], name, *bound),
+            "#if" if children.len() >= 3 => visit(&children[1], name, bound).or_else(|| {
+                children[2..]
+                    .iter()
+                    .find_map(|branch| scoped(std::slice::from_ref(branch), name, *bound))
+            }),
+            "#if-let" | "#while-let" if children.len() >= 4 => {
+                if let Some(span) = visit(&children[2], name, bound) {
+                    return Some(span);
+                }
+                let mut inner = *bound;
+                declare(&children[1], name, &mut inner).or_else(|| {
+                    if head(node) == "#while-let" {
+                        sequence(&children[3..], name, &mut inner)
+                    } else {
+                        visit(&children[3], name, &mut inner)
+                            .or_else(|| scoped(&children[4..], name, *bound))
+                    }
+                })
+            }
+            "#match" if children.len() >= 2 => {
+                if let Some(span) = visit(&children[1], name, bound) {
+                    return Some(span);
+                }
+                children[2..].iter().find_map(|arm| {
+                    let mut inner = *bound;
+                    if head(arm) != "#case" {
+                        return None;
+                    }
+                    declare(arm.children.get(1)?, name, &mut inner)
+                        .or_else(|| sequence(&arm.children[2..], name, &mut inner))
+                })
+            }
+            "#for-range" if children.len() >= 4 => {
+                if let Some(span) = sequence(&children[2..4], name, bound) {
+                    return Some(span);
+                }
+                let mut inner = *bound;
+                let binding = children[1].children.first()?;
+                declare(binding, name, &mut inner)
+                    .or_else(|| sequence(&children[4..], name, &mut inner))
+            }
+            "#for" => scoped(&children[1..], name, *bound),
+            "#while" if children.len() >= 2 => {
+                visit(&children[1], name, bound).or_else(|| scoped(&children[2..], name, *bound))
+            }
+            _ => sequence(
+                if matches!(
+                    children.first().map(|child| &child.expr),
+                    Some(Expr::Symbol(_))
+                ) {
+                    children.get(1..).unwrap_or_default()
+                } else {
+                    children
+                },
+                name,
+                bound,
+            ),
+        }
+    }
+    if let Some(parameters) = source.children.get(2) {
+        for parameter in &parameters.children {
+            let index = usize::from(head(parameter) == "#mut");
+            let binding = parameter.children.get(index)?;
+            if matches!(&binding.expr, Expr::Symbol(symbol) if symbol == name) {
+                if bound {
+                    return Some(binding.span);
+                }
+                bound = true;
+            }
+        }
+    }
+    sequence(source.children.get(4..)?, name, &mut bound)
+}
+
 pub(crate) fn function_shadowing(
     expression: &Expr,
 ) -> Result<Option<(String, Option<usize>)>, String> {
-    let normalized = normalize_keywords(expression.clone());
+    function_shadowing_in_scope(expression, &HashSet::new(), &HashSet::new())
+}
+
+pub(crate) fn function_shadowing_in_scope(
+    expression: &Expr,
+    globals: &HashSet<String>,
+    variants: &HashSet<String>,
+) -> Result<Option<(String, Option<usize>)>, String> {
+    let mut normalized = normalize_keywords(expression.clone());
+    normalize_match_cases_expr(&mut normalized);
     let Item::Function(mut function) = parse_item(&normalized)? else {
         return Err("source must be a function declaration".into());
     };
-    Ok(rename_function_locals(
-        &mut function,
-        &HashSet::new(),
-        &HashSet::new(),
-    ))
+    Ok(rename_function_locals(&mut function, globals, variants))
 }
 
 fn fresh_binding(
@@ -11391,6 +11533,62 @@ mod tests {
         assert!(check_types(&unknown)
             .unwrap_err()
             .contains("unknown variable"));
+    }
+
+    #[test]
+    fn source_shadow_spans_select_declarations_not_value_uses() {
+        for (body, marker) in [
+            ("(#let value #u64 2u64) (#return value)", "value #u64 2u64"),
+            ("(#if (#u64.== value 0u64) (#block (#let value #u64 2u64) ()) ()) (#return value)", "value #u64 2u64"),
+            ("(#call lookup (: value value)) (#let-mut value #u64 2u64) (#return value)", "value #u64 2u64"),
+            ("(#let (#tuple other value) (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 1u64 2u64)) (#return value)", "value) (#tuple"),
+            ("(#return (#match (Some value) (#case (Some value) 2u64) (#case None 0u64)))", "value) 2u64"),
+            ("(#return (#if-let (Some value) (Some value) value 0u64))", "value) (Some"),
+            ("(#while-let (Some value) (Some value) (#break)) (#return value)", "value) (Some"),
+            ("(#for-range (value #u64) value 2u64 (#break)) (#return value)", "value #u64) value"),
+            ("(#for (#let value #u64 2u64) true () (#break)) (#return value)", "value #u64 2u64"),
+            ("(#let-else (Some item) Maybe (Some value) (#else (Error value) (#return value))) (#return item)", "value) (#return"),
+        ] {
+            let text = format!("(#fn work (: value #u64) #u64 {body})");
+            let node = parse(&text).unwrap().remove(0);
+            let shadow = function_shadowing(&node.expr).unwrap();
+            assert!(matches!(shadow, Some((ref name, _)) if name == "value"), "{text}: {shadow:?}");
+            let span = function_shadowing_span(&node, "value", false).expect(&text);
+            assert_eq!(&text[span.start..span.end], "value", "{text}");
+            assert_eq!(span.start, text.find(marker).unwrap(), "{text}");
+        }
+
+        // A first declaration inside a block is valid; the second is not.
+        // A use, comment or string before the second must not steal its span.
+        let text = "(#fn work () #u64 (#return (#block
+          (#let value #u64 1u64)
+          ; value appears here, but this is not its declaration.
+          (#call print (: text \"value\"))
+          (#let value #u64 2u64) value)))";
+        let node = parse(text).unwrap().remove(0);
+        let span = function_shadowing_span(&node, "value", false).unwrap();
+        assert_eq!(span.start, text.find("value #u64 2u64").unwrap());
+        assert_eq!(span.line, 5);
+
+        // Sibling scopes may use the same spelling; neither shadows the other.
+        let text = "(#fn work () #u64 (#return (#if true
+          (#block (#let value #u64 1u64) value)
+          (#block (#let value #u64 2u64) value))))";
+        let node = parse(text).unwrap().remove(0);
+        assert!(function_shadowing(&node.expr).unwrap().is_none());
+        assert!(function_shadowing_span(&node, "value", false).is_none());
+
+        let text = "(#fn work ((#mut value #u64)) #u64 (#return value))";
+        let node = parse(text).unwrap().remove(0);
+        let span = function_shadowing_span(&node, "value", true).unwrap();
+        assert_eq!(span.start, text.find("value #u64").unwrap());
+
+        let text = "(#fn work (: α #u64) #u64\n  (#let α #u64 2u64) (#return α))";
+        let node = parse(text).unwrap().remove(0);
+        let span = function_shadowing_span(&node, "α", false).unwrap();
+        assert_eq!(&text[span.start..span.end], "α");
+        assert_eq!(span.start, text.find("α #u64 2u64").unwrap());
+        assert_eq!((span.line, span.column), (2, 9));
     }
 
     #[test]
