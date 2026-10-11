@@ -10393,11 +10393,26 @@ fn async_loop_body_restores_values_mutated_through_borrowed_places() {
               (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
         "#
         );
+        build_and_run_graph(&source, 42);
         if ty == "(#array #u64 1)" {
-            // Retained fat-slice representation is a separate graph gate.
-            build_and_run(&source, 42);
-        } else {
-            build_and_run_graph(&source, 42);
+            let retained = source.replace(
+                &format!("(#call touch (: value {argument}))"),
+                &format!(
+                    "(#let selected (#ref-mut #u64) {argument})
+                     (#call touch (: value selected))
+                     (#call touch (: value selected))
+                     (#forget selected)"
+                ),
+            );
+            build_and_run_graph(&retained, 43);
+            let conflicting = retained.replace(
+                "(#forget selected)",
+                "(#set-index counter 0usize 0u64) (#forget selected)",
+            );
+            let error = graph_compile_error(&conflicting, "movable-slice-live-child");
+            assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+            let span = error.span.unwrap();
+            assert_eq!(&conflicting[span.start..span.end], "#set-index");
         }
     }
 }

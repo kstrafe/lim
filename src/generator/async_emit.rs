@@ -257,7 +257,7 @@ impl<'a> Emitter<'a> {
                 .cloned()
                 .unwrap_or_default();
             if let Some(anchor) = self_borrows.bindings.get(&BindingId(index)) {
-                emitter.erase_reference(slot, anchor.clone())?;
+                emitter.plan_reference_storage(slot, anchor.clone())?;
             }
             emitter.bindings.insert(BindingId(index), slot);
         }
@@ -277,7 +277,7 @@ impl<'a> Emitter<'a> {
                 .cloned()
                 .unwrap_or_default();
             if let Some(anchor) = self_borrows.values.get(&ValueId(index)) {
-                emitter.erase_reference(slot, anchor.clone())?;
+                emitter.plan_reference_storage(slot, anchor.clone())?;
             }
             emitter.values.insert(ValueId(index), slot);
         }
@@ -635,6 +635,27 @@ impl<'a> Emitter<'a> {
         let index = self.slots.len();
         self.slots.push(slot);
         index
+    }
+
+    fn plan_reference_storage(
+        &mut self,
+        index: usize,
+        anchor: Vec<crate::typed_place::Place>,
+    ) -> Result<(), Error> {
+        // Poll-local references can keep their actual lending capability.
+        // Reconstructing a pointer from the backing array would bypass a live
+        // slice's exclusive borrow. Retain anchors for the physical Empty
+        // boundary proof even when no pointer erasure is necessary.
+        if !self.pinned
+            && anchor
+                .iter()
+                .all(|place| matches!(place.root, crate::typed_body::PlaceRoot::Local(_)))
+        {
+            self.slots[index].anchor = Some(anchor);
+            Ok(())
+        } else {
+            self.erase_reference(index, anchor)
+        }
     }
 
     fn erase_reference(
@@ -2345,7 +2366,7 @@ impl<'a> Emitter<'a> {
         pinned: bool,
     ) -> Result<String, Error> {
         if matches!(descriptor.root, AddressRoot::Local(_)) {
-            // A movable poll is stationary while executing. Its raw internal
+            // A movable poll is stationary while executing. Its internal
             // handles were certified Empty on every Pending boundary in new;
             // this does not make a source pin movable or grant borrow access.
             let owner = crate::generator::async_owner::Borrow::new(
@@ -2354,7 +2375,7 @@ impl<'a> Emitter<'a> {
                 &self.planning.declarations,
                 mutable,
                 pinned,
-                self.pinned || (!pinned && self.slots[dst].raw),
+                self.pinned || !pinned,
             )
             .map_err(|message| fail(self.function, message))?;
             let slot = self.bindings.get(&owner.binding).ok_or_else(|| {
@@ -7348,6 +7369,17 @@ mod tests {
         let planning = prepare(body, RUN);
         let function = &planning.functions[0];
         let mut emitter = Emitter::new(&planning, function).unwrap();
+        let view = BindingId(
+            function
+                .graph
+                .bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap(),
+        );
+        let slot = &emitter.slots[emitter.bindings[&view]];
+        assert!(!slot.raw, "poll-local loans must retain their capability");
+        assert!(slot.anchor.is_some(), "movement still needs anchor facts");
         emitter.reference_cells = None;
         assert!(emitter
             .validate_movable_reference_boundaries()

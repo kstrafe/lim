@@ -334,9 +334,9 @@ capture mapping. A non-async unit regression verifies that split, and another
 checks that ambiguous destinations do not acquire strong tag facts. Semantic
 cache records include the new flag and use a versioned format boundary.
 
-Movable local-slice projections, mixed selections involving pinned-reference
-parameters, and effectful index windows remain unfinished. These are still
-default-switch gates.
+Mixed selections involving pinned-reference parameters and effectful index
+windows remain unfinished default-switch gates. Poll-local mutable-slice
+projections are covered by the retained-capability path described below.
 
 On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
 thin reference locals into stationary frame owners, including checked static
@@ -753,9 +753,10 @@ integration tests, formatting, and whitespace checks.
 ### Retired local references in movable polls
 
 Thin references stored in locals can now be used across multiple synchronous
-operations in a movable poll. Their selected pointers use the existing
-frame-anchor representation, but movement is authorized only when every
-reachable Pending boundary proves all internal reference cells and dependent
+operations in a movable poll. References whose anchors are entirely local now
+retain their actual checked capability instead of reconstructing a pointer from
+the backing owner. Their anchor metadata still authorizes movement only when
+every reachable Pending boundary proves all internal reference cells and dependent
 owners physically Empty. Missing physical facts fail closed. An internal
 reference retained across an await still requires a pinned async frame, with
 the diagnostic pointing to its source address formation where available.
@@ -771,23 +772,26 @@ Regression coverage includes aliases retained after releasing the original,
 references live in just one suspension branch, reference-bearing aggregate
 holders, and missing boundary-fact rejection. Cold and warm generated-code
 tests compile and execute the inspectable artifact as standalone Lim. The
-existing loop-mutation regression now uses graph lowering for its scalar and
-struct-reference variants. Scoped local borrows also use this boundary proof:
+existing loop-mutation regression now uses graph lowering for its scalar,
+struct-reference, and mutable-slice variants. Scoped local borrows also use this
+boundary proof:
 ending the scope before suspension permits movement, but retaining the scope
-across suspension still requires a pinned frame. Fat-slice storage and other
-default-switch requirements remain open. Legacy lowering is still the default.
+across suspension still requires a pinned frame. Other default-switch
+requirements remain open. Legacy lowering is still the default.
 
 The array variant of
 `async_loop_body_restores_values_mutated_through_borrowed_places` is a narrower
 fat-slice gate than retention across suspension: it creates a mutable slice,
 calls a synchronous helper on `#slice-mut-idx`, and explicitly forgets the slice
-**before** awaiting. Running that variant through graph lowering currently
-rejects the indexed argument with `selected addresses require safe checked
-references`. The selected-address snapshot emitter accepts thin reference roots
-but lacks this fat-slice root/projection path. Implement that checked address
-selection and its original slice/owner loan retention before migrating the
-variant; do not reinterpret the valid program as an expected rejection or
-assume forgetting the slice alone makes its physical frame storage safe.
+**before** awaiting. This now executes with graph lowering. Erasing the selected
+element reference and reconstructing it from the backing array conflicted with
+the slice's still-live exclusive loan. Keeping the selected reference preserves
+the original lending capability through the synchronous call and its retirement.
+The regression also stores the element reference in a named local, uses it for
+two calls, and verifies that modifying the backing array while that reference is
+live still fails with a Borrow diagnostic underlining `#set-index`. Pinned-frame
+and external-anchor pointer storage remain unchanged. Both the slice holder and
+its selected references must be physically Empty before the frame can move.
 
 `examples/async_fn_poll_local_borrow.lim` demonstrates stored mutable field
 reborrows and a scoped shared read, releases both before suspension, then moves
