@@ -3933,14 +3933,34 @@ fn async_function_releases_let_else_success_borrow_after_ready() {
         (#forget waker)
         (#return (#u64.+.wrap result owner)))";
     let accepted = source.replace("MUTATE_WHILE_PENDING", "");
-    build_and_run(&accepted, 45);
+    build_and_run_graph(&accepted, 45);
+
+    // The failure branch completes immediately without lending owner to a
+    // child. Its unused factory capture must not survive the Ready result.
+    let fallback = format!(
+        "{}\n(#fn main () #u64
+          (#let-mut owner #u64 1u64)
+          (#let waker #u64 0u64)
+          (#let task Work-task (#call work
+            (: input None : owner (#borrow-mut owner))))
+          (#let outcome Work-poll-result
+            (#call work-poll (: task task : waker (#borrow waker))))
+          (#let-else (work-ready result) Work-poll-result outcome (#unreachable))
+          (#set owner 3u64)
+          (#forget waker)
+          (#return (#u64.+.wrap result owner)))",
+        source.split("(#fn main").next().unwrap()
+    );
+    build_and_run_graph(&fallback, 10);
 
     let rejected = source.replace("MUTATE_WHILE_PENDING", "(#set owner 4u64)");
-    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
-    assert!(
-        error.contains("borrow") || error.contains("access") || error.contains("loan"),
-        "the success child must retain its exclusive borrow while work-pending: {error}"
-    );
+    let error = graph_compile_error(&rejected, "let-else-success-retained-borrow");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let span = error
+        .span
+        .expect("the rejected mutation needs a source span");
+    assert_eq!(&rejected[span.start..span.end], "#set");
+    assert_eq!(span.start, rejected.find("#set owner 4u64").unwrap());
 }
 
 #[test]

@@ -970,6 +970,34 @@ removes subsequent direct counter reads, isolating the retained resource loan
 from an ordinary use-after-consume error. This is checked by ordinary generated
 function contracts; no async-specific loan permission was added.
 
+### Public let-else loan-release regression and fresh default audit
+
+The let-else success-loan regression now runs explicitly on graph lowering.
+Its reference-bearing child holds the caller's exclusive loan across Pending,
+writes through that reference on resume, and releases it on Ready. Native
+execution returns 45 after the caller replaces the referent. The failure branch
+instead completes immediately with 7 and releases the unused factory capture;
+the caller can replace the referent and return 10. Mutation between polls is
+rejected with `Borrow` at the original `#set` token, not a generated frame span.
+No borrow permissions were changed for this migration.
+
+A fresh temporary graph-default run of the same 229-test async integration
+suite passed 184 tests and failed 45 in 94.71 seconds. The previous October 11
+run passed 167 and failed 62. The default was restored to Legacy after the
+audit. These numbers are regression progress, not proof that graph is ready
+to become the default or that all ownership cases are covered.
+
+The remaining failures include legacy private-layout assertions after native
+execution, source diagnostic categories/spans, parse-only expectations for
+formerly unsupported constructs, and one 20-second native compilation timeout
+in `async_while_let_aggregate_payloads_use_declared_capture_types`. In particular,
+`async_branch_prefixes_capture_only_live_values` rejects reading a forgotten
+linear payload, but reports the physical Full-cell gate as `Type` instead of
+the intended source `Linear` diagnostic. That still needs a source-ownership
+diagnostic fix; changing the test's expected category would hide the problem.
+The timeout needs an isolated measurement before classifying it as load noise
+or an analysis-cost regression.
+
 ### Earlier audit
 
 A temporary graph default followed by `cargo test --test async_fn --quiet`
