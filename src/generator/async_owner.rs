@@ -21,6 +21,31 @@ pub(crate) struct Borrow {
     fields: Vec<String>,
 }
 
+pub(crate) fn validate_mutability(
+    graph: &Graph,
+    binding: BindingId,
+    mutable: bool,
+) -> Result<(), String> {
+    if mutable
+        && !graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .any(|action| match &action.action {
+                Action::Bind {
+                    binding: declared,
+                    mutable,
+                    ..
+                } => *declared == binding && *mutable,
+                Action::Commit(pattern) => pattern.mutable && pattern.bindings.contains(&binding),
+                _ => false,
+            })
+    {
+        return Err("stable owner borrow cannot make an immutable binding exclusive".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,22 +192,7 @@ impl Borrow {
             .bindings
             .get(binding.0)
             .ok_or("stable owner borrow lost its binding")?;
-        let declared_mutable = graph
-            .blocks
-            .iter()
-            .flat_map(|block| &block.actions)
-            .any(|action| match &action.action {
-                Action::Bind {
-                    binding: declared,
-                    mutable,
-                    ..
-                } => *declared == binding && *mutable,
-                Action::Commit(pattern) => pattern.mutable && pattern.bindings.contains(&binding),
-                _ => false,
-            });
-        if mutable && !declared_mutable {
-            return Err("stable owner borrow cannot make an immutable binding exclusive".into());
-        }
+        validate_mutability(graph, binding, mutable)?;
         if !place.checks().is_empty() {
             return Err("stable owner projection needs its selected address snapshot".into());
         }

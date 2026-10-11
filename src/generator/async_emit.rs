@@ -642,11 +642,16 @@ impl<'a> Emitter<'a> {
         index: usize,
         anchor: Vec<crate::typed_place::Place>,
     ) -> Result<(), Error> {
-        // Poll-local references can keep their actual lending capability.
+        // Single-target poll-local references can keep their actual lending capability.
         // Reconstructing a pointer from the backing array would bypass a live
         // slice's exclusive borrow. Retain anchors for the physical Empty
-        // boundary proof even when no pointer erasure is necessary.
+        // boundary proof even when no pointer erasure is necessary. Multi-target
+        // handles use the selected-address representation: retaining a real
+        // reference across dispatcher arms otherwise joins its loan into the
+        // initialization arm of every possible referent. Movable frames still
+        // require all such handles Empty before returning Pending.
         if !self.pinned
+            && anchor.len() == 1
             && anchor
                 .iter()
                 .all(|place| matches!(place.root, crate::typed_body::PlaceRoot::Local(_)))
@@ -2270,7 +2275,7 @@ impl<'a> Emitter<'a> {
     fn reborrow_from_handle(
         &mut self,
         dst: ValueId,
-        descriptor: &PlaceDescriptor,
+        place: PlaceId,
         mutable: bool,
         pinned: bool,
     ) -> Result<String, Error> {
@@ -2280,7 +2285,39 @@ impl<'a> Emitter<'a> {
                 "borrow result has no physical reference cell",
             )
         })?;
-        self.reborrow_to_slot(slot, descriptor, mutable, pinned)
+        self.reborrow_to_slot(slot, place, mutable, pinned)
+    }
+
+    fn owned_array_borrow(&mut self, id: PlaceId, mutable: bool) -> Result<String, Error> {
+        let descriptor = &self.function.graph.places[id.0];
+        let AddressRoot::Local(binding) = descriptor.root else {
+            return Err(fail(self.function, "array borrow lost its checked owner"));
+        };
+        crate::generator::async_owner::validate_mutability(&self.function.graph, binding, mutable)
+            .map_err(|message| fail(self.function, message))?;
+        // Use the checked index snapshot (or a proved in-bounds literal),
+        // never re-evaluate the source index. The poll owns stationary storage
+        // while executing; this ordinary reference does not pin the source.
+        let (place, target) = self.owned_projection_address(id, mutable)?;
+        let input = Type::PinnedReference {
+            mutable,
+            target: Box::new(target.clone()),
+        };
+        let output = Type::Reference {
+            mutable,
+            target: Box::new(target),
+        };
+        let name = self.fresh("owner-project-array");
+        let argument = self.fresh("owner-project-array-input");
+        let suffix = if mutable { "-mut" } else { "" };
+        self.projections.push(format!(
+            "(#fn {name} (: {argument} {}) {} (#return (#unsafe (#ptr-borrow{suffix} {argument} (#ref-ptr {argument})))))",
+            crate::type_source(&input),
+            crate::type_source(&output),
+        ));
+        Ok(format!(
+            "(#call {name} (: {argument} (#pin-borrow{suffix} {place})))"
+        ))
     }
 
     fn immediate_reference(&mut self, value: ValueId) -> Result<String, Error> {
@@ -2306,6 +2343,11 @@ impl<'a> Emitter<'a> {
             return self.slice_borrow(&operation, &inputs);
         }
         let descriptor = &self.function.graph.places[borrow.place.0];
+        if self.owned_indices.contains_key(&borrow.place)
+            || self.static_owned_projection(descriptor)
+        {
+            return self.owned_array_borrow(borrow.place, borrow.mutable);
+        }
         // The certificate limits this borrow to one synchronous operation:
         // the frame cannot move while that call is executing. No reference
         // cell or pending-edge pointer is created for this argument.
@@ -2361,16 +2403,37 @@ impl<'a> Emitter<'a> {
     fn reborrow_to_slot(
         &mut self,
         dst: usize,
-        descriptor: &PlaceDescriptor,
+        place: PlaceId,
         mutable: bool,
         pinned: bool,
     ) -> Result<String, Error> {
+        let descriptor = &self.function.graph.places[place.0];
         if matches!(descriptor.root, AddressRoot::Local(_)) {
             if pinned && !self.pinned {
                 return Err(fail(
                     self.function,
                     "pinning a local requires a pinned async frame",
                 ));
+            }
+            if self.owned_indices.contains_key(&place) || self.static_owned_projection(descriptor) {
+                let expected = Type::Reference {
+                    mutable,
+                    target: Box::new(descriptor.ty.clone()),
+                };
+                if expected
+                    != crate::typed_ir::resolve_type(
+                        &self.slots[dst].ty,
+                        &self.planning.declarations.aliases,
+                    )
+                    .map_err(|message| fail(self.function, message))?
+                {
+                    return Err(fail(
+                        self.function,
+                        "array borrow disagrees with its checked type",
+                    ));
+                }
+                let value = self.owned_array_borrow(place, mutable)?;
+                return Ok(self.put(dst, &value));
             }
             // A movable poll is stationary while executing. Its internal
             // handles were certified Empty on every Pending boundary in new;
@@ -3171,7 +3234,7 @@ impl<'a> Emitter<'a> {
                 pinned,
                 scope: None,
             } if !self.addresses.contains_key(place) => self
-                .reborrow_from_handle(*dst, &graph.places[place.0], *mutable, *pinned)
+                .reborrow_from_handle(*dst, *place, *mutable, *pinned)
                 .map_err(|failure| Error {
                     message: failure.message,
                     span: located.span.unwrap_or(self.function.source.function.span),
@@ -3242,7 +3305,7 @@ impl<'a> Emitter<'a> {
                     }
                     Ok(self.put(slot, &self.read(address, true)))
                 } else {
-                    self.reborrow_to_slot(slot, &graph.places[place.0], *mutable, *pinned)
+                    self.reborrow_to_slot(slot, *place, *mutable, *pinned)
                         .map_err(|failure| Error {
                             message: failure.message,
                             span: located.span.unwrap_or(self.function.source.function.span),
@@ -7499,6 +7562,50 @@ mod tests {
             .message
             .contains("physical suspension-cell facts"));
         let mut emitter = Emitter::new(&planning, function).unwrap();
+        emitter
+            .reference_cells
+            .as_mut()
+            .unwrap()
+            .pending_empty
+            .clear();
+        assert!(emitter
+            .validate_movable_reference_boundaries()
+            .unwrap_err()
+            .message
+            .contains("every reachable Pending boundary"));
+
+        // A selected address is an implementation detail, not permission to
+        // move a frame containing a live local loan. Require the same physical
+        // Empty proof even when the original capability is pointer-backed.
+        let selected = prepare(
+            "(#let left #u64 seed) (#let right #u64 50u64)
+              (#let view (#ref #u64)
+                (#if (#u64.== seed 40u64) (#borrow left) (#borrow right)))
+              (#let answer #u64 (#deref view)) (#forget view)
+              (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#return (#u64.+.wrap answer extra))",
+            RUN,
+        );
+        let function = &selected.functions[0];
+        let mut emitter = Emitter::new(&selected, function).unwrap();
+        let view = BindingId(
+            function
+                .graph
+                .bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap(),
+        );
+        let slot = &emitter.slots[emitter.bindings[&view]];
+        assert!(
+            slot.raw,
+            "multi-target handles must preserve the selected address"
+        );
+        assert!(
+            slot.anchor.is_some(),
+            "selection still needs referent facts"
+        );
+        emitter.validate_movable_reference_boundaries().unwrap();
         emitter
             .reference_cells
             .as_mut()

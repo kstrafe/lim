@@ -1394,10 +1394,38 @@ The reproducibility test passed. The full audit also observed two `ETXTBSY`
 execution races; their focused jump-table and timer reruns passed, which does
 not prove those races eliminated.
 
-One functional failure from that broader audit remains: a movable future forms
+At that switch audit, one functional failure remained: a movable future forms
 a shared reference selecting between two local scalars and explicitly forgets
 it before awaiting. Emitted ordinary checking nevertheless reports a later
 dispatcher-arm loan against an earlier initialization. The regression is kept
 enabled and unreduced. This false rejection, internal legacy deletion, private
 cleanup-interface removal, and the full requirement-by-requirement safety audit
 remain work toward the original goal; this default switch is not completion.
+
+## Movable poll-local selections and indexed projections
+
+The branch-selected local-reference false rejection above is now fixed.
+Single-target handles retain their ordinary lending capability; multi-target
+handles retain the checked selected address and referent facts. This does not
+authorize a live self-reference to move with the frame: physical reference-cell
+analysis must prove every internal handle Empty on every reachable Pending
+boundary. A structural regression deliberately removes that proof and requires
+rejection for both representations. Original-body borrowing and completed
+ordinary generated-program checks remain mandatory.
+
+Indexed local borrows now use the saved, checked index or a proved in-bounds
+literal, through a typed projection helper. Changing the source index after
+selection cannot retarget an existing reference. The helper uses the actual
+owner payload during the stationary poll and preserves the checked leaf type
+and source mutability; it does not copy the owner or grant pinning to movable
+source storage.
+
+All 13 immediate-borrow integration tests passed, including cold/warm compilation
+and independently compiling the emitted ordinary source. Added native cases
+exercise both choices of different scalar values, a wide struct field versus an
+array element, exclusive mixed-layout selection with referent-specific writes,
+changed runtime indices, and mutable fields under indexed array elements.
+Invalid shared/exclusive multi-target aliasing must still fail at the original
+source expression before publishing generated cache files. Legacy implementation
+deletion, private cleanup-interface removal, and the complete safety audit are
+still outstanding; these passing cases do not establish goal completion.

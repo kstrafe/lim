@@ -105,9 +105,55 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
           (#forget container)
           (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
           (#let answer #u64 (#get counter value)) (#forget counter) (#return answer)",
-        "(#let left #u64 42u64) (#let right #u64 42u64)
+        "(#let left #u64 40u64) (#let right #u64 50u64)
           (#let view (#ref #u64) (#if choose (#borrow left) (#borrow right)))
           (#let answer #u64 (#deref view)) (#forget view)
+          (#assert (#u64.== answer (#if choose 40u64 50u64)))
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#return 42u64)",
+        "(#let left Wide (#struct-literal Wide (: padding 7u8 : value 40u128)))
+          (#let right (#array #u128 2) (#array-of (#array #u128 2) 1u128 50u128))
+          (#let view (#ref #u128)
+            (#if choose (#borrow (#get left value)) (#borrow (#index right 1usize))))
+          (#let answer #u128 (#deref view)) (#forget view)
+          (#assert (#u128.== answer (#if choose 40u128 50u128)))
+          (#forget left) (#forget right)
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#return 42u64)",
+        "(#let-mut left #u64 40u64)
+          (#let-mut right Counter (#struct-literal Counter (: value 50u64)))
+          (#let view (#ref-mut #u64)
+            (#if choose (#borrow-mut left) (#borrow-mut (#get right value))))
+          (#deref-set view (#u64.+.wrap (#deref view) 2u64))
+          (#let answer #u64 (#deref view)) (#forget view)
+          (#assert (#u64.== answer (#if choose 42u64 52u64)))
+          (#assert (#u64.== left (#if choose 42u64 40u64)))
+          (#assert (#u64.== (#get right value) (#if choose 50u64 52u64)))
+          (#forget right)
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#return 42u64)",
+        "(#let left Wide (#struct-literal Wide (: padding 7u8 : value 40u128)))
+          (#let right (#array #u128 2) (#array-of (#array #u128 2) 1u128 50u128))
+          (#let-mut index #usize 1usize)
+          (#let view (#ref #u128)
+            (#if choose (#borrow (#get left value)) (#borrow (#index right index))))
+          (#set index 0usize)
+          (#let answer #u128 (#deref view)) (#forget view)
+          (#assert (#u128.== answer (#if choose 40u128 50u128)))
+          (#forget left) (#forget right)
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#return 42u64)",
+        "(#let-mut items (#array Counter 2)
+            (#array-of (#array Counter 2)
+              (#struct-literal Counter (: value 20u64))
+              (#struct-literal Counter (: value 20u64))))
+          (#let-mut index #usize 1usize)
+          (#call touch (: target (#borrow-mut (#get (#index items index) value))))
+          (#set index 0usize)
+          (#call touch (: target (#borrow-mut (#get (#index items index) value))))
+          (#let answer #u64
+            (#u64.+.wrap (#get (#index items 0usize) value) (#get (#index items 1usize) value)))
+          (#forget items)
           (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
           (#return answer)",
         "(#let owner #u64 40u64)
@@ -118,6 +164,7 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
         for choose in [false, true] {
             let source = format!(
                 "(#struct Counter (: value #u64))
+                (#struct Wide (: padding #u8 : value #u128))
                 (#fn touch (: target (#ref-mut #u64)) ()
                   (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return ()))
                 (#enum Child (Start Resume)) (#linear Child)
@@ -157,10 +204,18 @@ fn poll_local_pointer_storage_does_not_authorize_source_aliasing() {
           (#let alias (#ref #u64) (#borrow owner))
           (#let answer #u64 (#deref view)) (#forget alias) (#forget view)
           (#return answer)",
+        "(#let-mut owner #u64 40u64) (#let-mut other #u64 50u64)
+          (#let view (#ref #u64) (#if choose (#borrow owner) (#borrow other)))
+          (#set owner 42u64) (#return (#deref view))",
+        "(#let-mut owner #u64 40u64) (#let-mut other #u64 50u64)
+          (#let view (#ref-mut #u64) (#if choose (#borrow-mut owner) (#borrow-mut other)))
+          (#let alias (#ref #u64) (#borrow owner))
+          (#let answer #u64 (#deref view)) (#forget alias) (#forget view)
+          (#return answer)",
     ] {
         let source = format!(
             "(@#async-fn (: protocol WorkAwait : waker #u64
-              : function (#fn work () #u64 {body})))"
+              : function (#fn work (: choose #bool) #u64 {body})))"
         );
         let scratch = support::Scratch::new("async-poll-local-alias");
         let cache = scratch.path().join("cache");
