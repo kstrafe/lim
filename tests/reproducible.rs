@@ -5,6 +5,12 @@ fn snapshot(root: &Path, directory: &Path, output: &mut BTreeMap<String, Vec<u8>
     for entry in fs::read_dir(directory).unwrap() {
         let path = entry.unwrap().path();
         if path.is_dir() {
+            // Semantic summaries deliberately include physical source paths in
+            // their context key. Check their warm stability per workspace below;
+            // they are not location-independent generated/build artifacts.
+            if path == root.join(".lim/cache/semantic") {
+                continue;
+            }
             snapshot(root, &path, output);
         } else {
             let mut contents = fs::read(&path).unwrap();
@@ -73,6 +79,7 @@ fn cold_and_warm_builds_are_identical_across_relocated_workspaces() {
     let right = support::Scratch::new("repro-right");
     let mut expected = None;
     for root in [left.path(), right.path()] {
+        let mut expected_summaries = None;
         fs::write(root.join("module.lim"), "(#const Z #u64 2u64) (#const A #u64 20u64) (#const Float #f64 1.5f64)\n(#gn alias (name) `((#type ,name #u64)))\n(@alias Word)\n(@#optional (: type #u64 : name Maybe))").unwrap();
         fs::write(
             root.join("main.lim"),
@@ -108,6 +115,20 @@ fn cold_and_warm_builds_are_identical_across_relocated_workspaces() {
                 fs::read(root.join("program.s")).unwrap(),
             );
             actual.insert("program".into(), fs::read(root.join("program")).unwrap());
+            let mut summaries = BTreeMap::new();
+            snapshot(root, &root.join(".lim/cache/semantic"), &mut summaries);
+            assert!(
+                !summaries.is_empty(),
+                "the semantic cache must be exercised"
+            );
+            if let Some(expected_summaries) = &expected_summaries {
+                assert_eq!(
+                    &summaries, expected_summaries,
+                    "warm builds must preserve the workspace's semantic artifacts"
+                );
+            } else {
+                expected_summaries = Some(summaries);
+            }
             if let Some(expected) = &expected {
                 let expected: &BTreeMap<String, Vec<u8>> = expected;
                 assert_eq!(
