@@ -73,6 +73,19 @@ to source-slot handlers. The old private graph `work-poll-cancel` storage record
 remains available for staged regression compatibility; its fields are not the
 public cleanup interface.
 
+Post-terminal parameter access is still a migration gate. A regression now
+demonstrates replacement of a reference-free Copy parameter in the **same**
+pinned frame after Ready and after public cleanup. Its ordinary helper checks
+the terminal counter and empty dependent cells, reads and consumes the previous
+tagged cell, and explicitly writes the replacement. Merely overwriting a Full
+cell is not a valid initialization contract. An unguarded helper called while
+Pending is rejected by ordinary borrow checking, which underlines the receiver
+and labels the callee's write through the retained internal loan. Cold/warm
+generated artifacts run independently as ordinary Lim and preserve the original
+self-reference example's result of 58. These tests do not expose a public
+source-named accessor API or make private cell names stable; that API and the
+example's migration remain unfinished.
+
 ## Current support and gates
 
 Source-time delayed initialization stays at the original graph Bind. Factories
