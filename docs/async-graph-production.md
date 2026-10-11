@@ -1997,3 +1997,40 @@ and confirms that selected-address emission rejects the uninitialized field.
 An initial concurrent async/library run hit the unchanged 20-second compilation
 timeout in the 33-await test; that test passed alone and in the subsequent full
 four-worker run. Its timeout was not increased.
+
+## Cache-housekeeping allocation profile
+
+Release sampling of the guarded/lending fixtures also identified generated-cache
+housekeeping as repeated filesystem/allocation work. The examples cache contained
+14,129 metadata/analysis files and 5,892 generated source files at profiling time.
+Housekeeping previously built a full path and parsed its extension for every
+directory entry, even though nearly all entries are committed cache artifacts.
+It now checks the basename's ASCII `.tmp` suffix and constructs a full path only
+when deleting an expired staging candidate. Exactly `.tmp` remains a dotfile,
+not an extension-bearing staging name; UTF-8 and non-UTF-8 basenames retain the
+previous extension semantics. The age threshold, throttling and concurrency
+policy are unchanged. Cache-hit key/digest/parser checks are unchanged too.
+
+Twenty-one alternating warmed release `--check --timings` pairs per fixture,
+after three warmups per compiler and pinned to CPU 8, gave these medians:
+
+| Fixture | Total check before/after (ms) | Wall before/after (ms) |
+| --- | --- | --- |
+| async_nested_partial_struct | 65.640 / 65.291 | 67.441 / 67.118 |
+| async_while_let_dependencies | 60.568 / 59.843 | 62.197 / 61.417 |
+| async_fn_local_self_reference | 59.647 / 58.948 | 61.259 / 60.554 |
+| async_partial_borrow | 115.493 / 114.724 | 117.891 / 117.157 |
+| match_linear_guard | 1.080 / 1.081 | 1.539 / 1.541 |
+
+This is a small 0.5–1.2% total-check improvement on the larger cached async
+fixtures, not a contract-solver speedup. Contract/consumption timings are
+effectively unchanged, as is the small guard control. Cache size affects this
+benefit; do not extrapolate it to fresh/small projects or treat it as completion
+of the guarded/lending analysis goal.
+
+All five fixtures produce byte-identical assembly before/after and retain their
+native outcomes (44, 40, 42, 45 and 7). Four representative type/borrow/pinning
+diagnostics are byte-identical. Filename parity, throttling and concurrent cache
+publication regressions pass, together with the full 1,363-test library suite
+(seven ignored), five native-example tests, two adversarial borrow tests, three
+UI tests and all-target checking.

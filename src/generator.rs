@@ -1561,8 +1561,7 @@ fn cleanup_abandoned_staging(directory: &Path) {
     drop(times);
     let now = SystemTime::now();
     for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        if !path.extension().is_some_and(|extension| extension == "tmp") {
+        if !is_cache_staging_name(&entry.file_name()) {
             continue;
         }
         let stale = entry
@@ -1572,9 +1571,17 @@ fn cleanup_abandoned_staging(directory: &Path) {
             .and_then(|modified| now.duration_since(modified).ok())
             .is_some_and(|age| age > Duration::from_secs(60 * 60));
         if stale {
-            let _ = fs::remove_file(path);
+            let _ = fs::remove_file(entry.path());
         }
     }
+}
+
+/// DirEntry names are basenames, so an ASCII suffix is sufficient here.
+/// A dotfile named exactly `.tmp` has no extension and is not staging.
+/// Construct a full directory path only when a stale candidate is removed.
+fn is_cache_staging_name(name: &std::ffi::OsStr) -> bool {
+    let bytes = name.as_encoded_bytes();
+    bytes.len() > 4 && bytes.ends_with(b".tmp")
 }
 
 fn interpreter_hash() -> u128 {
@@ -2538,6 +2545,51 @@ mod tests {
             .unwrap();
         assert!(read_bounded_cache_file(&path).is_none());
         let _ = fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn staging_filename_filter_matches_basename_extension_semantics() {
+        for name in [
+            "tmp",
+            ".tmp",
+            "a.tmp",
+            ".a.tmp",
+            "..tmp",
+            "...tmp",
+            "generated-012345.7-9.tmp",
+            "a.TMP",
+            "a.tmp.",
+            "a.tmp.backup",
+            "é.tmp",
+            "é.TMP",
+            "é.tmp.cache",
+            "",
+            ".",
+            "..",
+        ] {
+            let name = std::ffi::OsStr::new(name);
+            assert_eq!(
+                is_cache_staging_name(name),
+                Path::new(name)
+                    .extension()
+                    .is_some_and(|extension| extension == "tmp"),
+                "{name:?}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            for bytes in [b"\xff.tmp".as_slice(), b"\xff.tmp.backup", b"\xff.TMP"] {
+                let name = std::ffi::OsStr::from_bytes(bytes);
+                assert_eq!(
+                    is_cache_staging_name(name),
+                    Path::new(name)
+                        .extension()
+                        .is_some_and(|extension| extension == "tmp"),
+                    "{name:?}"
+                );
+            }
+        }
     }
 
     #[test]
