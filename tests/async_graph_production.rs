@@ -357,6 +357,39 @@ fn movable_cleanup_consumes_the_frame_at_entry_and_pending() {
 }
 
 #[test]
+fn movable_dynamic_store_preserves_selection_in_cached_and_standalone_code() {
+    let source = format!(
+        "{CONTEXT}
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : cancel (work-cancel ((await-0 cancel-child)))
+        : function (#fn work (: seed #u64) #u64
+          (#let-mut index #usize 1usize)
+          (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 0u64 9u64))
+          (#set-index values index (#block (#set index 0usize)
+            (#await Child ChildPending ChildReady child-poll (Start seed))))
+          (#assert (#u64.== (#index values 0usize) 0u64))
+          (#return (#index values 1usize)))))
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result (#call work-poll
+          (: task (#call work (: seed 42u64)) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#let cancelled Work-poll-result (#call work-poll
+          (: task (#call work (: seed 90u64)) : waker (#borrow waker))))
+        (#let-else (work-pending cancel-task) Work-poll-result cancelled (#unreachable))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task cancel-task))))
+        (#return answer))"
+    );
+    let artifact = run(&source, "async-movable-dynamic-store");
+    assert!(artifact.contains("index."));
+    assert!(!artifact.contains("select-address"));
+    assert!(artifact.contains("(#usize.<"));
+}
+
+#[test]
 fn guard_preview_keeps_linear_scrutinee_through_rejection_and_resumption() {
     let source = format!("{CONTEXT}
       (@#async-fn (: protocol WorkAwait : waker #u64

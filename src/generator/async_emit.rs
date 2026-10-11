@@ -52,6 +52,13 @@ struct Slot {
     linear: bool,
 }
 
+struct OwnedIndex {
+    projection: usize,
+    value: ValueId,
+    bound: usize,
+    slot: usize,
+}
+
 struct Emitter<'a> {
     planning: &'a Planning,
     function: &'a Function,
@@ -81,6 +88,7 @@ struct Emitter<'a> {
     projections: Vec<String>,
     array_anchors: crate::generator::async_array_anchor::Recipes,
     addresses: HashMap<PlaceId, usize>,
+    owned_indices: HashMap<PlaceId, Vec<OwnedIndex>>,
     address_retirement: Option<crate::generator::async_addresses::Plan>,
 }
 
@@ -210,6 +218,7 @@ impl<'a> Emitter<'a> {
             projections: Vec::new(),
             array_anchors: Default::default(),
             addresses: HashMap::new(),
+            owned_indices: HashMap::new(),
             address_retirement: None,
         };
         emitter.finish = emitter.fresh("frame-finish");
@@ -344,6 +353,25 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let descriptor = &function.graph.places[index];
+            if !emitter.pinned {
+                if let Some(indices) = emitter.owned_array_indices(descriptor) {
+                    let recipe = indices
+                        .into_iter()
+                        .map(|(projection, value, bound)| {
+                            let slot = emitter
+                                .add_slot(format!("index.{index}.{projection}"), Type::Usize);
+                            OwnedIndex {
+                                projection,
+                                value,
+                                bound,
+                                slot,
+                            }
+                        })
+                        .collect();
+                    emitter.owned_indices.insert(place, recipe);
+                    continue;
+                }
+            }
             let selection_error = |message: &str| Error {
                 message: message.into(),
                 span: descriptor
@@ -842,7 +870,7 @@ impl<'a> Emitter<'a> {
             let descriptor = &self.function.graph.places[lease.place.0];
             if !descriptor.projections.is_empty() {
                 return self
-                    .owned_projection_address(descriptor, true)
+                    .owned_projection_address(lease.place, true)
                     .expect("a projected lease must have a checked owning address")
                     .0;
             }
@@ -1336,9 +1364,53 @@ impl<'a> Emitter<'a> {
         self.clear_handle_slots(
             &places
                 .iter()
-                .filter_map(|place| self.addresses.get(place).copied())
+                .flat_map(|place| {
+                    self.addresses.get(place).copied().into_iter().chain(
+                        self.owned_indices
+                            .get(place)
+                            .into_iter()
+                            .flatten()
+                            .map(|index| index.slot),
+                    )
+                })
                 .collect::<Vec<_>>(),
         )
+    }
+
+    fn select_owned_indices(
+        &self,
+        place: PlaceId,
+        descriptor: &PlaceDescriptor,
+    ) -> Result<String, Error> {
+        let mut actions = Vec::new();
+        for index in &self.owned_indices[&place] {
+            let inherited = descriptor
+                .parent
+                .and_then(|parent| self.owned_indices.get(&parent))
+                .and_then(|indices| {
+                    indices.iter().find(|parent| {
+                        parent.projection == index.projection && parent.value == index.value
+                    })
+                });
+            let value = if let Some(parent) = inherited {
+                self.read(parent.slot, false)
+            } else if let Some(literal) = self.literal_index(index.value) {
+                format!("{literal}usize")
+            } else {
+                self.value(index.value, false)
+            };
+            actions.push(self.put(index.slot, &value));
+            // Run bounds checks at selection, before any later index effects
+            // or RHS suspension. Resumption only uses the saved numeric index.
+            if index.projection >= descriptor.checked_prefix {
+                actions.push(format!(
+                    "(#assert (#usize.< {} {}usize))",
+                    self.read(index.slot, false),
+                    index.bound
+                ));
+            }
+        }
+        Ok(actions.join("\n"))
     }
 
     fn select_address(
@@ -1549,72 +1621,88 @@ impl<'a> Emitter<'a> {
         literal(self.body, self.function.graph.values.get(index.0)?.source?)
     }
 
-    /// A fixed in-bounds owned path has no observable selection effects and
-    /// cannot select different storage after a frame move. Its index is emitted
-    /// as checked literal metadata, never reloaded from a retired value cell.
-    /// Dynamic indices, handles and payload-tag checks still need snapshots.
-    fn static_owned_projection(&self, descriptor: &PlaceDescriptor) -> bool {
+    /// Only fixed-layout, owned paths with reference-free Copy leaves can be
+    /// relocated using numeric indices. Handles and variant tags need actual
+    /// selected capabilities and remain on the pinned/snapshot path.
+    fn owned_array_indices(
+        &self,
+        descriptor: &PlaceDescriptor,
+    ) -> Option<Vec<(usize, ValueId, usize)>> {
         if self.pinned
             || !descriptor
                 .projections
                 .iter()
                 .any(|projection| matches!(projection, AddressProjection::Index(_)))
         {
-            return false;
+            return None;
         }
         let AddressRoot::Local(binding) = descriptor.root else {
-            return false;
+            return None;
         };
         let resolve =
             |ty: &Type| crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases).ok();
         let Some(mut ty) = resolve(&self.function.graph.bindings[binding.0].ty) else {
-            return false;
+            return None;
         };
-        for projection in &descriptor.projections {
+        let mut indices = Vec::new();
+        for (position, projection) in descriptor.projections.iter().enumerate() {
             let next = match projection {
                 AddressProjection::Field(field) => {
                     let declaration = self.planning.declarations.field(*field);
                     if self.planning.declarations.field_id(&ty, &declaration.name) != Some(*field) {
-                        return false;
+                        return None;
                     }
                     declaration.ty.clone()
                 }
                 AddressProjection::Tuple(index) => {
                     let Type::Tuple(fields) = ty else {
-                        return false;
+                        return None;
                     };
                     let Some(field) = fields.get(*index) else {
-                        return false;
+                        return None;
                     };
                     field.clone()
                 }
                 AddressProjection::Index(index) => {
                     let Type::Array(element, length) = ty else {
-                        return false;
+                        return None;
                     };
-                    let Some(index) = self.literal_index(*index) else {
-                        return false;
-                    };
-                    if index >= length {
-                        return false;
+                    if resolve(&self.function.graph.values[index.0].ty)? != Type::Usize {
+                        return None;
                     }
+                    indices.push((position, *index, length));
                     *element
                 }
-                _ => return false,
+                _ => return None,
             };
             let Some(next) = resolve(&next) else {
-                return false;
+                return None;
             };
             ty = next;
         }
-        ty == descriptor.ty
+        if ty == descriptor.ty && self.types.can_repeat(&ty) && !self.types.contains_reference(&ty)
+        {
+            Some(indices)
+        } else {
+            None
+        }
+    }
+
+    fn static_owned_projection(&self, descriptor: &PlaceDescriptor) -> bool {
+        self.owned_array_indices(descriptor).is_some_and(|indices| {
+            indices.iter().all(|(_, value, bound)| {
+                self.literal_index(*value)
+                    .is_some_and(|index| index < *bound)
+            })
+        })
     }
 
     fn owned_projection_address(
         &self,
-        descriptor: &PlaceDescriptor,
+        id: PlaceId,
         mutable: bool,
     ) -> Result<(String, Type), Error> {
+        let descriptor = &self.function.graph.places[id.0];
         let reject = |message: &str| fail(self.function, message);
         let AddressRoot::Local(binding) = descriptor.root else {
             return Err(reject("projected loads need a checked owned local root"));
@@ -1633,7 +1721,7 @@ impl<'a> Emitter<'a> {
             Self::slot_ref(slot, mutable),
             slot.full
         );
-        for projection in &descriptor.projections {
+        for (position, projection) in descriptor.projections.iter().enumerate() {
             match projection {
                 AddressProjection::Field(field) => {
                     let declaration = self.planning.declarations.field(*field);
@@ -1659,22 +1747,31 @@ impl<'a> Emitter<'a> {
                         .ok_or_else(|| reject("projected tuple index is out of bounds"))?;
                     place = format!("(#get {place} {index})");
                 }
-                AddressProjection::Index(index) if self.static_owned_projection(descriptor) => {
-                    let index = self
-                        .literal_index(*index)
-                        .ok_or_else(|| reject("static index disappeared"))?;
-                    let Type::Array(element, length) = ty else {
+                AddressProjection::Index(index)
+                    if self.owned_indices.contains_key(&id)
+                        || self.static_owned_projection(descriptor) =>
+                {
+                    let saved = self.owned_indices.get(&id).and_then(|indices| {
+                        indices.iter().find(|saved| saved.projection == position)
+                    });
+                    let index = if let Some(saved) = saved {
+                        self.read(saved.slot, false)
+                    } else {
+                        format!(
+                            "{}usize",
+                            self.literal_index(*index)
+                                .ok_or_else(|| reject("static index disappeared"))?
+                        )
+                    };
+                    let Type::Array(element, _) = ty else {
                         return Err(reject("static array projection lost its checked type"));
                     };
-                    if index >= length {
-                        return Err(reject("static array projection is out of bounds"));
-                    }
                     ty = crate::typed_ir::resolve_type(
                         &element,
                         &self.planning.declarations.aliases,
                     )
                     .map_err(|message| fail(self.function, message))?;
-                    place = format!("(#index {place} {index}usize)");
+                    place = format!("(#index {place} {index})");
                 }
                 _ => {
                     return Err(reject(
@@ -1689,12 +1786,8 @@ impl<'a> Emitter<'a> {
         Ok((place, ty))
     }
 
-    fn owned_projection_place(
-        &self,
-        descriptor: &PlaceDescriptor,
-        mutable: bool,
-    ) -> Result<(String, Type), Error> {
-        let (place, ty) = self.owned_projection_address(descriptor, mutable)?;
+    fn owned_projection_place(&self, id: PlaceId, mutable: bool) -> Result<(String, Type), Error> {
+        let (place, ty) = self.owned_projection_address(id, mutable)?;
         // A Copy read of a shared reference-bearing field preserves its
         // stored pointee origins through ordinary checked projection. Writes
         // still require the separate restoration protocol for those contents.
@@ -1707,8 +1800,8 @@ impl<'a> Emitter<'a> {
         Ok((place, ty))
     }
 
-    fn owned_projection_read(&self, descriptor: &PlaceDescriptor) -> Result<String, Error> {
-        let (place, ty) = self.owned_projection_place(descriptor, false)?;
+    fn owned_projection_read(&self, id: PlaceId) -> Result<String, Error> {
+        let (place, ty) = self.owned_projection_place(id, false)?;
         if ty == Type::Unit {
             // Unit projections have no bytes and cannot be borrowed. The
             // owned field/tuple path above is still structurally validated.
@@ -2331,6 +2424,9 @@ impl<'a> Emitter<'a> {
                 Ok(self.put_value(*dst, &text))
             }
             Action::Place { dst, descriptor } => {
+                if self.owned_indices.contains_key(dst) {
+                    return self.select_owned_indices(*dst, descriptor);
+                }
                 if self.addresses.contains_key(dst) {
                     return self.select_address(*dst, descriptor);
                 }
@@ -2413,20 +2509,20 @@ impl<'a> Emitter<'a> {
                 };
                 if !descriptor.projections.is_empty() {
                     if self.leases.get(*dst).is_some() {
-                        self.owned_projection_address(descriptor, true)?;
+                        self.owned_projection_address(*place, true)?;
                         return Ok(String::new());
                     }
                     if self.leases.projected_snapshot(*dst) == Some(*place) {
                         // Lend the stored handle at its original evaluation
                         // point. The child value cell holds this actual checked
                         // reborrow through later effects and Pending edges.
-                        let read = self.owned_projection_address(descriptor, true)?.0;
+                        let read = self.owned_projection_address(*place, true)?.0;
                         let slot = &self.slots[self.values[dst]];
                         let reborrow =
                             format!("(#call {} (: {} {read}))", slot.lend, slot.lend_argument);
                         return Ok(self.put_value(*dst, &reborrow));
                     }
-                    let read = self.owned_projection_read(descriptor)?;
+                    let read = self.owned_projection_read(*place)?;
                     let read = if *kind == LoadKind::Clone {
                         self.clone_read(&descriptor.ty, &read)
                     } else {
@@ -2576,7 +2672,7 @@ impl<'a> Emitter<'a> {
                     ));
                 };
                 if !descriptor.projections.is_empty() {
-                    let (target, ty) = self.owned_projection_place(descriptor, true)?;
+                    let (target, ty) = self.owned_projection_place(*place, true)?;
                     let value = self.value(*value, true);
                     return Ok(if ty == Type::Unit {
                         value
@@ -6482,6 +6578,15 @@ mod tests {
             (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
           (#forget task) (#return result))";
         runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
+        let movable_main = "(#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let task Work-task (#call work (: seed 42u64)))
+          (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))
+          (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
+            (#case (work-ready answer) answer)
+            (#case (work-pending pending) (#block (#forget pending) (#unreachable))))))";
+        runtime_planned(prepare_generator("#async-fn", function, movable_main), 42);
         // An invalid selection must trap before polling the RHS child. If
         // delayed until Store, this program would instead return 99 on Pending.
         let invalid = function.replace("1usize", "2usize");
@@ -6493,6 +6598,14 @@ mod tests {
           (#let state Work-frame-state (#call work-poll-cancel (: task next)))
           (#forget state) (#forget task) (#return 99u64))";
         let planning = prepare_generator("#async-fn-pinned", &invalid, main);
+        let generated = generate(&planning).unwrap();
+        runtime_generated_outcome(planning, generated, NativeOutcome::Signal(4));
+        let movable_main = "(#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let task Work-task (#call work (: seed 42u64)))
+          (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+          (#forget first) (#return 99u64))";
+        let planning = prepare_generator("#async-fn", &invalid, movable_main);
         let generated = generate(&planning).unwrap();
         runtime_generated_outcome(planning, generated, NativeOutcome::Signal(4));
     }
@@ -6565,15 +6678,53 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_storage_modes_fail_before_proposing_unsafe_code() {
+    fn movable_array_selection_can_await_its_index() {
         let planning = prepare(
             "(#let items (#array #u64 1) (#array-of (#array #u64 1) seed))
           (#return (#index items (#as
             (#await Child ChildPending ChildReady child-poll (Start 0u64)) #usize)))",
             RUN,
         );
-        let error = generate(&planning).err().unwrap();
-        assert!(error.message.contains("pinned frame"));
+        runtime_planned(planning, 40);
+    }
+
+    #[test]
+    fn movable_dynamic_selections_are_frozen_again_on_each_loop_iteration() {
+        runtime(
+            "(#let-mut index #usize 1usize)
+              (#let-mut items (#array #u64 2) (#array-of (#array #u64 2) 0u64 0u64))
+              (#for (#let-mut iteration #u64 0u64) (#u64.< iteration 2u64)
+                (#set iteration (#u64.+.wrap iteration 1u64))
+                (#set-index items index (#block (#set index (#usize.-.wrap 1usize index))
+                  (#await Child ChildPending ChildReady child-poll (Start 21u64)))))
+              (#return (#u64.+.wrap (#index items 0usize) (#index items 1usize)))",
+            RUN,
+            42,
+        );
+    }
+
+    #[test]
+    fn movable_index_metadata_does_not_authorize_user_self_references() {
+        let planning = prepare(
+            "(#let items (#array #u64 2) (#array-of (#array #u64 2) seed 0u64))
+              (#let index #usize 0usize)
+              (#let view (#ref #u64) (#borrow (#index items index)))
+              (#let answer #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#return (#u64.+.wrap (#deref view) answer))",
+            RUN,
+        );
+        let error = generate(&planning)
+            .err()
+            .expect("movable self-reference must be rejected");
+        assert!(
+            error.message.contains("pinned") || error.message.contains("stable"),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn unsupported_storage_modes_fail_before_proposing_unsafe_code() {
         let planning = prepare(
             "
           (#let owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) seed 2u64))

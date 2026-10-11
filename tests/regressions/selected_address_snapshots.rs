@@ -133,3 +133,33 @@ fn movable_static_tuple_array_read_uses_the_resumed_frame() {
         false,
     );
 }
+
+#[test]
+fn movable_dynamic_array_store_freezes_index_before_rhs_mutation_and_pending() {
+    run_storage(
+        "(#let-mut index #usize 1usize)
+          (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 0u64 3u64))
+          (#set-index values index (#block (#set index 0usize)
+            (#await Child ChildPending ChildReady child-poll (Start seed))))
+          (#assert (#u64.== (#index values 0usize) 0u64))
+          (#return (#index values 1usize))",
+        "movable-dynamic-array-store",
+        false,
+    );
+}
+
+#[test]
+fn movable_nested_selection_keeps_parent_index_while_child_index_suspends() {
+    run_storage(
+        "(#let-mut row #usize 1usize)
+          (#let values (#array (#array #u64 2) 2)
+            (#array-of (#array (#array #u64 2) 2)
+              (#array-of (#array #u64 2) 0u64 0u64)
+              (#array-of (#array #u64 2) 0u64 seed)))
+          (#return (#index (#index values row)
+            (#block (#set row 0usize)
+              (#as (#await Child ChildPending ChildReady child-poll (Start 1u64)) #usize))))",
+        "movable-nested-dynamic-selection",
+        false,
+    );
+}

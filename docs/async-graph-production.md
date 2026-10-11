@@ -187,16 +187,24 @@ type at use sites; they are not silently converted to pinned references.
 ### Frame-local borrows across suspension
 
 Movable graph frames support reads and Copy, reference-free writes through
-owned array paths with literal indices proved in bounds from checked array
-types. Struct/tuple prefixes and array aliases retain their checked layout.
-The emitter projects the current frame at the operation, using literal metadata
-instead of retaining a physical address or reloading a retired index cell.
-This includes a `#set-index` whose RHS suspends. Dynamic indices, payload-tag
-checks and handle roots still use selected-address snapshots; this optimization
-does not authorize moving an object with live user-visible self-references.
-Native regressions cover Pending/resume reads through struct/tuple prefixes and
-an aliased `#u128` array store. General dynamic owned selection on movable
-frames remains a graph-default migration gap.
+fixed-layout owned array paths. Struct/tuple prefixes and array aliases retain
+their checked layout. Literal indices proved in bounds need no selection cell;
+dynamic indices are saved as `#usize` values and bounds-checked at the original
+selection point, before later index effects or RHS suspension. Nested selections
+copy their already-selected parent indices rather than reloading source locals.
+The emitter projects the resumed frame using this metadata, never a persistent
+pointer into movable storage. Index cells follow the selected-place retirement
+plan and ordinary frame cleanup.
+
+This includes `#set-index` with a suspending RHS and an index expression that
+itself awaits. Handle roots, payload-tag checks, non-Copy selected aggregates and
+reference-bearing leaves remain on the capability/snapshot path. This does not
+authorize moving an object with live user-visible self-references.
+Native regressions cover aliased `#u128` storage, struct/tuple prefixes, index
+mutation before Pending, a nested parent index retained across child-index
+suspension, repeated selection in loops, and eager bounds traps. Public graph
+tests also check cold/warm artifacts, standalone ordinary-code execution, and
+cancellation of a movable frame holding selected index metadata.
 
 For synchronous calls on movable frames, shared `#borrow-slice` of a Copy
 local array (including static struct/tuple fields) projects the original storage
