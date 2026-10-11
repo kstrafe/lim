@@ -179,6 +179,26 @@ After removing the misleading fixed-target metadata from the non-graph v6
 inspectable key, all 12 frontend and 8 generated-source cache regressions passed
 again; the selected target remains part of dependency/config identity.
 
+## Operation-local borrows
+
+Operation-local owner borrows can now be passed directly to a resolved
+synchronous call, including disjoint static struct/tuple fields. A graph
+certificate requires one consumer in the same block, no control-edge escape,
+and only pure address formation, literals, or other borrows for that same call
+between the borrow and consumer. Such an argument has no reference cell in the
+future; its frame is stationary only for the duration of the operation. The
+ordinary source and emitted-program checks still authorize all accesses and
+returned-reference lifetimes. Borrowing before an await, retaining a handle in
+a local, and effectful intervening evaluation do not receive this certificate.
+
+Cold/warm native tests and independent ordinary artifacts cover
+`async_while_let_body.lim`, `async_for_effect_step.lim`, and two disjoint mutable
+field arguments. An aliasing variant still fails with an original-source borrow
+diagnostic. The heap-owner example gets past its immediate handle borrow, but
+still fails nested reference-slot provenance; it is not a supported migration
+gate yet. A root-example check audit now passes 33/42 examples with no timeouts;
+the remaining nine failures still prevent the default-route switch.
+
 ## Compilation measurements
 
 Graph emitters share one lazy declarative ownership classification per planning

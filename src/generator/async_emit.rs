@@ -76,6 +76,7 @@ struct Emitter<'a> {
     retirement: Option<crate::generator::async_retire::Plan>,
     lending: Option<crate::generator::async_lend::Plan>,
     leases: crate::generator::async_lease::Plan,
+    immediate: crate::generator::async_immediate::Plan,
     reference_cells: Option<crate::generator::async_cells::Plan>,
     projections: Vec<String>,
     addresses: HashMap<PlaceId, usize>,
@@ -202,6 +203,8 @@ impl<'a> Emitter<'a> {
             retirement: None,
             lending,
             leases,
+            immediate: crate::generator::async_immediate::Plan::new(&function.graph)
+                .map_err(|error| fail(function, error.message))?,
             reference_cells: None,
             projections: Vec::new(),
             addresses: HashMap::new(),
@@ -243,6 +246,7 @@ impl<'a> Emitter<'a> {
         for (index, value) in function.graph.values.iter().enumerate() {
             if matches!(value.ty, Type::Unit | Type::Never)
                 || emitter.leases.get(ValueId(index)).is_some()
+                || emitter.immediate.get(ValueId(index)).is_some()
             {
                 continue;
             }
@@ -853,6 +857,7 @@ impl<'a> Emitter<'a> {
     fn clear_values(&mut self, values: &[ValueId]) -> String {
         let slots = values
             .iter()
+            .filter(|value| self.immediate.get(**value).is_none())
             .map(|value| self.values[value])
             .collect::<Vec<_>>();
         self.clear_handle_slots(&slots)
@@ -1564,6 +1569,52 @@ impl<'a> Emitter<'a> {
         self.reborrow_to_slot(slot, descriptor, mutable, pinned)
     }
 
+    fn immediate_reference(&mut self, value: ValueId) -> Result<String, Error> {
+        let borrow = self
+            .immediate
+            .get(value)
+            .expect("certified immediate borrow");
+        let descriptor = &self.function.graph.places[borrow.place.0];
+        // The certificate limits this borrow to one synchronous operation:
+        // the frame cannot move while that call is executing. No reference
+        // cell or pending-edge pointer is created for this argument.
+        let owner = crate::generator::async_owner::Borrow::new(
+            &self.function.graph,
+            descriptor,
+            &self.planning.declarations,
+            borrow.mutable,
+            false,
+            true,
+        )
+        .map_err(|message| fail(self.function, message))?;
+        if owner.output
+            != crate::typed_ir::resolve_type(
+                &self.function.graph.values[value.0].ty,
+                &self.planning.declarations.aliases,
+            )
+            .map_err(|message| fail(self.function, message))?
+        {
+            return Err(fail(
+                self.function,
+                "immediate owner borrow disagrees with its checked result type",
+            ));
+        }
+        let slot = &self.slots[*self
+            .bindings
+            .get(&owner.binding)
+            .ok_or_else(|| fail(self.function, "immediate borrow has no owner cell"))?];
+        let input = format!(
+            "(#pin-get-payload{} {} {} 0)",
+            if borrow.mutable { "-mut" } else { "" },
+            Self::slot_ref(slot, borrow.mutable),
+            slot.full
+        );
+        let name = self.fresh("immediate-owner-project");
+        let argument = self.fresh("immediate-owner-input");
+        self.projections.push(owner.declaration(&name, &argument));
+        Ok(format!("(#call {name} (: {argument} {input}))"))
+    }
+
     fn reborrow_to_slot(
         &mut self,
         dst: usize,
@@ -1877,6 +1928,17 @@ impl<'a> Emitter<'a> {
                     _ => Vec::new(),
                 };
                 for id in ids {
+                    if self.immediate.get(id).is_some() {
+                        let reference = self.immediate_reference(id)?;
+                        inputs.insert(
+                            id,
+                            crate::parse(&reference)
+                                .map_err(|_| error("immediate borrow expression did not parse"))?
+                                .remove(0)
+                                .expr,
+                        );
+                        continue;
+                    }
                     let transfer = match self.leases.get(id) {
                         Some(lease) => {
                             assert_eq!(
@@ -2206,6 +2268,9 @@ impl<'a> Emitter<'a> {
                 .map(|binding| self.clear_binding(*binding))
                 .collect::<Vec<_>>()
                 .join("\n")),
+            Action::Borrow { dst: Some(dst), .. } if self.immediate.get(*dst).is_some() => {
+                Ok(String::new())
+            }
             Action::Borrow {
                 dst: Some(dst),
                 place,
