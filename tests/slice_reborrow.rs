@@ -119,9 +119,16 @@ fn returned_element_reference_retains_its_parameter_borrow() {
         (#forget element) (#forget values) (#return ()))";
     check_types(&parse_program(source).unwrap()).unwrap();
 
+    // The returned loan retains element zero, not the entire array. A write
+    // to the disjoint second element remains valid while the reference is live.
+    let disjoint = source.replace(
+        "(#deref-set element 10u64)",
+        "(#set-index values 1usize 20u64) (#deref-set element 10u64)",
+    );
+    check_types(&parse_program(&disjoint).unwrap()).unwrap();
     let conflict = source.replace(
         "(#deref-set element 10u64)",
-        "(#set-index values 1usize 20u64)",
+        "(#set-index values 0usize 20u64) (#deref-set element 10u64)",
     );
     let error = check_types(&parse_program(&conflict).unwrap()).unwrap_err();
     assert!(error.contains("borrow"), "{error}");
