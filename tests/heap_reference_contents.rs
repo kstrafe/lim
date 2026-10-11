@@ -61,6 +61,31 @@ fn a_pinned_cell_extraction_definition_preserves_owned_allocation_slots() {
 }
 
 #[test]
+fn extracted_heap_owner_can_be_read_by_a_later_call() {
+    let source = format!(
+        r#"{PREFIX} {OWNER_CELL}
+      (#fn main () #u64
+        (#let-mut source #u64 42u64)
+        (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
+          (0usize 4096usize 3usize 34usize -1i64 0usize))))
+        (#let-mut cell OwnerCell (Full (#call make (: pointer pointer : source (#borrow source)))))
+        (#let view (#pin-ref-mut OwnerCell) (#pin-borrow-mut cell))
+        (#let owner (#pin-own Holder) (#call take-owner (: cell view)))
+        (#drop view) (#forget cell)
+        (#let result (#ref #u64) (#call get (: owner (#borrow owner))))
+        (#call destroy (: owner owner))
+        (#return (#deref result)))"#
+    );
+    run(&source);
+    let invalid = source.replace(
+        "(#drop view) (#forget cell)",
+        "(#drop view) (#forget cell) (#set source 0u64)",
+    );
+    let error = compile(&invalid).expect_err("the extracted owner retains its source loan");
+    assert_eq!(error.code_string(), "E4100", "{}", error.message);
+}
+
+#[test]
 fn an_extracted_owner_cannot_outlive_its_external_referent() {
     let source = format!(
         r#"{PREFIX} {OWNER_CELL}

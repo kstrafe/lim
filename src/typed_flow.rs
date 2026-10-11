@@ -10928,9 +10928,17 @@ fn apply_parameter_loan_summary(
 ) -> Vec<LoanOrigin> {
     select_summary_inputs_with_slots(origin, &summary.input_storage, state)
         .into_iter()
-        .map(|selected| {
+        .filter_map(|selected| {
             let mut origin = selected.origin;
             let selected_value_slot = origin.storage.is_empty();
+            // Validate allocation identity after selecting the input slot:
+            // a borrowed container may hold an actual owner, but neither its
+            // address nor the owner's retained reference loans are owners.
+            if summary.owned_allocation
+                && (!selected_value_slot || !origin.owned_allocation || origin.lifetime_only)
+            {
+                return None;
+            }
             let mut storage = summary.storage.clone();
             let mut inputs = vec![None; storage.len()];
             for (output, input) in summary.storage_inputs.iter().enumerate() {
@@ -10961,7 +10969,7 @@ fn apply_parameter_loan_summary(
                 .place
                 .segments
                 .extend(summary.referent_projection.iter().cloned());
-            origin
+            Some(origin)
         })
         .collect()
 }
@@ -12930,7 +12938,12 @@ fn value_loan_origins_at_events(
                         // inside that allocation. Those contents have their
                         // own explicit storage summaries; carrying them along
                         // here resurrects contents a callee definitely replaced.
-                        if source.owned_allocation && !origin.owned_allocation {
+                        // Nested inputs are checked after selecting storage;
+                        // their outer argument can be a borrowed container.
+                        if source.owned_allocation
+                            && source.input_storage.is_empty()
+                            && !origin.owned_allocation
+                        {
                             continue;
                         }
                         merge_loan_origins(
