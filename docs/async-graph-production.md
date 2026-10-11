@@ -606,3 +606,30 @@ spellings. The mutation-branch regression now exercises graph lowering for
 both selected branches, match alternatives, immediate/mixed suspension, local
 borrowed writes, and linear-owner consumption failures. Longer-lived scoped
 reference holders and the other default-switch gates remain unfinished.
+
+### Removing the remaining legacy-layout solver fixtures
+
+The two remaining legacy-layout solver probes have been replaced, and their
+dedicated legacy self-reference fixture and parser helper removed. This does
+not remove the legacy lowering implementation or switch the default route.
+
+Ordinary pinned-storage tests now check that the union of poll exits retains
+the possible Pending source even when Ready definitely clears it. Both direct
+and helper-mediated writes are covered. At a call site, selecting Ready allows
+mutation of the cleared external referent; an unselected result rejects the
+same mutation with a Borrow diagnostic at the exact `#set` source location.
+
+The three public graph self-reference examples now positively exercise staged
+poll and cleanup contracts. Both functions must accept an exclusive pinned
+frame reference, return normally, and have no unresolved accesses or reads.
+Contents-aware contracts are also checked. Every generated function is audited
+for ordinary scope escapes and direct-loan conflicts using final checked facts,
+not intermediate union-only store snapshots. Independent ordinary frame tests
+continue to require actual loaded-slot provenance and reject missing inputs.
+
+Stored local references in movable polls and the other graph-default failures
+remain separate implementation work; these solver migrations do not relax
+their safety gates.
+
+Verification passed all 1,335 library tests (one ignored), all 213 async
+integration tests, formatting, and whitespace checks.
