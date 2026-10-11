@@ -160,6 +160,171 @@ fn guard_preview_keeps_linear_scrutinee_through_rejection_and_resumption() {
     run(&source, "async-graph-guard");
 }
 
+fn shared_reference_guard_source() -> String {
+    format!(
+        "{CONTEXT}
+      (#enum Holder ((Holding (#ref #u64)))) (#linear Holder)
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+        : function (#fn work (: source (#ref #u64)) #u64
+          (#let holder Holder (Holding source))
+          (#return (#match holder
+            (#case (Holding view)
+              (#when (#u64.==
+                (#await Child ChildPending ChildReady child-poll (Start 0u64))
+                (#deref view)))
+              (#deref view))
+            (#case (Holding view)
+              (#await Child ChildPending ChildReady child-poll (Start (#deref view)))))))))
+      (#fn main () #u64 (#let waker #u64 0u64) (#let owner #u64 42u64)
+        (#let-mut frame Work-frame (#call work (: source (#borrow owner))))
+        (#let first Work-poll-result
+          (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let second Work-poll-result
+          (#call work-poll (: task next : waker (#borrow waker))))
+        (#let-else (work-pending last) Work-poll-result second (#unreachable))
+        (#let answer #u64 (#match
+          (#call work-poll (: task last : waker (#borrow waker)))
+          (#case (work-ready result) result)
+          (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+        (#forget frame) (#return answer))"
+    )
+}
+
+#[test]
+fn shared_reference_guard_preview_keeps_the_referent_through_rejected_awaits() {
+    run(
+        &shared_reference_guard_source(),
+        "async-graph-reference-guard",
+    );
+}
+
+fn guard_cancellation_declarations() -> String {
+    let source = shared_reference_guard_source();
+    source[..source.find("(#fn main").unwrap()]
+        .replace(
+            "(#enum Holder ((Holding (#ref #u64)))) (#linear Holder)",
+            "(#enum Holder ((Holding (#ref #u64)))) (#linear Holder)
+             (#fn cancel-holder (: holder Holder) () (#forget holder) (#return ()))",
+        )
+        .replace(
+            ": function (#fn work",
+            ": cancel (work-cancel ((source-expression-11 cancel-holder)
+               (await-0 cancel-child) (await-1 cancel-child)))
+             : function (#fn work",
+        )
+}
+
+fn cancelled_guard_source(declarations: &str, polls: &str, handle: &str) -> String {
+    format!(
+        "{declarations}
+      (#fn main () #u64 (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
+        (#let-mut frame Work-frame (#call work (: source (#borrow owner))))
+        {polls}
+        (#call work-cancel (: task (#call work-poll-cleanup (: task {handle}))))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut frame)))))
+        (#forget frame) (#set owner 42u64) (#return owner))"
+    )
+}
+
+#[test]
+fn reference_guard_cancellation_releases_entry_preview_and_committed_loans() {
+    let declarations = guard_cancellation_declarations();
+    let poll_first = "(#let first Work-poll-result
+      (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+      (#let-else (work-pending next) Work-poll-result first (#unreachable))";
+    let poll_second = "(#let second Work-poll-result
+      (#call work-poll (: task next : waker (#borrow waker))))
+      (#let-else (work-pending last) Work-poll-result second (#unreachable))";
+    for (polls, handle) in [
+        (String::new(), "(#pin-borrow-mut frame)"),
+        (poll_first.into(), "next"),
+        (format!("{poll_first}\n{poll_second}"), "last"),
+    ] {
+        let source = cancelled_guard_source(&declarations, &polls, handle);
+        run(&source, "async-graph-reference-guard-cancel");
+    }
+}
+
+#[test]
+fn reading_guard_cleanup_still_requires_resolved_call_input_provenance() {
+    let declarations = guard_cancellation_declarations().replace(
+        "(#fn cancel-holder (: holder Holder) () (#forget holder) (#return ()))",
+        "(#fn cancel-holder (: holder Holder) ()
+          (#match holder (#case (Holding held)
+            (#block (#assert (#u64.== (#deref held) 42u64)) (#drop held) ())))
+          (#return ()))",
+    );
+    let source = cancelled_guard_source(&declarations, "", "(#pin-borrow-mut frame)");
+    let scratch = support::Scratch::new("async-graph-reading-guard-cleanup");
+    let error = lim::compile_source_to_assembly(
+        &source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .expect_err("unresolved conditional input provenance must not grant a read permission");
+    assert!(
+        error.message.contains("unresolved call inputs"),
+        "{error:?}"
+    );
+    assert!(error.span.is_some(), "{error:?}");
+    assert!(!scratch.path().join("cache").exists());
+}
+
+#[test]
+fn suspended_reference_guard_does_not_allow_mutating_the_callers_referent() {
+    let source = shared_reference_guard_source()
+        .replace("(#let owner #u64", "(#let-mut owner #u64")
+        .replace(
+            "(#let second Work-poll-result",
+            "(#set owner 99u64)\n(#let second Work-poll-result",
+        );
+    let scratch = support::Scratch::new("async-graph-reference-guard-conflict");
+    let error = lim::compile_source_to_assembly(
+        &source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .expect_err("a retained reference guard must keep the caller's loan alive");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.expect("caller conflict has an exact span");
+    assert_eq!(&source[span.start..span.end], "#set", "{error:?}");
+    assert_eq!(span.start, source.find("#set owner").unwrap(), "{error:?}");
+    assert!(!scratch.path().join("cache").exists());
+}
+
+#[test]
+fn exclusive_reference_guard_is_not_duplicated_by_shared_preview_support() {
+    let source = shared_reference_guard_source()
+        .replace(
+            "Holder ((Holding (#ref #u64)))",
+            "Holder ((Holding (#ref-mut #u64)))",
+        )
+        .replace(
+            "work (: source (#ref #u64))",
+            "work (: source (#ref-mut #u64))",
+        )
+        .replace("(#let owner #u64", "(#let-mut owner #u64")
+        .replace(
+            "(: source (#borrow owner))",
+            "(: source (#borrow-mut owner))",
+        );
+    let scratch = support::Scratch::new("async-graph-exclusive-guard");
+    let error = lim::parse_program_from_path_with_config_and_cache(
+        &source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+    )
+    .expect_err("exclusive preview needs a stationary alias, not a duplicated handle");
+    assert!(error.contains("stationary storage aliases"), "{error}");
+    assert!(!scratch.path().join("cache").exists());
+}
+
 #[test]
 fn graph_route_rejects_missing_wrong_and_private_cleanup_contracts() {
     for (handlers, expected) in [

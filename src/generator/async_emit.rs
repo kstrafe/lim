@@ -998,9 +998,10 @@ impl<'a> Emitter<'a> {
         pattern: &crate::generator::async_exec::Pattern,
         commit: bool,
     ) -> Result<String, Error> {
-        // Repetition is allowed only by the ordinary checked type. This is
-        // deliberately not an alias representation for exclusive handles or
-        // linear payloads. Those must remain stationary until Commit.
+        // Repetition is allowed only by the ordinary checked type. A shared
+        // reference snapshot keeps its pointee loan; it is not a borrow of the
+        // scrutinee cell. Exclusive handles and linear payloads still require
+        // stationary aliases rather than owning reads during Preview.
         if !commit {
             let ty = &self.function.graph.values[pattern.scrutinee.0].ty;
             if !self.types.can_repeat(ty) {
@@ -1008,7 +1009,13 @@ impl<'a> Emitter<'a> {
                 let mut bindings = HashMap::new();
                 for &binding in &pattern.bindings {
                     let ty = &self.function.graph.bindings[binding.0].ty;
-                    if !self.types.can_repeat(ty) || self.types.contains_reference(ty) {
+                    let shared_reference = matches!(
+                        crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases),
+                        Ok(Type::Reference { mutable: false, .. })
+                    );
+                    if !self.types.can_repeat(ty)
+                        || (self.types.contains_reference(ty) && !shared_reference)
+                    {
                         return Err(fail(self.function, "move-only or reference-bearing guard bindings require stationary storage aliases"));
                     }
                     let name = self.fresh("guard-preview");

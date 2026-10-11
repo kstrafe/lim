@@ -1,7 +1,7 @@
 //! Nonowning tests of retained, checked async patterns.
 //! Implementation detail of built-in code generation, not runtime semantics.
 //!
-//! Only Copy scalar leaves are loaded. Aggregates remain in their tagged
+//! Only repeatable leaves are loaded. Aggregates remain in their tagged
 //! cells until Commit; inspecting a variant never extracts its payload.
 //! This is not a guard-alias or ownership proof. The caller must validate the
 //! original body and the completed ordinary generated program.
@@ -201,7 +201,8 @@ pub(crate) fn test(
     .test(pattern, ty, reference)
 }
 
-/// Snapshot only checked Copy, reference-free guard bindings. The scrutinee
+/// Snapshot only checked repeatable guard bindings authorized by the emitter.
+/// Shared reference leaves retain their ordinary pointee loans. The scrutinee
 /// remains in its stationary cell until the arm commits. Move-only aliases and
 /// alternative-pattern address selection still require a separate storage proof.
 pub(crate) fn preview(

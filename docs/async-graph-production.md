@@ -78,10 +78,14 @@ public cleanup interface.
 Source-time delayed initialization stays at the original graph Bind. Factories
 install only parameters; repeated Pending retries poll the existing child.
 Static pinned owner projections and supported checked selected addresses use
-stationary storage. Copy, reference-free guard payloads can be previewed from a
-linear scrutinee while an awaiting guard executes; rejection clears the preview
-and preserves the scrutinee for later arms. Move-only/reference-bearing guard
-aliases and alternative-pattern previews still fail closed.
+stationary storage. Repeatable scalar and ordinary shared-reference guard
+payloads can be previewed from a linear scrutinee while an awaiting guard
+executes. Shared snapshots retain their ordinary pointee loans, not loans of
+the containing cell. Rejection clears the preview and preserves the scrutinee
+for later arms. Exclusive/move-only guard aliases, reference-bearing aggregate
+previews and alternative-pattern previews still fail closed. Reading cleanup
+handlers may also be rejected when conditional call-input provenance remains
+unresolved; supporting a preview does not relax that ordinary checker boundary.
 
 Scoped external borrows have explicit reference cells, tracked by the physical
 state solver through Pending and cleared on scope exit/cancellation. Their
