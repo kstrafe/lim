@@ -50,6 +50,7 @@ graph-exit 44 async_nested_partial_struct.lim - -
 graph-exit 42 async_clone_projection.lim - -
 graph-exit 43 async_clone_index.lim - -
 graph-exit 45 async_partial_clone.lim - -
+graph-exit 45 async_partial_borrow.lim - -
 exit 42 async_heap_reference.lim - -
 graph-exit 42 async_fn_cancel_dispatch.lim - -
 exit 42 async_for_computed_step.lim - -

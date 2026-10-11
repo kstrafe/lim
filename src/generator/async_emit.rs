@@ -925,7 +925,11 @@ impl<'a> Emitter<'a> {
         }
         let mut steps = Vec::new();
         for (position, segment) in place.segments[..prefix].iter().enumerate().skip(skip) {
-            if position != 0 {
+            // A decomposed leaf already supplies the stable parent capability.
+            // Keep its suffix as one reborrow expression: a temporary named
+            // parent would end before the returned raw-pointer reborrow is read.
+            // Non-decomposed anchor recipes still stage their parent handles.
+            if position != 0 && part.is_none() {
                 let parent = self.fresh("anchor-parent");
                 let target = crate::generator::async_array_anchor::target_type(
                     place,
@@ -953,7 +957,11 @@ impl<'a> Emitter<'a> {
                 Segment::DynamicIndex => format!("(#index {anchor} {})", indices[&position]),
                 _ => unreachable!("internal anchors were checked before emission"),
             };
-            anchor = format!("(#pin-borrow{suffix} {projected})");
+            anchor = if part.is_some() && position + 1 != prefix {
+                projected
+            } else {
+                format!("(#pin-borrow{suffix} {projected})")
+            };
         }
         if steps.is_empty() {
             anchor
@@ -2221,7 +2229,9 @@ impl<'a> Emitter<'a> {
         } else {
             match descriptor.root {
                 AddressRoot::Local(binding) => {
-                    let owner = &self.slots[self.bindings[&binding]];
+                    let field = self.aggregate_field(descriptor);
+                    let owner =
+                        &self.slots[field.map_or(self.bindings[&binding], |field| field.slot)];
                     (
                         format!(
                             "(#pin-get-payload{} {} {} 0)",
@@ -2233,7 +2243,7 @@ impl<'a> Emitter<'a> {
                             mutable,
                             target: Box::new(owner.ty.clone()),
                         },
-                        0,
+                        field.map_or(0, |field| field.path.len()),
                     )
                 }
                 AddressRoot::Value(value)
@@ -2841,7 +2851,12 @@ impl<'a> Emitter<'a> {
         };
         crate::generator::async_owner::validate_mutability(&self.function.graph, binding, mutable)
             .map_err(|message| fail(self.function, message))?;
-        let (place, target) = self.owned_projection_address(id, mutable)?;
+        let (mut place, target) = self.owned_projection_address(id, mutable)?;
+        // An exact leaf cell supplies a pinned payload reference. A deeper
+        // field/tuple/index suffix is a place, not the value of that place.
+        if self.aggregate_exact_field(descriptor).is_none() {
+            place = format!("(#pin-borrow{} {place})", if mutable { "-mut" } else { "" });
+        }
         if pinned {
             return Ok(place);
         }
@@ -8558,6 +8573,51 @@ mod tests {
             let source = &planning.program.source_files[error.span.source_id as usize].source;
             assert!(source[error.span.start..error.span.end].contains("owner"));
         }
+    }
+
+    #[test]
+    fn selected_decomposed_field_requires_its_own_restoration() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let-mut pair Pair (#struct-literal Pair
+            (: left (#struct-literal Resource (: value seed))
+             : right (#struct-literal Holder
+               (: data (#array-of (#array #u64 2) seed 22u64))))))
+          (#let moved Holder (#get pair right))
+          (#let delta #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#forget moved)
+          (#set-field pair right (#struct-literal Holder
+            (: data (#array-of (#array #u64 2) delta 22u64))))
+          (#let view (#ref #u64) (#borrow (#index (#get (#get pair right) data) 1usize)))
+          (#let result #u64 (#deref view))
+          (#drop view) (#forget pair) (#return result))";
+        let declarations = format!(
+            "(#struct Resource (: value #u64)) (#linear Resource)
+             (#struct Holder (: data (#array #u64 2))) (#linear Holder)
+             (#struct Pair (: left Resource : right Holder)) {RUN}"
+        );
+        let mut planning = prepare_function(function, &declarations);
+        assert!(generate(&planning).is_ok());
+        let graph = &mut planning.functions[0].graph;
+        let mut removed = 0;
+        for block in &mut graph.blocks {
+            block.actions.retain(|located| {
+                let remove = matches!(located.action, Action::Store { place, .. }
+                    if matches!(graph.places[place.0].root, AddressRoot::Local(_))
+                        && !graph.places[place.0].projections.is_empty());
+                removed += usize::from(remove);
+                !remove
+            });
+        }
+        assert_eq!(removed, 1);
+        let error = generate(&planning)
+            .err()
+            .expect("a selected address cannot use an unrestored field cell");
+        assert!(
+            error.message.contains("initialized field storage"),
+            "{error:?}"
+        );
+        let source = &planning.program.source_files[error.span.source_id as usize].source;
+        assert!(source[error.span.start..error.span.end].contains("pair"));
     }
 
     #[test]

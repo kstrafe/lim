@@ -785,7 +785,7 @@ fn build_and_run_partial_storage(source: &str, expected: i32) -> String {
     }).unwrap();
     let mut previous = None;
     let mut previous_artifact = None;
-    for _ in 0..2 {
+    for cache_pass in 0..2 {
         let assembly = lim::compile_source_with_generated_sources(
             source,
             &input,
@@ -830,7 +830,11 @@ fn build_and_run_partial_storage(source: &str, expected: i32) -> String {
             .unwrap();
             let (status, stdout, stderr) =
                 support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
-            assert_eq!(status.code(), Some(expected), "{stderr:?}");
+            assert_eq!(
+                status.code(),
+                Some(expected),
+                "cache pass {cache_pass}, native route {index}: {stderr:?}\nsource:\n{source}"
+            );
             assert!(stdout.is_empty() && stderr.is_empty());
         }
         previous = Some(assembly);
@@ -7128,6 +7132,172 @@ fn async_clones_indexed_computed_reference_owners() {
         span.start >= write && span.end <= write + "(#set owner 99u64)".len(),
         "{error:?}"
     );
+}
+
+#[test]
+fn async_borrows_scalar_inside_a_partially_stored_field() {
+    let source = include_str!("../examples/async_partial_clone.lim")
+        .replace(
+            "(#let view (#ref Part) (#borrow (#get original second)))",
+            "(#let view (#ref #u64) (#borrow (#get (#get original second) value)))",
+        )
+        .replace("(#get view value)", "(#deref view)");
+    build_and_run_partial_storage(&source, 45);
+}
+
+#[test]
+fn async_deep_field_borrows_preserve_permissions_and_addresses() {
+    for (data_type, data, projection) in [
+        ("#u64", "22u64", "(#get (#get pair right) data)"),
+        (
+            "(#tuple #u64 #u64)",
+            "(#tuple (#tuple #u64 #u64) 21u64 22u64)",
+            "(#get (#get (#get pair right) data) 1)",
+        ),
+        (
+            "(#array #u64 2)",
+            "(#array-of (#array #u64 2) 21u64 22u64)",
+            "(#index (#get (#get pair right) data) 1usize)",
+        ),
+        (
+            "(#array #u64 2)",
+            "(#array-of (#array #u64 2) 21u64 22u64)",
+            "(#index (#get (#get pair right) data) selection)",
+        ),
+    ] {
+        for mutable in [false, true] {
+            for pinned in [false, true] {
+                let reference = if pinned { "#pin-ref" } else { "#ref" };
+                let borrow = if pinned { "#pin-borrow" } else { "#borrow" };
+                let suffix = if mutable { "-mut" } else { "" };
+                let write = if mutable && pinned {
+                    "(#unsafe (#pin-write view 23u64))"
+                } else if mutable {
+                    "(#deref-set view 23u64)"
+                } else {
+                    ""
+                };
+                let source = format!(
+                    r#"
+                  (#struct Resource (: value #u64)) (#linear Resource)
+                  (#struct Holder (: data {data_type})) (#linear Holder)
+                  (#struct Pair (: left Resource : right Holder)) (#linear Pair)
+                  (#enum Step (Start Resume)) (#linear Step)
+                  (#enum StepPoll ((Pending Step) (Ready ())))
+                  (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+                    (#return (#match task
+                      (#case Start (Pending Resume)) (#case Resume (Ready ())))))
+                  (@#async-fn-pinned (: protocol WorkAwait : waker #u64 : function
+                    (#fn work () #u64
+                      (#let-mut pair Pair (#struct-literal Pair
+                        (: left (#struct-literal Resource (: value 20u64))
+                         : right (#struct-literal Holder (: data {data})))))
+                      (#let-mut selection #usize 1usize)
+                      (#let view ({reference}{suffix} #u64) ({borrow}{suffix} {projection}))
+                      (#set selection 0usize)
+                      (#let moved Resource (#get pair left))
+                      (#let ready () (#await () Step Pending Ready step-poll Start))
+                      (#forget moved)
+                      (#set-field pair left (#struct-literal Resource (: value 23u64)))
+                      {write}
+                      (#let observed #u64 (#deref view))
+                      (#drop view)
+                      (#let result #u64 (#u64.+.wrap (#get (#get pair left) value) observed))
+                      (#forget pair) (#return result))))
+                  (#fn main () #u64
+                    (#let waker #u64 0u64)
+                    (#let-mut frame Work-frame (#call work (:)))
+                    (#let first Work-poll-result (#call work-poll
+                      (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+                    (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+                    (#let result #u64 (#match (#call work-poll
+                      (: task pending : waker (#borrow waker)))
+                      (#case (work-ready value) value)
+                      (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+                    (#forget frame) (#return result))
+                "#
+                );
+                build_and_run_partial_storage(&source, if mutable { 46 } else { 45 });
+                if !mutable && !pinned {
+                    let retained = projection
+                        .replace("(#get pair right)", "retained")
+                        .replace(" selection)", " 1usize)");
+                    let cancelled = format!(
+                        "{} (#fn main () #u64
+                          (#let waker #u64 0u64)
+                          (#let-mut frame Work-frame (#call work (:)))
+                          (#let first Work-poll-result (#call work-poll
+                            (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+                          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+                          (#let (Work-frame-cleanup moved left right shell waiting) Work-frame-cleanup
+                            (#call work-poll-cleanup (: task pending)))
+                          (#forget frame)
+                          (#match left
+                            (#case Work-frame-cleanup-pair.left-empty ())
+                            (#case (Work-frame-cleanup-pair.left-full unexpected) (#block (#forget unexpected) (#unreachable))))
+                          (#let-else (Work-frame-cleanup-pair.right-full retained) Work-frame-cleanup-pair.right right (#unreachable))
+                          (#let result #u64 {retained})
+                          (#forget moved) (#forget retained) (#forget shell) (#forget waiting)
+                          (#return result))",
+                        source.split_once("(#fn main").unwrap().0
+                    );
+                    build_and_run_partial_storage(&cancelled, 22);
+                }
+                if !pinned {
+                    // Movable tasks may form operation-local references, but
+                    // they must not carry an internal address over Pending.
+                    let view = format!(
+                        "(#let view ({reference}{suffix} #u64) ({borrow}{suffix} {projection}))"
+                    );
+                    let continuation = source
+                        .replace("@#async-fn-pinned", "@#async-fn")
+                        .replace(&view, "")
+                        .replace(
+                            "(#set-field pair left (#struct-literal Resource (: value 23u64)))",
+                            &format!("(#set-field pair left (#struct-literal Resource (: value 23u64))) {view}"),
+                        );
+                    let movable = format!(
+                        "{} (#fn main () #u64
+                          (#let waker #u64 0u64)
+                          (#let first Work-poll-result (#call work-poll
+                            (: task (#call work (:)) : waker (#borrow waker))))
+                          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+                          (#return (#match (#call work-poll
+                            (: task pending : waker (#borrow waker)))
+                            (#case (work-ready value) value)
+                            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
+                        continuation.split_once("(#fn main").unwrap().0
+                    );
+                    let expected = if mutable {
+                        46
+                    } else if projection.contains("selection") {
+                        44
+                    } else {
+                        45
+                    };
+                    build_and_run_partial_storage(&movable, expected);
+                }
+                let conflicting_projection = projection.replace(" selection)", " 1usize)");
+                let overlap = format!(
+                    "(#let overlap (#ref-mut #u64) (#borrow-mut {conflicting_projection})) (#deref-set overlap 99u64) (#drop overlap)"
+                );
+                let invalid = source.replace(
+                    "(#let moved Resource",
+                    &format!("{overlap} (#let moved Resource"),
+                );
+                let error = graph_compile_error(&invalid, "deep-field-overlap");
+                assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+                let span = error
+                    .span
+                    .expect("conflicting deep borrow keeps its source span");
+                let start = invalid.find(&overlap).unwrap();
+                assert!(
+                    span.start >= start && span.end <= start + overlap.len(),
+                    "{error:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

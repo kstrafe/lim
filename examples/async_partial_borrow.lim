@@ -1,0 +1,58 @@
+; An array element stays borrowed while a disjoint struct field is moved,
+; restored after Pending, and the original index variable is changed.
+(#struct Resource (: value #u64))
+(#linear Resource)
+(#struct Holder (: data (#array #u64 2)))
+(#linear Holder)
+(#struct Pair (: left Resource : right Holder))
+(#linear Pair)
+(#enum Step (Start Resume))
+(#linear Step)
+(#enum StepPoll ((Pending Step) (Ready ())))
+(#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+  (#return
+    (#match task
+      (#case Start
+        (Pending Resume))
+      (#case Resume
+        (Ready ())))))
+(@
+  #async-fn-pinned
+  (: protocol WorkAwait : waker #u64 : function
+  (#fn work () #u64
+    (#let-mut pair Pair (#struct-literal Pair
+      (: left (#struct-literal Resource (: value 20u64))
+       : right (#struct-literal Holder
+         (: data (#array-of (#array #u64 2) 21u64 22u64))))))
+    (#let-mut selection #usize 1usize)
+    (#let view (#ref #u64) (#borrow (#index (#get (#get pair right) data) selection)))
+    (#set selection 0usize)
+    (#let moved Resource (#get pair left))
+    (#let ready () (#await () Step Pending Ready step-poll Start))
+    (#forget moved)
+    (#set-field pair left (#struct-literal Resource (: value 23u64)))
+    (#let observed #u64 (#deref view))
+    (#drop view)
+    (#let result #u64 (#u64.+.wrap (#get (#get pair left) value) observed))
+    (#forget pair)
+    (#return result))))
+(#fn main () #u64
+  (#let waker #u64 0u64)
+  (#let-mut frame Work-frame (#call work (:)))
+  (#let
+    first
+    Work-poll-result
+    (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+  (#let
+    result
+    #u64
+    (#match (#call work-poll (: task pending : waker (#borrow waker)))
+      (#case (work-ready value)
+        value)
+      (#case (work-pending unexpected)
+        (#block
+          (#forget unexpected)
+          (#unreachable)))))
+  (#forget frame)
+  (#return result))

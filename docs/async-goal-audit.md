@@ -26,11 +26,13 @@ instance of the original type. Preserving pointer identity and real loan origins
 while supporting that access remains required; casting unrelated cells or
 weakening validation is not an acceptable substitute.
 
-Deep scalar borrows within independently stored aggregate leaves also remain
-open. Their checked projection must lower to a reference, rather than a value,
-without introducing a conflicting whole-cell loan. This is tracked separately
-as ASYNC-DEEP-FIELD-BORROW; supported sibling/whole-leaf borrows do not prove
-that deeper field, tuple and index paths are complete.
+Deep scalar borrows within independently stored aggregate leaves now lower to
+references rooted in their actual field cells. Field/tuple/static-index/runtime-
+index tests cover shared/exclusive ordinary and pinned references, disjoint
+restoration, changed index variables, cancellation and independently checked
+generated code. Movable tasks support operation-local references, not internal
+references retained across Pending. See ASYNC-DEEP-FIELD-BORROW and the newer
+production-route record; whole aggregate borrows remain a distinct storage gap.
 
 Guarded/lending analysis has incremental measured improvements, not a completed
 performance audit. Provenance reuse, vacuous-query elimination, use indexing and

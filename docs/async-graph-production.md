@@ -1947,9 +1947,9 @@ ordinary generated code. `examples/async_partial_clone.lim` demonstrates the
 move/await/restore/whole-clone sequence and returns 45.
 
 Whole aggregate borrows still require a genuine contiguous-storage representation.
-Deeper scalar borrows within independently stored fields exposed a separate
-address-formation issue; that remains tracked explicitly, not hidden by weakening
-either validation boundary.
+At this checkpoint, deeper scalar borrows within independently stored fields
+exposed a separate address-formation issue. The following section records its
+resolution without weakening either validation boundary.
 
 Verification for this increment: all 234 async integration tests pass, as do
 230 selected async unit tests (four historical audits remain ignored) and
@@ -1959,3 +1959,41 @@ former whole-clone rejection fixture now runs as a native success case; invalid
 repeated moves and overlapping borrows remain rejection tests.
 The full library suite also passes (1,361 tests, seven ignored), together with
 all five native-example tests, including the new manifest entry returning 45.
+
+## Deep borrows into decomposed field cells
+
+Borrowing a stored leaf's scalar field, tuple member or array element now uses
+that leaf's actual initialized cell. An exact leaf projection already supplies
+a pinned payload reference; a deeper suffix instead describes a place and needs
+an explicit borrow. Reconstructed raw-pointer anchors compose the suffix as one
+place rooted in the pinned payload, then borrow the final projection once. This
+avoids intermediate reference bindings that end before the returned reborrow is
+read, while retaining ordinary checking of the real parent capability.
+
+Selected array-address helpers likewise start at the decomposed field cell and
+skip the checked prefix already represented by that cell. The old whole-owner
+slot is empty after decomposition and must never be used as the address source.
+Index evaluation, bounds checks and saved selected addresses retain their
+original order. Changing the index variable does not retarget an existing loan.
+The changes introduce no borrow-checker exceptions or new unsafe primitives.
+
+Native cold/warm and standalone generated-code tests cover shared/exclusive
+ordinary and pinned references across Pending, field/tuple/static-index/runtime-
+index paths, disjoint partial moves and restoration, operation-local references
+in movable tasks, and cancellation before restoration. Conflicting borrows are
+rejected at the original conflicting expression. Pinned scalar writes in tests
+use the existing explicit unsafe `#pin-write`; ordinary mutable references use
+`#deref-set`, which remains unavailable for pinned references.
+
+`examples/async_partial_borrow.lim` retains a reference to array element one,
+changes its selection variable to zero, suspends, restores a disjoint field and
+returns 45. Whole aggregate borrows over noncontiguous cells remain separate work.
+
+Verification: 236 async integration tests pass with four test workers, together
+with 1,362 library tests (seven ignored), all five native-example tests, two
+adversarial borrow tests, three UI tests, and all-target checking. A new
+representation-proof test removes the field restoration from a checked graph
+and confirms that selected-address emission rejects the uninitialized field.
+An initial concurrent async/library run hit the unchanged 20-second compilation
+timeout in the 33-await test; that test passed alone and in the subsequent full
+four-worker run. Its timeout was not increased.
