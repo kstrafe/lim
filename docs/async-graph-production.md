@@ -256,3 +256,16 @@ Expansion still dominates (135.534 ms cold / 96.948 ms warm); referent contracts
 remain a substantial nested detail (~50 ms). Detailed events are inclusive and
 must not be summed with the enclosing stages. These results do not certify
 graph-default migration or complete reuse of source facts across all planners.
+
+### Heap-owner extraction provenance
+
+An exclusive whole-value load of borrowed storage now retains the loans inside
+owning allocations in that value, not just the owning pointer itself. Traversal
+uses current contents, follows only owning allocations, excludes lifetime-only
+anchors, and does not turn a shared view into an ownership transfer. Ordinary
+checking accepts pinned-cell extraction helper definitions and still rejects
+returning an extracted owner whose stored reference targets a local variable.
+
+This is only the value-provenance part of heap-owner extraction. Propagating
+referent entry contracts through a call returning that extracted owner remains
+unresolved; `async_heap_reference.lim` is not yet accepted by graph lowering.

@@ -44,6 +44,38 @@ const PREFIX: &str = r#"
     (#return ()))
 "#;
 
+const OWNER_CELL: &str = r#"
+  (#enum OwnerCell (: Empty () : Full (#pin-own Holder)))
+  (#linear OwnerCell)
+  (#fn take-owner (: cell (#pin-ref-mut OwnerCell)) (#pin-own Holder)
+    (#let previous OwnerCell (#unsafe (#pin-read cell)))
+    (#unsafe (#pin-write cell (Empty ())))
+    (#return (#match previous
+      (#case (Empty unit) (#unreachable))
+      (#case (Full owner) owner))))
+"#;
+
+#[test]
+fn a_pinned_cell_extraction_definition_preserves_owned_allocation_slots() {
+    compile(&format!("{PREFIX} {OWNER_CELL}")).unwrap_or_else(|error| panic!("{error:?}"));
+}
+
+#[test]
+fn an_extracted_owner_cannot_outlive_its_external_referent() {
+    let source = format!(
+        r#"{PREFIX} {OWNER_CELL}
+      (#fn bad (: pointer (#ptr-mut Holder)) (#pin-own Holder)
+        (#let source #u64 42u64)
+        (#let-mut cell OwnerCell (Full (#call make (: pointer pointer : source (#borrow source)))))
+        (#let view (#pin-ref-mut OwnerCell) (#pin-borrow-mut cell))
+        (#let owner (#pin-own Holder) (#call take-owner (: cell view)))
+        (#drop view) (#forget cell)
+        (#return owner))"#
+    );
+    let error = compile(&source).expect_err("extraction must not erase the stored lifetime");
+    assert_eq!(error.code_string(), "E4100", "{}", error.message);
+}
+
 #[test]
 fn heap_contents_retain_external_references_through_owner_moves_and_calls() {
     run(&format!(

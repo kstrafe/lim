@@ -10498,6 +10498,59 @@ fn loaded_parameter_value_origins_with_slots(
             }
         }
     }
+    // Moving an owning pointer through an exclusive address moves the loans
+    // retained in its allocation as well. Shared loads remain borrowed views,
+    // not ownership transfers. Unlike an ordinary reference, these are part of the
+    // loaded value's storage schema; do not require an extra user dereference
+    // or confuse them with the address of the cell holding the owner.
+    let mut pending = result
+        .iter()
+        .filter(|(loan, _)| loan.owned_allocation && loan.mutable && !loan.lifetime_only)
+        .map(|(loan, _)| (loan.clone(), Vec::new()))
+        .collect::<Vec<_>>();
+    while let Some((owner, mut ancestors)) = pending.pop() {
+        let key = (
+            owner.place.root.clone(),
+            owner.parameter_storage.clone().unwrap_or_default(),
+        );
+        if ancestors.contains(&key) {
+            continue;
+        }
+        ancestors.push(key.clone());
+        for ((parameter, input), values) in contents {
+            if *parameter != key.0
+                || input.len() != key.1.len()
+                || !key
+                    .1
+                    .iter()
+                    .zip(input)
+                    .all(|(wanted, actual)| storage_slot_matches(wanted, actual))
+            {
+                continue;
+            }
+            for held in values.iter().filter(|loan| !loan.lifetime_only) {
+                let mut loaded = held.clone();
+                loaded.mutable &= owner.mutable;
+                let mut prefix = owner.storage.clone();
+                prefix.push(Segment::Dereference);
+                loaded.prepend_storage(&prefix);
+                let mut source_path = input.clone();
+                source_path.push(Segment::Dereference);
+                source_path.extend_from_slice(&held.storage);
+                let source = Place {
+                    root: parameter.clone(),
+                    segments: source_path,
+                };
+                if loaded.owned_allocation && loaded.mutable {
+                    pending.push((loaded.clone(), ancestors.clone()));
+                }
+                let selected = (loaded, source);
+                if !result.contains(&selected) {
+                    result.push(selected);
+                }
+            }
+        }
+    }
     result
 }
 
@@ -15774,6 +15827,103 @@ mod tests {
             ];
             assert!(accesses.iter().any(|place| place.segments == expected));
         }
+    }
+
+    #[test]
+    fn exclusive_owner_loads_carry_contents_without_following_borrowed_views() {
+        let root = PlaceRoot::Parameter(BindingId(0));
+        let address = LoanOrigin {
+            owned_allocation: false,
+            place: Place::root(root.clone()),
+            mutable: true,
+            pinned: true,
+            span: None,
+            borrowed_from: None,
+            reborrow_slot: None,
+            call_reborrow: false,
+            entry_loan: None,
+            storage: Vec::new(),
+            parameter_storage: Some(Vec::new()),
+            storage_inputs: Vec::new(),
+            lifetime_only: false,
+        };
+        let owner_path = vec![Segment::Dereference, Segment::Tuple(0)];
+        let owner = LoanOrigin {
+            owned_allocation: true,
+            storage: vec![Segment::Tuple(0)],
+            parameter_storage: Some(owner_path.clone()),
+            ..address.clone()
+        };
+        let contents = LoanOrigin {
+            mutable: false,
+            storage: vec![Segment::Tuple(1)],
+            parameter_storage: Some(vec![
+                Segment::Dereference,
+                Segment::Tuple(0),
+                Segment::Dereference,
+                Segment::Tuple(1),
+            ]),
+            ..address.clone()
+        };
+        let mut state: LoanState = vec![vec![]].into();
+        state.parameter_contents = Some(
+            HashMap::from([
+                ((root.clone(), Vec::new()), vec![owner.clone()]),
+                ((root.clone(), owner_path.clone()), vec![contents.clone()]),
+            ])
+            .into(),
+        );
+        let loaded = loaded_parameter_value_origins_with_slots(&address, &state);
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[1].0.parameter_storage, contents.parameter_storage);
+        assert_eq!(
+            loaded[1].0.storage,
+            vec![Segment::Tuple(0), Segment::Dereference, Segment::Tuple(1),]
+        );
+        assert!(!loaded[1].0.mutable);
+
+        let shared = LoanOrigin {
+            mutable: false,
+            ..address.clone()
+        };
+        assert_eq!(
+            loaded_parameter_value_origins_with_slots(&shared, &state).len(),
+            1
+        );
+        for blocked in [
+            LoanOrigin {
+                owned_allocation: false,
+                ..owner.clone()
+            },
+            LoanOrigin {
+                lifetime_only: true,
+                ..owner.clone()
+            },
+        ] {
+            state
+                .parameter_contents
+                .as_mut()
+                .unwrap()
+                .insert((root.clone(), Vec::new()), vec![blocked]);
+            assert_eq!(
+                loaded_parameter_value_origins_with_slots(&address, &state).len(),
+                1
+            );
+        }
+        state
+            .parameter_contents
+            .as_mut()
+            .unwrap()
+            .insert((root.clone(), Vec::new()), vec![owner]);
+        state
+            .parameter_contents
+            .as_mut()
+            .unwrap()
+            .insert((root, owner_path), Vec::new());
+        assert_eq!(
+            loaded_parameter_value_origins_with_slots(&address, &state).len(),
+            1
+        );
     }
 
     #[test]
