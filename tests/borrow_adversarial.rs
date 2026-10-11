@@ -45,6 +45,31 @@ fn assert_native_42(source: &str, name: &str) {
 }
 
 #[test]
+fn pending_cannot_export_a_handle_to_consumed_storage() {
+    let source = include_str!("fixtures/pinned_empty_handle_pending.lim");
+    let diagnostic = compile(source, "pinned-empty-handle-pending").unwrap_err();
+    assert_eq!(diagnostic.code, DiagnosticCode::Linear);
+    assert_eq!(
+        diagnostic.message,
+        "returned reference may point to a consumed linear referent"
+    );
+    let span = diagnostic.span.unwrap();
+    assert_eq!(&source[span.start..span.end], "(#return (Pending item))");
+    let consumed = source.find("(#pin-read item)").unwrap();
+    assert!(diagnostic
+        .labels
+        .iter()
+        .any(|label| label.span.start == consumed
+            && &source[label.span.start..label.span.end] == "(#pin-read item)"));
+
+    // Restoring the same stationary referent before returning permits the
+    // handle to escape. This must not ban all reference-bearing results.
+    let restored = source.replace("(#return (Pending item))",
+        "(#unsafe (#pin-write item (#struct-literal Token (: value 2u64)))) (#return (Pending item))");
+    compile(&restored, "pinned-restored-handle-pending").unwrap();
+}
+
+#[test]
 fn retained_pinned_field_restores_across_calls_without_relocation() {
     let source = include_str!("fixtures/pinned_partial_field_calls.lim");
     assert_native_42(source, "pinned-partial-field-calls");

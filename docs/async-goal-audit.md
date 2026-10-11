@@ -66,6 +66,22 @@ Those boundaries and cleanup obligations still need independently checked
 generated-code coverage. A new general storage primitive remains a proposal,
 not a demonstrated prerequisite for every possible lowering design.
 
+A follow-up ordinary poll-shaped probe consumes a field and returns its retained
+handle inside a `Pending` payload. That route fails at the return with E4200:
+`returned reference may point to a consumed linear referent`. The reduced
+`tests/fixtures/pinned_empty_handle_pending.lim` regression checks the complete
+return-expression span and the original `#pin-read` span. Restoring the same
+referent before returning permits the reference-bearing result, so the issue
+is empty referent storage, not a blanket restriction on handles in results.
+All five adversarial tests pass. `FlowGraph`'s returned-reference consumption
+check enforces this distinction without any async-specific handling.
+
+Consequently, retaining a field handle through ordinary helper calls does not
+by itself permit transporting that handle across a Pending return. A contiguous
+frame design must account for initialization at the boundary and cancellation,
+not merely physical layout. Do not reinterpret a safe pinned reference as an
+empty-storage capability or bypass this check with lifetime-only raw provenance.
+
 ### Storage proposal for review (not implemented)
 
 The desired positive async case is now kept in
