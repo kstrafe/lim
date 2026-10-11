@@ -6461,8 +6461,8 @@ fn async_for_condition_sequences_awaits_in_a_value_expression() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -6956,8 +6956,8 @@ fn async_function_resumes_child_await_inside_for_with_existing_counter() {
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("-wait"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -6988,8 +6988,8 @@ fn async_for_condition_can_await_and_step_only_after_ready_true() {
           (#case (work-pending pending-again) (#block (#forget pending-again) 0u64))))
         (#forget waker)
         (#return (#if (#u64.== value 2u64) 42u64 0u64)))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("-wait"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -7046,8 +7046,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("condition-body-task"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let three_phase_source = source
         .replace(
@@ -7082,8 +7082,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#forget waker)
           (#return result))"
     );
-    let generated = build_and_run(&three_phase_source, 42);
-    assert!(generated.contains("iteration-function"), "{generated}");
+    let generated = build_and_run_graph(&three_phase_source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let shared_reference_source = three_phase_source
         .replace(
@@ -7124,14 +7124,19 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#return (#if (#u64.== result 42u64)
             (#if (#u64.== owner 43u64) 42u64 0u64) 0u64)))"
     );
-    let generated = build_and_run(&shared_reference_source, 42);
-    assert!(generated.contains("iteration-function"), "{generated}");
+    let generated = build_and_run_graph(&shared_reference_source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let mutation_before_poll = shared_reference_source.replace(
         "(#let task Work-task (#call work (: view (#borrow owner))))",
         "(#let task Work-task (#call work (: view (#borrow owner))))\n          (#set owner 42u64)",
     );
-    let error = lim::check_types(&lim::parse_program(&mutation_before_poll).unwrap()).unwrap_err();
+    let error = graph_compile_error(
+        &mutation_before_poll,
+        "async-for-phase-mutation_before_poll",
+    );
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
         "{error}"
@@ -7141,8 +7146,12 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
         "(#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))",
         "(#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))\n          (#set owner 42u64)",
     );
-    let error =
-        lim::check_types(&lim::parse_program(&mutation_while_pending).unwrap()).unwrap_err();
+    let error = graph_compile_error(
+        &mutation_while_pending,
+        "async-for-phase-mutation_while_pending",
+    );
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
         "the external shared loan must remain live while the composed task is work-pending: {error}"
@@ -7162,8 +7171,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
             "(#u64.== (#deref view) 42u64)",
         )
         .replace("(#borrow owner)", "(#borrow-mut owner)");
-    let generated = build_and_run(&mutable_reference_source, 42);
-    assert!(generated.contains("iteration-function"), "{generated}");
+    let generated = build_and_run_graph(&mutable_reference_source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let multi_await_source = mutable_reference_source.replace(
         "(#let body-ran #bool\n              (#await #bool BodyTask BodyPending BodyReady body-poll\n                (BodyWaiting iteration)))\n            (#deref-set view 42u64)\n            (#set total (#u64.+.wrap total 1u64))",
@@ -7193,8 +7202,8 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#forget waker)\n\
           (#return (#if (#u64.== owner 43u64) result 0u64)))"
     );
-    let generated = build_and_run(&multi_await_source, 42);
-    assert!(generated.contains("iteration-function"), "{generated}");
+    let generated = build_and_run_graph(&multi_await_source, 42);
+    assert_single_poll(&generated, "work-poll");
     let (prefix, _) = multi_await_source.split_once("(#fn main () #u64").unwrap();
     let cancel_source = format!(
         "{prefix}(#fn main () #u64
@@ -7211,13 +7220,17 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#forget waker)
           (#return owner))"
     );
-    build_and_run(&cancel_source, 43);
+    build_and_run_graph(&cancel_source, 43);
     let mutation_while_pending = cancel_source.replace(
         "          (#forget pending)",
         "          (#set owner 42u64)\n          (#forget pending)",
     );
-    let error =
-        lim::check_types(&lim::parse_program(&mutation_while_pending).unwrap()).unwrap_err();
+    let error = graph_compile_error(
+        &mutation_while_pending,
+        "async-for-phase-mutation_while_pending",
+    );
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
         "the multi-await body must retain the transferred exclusive loan while work-pending: {error}"
@@ -7239,14 +7252,14 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#forget waker)
           (#return (#if (#u64.== owner 42u64) 42u64 0u64)))"
     );
-    let generated = build_and_run(&cancelled_mutable_reference, 42);
-    assert!(generated.contains("iteration-function"), "{generated}");
+    let generated = build_and_run_graph(&cancelled_mutable_reference, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let pinned_reference_source = shared_reference_source
         .replace("(view (#ref #u64))", "(view (#pin-ref-mut #u64))")
         .replace("(#borrow owner)", "(#pin-borrow-mut owner)");
-    let generated = build_and_run(&pinned_reference_source, 42);
-    assert!(generated.contains("iteration-function"), "{generated}");
+    let generated = build_and_run_graph(&pinned_reference_source, 42);
+    assert_single_poll(&generated, "work-poll");
     let (prefix, _) = pinned_reference_source
         .split_once("(#fn main () #u64")
         .unwrap();
@@ -7264,15 +7277,19 @@ fn async_for_condition_can_suspend_with_an_awaited_step() {
           (#forget waker)
           (#return (#if (#u64.== owner 42u64) 42u64 0u64)))"
     );
-    let generated = build_and_run(&cancelled_pinned_reference, 42);
-    assert!(generated.contains("iteration-function"), "{generated}");
+    let generated = build_and_run_graph(&cancelled_pinned_reference, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let mutation_while_pending = mutable_reference_source.replace(
         "(#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))",
         "(#let-else (work-pending condition-pending) Work-poll-result first (#unreachable))\n          (#set owner 42u64)",
     );
-    let error =
-        lim::check_types(&lim::parse_program(&mutation_while_pending).unwrap()).unwrap_err();
+    let error = graph_compile_error(
+        &mutation_while_pending,
+        "async-for-phase-mutation_while_pending",
+    );
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
         "the external exclusive loan must remain live while the composed task is work-pending: {error}"
@@ -7462,11 +7479,8 @@ fn async_for_condition_awaits_only_the_selected_branch_each_iteration() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("choice"),
-        "conditional await should use a concrete choice task: {generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
