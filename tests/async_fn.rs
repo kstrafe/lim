@@ -720,6 +720,21 @@ fn build_and_run_graph(source: &str, expected: i32) -> String {
     build_and_run_route(source, expected, true)
 }
 
+fn graph_compile_error(source: &str, label: &str) -> lim::Diagnostic {
+    let scratch = support::Scratch::new(label);
+    let mut config = lim::CompileConfig::default();
+    config.set("async-lowering", "graph");
+    lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("input.lim"),
+        &config,
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("the checked graph source must be rejected")
+}
+
 fn build_and_run_route(source: &str, expected: i32, graph: bool) -> String {
     let scratch = support::Scratch::new("async-fn");
     let input = scratch.path().join("main.lim");
@@ -1248,13 +1263,14 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
 }
 
 #[test]
-fn pinned_async_frames_reject_stack_pins_captured_across_suspension() {
+fn pinned_async_frames_keep_local_pins_stationary_across_suspension() {
     let source = "(#enum Child ((Waiting #u64)))
       (#linear Child)
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
-          (#case (Waiting value) (ChildReady value)))))
+          (#case (Waiting value)
+            (#if (#u64.== value 0u64) (ChildPending (Waiting 1u64)) (ChildReady 0u64))))))
       (@#async-fn-pinned (: protocol work-await : waker #u64 : function
         (#fn work () #u64
           (#let-mut value #u64 41u64)
@@ -1262,16 +1278,19 @@ fn pinned_async_frames_reject_stack_pins_captured_across_suspension() {
           (#let result #u64
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
           (#return (#u64.+.wrap (#deref view) result)))))
-      (#fn main () #u64 (#return 0u64))";
-    let program = lim::parse_program(source).unwrap();
-    let error = lim::check_types(&program).unwrap_err();
-    assert!(
-        error.contains("pinned")
-            || error.contains("outlive")
-            || error.contains("borrow")
-            || error.contains("local"),
-        "a stack pin must not be laundered into a pinned async frame: {error}"
-    );
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let-mut frame Work-frame (#call work ()))
+        (#let first Work-poll-result
+          (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let outcome Work-poll-result
+          (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let answer #u64 (#match outcome
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame) (#return answer))";
+    build_and_run_graph(source, 41);
 }
 
 #[test]
@@ -1595,7 +1614,7 @@ fn pinned_async_function_without_await_runs_on_first_poll() {
 }
 
 #[test]
-fn async_function_infers_only_live_across_await_values() {
+fn async_function_keeps_live_values_distinct_across_suspension() {
     let source = "(#struct Box ((value #u64)))
       (#enum Child ((Waiting #u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
@@ -1620,15 +1639,17 @@ fn async_function_infers_only_live_across_await_values() {
         (#return (#match outcome
           (#case (work-ready result) result)
           (#case (work-pending task) (#block (#forget task) (#unreachable))))))";
-    let generated = build_and_run(source, 17);
-    assert!(generated.contains("work-task-await-0"), "{generated}");
-    let resumed = generated.split_once("(#case (work-task-await-0").unwrap().1;
-    assert!(resumed.find("(#let first #u64").unwrap() < resumed.find("(#let box Box").unwrap());
-    assert!(resumed.find("(#let box Box").unwrap() < resumed.find("(#let result #u64").unwrap());
+    let source = source.replace(
+        "(#block (#forget value) (ChildReady 1u64))",
+        "(#if (#u64.== value 0u64) (ChildPending (Waiting 1u64)) (ChildReady 1u64))"
+    ).replace("(#return (#match outcome",
+        "(#let-else (work-pending pending) Work-poll-result outcome (#unreachable))\n        (#let resumed Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))\n        (#return (#match resumed");
+    let generated = build_and_run_graph(&source, 17);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
-fn async_function_requires_unused_linear_values_to_be_consumed_before_await() {
+fn async_function_requires_unused_linear_values_to_be_consumed_before_return() {
     let source = "(#struct Token ((value #u64)))
       (#linear Token)
       (#enum Child ((Waiting #u64)))
@@ -1644,8 +1665,7 @@ fn async_function_requires_unused_linear_values_to_be_consumed_before_await() {
             (#await Child ChildPending ChildReady child-poll child))
           (#return result))))
       (#fn main () () (#return ()))";
-    let program = lim::parse_program(source).unwrap();
-    let error = lim::check_types(&program).unwrap_err();
+    let error = graph_compile_error(source, "async-unused-linear").message;
     assert!(
         error.contains("token") && (error.contains("linear") || error.contains("consum")),
         "{error:?}"
@@ -1668,8 +1688,7 @@ fn async_function_rejects_reference_to_pre_suspension_local() {
               (#await Child ChildPending ChildReady child-poll child))
             (#return (#deref view)))))
         (#fn main () #u64 (#return 0u64))";
-    let program = lim::parse_program(source).unwrap();
-    let error = lim::check_types(&program).unwrap_err();
+    let error = graph_compile_error(source, "async-movable-local-borrow").message;
     assert!(
         error.contains("local") || error.contains("outlive") || error.contains("borrow"),
         "{error}"
@@ -1699,7 +1718,7 @@ fn async_function_accepts_no_arguments_or_captures() {
             (#case (work-pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    build_and_run(source, 7);
+    build_and_run_graph(source, 7);
 }
 
 #[test]
@@ -1792,11 +1811,8 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("lim.async.work-poll.dispatch"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
     assert!(!generated.contains("(#await"), "{generated}");
 
     // The same task dependency must work when the outer await is an operand,
@@ -1806,11 +1822,8 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
         "(#u64.+.wrap 0u64\n            (#await #u64 OuterTask OuterPending OuterReady outer-poll\n              (#await OuterTask InnerTask InnerPending InnerReady inner-poll MakeOuter)))",
     );
     assert_ne!(nested_operand, source);
-    let generated = build_and_run(&nested_operand, 42);
-    assert!(
-        generated.contains("lim.async.work-poll.dispatch"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(&nested_operand, 42);
+    assert_single_poll(&generated, "work-poll");
     assert!(!generated.contains("(#await"), "{generated}");
 
     // Both dependencies may return Pending. Completing the inner await must
@@ -1826,8 +1839,8 @@ fn async_function_awaits_a_task_produced_by_an_earlier_await() {
             "(#let middle Work-poll-result\n          (#call work-poll (: task pending : waker (#borrow waker))))\n        (#let-else (work-pending outer-pending) Work-poll-result middle (#unreachable))\n        (#let second Work-poll-result\n          (#call work-poll (: task outer-pending : waker (#borrow waker))))",
         );
     assert_ne!(both_pending, nested_operand);
-    build_and_run(&both_pending, 42);
-    build_and_run(include_str!("../examples/async_nested_await.lim"), 42);
+    build_and_run_graph(&both_pending, 42);
+    build_and_run_graph(include_str!("../examples/async_nested_await.lim"), 42);
 }
 
 #[test]
@@ -2956,15 +2969,8 @@ fn async_function_suspends_inside_projected_assignment_rhs() {
             (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("(#set-index values (#literal #usize 0) lim.async.nested-await-0)"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("lim.async.work-poll.dispatch"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
