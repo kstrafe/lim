@@ -32,7 +32,7 @@ impl Reborrow {
         mutable: bool,
         pinned: bool,
     ) -> Result<Self, String> {
-        Self::project(graph, place, declarations, mutable, pinned, true)
+        Self::project(graph, place, declarations, mutable, pinned)
     }
 
     fn project(
@@ -41,7 +41,6 @@ impl Reborrow {
         declarations: &Declarations,
         mutable: bool,
         pinned: bool,
-        field_required: bool,
     ) -> Result<Self, String> {
         let AddressRoot::Value(root) = place.root else {
             return Err(
@@ -54,12 +53,12 @@ impl Reborrow {
             .ok_or("borrow projection has no evaluated handle")?
             .ty
             .clone();
-        let (mut target, exclusive) = match resolve_type(&input, &declarations.aliases)? {
-            Type::Reference { mutable, target } | Type::PinnedReference { mutable, target } => {
-                (*target, mutable)
-            }
-            _ => return Err("borrow projection requires an evaluated reference handle".into()),
-        };
+        let (mut target, exclusive, input_pinned) =
+            match resolve_type(&input, &declarations.aliases)? {
+                Type::Reference { mutable, target } => (*target, mutable, false),
+                Type::PinnedReference { mutable, target } => (*target, mutable, true),
+                _ => return Err("borrow projection requires an evaluated reference handle".into()),
+            };
         if mutable && !exclusive {
             return Err("exclusive projection cannot borrow through a shared handle".into());
         }
@@ -67,12 +66,11 @@ impl Reborrow {
         else {
             return Err("borrow projection lost its checked dereference boundary".into());
         };
-        if (field_required && projections.is_empty()) || !place.checks().is_empty() {
-            return Err(
-                "borrow projection requires a field path without deferred address checks".into(),
-            );
+        if !place.checks().is_empty() {
+            return Err("borrow projection requires a path without deferred address checks".into());
         }
         let (fields, leaf) = checked_path(target, projections, &place.ty, declarations)?;
+        let pinned = pinned || (fields.is_empty() && input_pinned);
         target = leaf;
         let output = if pinned {
             Type::PinnedReference {
@@ -111,6 +109,9 @@ impl Reborrow {
     }
 
     fn place(&self, argument: &str) -> String {
+        if self.fields.is_empty() {
+            return format!("(#deref {argument})");
+        }
         self.fields
             .iter()
             .fold(argument.to_owned(), |place, field| {
@@ -194,7 +195,7 @@ impl Write {
             resolve_type(&input.ty, &declarations.aliases)?,
             Type::PinnedReference { .. }
         );
-        let projection = Reborrow::project(graph, place, declarations, true, pinned, false)?;
+        let projection = Reborrow::project(graph, place, declarations, true, pinned)?;
         let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
             &projection.output
         else {
@@ -318,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_dereference_reborrows_remain_rejected_like_the_source_language() {
+    fn direct_dereference_reborrows_generate_checked_whole_referent_helpers() {
         for handle in ["#ref", "#ref-mut", "#pin-ref", "#pin-ref-mut"] {
             let (graph, mut place, declarations, _) = fixture(handle);
             place.projections.truncate(1);
@@ -328,9 +329,18 @@ mod tests {
                 &place,
                 &declarations,
                 handle.ends_with("mut"),
-                handle.starts_with("#pin"),
+                false,
+            )
+            .unwrap();
+            assert_eq!(result.pinned, handle.starts_with("#pin"));
+            let generated = result.declaration("generated", "input");
+            assert!(generated.contains("(#deref input)"));
+            let source = format!(
+                "(#type Scalar #u64) (#struct Outer (: pair (#tuple Scalar Scalar))) {generated}"
             );
-            assert!(result.is_err());
+            let program = crate::parse_program(&source).unwrap();
+            crate::CheckedProgram::validate(&program)
+                .unwrap_or_else(|error| panic!("{error}\n{source}"));
         }
     }
 

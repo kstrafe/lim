@@ -103,7 +103,9 @@ impl Recipes {
     ) -> Self {
         let mut recipes = Self::default();
         for place in places {
-            if place.segments.len() > 1 && place.segments.contains(&Segment::DynamicIndex) {
+            if (place.segments.len() > 1 && place.segments.contains(&Segment::DynamicIndex))
+                || (matches!(place.root, PlaceRoot::Parameter(_)) && !place.segments.is_empty())
+            {
                 for prefix in 1..=place.segments.len() {
                     for mutable in [false, true] {
                         if recipes

@@ -115,7 +115,33 @@ fn selected_anchor(
                 )
             )
     };
-    if !origins.is_empty() && origins.iter().all(slice) {
+    let external_reference = |origin: &LoanOrigin| {
+        let PlaceRoot::Parameter(binding) = origin.place.root else {
+            return false;
+        };
+        !origin.lifetime_only
+            && !origin.owned_allocation
+            && matches!(
+                crate::typed_ir::resolve_type(&graph.bindings[binding.0].ty, &declarations.aliases),
+                Ok(Type::Reference { .. })
+            )
+            && origin.place.segments.iter().all(|segment| {
+                matches!(
+                    segment,
+                    crate::typed_place::Segment::Field(_)
+                        | crate::typed_place::Segment::Tuple(_)
+                        | crate::typed_place::Segment::Index(_)
+                        | crate::typed_place::Segment::DynamicIndex
+                )
+            })
+    };
+    // Keep each real boundary holder exactly once, and erase only the selected
+    // thin handle. Normal reference-only parameters retain their existing path.
+    if origins.iter().any(slice)
+        && origins
+            .iter()
+            .all(|origin| slice(origin) || external_reference(origin))
+    {
         let mut places = Vec::new();
         for origin in origins {
             if !places.contains(&origin.place) {

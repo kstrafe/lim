@@ -10817,6 +10817,150 @@ fn graph_slice_nested_runtime_coordinates_survive_index_mutation() {
 }
 
 #[test]
+fn graph_selected_reference_mixes_slice_and_external_reference_targets() {
+    let source = external_mutable_slice_source()
+        .replace("(#forget view)", "")
+        .replace("(#let answer #u64 (#deref (#slice-mut-idx items 0usize)))", "(#let answer #u64 (#deref view)) (#forget view)")
+        .replace(": items (#slice-mut #u64)", ": items (#slice-mut #u64) : fallback (#ref-mut #u64) : choose #bool")
+        .replace("(#slice-mut-idx items 0usize)", "(#if choose (#slice-mut-idx items 0usize) (#borrow-mut (#deref fallback)))")
+        .replace("(#forget items)", "(#forget items) (#forget fallback)")
+        .replace("(#let waker #u64 0u64)", "(#let-mut fallback #u64 41u64) (#let waker #u64 0u64)")
+        .replace(": items (#slice-mut-of (#borrow-mut values))", ": items (#slice-mut-of (#borrow-mut values)) : fallback (#borrow-mut fallback) : choose true")
+        .replace("(#u64.== (#index values 0usize) 42u64)", "(#u64.== (#u64.+.wrap (#index values 0usize) fallback) 83u64)");
+    build_and_run_graph(&source, 42);
+    build_and_run_graph(&source.replace(": choose true", ": choose false"), 42);
+    let aliased = format!(
+        "(#type Items (#slice-mut #u64)) (#type Fallback (#ref-mut #u64))\n{}",
+        source
+            .replace(": items (#slice-mut #u64)", ": items Items")
+            .replace(": fallback (#ref-mut #u64)", ": fallback Fallback")
+    );
+    build_and_run_graph(&aliased, 42);
+    let shared = source
+        .replace("(#deref-set view (#u64.+.wrap (#deref view) 1u64))", "")
+        .replace("41u64", "42u64")
+        .replace("83u64", "84u64")
+        .replace("#ref-mut", "#ref")
+        .replace("#slice-mut", "#slice")
+        .replace("#borrow-mut", "#borrow");
+    build_and_run_graph(&shared, 42);
+    build_and_run_graph(&shared.replace(": choose true", ": choose false"), 42);
+    let field = format!(
+        "(#struct Data (: padding #u128 : value #u64))\n{}",
+        source
+            .replace(": fallback (#ref-mut #u64)", ": fallback (#ref-mut Data)")
+            .replace(
+                "(#borrow-mut (#deref fallback))",
+                "(#borrow-mut (#get fallback value))"
+            )
+            .replace(
+                "(#let-mut fallback #u64 41u64)",
+                "(#let-mut fallback Data (#struct-literal Data (: padding 0u128 : value 41u64)))"
+            )
+            .replace(
+                "(#u64.+.wrap (#index values 0usize) fallback)",
+                "(#u64.+.wrap (#index values 0usize) (#get fallback value))"
+            )
+    );
+    build_and_run_graph(&field, 42);
+    build_and_run_graph(&field.replace(": choose true", ": choose false"), 42);
+    let array = source
+        .replace(
+            ": fallback (#ref-mut #u64)",
+            ": fallback (#ref-mut (#array #u64 2))",
+        )
+        .replace(
+            "(#let-mut fallback #u64 41u64)",
+            "(#let-mut fallback (#array #u64 2) (#array-of (#array #u64 2) 17u64 41u64))",
+        )
+        .replace(
+            "(#let view (#ref-mut #u64)",
+            "(#let-mut index #usize 1usize) (#let view (#ref-mut #u64)",
+        )
+        .replace(
+            "(#borrow-mut (#deref fallback))",
+            "(#borrow-mut (#index fallback index))",
+        )
+        .replace(
+            "(#await () ChildTask",
+            "(#set index 0usize) (#await () ChildTask",
+        )
+        .replace(
+            "(#u64.+.wrap (#index values 0usize) fallback)",
+            "(#u64.+.wrap (#index values 0usize) (#index fallback 1usize))",
+        );
+    build_and_run_graph(&array, 42);
+    build_and_run_graph(&array.replace(": choose true", ": choose false"), 42);
+    for write in ["(#set fallback 0u64)", "(#set-index values 0usize 0u64)"] {
+        let conflicting = source.replace(
+            "(#let answer #u64 (#match",
+            &format!("{write} (#let answer #u64 (#match"),
+        );
+        let error = graph_compile_error(&conflicting, "mixed-target-pending-owner-write");
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        let span = error.span.unwrap();
+        let expected = if write.starts_with("(#set-index") {
+            "#set-index"
+        } else {
+            "#set"
+        };
+        assert_eq!(&conflicting[span.start..span.end], expected);
+    }
+    let escaping = format!(
+        "{source}\n(#fn escape (: items (#slice-mut #u64)) Work-task
+      (#let-mut local #u64 41u64)
+      (#return (#call work (: items items : fallback (#borrow-mut local) : choose false))))"
+    );
+    let error = graph_compile_error(&escaping, "mixed-target-local-reference-escape");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    assert!(error.span.is_some());
+    let overlapping = source.replace(
+        ": fallback (#borrow-mut fallback)",
+        ": fallback (#borrow-mut (#index values 0usize))",
+    );
+    let error = graph_compile_error(&overlapping, "mixed-target-overlapping-inputs");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    assert!(error.message.contains("overlap"), "{error:?}");
+    assert!(error.span.is_some());
+}
+
+#[test]
+fn graph_whole_pinned_reborrows_preserve_kind_before_and_after_pending() {
+    let runtime = external_mutable_slice_source()
+        .split_once("(@#async-fn")
+        .unwrap()
+        .0;
+    let source = format!(
+        r#"{runtime}
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : function (#fn work (: parent (#pin-ref-mut #u64)) #u64
+          (#let first (#pin-ref-mut #u64) (#borrow-mut (#deref parent)))
+          (#assert (#u64.== (#deref first) 42u64)) (#forget first)
+          (#await () ChildTask ChildPending ChildReady child-poll Start)
+          (#let second (#pin-ref-mut #u64) (#borrow-mut (#deref parent)))
+          (#let answer #u64 (#deref second))
+          (#forget second) (#forget parent) (#return answer))))
+      (#fn main () #u64
+        (#let-mut value #u64 42u64) (#let waker #u64 0u64)
+        (#let first Work-poll-result
+          (#call work-poll (: task (#call work (: parent (#pin value))) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready result) result)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget value) (#return answer))"#
+    );
+    build_and_run_graph(&source, 42);
+    let downgraded = source.replace(
+        "(#let first (#pin-ref-mut #u64)",
+        "(#let first (#ref-mut #u64)",
+    );
+    let error = graph_compile_error(&downgraded, "whole-reborrow-pin-kind-downgrade");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
+    assert!(error.span.is_some());
+}
+
+#[test]
 fn dereference_reborrows_keep_exclusivity_and_pin_kind() {
     let source = r#"(#fn main () #u64
       (#let-mut value #u64 41u64)

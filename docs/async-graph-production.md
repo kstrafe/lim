@@ -281,8 +281,20 @@ tests cover shared and exclusive projections, padded and zero-sized elements,
 multiple nested indices, one-element outer slices, varying dynamic/static targets, standalone
 generated code, and owner mutation rejection while Pending.
 
+References may also select an external slice element or a separate ordinary
+reference parameter. The real slice holder and the real external reference
+are each retained exactly once; the selected thin handle uses address storage.
+Static external field projections use ordinary helper contracts, not an inline
+copy of a mutable handle borrowed from the frame's capture cell. Whole-referent
+`#borrow`/`#borrow-mut` through `#deref` now lowers through the same checked
+projection interface and preserves the incoming pin kind.
+Native tests exercise both branches for shared/exclusive, aliased, padded-field
+and runtime-indexed external targets, plus whole pinned reborrows before and
+after Pending. Source-owner mutation, overlapping input borrows, pin-kind
+downgrades and locally sourced escaping frames remain rejected.
+
 Mutable slices of local frame arrays,
-mixed external slice/non-slice selections without an internal anchor, and
+mixed selections involving pinned-reference parameters, and
 effectful index windows remain unfinished. These are still default-switch gates.
 
 On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
