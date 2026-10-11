@@ -1284,3 +1284,25 @@ suites concurrently hit the aggregate test's unchanged 20-second timeout;
 the isolated rerun passed. A fresh temporary graph-default audit then passed
 198 and failed 31 in 34.67 seconds. Legacy was restored and the ordinary
 compiler rebuilt. The remaining migrations still prevent the default switch.
+
+## Public graph interfaces across branch, loop and block regressions
+
+Seventeen more async integration regressions now use graph explicitly instead
+of requiring legacy private helper names or expecting later-phase rejection.
+They retain their native programs and expected outcomes: named `task`
+arguments, mutable block assignments, adjacent awaits, short-circuit conditions,
+pattern-gated bodies, loop initialization mismatch returns, and condition/body/
+step transfers through continue, break and return. Linear return payloads still
+run and are explicitly consumed; generated type capitalization remains checked.
+Tests assert the single public poll function rather than a stage helper name.
+
+The global-read regression now checks graph's original-source unknown-name
+diagnostic, including the exact `missing_global` span. Existing shared-borrow,
+unsafe static access and global-not-captured checks remain intact.
+
+All 229 async integration tests passed in 34.86 seconds. A fresh temporary
+graph-default audit passed 215 and failed 14 in 39.53 seconds, compared with
+198/31 before this batch. Legacy was restored after the audit. Remaining
+failures include obsolete unsupported-nested-await expectations, ordinary
+source diagnostic differences and still-unmigrated helper-interface tests;
+they are not evidence that the full safety/default-removal goal is complete.

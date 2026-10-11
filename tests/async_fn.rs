@@ -389,8 +389,8 @@ fn async_task_named_capture_without_await_keeps_explicit_public_argument_key() {
         (#return (#match result
           (#case (work-ready value) value)
           (#case (work-pending waiting) (#block (#forget waiting) (#unreachable))))))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("lim.gensym."), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -3226,15 +3226,8 @@ fn async_function_assigns_a_block_local_after_await_resumes() {
             (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("(#set-index total (#literal #usize 0) lim.async.nested-await-0)"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("(#let-mut total (#array #u64 1)"),
-        "the mutable assignment target must survive work-pending: {generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -3268,11 +3261,8 @@ fn async_function_preserves_mutability_of_block_await_bindings() {
             (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("(#let-mut lim.async.nested-await-0 #u64"),
-        "the dispatch arm must restore a mutable binding: {generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -5267,8 +5257,8 @@ fn async_while_condition_sequences_short_circuit_awaits() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 1);
-    assert!(generated.contains("choice-"), "{generated}");
+    let generated = build_and_run_graph(source, 1);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -5348,15 +5338,13 @@ fn async_while_condition_keeps_global_names_out_of_frame_captures() {
             "(#const unrelated #bool false)",
         )
         .replace("              fallback)", "              missing_global)");
-    let invalid_program = lim::parse_program(&invalid_source).unwrap();
-    let error = match lim::CheckedProgram::validate(&invalid_program) {
-        Ok(_) => panic!("an unresolved name in the generated async body must be rejected"),
-        Err(error) => error,
-    };
+    let error = graph_compile_error(&invalid_source, "async-unresolved-global-read");
     assert!(
-        format!("{error:?}").contains("unknown variable or enum variant"),
+        error.message.contains("unknown variable or enum variant"),
         "{error:?}"
     );
+    let span = error.span.expect("unresolved names must retain their source span");
+    assert_eq!(&invalid_source[span.start..span.end], "missing_global");
 }
 
 #[test]
@@ -6093,8 +6081,8 @@ fn async_suspending_while_body_can_return_after_setup() {
         (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
-    let generated = build_and_run(source, 18);
-    assert!(generated.contains("choice"), "{generated}");
+    let generated = build_and_run_graph(source, 18);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -6146,11 +6134,8 @@ fn async_suspending_while_body_can_return_after_multiple_awaits() {
         (#let-else (work-ready false-result) Work-poll-result false-second (#unreachable))
         (#forget waker)
         (#return (#u64.+.wrap true-result false-result)))";
-    let generated = build_and_run(source, 32);
-    assert!(
-        generated.contains("expression-frame-await-1"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 32);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -6817,8 +6802,8 @@ fn async_while_let_does_not_poll_the_unselected_scrutinee_branch() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("choice"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let pending_source = source
         .replace(
@@ -6830,7 +6815,7 @@ fn async_while_let_does_not_poll_the_unselected_scrutinee_branch() {
             "        (#let outcome Work-poll-result\n          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))",
             "        (#let first Work-poll-result\n          (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))\n        (#let-else (work-pending pending) Work-poll-result first (#unreachable))\n        (#let outcome Work-poll-result\n          (#call work-poll (: task pending : waker (#borrow waker))))",
         );
-    build_and_run(&pending_source, 42);
+    build_and_run_graph(&pending_source, 42);
 }
 
 #[test]
@@ -7596,8 +7581,8 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
                     (#block (#forget unexpected) 77u64)))))))
         (#forget waker)
         (#return (#if (#u64.== result 1u64) 42u64 0u64)))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("iteration-function"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let return_source = source
         .replace(
@@ -7631,8 +7616,8 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
           (#forget waker)
           (#return result))"
     );
-    let generated = build_and_run(&return_source, 42);
-    assert!(generated.contains("iteration-function"), "{generated}");
+    let generated = build_and_run_graph(&return_source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let linear_prefix = prefix
         .replace(
@@ -7673,8 +7658,8 @@ fn async_for_three_phase_transfers_preserve_continue_break_and_return() {
           (#forget waker)
           (#return result))"
     );
-    let generated = build_and_run(&linear_return_source, 42);
-    assert!(generated.contains("#linear Lim.async.work"), "{generated}");
+    let generated = build_and_run_graph(&linear_return_source, 42);
+    assert_single_poll(&generated, "work-poll");
     assert_generated_type_names_are_capitalized(&generated);
 }
 
@@ -7793,15 +7778,15 @@ fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("scrutinee-body-task"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let conditional_source = source.replace(
         "(#await #u64 BodyTask BodyPending BodyReady body-poll BodyWaiting)",
         "(#if true\n                (#await #u64 BodyTask BodyPending BodyReady body-poll BodyWaiting)\n                7u64)",
     );
-    let generated = build_and_run(&conditional_source, 42);
-    assert!(generated.contains("choice"), "{generated}");
+    let generated = build_and_run_graph(&conditional_source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let (prefix, _) = source.split_once("      (#fn main () #u64").unwrap();
     let unmatched_source = format!(
@@ -7825,7 +7810,7 @@ fn async_while_let_resumes_a_body_await_only_after_the_pattern_matches() {
         (#forget waker)
         (#return result))"
     );
-    build_and_run(&unmatched_source, 42);
+    build_and_run_graph(&unmatched_source, 42);
 }
 
 #[test]
@@ -8053,8 +8038,8 @@ fn async_while_condition_awaits_only_the_selected_branch_each_iteration() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(&source, 42);
-    assert!(generated.contains("choice"), "{generated}");
+    let generated = build_and_run_graph(&source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -8091,8 +8076,8 @@ fn async_while_body_binding_awaits_only_the_selected_branch() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("choice"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -8140,10 +8125,8 @@ fn async_loop_sequences_two_awaits_in_one_iteration() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("sequence-task"), "{generated}");
-    assert!(generated.contains("wait-first"), "{generated}");
-    assert!(generated.contains("wait-second"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -8202,8 +8185,8 @@ fn async_loop_sequences_three_adjacent_awaits_in_one_iteration() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("body-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -8665,11 +8648,8 @@ fn async_for_let_else_initializer_returns_ready_on_mismatch() {
         (#let matched #u64 (#call work-poll-work (: input (Some 7u64) : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap mismatch matched)))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("(work-ready (#literal #u64 7))"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -8782,9 +8762,8 @@ fn async_for_condition_and_step_await_preserve_body_continue_and_break() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 1);
-    assert!(generated.contains("step-choice-skip"), "{generated}");
-    assert!(generated.contains("step-choice-run"), "{generated}");
+    let generated = build_and_run_graph(source, 1);
+    assert_single_poll(&generated, "work-poll");
 
     let (prefix, _) = source
         .split_once("(#fn main () #u64")
@@ -8810,8 +8789,8 @@ fn async_for_condition_and_step_await_preserve_body_continue_and_break() {
           (#forget waker)
           (#return result))"
     );
-    let returned = build_and_run(&return_source, 42);
-    assert!(returned.contains("iteration-function"), "{returned}");
+    let returned = build_and_run_graph(&return_source, 42);
+    assert_single_poll(&returned, "work-poll");
 }
 
 #[test]
@@ -8902,8 +8881,8 @@ fn async_for_step_can_suspend_after_a_suspending_body() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("sequence-task"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
