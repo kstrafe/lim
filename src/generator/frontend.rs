@@ -1,6 +1,6 @@
 //! Built-in generator expansion, validation witnesses, and source publication.
 //! Runtime parsing and semantic checking consume ordinary emitted declarations.
-use super::{async_cfg, async_contract, async_dispatch, async_fn, async_source};
+use super::{async_cfg, async_contract, async_dispatch, async_fn, async_source, async_types};
 use crate::*;
 
 pub(crate) fn async_function_statement_source(
@@ -40,7 +40,7 @@ pub(crate) fn async_generated_source(
     span: Span,
     capture_plans: Option<&ExpansionPlans>,
     copy_types: &HashSet<String>,
-    type_environment: &async_fn::AsyncTypeEnvironment,
+    type_environment: &async_types::AsyncTypeEnvironment,
 ) -> Result<String, String> {
     let key = (span.source_id, span.start, span.end);
     let captures = capture_plans.and_then(|plans| plans.get(&key));
@@ -63,8 +63,8 @@ pub(crate) fn async_generated_source(
 
 pub(crate) fn async_type_environment(
     expressions: &[SpannedExpr],
-) -> async_fn::AsyncTypeEnvironment {
-    let mut environment = async_fn::AsyncTypeEnvironment::default();
+) -> async_types::AsyncTypeEnvironment {
+    let mut environment = async_types::AsyncTypeEnvironment::default();
     for expression in expressions {
         // Only declarations contributing to the environment need normalization.
         // In particular, do not copy an async invocation's entire function body.
@@ -203,7 +203,7 @@ pub(crate) fn async_copy_type_identity(types: &HashSet<String>) -> String {
 }
 
 pub(crate) fn async_type_environment_identity(
-    environment: &async_fn::AsyncTypeEnvironment,
+    environment: &async_types::AsyncTypeEnvironment,
 ) -> String {
     let mut enums = environment.enums.iter().collect::<Vec<_>>();
     enums.sort_by(|left, right| left.0.cmp(right.0));
@@ -802,7 +802,7 @@ pub(crate) struct PreparedProgramSyntax {
     pub(crate) dependency_context: String,
     pub(crate) generator_origins: generator::Origins,
     pub(crate) async_copy_types: HashSet<String>,
-    pub(crate) async_types: async_fn::AsyncTypeEnvironment,
+    pub(crate) async_types: async_types::AsyncTypeEnvironment,
     pub(crate) worker_functions: HashMap<String, Function>,
 }
 
@@ -939,7 +939,7 @@ pub(crate) fn prepare_program_syntax(
     let async_types = if needs_async {
         async_type_environment(&expressions)
     } else {
-        async_fn::AsyncTypeEnvironment::default()
+        async_types::AsyncTypeEnvironment::default()
     };
     let needs_workers = expressions.iter().any(is_thread_spawn_invocation);
     let worker_functions = expressions

@@ -14,7 +14,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::generator::async_fn::AsyncTypeEnvironment;
+use crate::generator::async_types::AsyncTypeEnvironment;
 use crate::{Expr, Span, SpannedExpr};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -261,7 +261,7 @@ impl<'a> Builder<'a> {
         if let Some(ty) = &ty {
             // Layout errors belong to normal type validation; leave types unknown
             // when the source declaration environment is not yet complete.
-            let _ = crate::generator::async_fn::collect_enum_pattern_bindings(
+            let _ = crate::generator::async_types::collect_enum_pattern_bindings(
                 &crate::normalize_keywords(pattern.expr.clone()),
                 ty,
                 self.environment,

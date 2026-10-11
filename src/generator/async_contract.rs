@@ -3,7 +3,7 @@
 //! can erase them. Types come only from explicit declarations, not inference.
 use std::collections::HashMap;
 
-use crate::generator::async_fn::AsyncTypeEnvironment;
+use crate::generator::async_types::AsyncTypeEnvironment;
 use crate::{Expr, Span, SpannedExpr, Type};
 
 pub(crate) struct Error {
@@ -100,7 +100,7 @@ impl Checker<'_> {
     }
     fn bind(&self, pattern: &Expr, ty: &Type, scope: &mut HashMap<String, Type>) {
         let mut bindings = Vec::new();
-        if crate::generator::async_fn::collect_enum_pattern_bindings(
+        if crate::generator::async_types::collect_enum_pattern_bindings(
             pattern,
             &crate::type_source(ty),
             self.environment,

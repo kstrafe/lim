@@ -51,8 +51,6 @@ mod typed_flow;
 mod typed_ir;
 mod typed_place;
 mod unsafecheck;
-#[cfg(test)]
-use generator::async_fn;
 use generator::builtins::normalize_builtin_generator_invocation;
 use generator::frontend::*;
 use source_error::SourceError;
@@ -12002,7 +12000,7 @@ mod tests {
         assert!(ordinary.async_copy_types.is_empty());
         assert_eq!(
             ordinary.async_types,
-            async_fn::AsyncTypeEnvironment::default()
+            crate::generator::async_types::AsyncTypeEnvironment::default()
         );
 
         for generator in ["#async-fn", "#async-fn-pinned"] {

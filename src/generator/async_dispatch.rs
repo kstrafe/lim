@@ -406,7 +406,7 @@ fn hygienize(
 /// fields, constructors and types retain their explicit public spelling.
 pub(crate) fn hygienize_source(
     source: &str,
-    environment: &crate::generator::async_fn::AsyncTypeEnvironment,
+    environment: &crate::generator::async_types::AsyncTypeEnvironment,
 ) -> Result<String, String> {
     let mut forms = crate::parse(source)?
         .into_iter()
@@ -804,7 +804,7 @@ fn fuse(
 /// Build dispatch loops without new unsafe operations or new frame variants.
 pub(crate) fn collapse(
     source: &str,
-    environment: &crate::generator::async_fn::AsyncTypeEnvironment,
+    environment: &crate::generator::async_types::AsyncTypeEnvironment,
 ) -> Result<String, String> {
     let mut forms = crate::parse(source)?
         .into_iter()

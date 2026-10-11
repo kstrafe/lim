@@ -84,6 +84,7 @@ pub(crate) mod async_render;
 pub(crate) mod async_retire;
 pub(crate) mod async_self_borrow;
 pub(crate) mod async_source;
+pub(crate) mod async_types;
 pub(crate) mod builtins;
 pub(crate) mod frontend;
 pub(crate) use crate::capture_storage as async_storage;
