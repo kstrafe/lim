@@ -440,15 +440,16 @@ pub(crate) fn expand_prepared_owned_program(
     }
 }
 
-/// One selection for executable and inspectable output. Keep legacy production
-/// emission until graph storage and public frame interfaces cover existing users.
+/// One selection for executable and inspectable output. Graph is the production
+/// default; the legacy route is reachable only by internal removal audits.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AsyncRoute {
+    #[cfg(test)]
     Legacy,
     Graph,
 }
 
-const DEFAULT_ASYNC_ROUTE: AsyncRoute = AsyncRoute::Legacy;
+const DEFAULT_ASYNC_ROUTE: AsyncRoute = AsyncRoute::Graph;
 
 fn validate_syntax_bundle_declarations(
     items: &[Item],
@@ -850,12 +851,9 @@ pub(crate) fn prepare_program_syntax(
 ) -> Result<PreparedProgramSyntax, SourceError> {
     let async_route = match config.values.get("async-lowering").map(String::as_str) {
         None => DEFAULT_ASYNC_ROUTE,
-        Some("legacy") => AsyncRoute::Legacy,
         Some("graph") => AsyncRoute::Graph,
         Some(value) => {
-            return Err(
-                format!("unknown async-lowering '{value}'; expected legacy or graph").into(),
-            )
+            return Err(format!("unknown async-lowering '{value}'; expected graph").into())
         }
     };
     let (loaded, source_files) = load_imports_with_sources(source, base, source_path, config)?;
@@ -2158,11 +2156,11 @@ mod async_migration_tests {
     }
 
     #[test]
-    fn default_stays_legacy_and_non_async_programs_keep_the_existing_route() {
-        assert!(DEFAULT_ASYNC_ROUTE == AsyncRoute::Legacy);
+    fn default_uses_graph_and_non_async_programs_do_not_create_async_plans() {
+        assert!(DEFAULT_ASYNC_ROUTE == AsyncRoute::Graph);
         let prepared = syntax(&source("(#return seed)"), None);
         let (default, _) = expand_prepared_program(&prepared).unwrap();
-        assert!(!default
+        assert!(default
             .source_files
             .iter()
             .any(|file| file.path.to_string_lossy().starts_with("<async graph ")));
@@ -2171,5 +2169,26 @@ mod async_migration_tests {
             expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
         assert!(plans.is_empty());
         assert!(program.generator_validation.is_none());
+    }
+
+    #[test]
+    fn obsolete_async_route_is_not_a_public_compilation_mode() {
+        let mut config = CompileConfig::default();
+        config.set("async-lowering", "legacy");
+        let error = prepare_program_syntax(
+            "(#fn main () #u64 (#return 42u64))",
+            Path::new("."),
+            None,
+            &config,
+            None,
+        )
+        .err()
+        .expect("the obsolete route must not be publicly selectable");
+        assert!(
+            error
+                .message
+                .contains("unknown async-lowering 'legacy'; expected graph"),
+            "{error}"
+        );
     }
 }

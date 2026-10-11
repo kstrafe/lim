@@ -34,9 +34,9 @@ The internal typed-representation migration is documented in
 Frozen syntax collections, allocation-free error enums, and the initial
 cooperative task API are documented in
 [docs/collections-and-tasks.md](docs/collections-and-tasks.md).
-The opt-in graph async lowering and its source-named cancellation interface are
+The default graph async lowering and its source-named cancellation interface are
 documented in [docs/async-graph-production.md](docs/async-graph-production.md);
-the remaining default-route migration gates are explicitly listed there.
+the implementation history and remaining removal work are recorded there.
 
 See [explicit error propagation](docs/error-propagation.md),
 [owned files and buffered readers](docs/files.md), and

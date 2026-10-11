@@ -1026,12 +1026,12 @@ same stationary storage. They do not restart the future, infer lifetimes, or
 allow moving its frame. Without an access request no accessor bodies are
 generated. See [parameter access](async-graph-production.md#post-terminal-parameter-access).
 
-An opt-in graph route is selected with `--cfg async-lowering=graph`. It uses the
-same await protocol names, independently checked ordinary generated code, and
+The default graph route can also be selected with `--cfg async-lowering=graph`.
+It uses the same await protocol names, independently checked ordinary generated code, and
 a source-named cleanup record instead of the legacy per-state cancellation
 interface. Warm hash hits skip emission. Unsupported graph cases fail closed;
-the existing route remains the default until the remaining migration gates
-are complete. See [graph async lowering](async-graph-production.md) for the
+there is no publicly selectable legacy route or fallback. See
+[graph async lowering](async-graph-production.md) for the
 cleanup contract, supported guards/scoped borrows, and current limitations.
 
 Bundles can also supply function parameters or named call arguments. Definitions

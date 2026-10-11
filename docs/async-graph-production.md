@@ -1,10 +1,12 @@
 # Graph async production route
 
-The graph generator is available through the ordinary public compile, parse,
-and generated-source APIs with `CompileConfig::set("async-lowering", "graph")`.
-The CLI can use the same configuration key. An unknown value is an error.
-The default remains `legacy`: this is an explicit migration route, not completion
-of ASYNC-01, ASYNC-CFG-01, or ASYNC-PIN-LATE-01.
+The graph generator is the default for the ordinary public compile, parse,
+and generated-source APIs. `CompileConfig::set("async-lowering", "graph")`
+explicitly selects the same route; the CLI supports the same configuration key.
+`legacy` is no longer a selectable route. The internal legacy implementation
+still needs removal. Earlier migration entries below
+are historical verification records, not descriptions of the current default.
+Switching the default alone does not complete the full async safety goal.
 
 Graph selection applies to all async invocations in the prepared program,
 including imported and generator-produced invocations. Unsupported lowering
@@ -1351,3 +1353,51 @@ integration tests passed in 35.01 seconds after this change. The default is
 still legacy; this verification does not establish completion of the route
 removal or the full async safety goal. Legacy is to be removed, not retained
 as a backward-compatibility interface for the unreleased language.
+
+## Graph is now the default
+
+The final ten previously failing graph-default regression groups now check the
+canonical graph contract: direct and local aggregate destructuring, loop
+initializers, linear ownership errors, and condition/body sequencing. Native
+results, exclusive/shared retained-loan conflicts, and release on Ready or
+explicit cleanup remain checked. Nested await result types come from their
+declared child protocols; the obsolete unsupported-nesting expectation is gone.
+
+The production default is graph, and `async-lowering=legacy` is rejected as an
+unknown configuration value. The legacy enum variant is currently test-only.
+This is not a compatibility mode: its remaining implementation and private
+state/cancellation interfaces are still removal work.
+
+The switch audit passed 1,356 library tests (three manual benchmarks ignored)
+and all 229 async integration tests. A broader all-target audit exposed extra
+assumptions: the mutable self-reference boundary fixture borrowed an immutable
+owner, heap cancellation used obsolete per-state mappings, and error propagation
+used a lowercase generated type. These now use explicit mutable ownership,
+source-slot cleanup (with destructor metadata owned in a concrete wrapper), and
+the capitalized result type. The immutable source is also explicitly rejected
+at its original borrow expression before any generated code is accepted.
+
+Control-flow diagnostics now structurally select the missing label or offending
+break/continue keyword rather than the enclosing loop. The obsolete let-else
+await rejection fixture is a real Ready-payload type mismatch instead. All
+three UI tests passed. Six focused suites passed (5 boundary, 3 heap, 10 jump
+table, 18 result propagation, 19 slice reborrow, and 5 timer tests). The returned
+array-element test now checks both a disjoint write and a genuinely overlapping
+write with a subsequent use of the returned reference.
+
+All five native-example tests passed, including the complete declared-outcome
+sweep in 42.71 seconds, after registering three previously missing examples.
+Relocated build outputs and generated artifacts remain identical; the semantic
+cache deliberately keys physical source paths, so its bytes are checked for
+cold/warm stability within each workspace rather than equality across locations.
+The reproducibility test passed. The full audit also observed two `ETXTBSY`
+execution races; their focused jump-table and timer reruns passed, which does
+not prove those races eliminated.
+
+One functional failure from that broader audit remains: a movable future forms
+a shared reference selecting between two local scalars and explicitly forgets
+it before awaiting. Emitted ordinary checking nevertheless reports a later
+dispatcher-arm loan against an earlier initialization. The regression is kept
+enabled and unreduced. This false rejection, internal legacy deletion, private
+cleanup-interface removal, and the full requirement-by-requirement safety audit
+remain work toward the original goal; this default switch is not completion.
