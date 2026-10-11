@@ -2015,7 +2015,8 @@ mod async_migration_tests {
             .replace("@#async-fn", "@#async-fn-pinned")
         );
         let prepared = syntax(&text, None);
-        let (legacy, _) = expand_prepared_program(&prepared).unwrap();
+        let (legacy, _) =
+            expand_prepared_program_with_route(&prepared, AsyncRoute::Legacy).unwrap();
         typecheck::CheckedProgram::validate_with_span(&legacy).unwrap();
         let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
             .err()

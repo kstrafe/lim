@@ -374,7 +374,7 @@ fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
         "../library/pin.lim",
         &format!("{}/library/pin.lim", env!("CARGO_MANIFEST_DIR")),
     );
-    let generated = build_and_run(&source, 42);
+    let generated = build_and_run_graph(&source, 42);
     assert_single_poll(&generated, "work-poll");
     assert!(
         generated.contains("Work-frame-cleanup-await-1")
@@ -385,11 +385,13 @@ fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
     // Cached inspectable output is precisely the executable dispatcher, not
     // the private helper-shaped capture-analysis witness.
     let scratch = support::Scratch::new("async-single-poll-cache");
+    let mut config = lim::CompileConfig::default();
+    config.set("async-lowering", "graph");
     let compile = || {
         lim::compile_source_with_generated_sources(
             &source,
             &scratch.path().join("main.lim"),
-            &lim::CompileConfig::default(),
+            &config,
             &scratch.path().join(".lim/cache"),
             lim::TargetDescription::X86_64_SYSTEM_V,
             None,
@@ -471,7 +473,7 @@ fn pinned_dispatcher_preserves_user_task_bindings() {
         "(#return (#u64.+.wrap value offset))",
         "(#let task #u64 offset) (#return (#u64.+.wrap value task))",
     );
-    assert_single_poll(&build_and_run(&source, 41), "work-poll");
+    assert_single_poll(&build_and_run_graph(&source, 41), "work-poll");
 }
 
 #[test]
@@ -679,19 +681,25 @@ fn example_without_cancel_work() -> String {
 }
 
 fn build_and_run(source: &str, expected: i32) -> String {
+    build_and_run_route(source, expected, false)
+}
+
+fn build_and_run_graph(source: &str, expected: i32) -> String {
+    build_and_run_route(source, expected, true)
+}
+
+fn build_and_run_route(source: &str, expected: i32, graph: bool) -> String {
     let scratch = support::Scratch::new("async-fn");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
     fs::write(&input, source).unwrap();
-    let (status, _, stderr) = support::run(
-        Command::new(env!("CARGO_BIN_EXE_lim"))
-            .arg(&input)
-            .arg("-o")
-            .arg(&binary),
-        Duration::from_secs(20),
-        1024 * 1024,
-    )
-    .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_lim"));
+    command.arg(&input).arg("-o").arg(&binary);
+    if graph {
+        command.arg("--cfg").arg("async-lowering=graph");
+    }
+    let (status, _, stderr) =
+        support::run(&mut command, Duration::from_secs(20), 1024 * 1024).unwrap();
     let generated_sources = fs::read_dir(scratch.path().join(".lim/generated"))
         .into_iter()
         .flatten()

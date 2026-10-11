@@ -1550,23 +1550,41 @@ mod tests {
 
     #[test]
     fn promoted_linear_owner_is_transferred_once_not_duplicated_on_the_stack() {
+        let mut config = crate::CompileConfig::default();
+        config.set("async-lowering", "graph");
+        let parse = |source: &str| {
+            crate::parse_program_from_path_with_config(
+                source,
+                std::path::Path::new("graph-linear-owner.lim"),
+                &config,
+            )
+        };
         let source = include_str!("../../examples/async_fn_local_self_reference.lim").replace(
             "(#struct LocalOwner ((payload LocalPayload)))",
             "(#struct LocalOwner ((payload LocalPayload))) (#linear LocalOwner)",
-        );
-        let program = crate::parse_program(&source).unwrap();
+        ).replace("(#return (#u64.+.wrap (#deref view) result))", "(#let answer #u64 (#u64.+.wrap (#deref view) result))\n    (#forget view) (#forget owner) (#return answer)");
+        let program = parse(&source).unwrap();
         let mut runtime = program.clone();
         runtime.generator_validation = None;
         crate::CheckedProgram::validate(&runtime).unwrap();
         crate::CheckedProgram::validate(&program).unwrap();
         let missing = source.replace("(#let view (#pin-ref #u64)",
             "(#let unrelated LocalOwner (#struct-literal LocalOwner ((payload (#struct-literal LocalPayload ((left 1u64) (right 2u64)))))))\n    (#let view (#pin-ref #u64)");
-        let error = crate::check_types(&crate::parse_program(&missing).unwrap()).unwrap_err();
+        let error = parse(&missing).unwrap_err();
         assert!(error.contains("unrelated"), "{error}");
     }
 
     #[test]
-    fn promoted_reference_bearing_owners_still_require_the_runtime_frame_proof() {
+    fn reference_bearing_owners_retain_frame_and_external_borrows() {
+        let mut config = crate::CompileConfig::default();
+        config.set("async-lowering", "graph");
+        let parse = |source: &str| {
+            crate::parse_program_from_path_with_config(
+                source,
+                std::path::Path::new("graph-reference-owner.lim"),
+                &config,
+            )
+        };
         let source = include_str!("../../examples/async_fn_local_self_reference.lim")
             .replace("(left #u64)", "(left (#ref #u64))")
             .replace("(#pin-ref #u64)", "(#pin-ref (#ref #u64))")
@@ -1578,19 +1596,27 @@ mod tests {
                 "(#let external-storage #u64 40u64)\n  (#let-mut frame",
             )
             .replace(": seed 40u64", ": seed (#borrow external-storage)");
-        crate::CheckedProgram::validate(&crate::parse_program(&external).unwrap()).unwrap();
-
-        for invalid in [
-            source.replace("(left seed)", "(left (#borrow seed))"),
-            external.replace(
-                "(left seed)",
-                "(left (#block (#let local #u64 40u64) (#borrow local)))",
-            ),
-        ] {
-            let program = crate::parse_program(&invalid).unwrap();
-            let (message, code, span, _) = crate::CheckedProgram::validate_with_span(&program)
-                .err()
-                .expect("a handoff cannot authorize a frame containing stack borrows");
+        crate::CheckedProgram::validate(&parse(&external).unwrap()).unwrap();
+        // On the graph route a value parameter occupies stationary frame
+        // storage too; borrowing it is legal, unlike a block-local escape.
+        let self_reference = source.replace("(left seed)", "(left (#borrow seed))");
+        crate::CheckedProgram::validate(&parse(&self_reference).unwrap()).unwrap();
+        for invalid in [external.replace(
+            "(left seed)",
+            "(left (#block (#let local #u64 40u64) (#borrow local)))",
+        )] {
+            let prepared = crate::prepare_program_syntax(
+                &invalid,
+                std::path::Path::new("."),
+                None,
+                &config,
+                None,
+            )
+            .unwrap();
+            let error = crate::expand_prepared_program(&prepared).err().unwrap();
+            let message = error.message;
+            let code = error.code;
+            let span = error.span;
             // Staged referent contracts can reject unresolved stack-sourced
             // call inputs before the final borrow-escape diagnostic boundary.
             assert!(

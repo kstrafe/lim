@@ -16058,7 +16058,12 @@ mod typed_ownership_tests {
             let marker = "(#let second ";
             assert_eq!(original.matches(marker).count(), 1, "{name}");
             let source = original.replacen(marker, "(#forget frame)\n  (#let second ", 1);
-            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            // Graph expansion rejects this before returning a public Program;
+            // this staged solver test requires the unvalidated legacy arena.
+            let mut config = crate::CompileConfig::default();
+            config.set("async-lowering", "legacy");
+            let program =
+                crate::parse_program_from_path_with_config(&source, &path, &config).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             declarations.staged_parameter_contents_summaries();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
