@@ -22,8 +22,11 @@
   <main id="main">
     <section class="hero" aria-labelledby="headline">
       <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> An experimental language for people &amp; machines</p>
-      <h1 id="headline">Explicit code.<br>Less <em>time.</em></h1>
-      <p class="intro">An AI IR you can actually read. Lim gives language models a precise language to generate—and humans a concrete program to audit.</p>
+      <div class="hero-heading">
+        <div class="hero-limit" role="img" aria-label="Lim: limit as time approaches zero">lim<span><i>t</i> → 0</span></div>
+        <h1 id="headline">Explicit code.<br>Less <em>time.</em></h1>
+      </div>
+      <p class="intro">A human-readable intermediate representation for AI-generated programs. Precise enough for a language model to write. Explicit enough for a developer to audit.</p>
       <div class="hero-actions">
         <a class="button" href="#language">Read the code <span aria-hidden="true">↓</span></a>
         <span class="hero-note">Strong types. Native binaries.<br>No hidden dispatch.</span>
@@ -51,7 +54,7 @@
   (<span class="keyword">#let</span> answer <span class="type">#u64</span>
     (<span class="keyword">#call</span> add (: left <span class="number">40u64</span> : right <span class="number">2u64</span>)))
   (<span class="keyword">#return</span> answer))</code></pre>
-        <div class="code-caption">Every binding has a type. Every return is explicit.<br>The addition wraps because the source says so.</div>
+        <div class="code-caption">Every binding has a type. Every return is explicit.<br>The addition wraps because the source says so. <a href="answer.lim" download>Download this program ↓</a></div>
       </figure>
     </section>
 
@@ -62,7 +65,7 @@
         <article>
           <span class="feature-number">A</span>
           <h3>Explicit by construction</h3>
-          <p>Strong static types, no type inference. Free-standing functions, no methods, function pointers, or closures. No recursion. Fewer hidden relationships to reconstruct when reviewing a program.</p>
+          <p>Strong static types, no type inference. Free-standing functions, no methods, function pointers, or closures. No recursion. Named call arguments show what each value means; explicit operations show what each function does.</p>
         </article>
         <article>
           <span class="feature-number">B</span>
@@ -82,7 +85,7 @@
       <div>
         <p class="eyebrow">03 / Explicit does not mean unchecked</p>
         <h2 id="safety-title">Small surface.<br>Serious checks.</h2>
-        <p class="section-intro">The compiler follows ownership and borrowing across the program—not just the function in front of you.</p>
+        <p class="section-intro">The compiler follows ownership and borrowing across the program—not just the function in front of you. Explicit source and static checks work together: auditability is not a substitute for safety.</p>
       </div>
       <dl class="checks">
         <div><dt>Global borrow checking</dt><dd>Interprocedural analysis tracks returned references and retained borrows without user-written lifetime annotations. Borrowed storage must remain valid, and exclusive access must stay exclusive.</dd></div>
@@ -105,12 +108,13 @@
       <div>
         <p class="eyebrow">Start with the source</p>
         <h2 id="start-title">Read. Generate.<br>Check. Run.</h2>
-        <p>From a checkout of the Lim repository:</p>
+        <p>From a checkout of the Lim repository, compile the <a href="answer.lim" download>example above</a>:</p>
       </div>
       <pre class="commands"><code>nix develop
 cargo build --release
-./target/release/lim examples/fibonacci.lim
-./examples/fibonacci</code></pre>
+./target/release/lim docs/answer.lim -o answer
+./answer
+# Exit status: 42</code></pre>
       <p class="release-note">Lim is experimental and unreleased. The language is evolving; compatibility is not a constraint. This is a foundation for explicit, auditable systems—not a finished ecosystem.</p>
     </section>
   </main>
