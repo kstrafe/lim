@@ -12628,12 +12628,10 @@ fn value_projection(body: &Body, value: NodeId) -> Option<Segment> {
             };
             Some(Segment::Payload(variant, usize::try_from(*index).ok()?))
         }
-        "index" => match &body.nodes[children.get(2)?.0].kind {
-            NodeKind::Literal(crate::Expr::Integer(index)) => {
-                u128::try_from(*index).ok().map(Segment::Index)
-            }
-            _ => Some(Segment::DynamicIndex),
-        },
+        "index" => Some(
+            crate::typed_place::literal_index(body, *children.get(2)?)
+                .map_or(Segment::DynamicIndex, Segment::Index),
+        ),
         _ => None,
     }
 }
