@@ -688,10 +688,15 @@ impl StorageFacts {
     /// Entry capture planning precedes every body effect. It need not stage
     /// callee ownership contracts, but cannot authorize any later snapshot.
     pub fn for_entry(body: &Body, flow: &FlowGraph, types: &LinearTypes) -> Self {
+        let origins = flow.loan_origins(body);
+        let pins = flow.local_pin_accesses_with_origins(body, types, Some(&origins));
+        // Entry planning still classifies local transfers only. Sharing pin
+        // lookup facts must not opt into referent/callee consumption semantics.
+        let moves = flow.solve_consumptions(body, types, None, None, &[], pins);
         Self {
             flow: flow.clone(),
-            origins: flow.loan_origins(body),
-            moves: flow.consumptions(body, types),
+            origins,
+            moves,
             entry_only: true,
         }
     }
@@ -6501,6 +6506,25 @@ impl FlowGraph {
         entry_consumed: &[Place],
     ) -> FlowConsumptions {
         let local_pin_accesses = self.local_pin_accesses_with_origins(body, types, origins);
+        self.solve_consumptions(
+            body,
+            types,
+            origins,
+            calls,
+            entry_consumed,
+            local_pin_accesses,
+        )
+    }
+
+    fn solve_consumptions(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        origins: Option<&FlowLoanOrigins>,
+        calls: Option<&HashMap<FlowNodeId, CallConsumptionFacts>>,
+        entry_consumed: &[Place],
+        local_pin_accesses: HashMap<NodeId, Place>,
+    ) -> FlowConsumptions {
         let resolve = |id: FlowNodeId, place: &Place, value: NodeId| {
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
@@ -15076,6 +15100,112 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entry_pin_fixture(count: usize) -> crate::Program {
+        let mut source =
+            String::from("(#struct Token (: value #u64)) (#linear Token)\n(#fn work () #u64\n");
+        for index in 0..count {
+            source.push_str(&format!(
+                "(#let-mut owner{index} Token (#struct-literal Token (: value 42u64)))
+              (#let pin{index} (#pin-ref-mut Token) (#pin-borrow-mut owner{index}))
+              (#let taken{index} Token (#unsafe (#pin-read pin{index})))
+              (#unsafe (#pin-write pin{index} taken{index}))
+              (#drop pin{index}) (#forget owner{index})\n"
+            ));
+        }
+        source.push_str("(#return 42u64))");
+        crate::parse_program(&source).unwrap()
+    }
+
+    fn assert_same_consumptions(left: &FlowConsumptions, right: &FlowConsumptions) {
+        assert_eq!(left.before, right.before);
+        assert_eq!(left.after, right.after);
+        assert_eq!(left.at, right.at);
+        assert_eq!(left.local_pin_accesses, right.local_pin_accesses);
+        assert_eq!(left.resolved_at, right.resolved_at);
+        assert_eq!(left.definitely_before, right.definitely_before);
+        assert_eq!(left.unresolved, right.unresolved);
+    }
+
+    #[test]
+    fn entry_pin_fact_reuse_preserves_local_consumption_mode() {
+        for count in [0, 1, 8] {
+            let program = entry_pin_fixture(count);
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["work"];
+            let flow = &declarations.flows["work"];
+            let types = LinearTypes::from_program(&program);
+            let entry = StorageFacts::for_entry(body, flow, &types);
+            assert!(entry.entry_only);
+            assert_same_consumptions(&entry.moves, &flow.consumptions(body, &types));
+            if count != 0 {
+                assert!(!entry.moves.local_pin_accesses.is_empty());
+            }
+        }
+        // Sharing only the pin lookup must not silently enable abstract
+        // referent consumption. This source is type-correct but fails ordinary
+        // ownership: a shared reference is not permission to move its Token.
+        let program = crate::parse_program(
+            "(#struct Token (: value #u64)) (#linear Token)
+          (#fn inspect (: input (#ref Token)) #u64
+            (#let moved Token (#deref input)) (#forget moved) (#return 0u64))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["inspect"];
+        let flow = &declarations.flows["inspect"];
+        let types = LinearTypes::from_program(&program);
+        let entry = StorageFacts::for_entry(body, flow, &types);
+        assert_same_consumptions(&entry.moves, &flow.consumptions(body, &types));
+        let referents = flow.referent_consumptions(body, &types);
+        assert_ne!(entry.moves.resolved_at, referents.resolved_at);
+        assert!(crate::CheckedProgram::validate(&program).is_err());
+    }
+
+    #[test]
+    #[ignore = "manual release entry fact reuse benchmark; run with --ignored --nocapture"]
+    fn entry_pin_fact_reuse_timing() {
+        use std::{hint::black_box, time::Instant};
+        for count in [8, 32] {
+            let program = entry_pin_fixture(count);
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["work"];
+            let flow = &declarations.flows["work"];
+            let types = LinearTypes::from_program(&program);
+            let mut samples = [Vec::new(), Vec::new()];
+            for iteration in 0..12 {
+                for mode in [iteration % 2, 1 - iteration % 2] {
+                    let started = Instant::now();
+                    for _ in 0..10 {
+                        let facts = if mode == 0 {
+                            // The former entry path: independent origin and
+                            // consumption solves, including the latter's pin lookup.
+                            StorageFacts {
+                                flow: flow.clone(),
+                                origins: flow.loan_origins(body),
+                                moves: flow.consumptions(body, &types),
+                                entry_only: true,
+                            }
+                        } else {
+                            StorageFacts::for_entry(body, flow, &types)
+                        };
+                        black_box(facts);
+                    }
+                    if iteration != 0 {
+                        samples[mode].push(started.elapsed().as_secs_f64() * 1000.0 / 10.0);
+                    }
+                }
+            }
+            for values in &mut samples {
+                values.sort_by(f64::total_cmp);
+            }
+            let old = samples[0][samples[0].len() / 2];
+            let new = samples[1][samples[1].len() / 2];
+            println!("entry facts, pins={count}, median 11 alternating samples: independent={old:.3}ms reused={new:.3}ms reduction={:.1}%", (old - new) * 100.0 / old);
+        }
+    }
 
     #[test]
     fn shared_parameter_facts_match_independent_solves_in_both_modes() {

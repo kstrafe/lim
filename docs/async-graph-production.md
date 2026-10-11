@@ -390,3 +390,21 @@ source typing/flow facts without skipping either ownership proof remains a
 performance goal, not an optimization claimed by the slice-storage change. Corrupt graph
 text is rejected without emission or repair; legacy capture-cache regeneration
 is not the graph cache's policy.
+
+### Reusing entry pin facts
+
+Entry capture planning now reuses its same-body loan-origin solution for local
+pin lookups instead of solving origins again inside consumption analysis.
+The consumption mode remains local-only: sharing a lookup does not enable
+referent/callee ownership effects or make these entry facts a body proof.
+Differential tests compare every consumption field, including a type-correct
+shared-reference move that ordinary ownership must still reject.
+
+The ignored release test `typed_flow::tests::entry_pin_fact_reuse_timing` compares
+the former independent solves with the reused path in one process. Eleven
+alternating samples, ten constructions per sample, measured eight pin operations
+at 0.274 -> 0.241ms (12.0%) and 32 at 3.258 -> 3.062ms (6.0%). Resolution and
+native emission are excluded; these are entry-analysis improvements, not an
+end-to-end async compilation claim. Full source and emitted ownership validation
+still run; source-fact remapping across planning and assembled program arenas
+remains unfinished.
