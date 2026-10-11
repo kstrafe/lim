@@ -11060,6 +11060,58 @@ fn graph_parent_cancels_a_slice_borrowing_child_before_its_lender() {
 }
 
 #[test]
+fn graph_child_cancellation_retains_a_shared_slice_descriptor() {
+    let source = r#"
+      (#enum ChildTask ((Start (#ref (#slice #u64))) (Resume (#ref (#slice #u64)))))
+      (#linear ChildTask)
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady ())))
+      (#fn child-poll (: task ChildTask : waker (#ref #u64)) ChildPoll
+        (#return (#match task
+          (#case (Start initial) (ChildPending (Resume initial)))
+          (#case (Resume final) (#block (#forget final) (ChildReady ()))))))
+      (#fn cancel-child (: task ChildTask) ()
+        (#match task
+          (#case (Start initial)
+            (#forget initial))
+          (#case (Resume final)
+            (#assert (#u64.== (#deref (#slice-idx (#deref final) 0usize)) 42u64))))
+        (#return ()))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+        : cancel (cancel-frame ((await-0 cancel-child)))
+        : function (#fn work () #u64
+          (#let backing (#array #u64 1) (#array-of (#array #u64 1) 42u64))
+          (#let container (#slice #u64) (#slice-of (#borrow backing)))
+          (#await () ChildTask ChildPending ChildReady child-poll (Start (#borrow container)))
+          (#let answer #u64 (#deref (#slice-idx container 0usize)))
+          (#forget container) (#forget backing) (#return answer))))
+      (#fn main () #u64
+        (#let-mut frame Work-frame (#call work ())) (#let waker #u64 0u64)
+        (#let first Work-poll-result
+          (#call work-poll (: task (#pin frame) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))
+        (#call cancel-frame (: task cleanup))
+        (#forget frame) (#return 42u64))"#;
+    let generated = build_and_run_graph(source, 42);
+    let cleanup = lim::parse(&generated)
+        .unwrap()
+        .into_iter()
+        .find(|node| {
+            matches!(&node.expr, lim::Expr::List(items)
+            if matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "work-poll-cleanup"))
+        })
+        .unwrap();
+    let cleanup = &generated[cleanup.span.start..cleanup.span.end];
+    assert!(
+        cleanup.find("(#call cancel-child").unwrap()
+            < cleanup
+                .find("(#pin-borrow-mut (#get task binding.2))")
+                .unwrap(),
+        "the child's descriptor must not be cleared before its destructor"
+    );
+}
+
+#[test]
 fn dereference_reborrows_keep_exclusivity_and_pin_kind() {
     let source = r#"(#fn main () #u64
       (#let-mut value #u64 41u64)

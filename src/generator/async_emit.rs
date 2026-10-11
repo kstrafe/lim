@@ -43,6 +43,8 @@ struct Slot {
     finish: String,
     lend: String,
     lend_argument: String,
+    recover: String,
+    recover_argument: String,
     ty: Type,
     storage: Type,
     raw: bool,
@@ -619,6 +621,8 @@ impl<'a> Emitter<'a> {
             finish: self.fresh("finish"),
             lend: self.fresh("lend"),
             lend_argument: self.fresh("lend-input"),
+            recover: self.fresh("recover-reference"),
+            recover_argument: self.fresh("recover-anchor"),
             copy: self.types.can_repeat(&ty),
             linear: self.types.is_linear(&ty),
             borrowed_slice_snapshot: false,
@@ -899,6 +903,14 @@ impl<'a> Emitter<'a> {
             .as_ref()
             .expect("raw internal slot has checked anchors");
         let materialize = |place| {
+            if self.recover_nested_reference(slot) {
+                return format!(
+                    "(#call {} (: {} {}))",
+                    slot.recover,
+                    slot.recover_argument,
+                    self.internal_anchor(place, mutable, pointer)
+                );
+            }
             format!(
                 "(#unsafe (#{}ptr-borrow{} {} {pointer}))",
                 if pinned { "pin-" } else { "" },
@@ -942,6 +954,18 @@ impl<'a> Emitter<'a> {
             );
         }
         selected
+    }
+
+    fn recover_nested_reference(&self, slot: &Slot) -> bool {
+        slot.raw
+            && matches!(crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases),
+                Ok(Type::Reference { mutable: false, target }) if self.types.contains_reference(&target))
+            && slot.anchor.as_ref().is_some_and(|places| {
+                places.iter().all(|place| {
+                    matches!(place.root, crate::typed_body::PlaceRoot::Local(_))
+                        && place.segments.is_empty()
+                })
+            })
     }
 
     fn slot_ref(slot: &Slot, mutable: bool) -> String {
@@ -1130,7 +1154,7 @@ impl<'a> Emitter<'a> {
         );
         self.slots.iter().enumerate().map(|(index, slot)| {
             let ty = crate::type_source(&slot.storage);
-            let lend = if lenders.contains(&index) {
+            let mut lend = if lenders.contains(&index) {
                 if matches!(crate::typed_ir::resolve_type(&slot.storage, &self.planning.declarations.aliases), Ok(Type::MutableSlice(_))) {
                     format!("(#fn {} (: {} (#pin-ref-mut {ty})) {ty}\n  (#return (#slice-mut-range (#deref {}) 0usize (#slice-mut-len (#deref {})))))\n",
                         slot.lend, slot.lend_argument, slot.lend_argument, slot.lend_argument)
@@ -1139,6 +1163,12 @@ impl<'a> Emitter<'a> {
                         slot.lend, slot.lend_argument, slot.lend_argument)
                 }
             } else { String::new() };
+            if self.recover_nested_reference(slot) {
+                let Type::Reference { target, .. } = crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases).unwrap() else { unreachable!() };
+                let target = crate::type_source(&target);
+                lend.push_str(&format!("(#fn {} (: {} (#pin-ref {target})) (#ref {target})\n  (#return (#unsafe (#ptr-borrow {} (#ref-ptr {})))))\n",
+                    slot.recover, slot.recover_argument, slot.recover_argument, slot.recover_argument));
+            }
             let occupied = if slot.linear {
                 // This branch is a violated compiler/source invariant, not an
                 // invented destructor for a live owner. It traps explicitly.
@@ -1157,7 +1187,7 @@ impl<'a> Emitter<'a> {
                 // cell helper. End all old loaded aliases before restoration.
                 // Full source checking and ordinary call contracts still
                 // determine which incoming referents the cell retains.
-                return format!("(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
+                return format!("{lend}(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
                   (#fn {put} ((slot (#pin-ref-mut {name})) (value {ty})) ()\n\
                     (#let previous {name} (#unsafe (#pin-read slot)))\n\
                     (#match previous (#case {empty} ()) (#case ({full} occupied) (#forget occupied)))\n\
@@ -1190,7 +1220,7 @@ impl<'a> Emitter<'a> {
                     name=slot.name, empty=slot.empty, full=slot.full,
                     finish=slot.finish, clear=slot.clear);
             }
-            format!("(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
+            format!("{lend}(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
               (#unsafe-fn {take} ((slot (#pin-ref-mut {name}))) {ty}\n\
                 (#let previous {name} (#unsafe (#pin-read slot)))\n\
                 (#unsafe (#pin-write slot ({empty})))\n\
@@ -3592,12 +3622,24 @@ impl<'a> Emitter<'a> {
             };
             order.push(dependent.remove(next));
         }
-        let mut output = Vec::new();
+        // A Copy reference-bearing binding can itself be a child's referent
+        // (for example a borrowed slice descriptor). It is non-owning, but
+        // its storage must remain intact until dependent children are gone.
+        let lenders = order
+            .iter()
+            .flat_map(|index| &self.slots[*index].dependencies)
+            .filter_map(|binding| self.bindings.get(binding).copied())
+            .collect::<HashSet<_>>();
+        let (retained, disposable): (Vec<_>, Vec<_>) = self
+            .reference_slots()
+            .into_iter()
+            .partition(|index| lenders.contains(index));
+        let mut output = vec![self.clear_handle_slots(&disposable)];
         let mut emptied = order.clone();
         emptied.extend(self.reference_slots());
         emptied.sort_unstable();
         emptied.dedup();
-        for index in order {
+        for &index in &order {
             let slot = &self.slots[index];
             let name = &names[&index];
             let handler = handlers.get(name).ok_or_else(|| fail(self.function, format!("async source slot '{name}' retaining a frame-local borrow requires an in-place cancellation handler")))?;
@@ -3648,6 +3690,18 @@ impl<'a> Emitter<'a> {
                 slot.full
             ));
         }
+        // Publish child retirement before touching the retained lenders.
+        // Opaque handler calls can otherwise erase the input tag facts used
+        // by ordinary stored-internal-loan checking at that access boundary.
+        output.extend(order.iter().map(|index| {
+            let slot = &self.slots[*index];
+            format!(
+                "(#assert (#variant-is {} {}))",
+                Self::slot_ref(slot, false),
+                slot.empty
+            )
+        }));
+        output.push(self.clear_handle_slots(&retained));
         // Later cleanup calls can invalidate earlier stored-variant facts.
         // Independently check and publish the complete cleared state before
         // any field extraction or returned cleanup aggregate is assembled.
@@ -3733,11 +3787,7 @@ impl<'a> Emitter<'a> {
             // Keep loan clearing and extraction in this ordinary function.
             // A wrapper around private cancel loses entry/clearing correlation
             // in nested caller contracts for conditional internal references.
-            let clear = format!(
-                "{}\n{}",
-                self.clear_handle_slots(&self.reference_slots()),
-                self.in_place_cleanup()?
-            );
+            let clear = self.in_place_cleanup()?;
             let pc = self.fresh("cleanup-pc");
             let mut takes = vec![format!("(#let {pc} #u32 (#get task pc))")];
             let mut captures = vec![format!("(pc {pc})")];
@@ -4129,12 +4179,7 @@ impl<'a> Emitter<'a> {
         };
         let cancel = if self.pinned {
             let state = format!("{}-state", self.frame);
-            let refs = self.reference_slots();
-            let clear = format!(
-                "{}\n{}",
-                self.clear_handle_slots(&refs),
-                self.in_place_cleanup()?
-            );
+            let clear = self.in_place_cleanup()?;
             let pc = self.fresh("cancelled-pc");
             let mut takes = vec![format!("(#let {pc} #u32 (#get task pc))")];
             let mut captured = vec![format!("(pc {pc})")];

@@ -307,8 +307,33 @@ Only source-certified reborrow snapshots may be discarded at retirement;
 the original slice binding remains linear. Cleanup results explicitly mark
 already-canceled dependent cells Empty rather than exporting fictitious loans.
 
-Movable local-slice projections, mixed selections involving pinned-reference parameters, and
-effectful index windows remain unfinished. These are still default-switch gates.
+Non-owning reference-bearing bindings can themselves be child referents. For
+example, a child may hold a reference to a parent's shared slice descriptor,
+not merely to one of its elements. Cancellation now clears disposable handles
+first, cancels dependent children, publishes their Empty tags, and only then
+clears retained non-owning lenders. Public and private cancellation share this
+sequence. A native regression reads the descriptor from the resumed child's
+destructor before releasing the backing array.
+
+Whole local shared references to reference-bearing values are reconstructed
+from their checked owner rather than an opaque pointer anchor. An ordinary
+helper performs `(#ptr-borrow anchor (#ref-ptr anchor))` with the same named
+reference. General loan analysis recognizes this exact identity round trip
+and preserves nested referent provenance. Different bindings and arbitrary
+pointer expressions remain lifetime-only; no keyword or async-specific
+borrow permission was added.
+
+The descriptor regression still exposes an unfinished control-flow gate if
+its destructor reads the descriptor in both Start and Resume arms. When the
+poll can retain only Resume, call-contract mapping rejects the dormant Start
+read as an unresolved input rather than proving it inactive. This is a valid
+program needing nested stored-variant/retained-content correlation, not an
+expected source rejection. Resolve this before switching the default route;
+the working regression reads only the resumed arm.
+
+Movable local-slice projections, mixed selections involving pinned-reference
+parameters, and effectful index windows remain unfinished. These are still
+default-switch gates.
 
 On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
 thin reference locals into stationary frame owners, including checked static
