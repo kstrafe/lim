@@ -10818,6 +10818,14 @@ mod generation_planning_tests {
 mod typed_ownership_tests {
     use super::*;
 
+    fn graph_reference_program(root: &std::path::Path, name: &str) -> crate::Program {
+        let path = root.join("examples").join(format!("{name}.lim"));
+        let source = std::fs::read_to_string(&path).unwrap();
+        let mut config = crate::CompileConfig::default();
+        config.set("async-lowering", "graph");
+        crate::parse_program_from_path_with_config(&source, &path, &config).unwrap()
+    }
+
     // These staged solver comparisons deliberately examine the legacy state
     // representation. Keep its old fixture explicit while public examples
     // migrate; the native manifest and graph regressions check current code.
@@ -16047,7 +16055,7 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_contents_async_pending_loans_prevent_releasing_the_frame() {
+    fn graph_async_pending_loans_prevent_releasing_the_frame() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         for name in [
             "async_fn_local_self_reference",
@@ -16057,27 +16065,47 @@ mod typed_ownership_tests {
             let original = std::fs::read_to_string(&path).unwrap();
             let marker = "(#let second ";
             assert_eq!(original.matches(marker).count(), 1, "{name}");
-            let source = original.replacen(marker, "(#forget frame)\n  (#let second ", 1);
-            // Graph expansion rejects this before returning a public Program;
-            // this staged solver test requires the unvalidated legacy arena.
+            assert_eq!(original.matches("(#forget frame)").count(), 1, "{name}");
+            // Move the release earlier rather than duplicate it: otherwise a
+            // double-consumption error masks the intended live-loan violation.
+            let source = original.replace("(#forget frame)", "()").replacen(
+                marker,
+                "(#forget frame)\n  (#let second ",
+                1,
+            );
             let mut config = crate::CompileConfig::default();
-            config.set("async-lowering", "legacy");
-            let program =
-                crate::parse_program_from_path_with_config(&source, &path, &config).unwrap();
-            let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
-            declarations.staged_parameter_contents_summaries();
-            let types = crate::linearcheck::LinearTypes::from_program(&program);
-            let body = &declarations.bodies["main"];
-            let flow = &declarations.flows["main"];
-            let cache = std::cell::OnceCell::from(flow.loan_origins(body));
-            let conflict =
-                crate::typed_borrow::check_live_direct_loans_cached(body, flow, &types, &cache)
-                    .unwrap_err();
+            config.set("async-lowering", "graph");
+            let prepared = crate::prepare_program_syntax(
+                &source,
+                path.parent().unwrap(),
+                Some(&path),
+                &config,
+                None,
+            )
+            .unwrap();
+            // The unified route must reject the program before publishing an
+            // ordinary arena, with the causal source span intact.
+            let conflict = crate::generator::frontend::expand_prepared_program(&prepared)
+                .err()
+                .expect("a Pending handle must keep its stationary frame borrowed")
+                .diagnostic();
+            assert_eq!(
+                conflict.code,
+                crate::DiagnosticCode::Borrow,
+                "{name}: {conflict:?}"
+            );
             let span = conflict.span.unwrap();
+            assert_eq!(span.source_id, 0, "{name}: {conflict:?}");
+            assert_eq!(span.start, source.find("(#forget frame)").unwrap() + 1);
             assert_eq!(
                 &source[span.start..span.end],
-                "(#forget frame)",
+                "#forget",
                 "{name}: {conflict:?}"
+            );
+            assert!(
+                conflict.labels.iter().any(|label| label.span.source_id == 0
+                    && &source[label.span.start..label.span.end] == "(#pin-borrow-mut frame)"),
+                "{name}: the causal frame borrow must retain its source label"
             );
             assert!(
                 conflict.message.contains("while it is borrowed"),
@@ -16094,7 +16122,7 @@ mod typed_ownership_tests {
             "async_fn_self_reference",
             "async_fn_enum_self_reference",
         ] {
-            let program = legacy_reference_program(root, name);
+            let program = graph_reference_program(root, name);
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             declarations.staged_parameter_contents_summaries();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -17561,7 +17589,7 @@ mod typed_ownership_tests {
             "async_fn_self_reference",
             "async_fn_enum_self_reference",
         ] {
-            let program = legacy_reference_program(root, name);
+            let program = graph_reference_program(root, name);
             let checked = crate::CheckedProgram::validate(&program).unwrap();
             let declarations = checked.declarations();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
