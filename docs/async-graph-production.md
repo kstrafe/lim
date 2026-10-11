@@ -672,3 +672,49 @@ async integration tests, formatting, and whitespace checks. The selected
 integration suites cover general async behavior, immediate/poll-local borrows,
 graph production, selected-reference rejection, dependent cancellation,
 reference guards, self-borrow cleanup, and self-borrows.
+
+### Reusing cancellation occupancy during emission
+
+Private cancellation and public cleanup now share one lazily computed,
+owner-inclusive occupied-slot set per emitter. The reference-only Pending-cell
+plan is not substituted: it omits linear owners without references. The graph,
+transfer plans, and slot mapping are immutable during emission; adding a slot
+invalidates the cache. Original and generated ownership checking are unchanged.
+
+A regression counts actual cancellation solves, checks owner coverage that the
+reference-only plan lacks, verifies invalidation, and validates complete private
+and public cleanup output. `--timings` reports the uncached solve as
+`generator.async.cancellation_cells` when generation is required.
+
+The manual debug microbenchmark compares three independent solves against one
+solve plus two lookups, with equal occupied sets. For 20 emitter-equivalent
+cycles per sample, the medians were 27,572 us and 9,344 us (66.1% less time).
+This isolates repeated analysis; it is not a whole-compiler speedup.
+
+Release end-to-end measurements used eight pinned functions, each with eight
+owning locals and await sites, ten samples per compiler, and two warmups.
+Fresh-generation samples use separate temporary source/cache directories;
+snapshot setup and teardown are outside the timed compiler process. Normal
+warm samples reuse generated Lim. Both comparisons produced identical 61,328
+byte native executables.
+
+| Generated cache | Before median | After median | Observed change |
+| --- | ---: | ---: | ---: |
+| Fresh each sample | 4,557.52 ms | 4,573.53 ms | 0.4% slower |
+| Warm | 2,914.92 ms | 2,945.39 ms | 1.0% slower |
+
+The sample ranges overlap (cold: 4,521–4,615 ms versus 4,526–4,889 ms;
+warm: 2,896–3,019 ms versus 2,904–3,070 ms). No measurable end-to-end gain is
+claimed: the eliminated work is small relative to remaining analysis, and warm
+cache hits do not run this emission path. Reusing checked source facts across
+arenas, reducing remaining checks, and the default-route migration remain open.
+
+Reproduce with `scripts/benchmark-compile.py --async-pinned-heavy
+--cold-generators --cfg async-lowering=graph --baseline BEFORE --repetitions 10`;
+omit `--cold-generators` for the warm comparison. The existing synthetic
+workloads also use the current prefixed builtin spellings now.
+
+Verification passed 1,338 library tests (two ignored, including the manual
+benchmark), 87 focused async integration tests, all six synthetic benchmark
+workloads, formatting, and whitespace checks. The manual benchmark was run
+separately and passed.

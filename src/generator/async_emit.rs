@@ -7,7 +7,7 @@
 //! The original model and generated ordinary program must both be checked.
 #![allow(dead_code)] // The default frontend switches after all storage modes land.
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use crate::generator::async_exec::{
@@ -85,6 +85,7 @@ struct Emitter<'a> {
     leases: crate::generator::async_lease::Plan,
     immediate: crate::generator::async_immediate::Plan,
     reference_cells: Option<crate::generator::async_cells::Plan>,
+    cleanup_occupied_cache: OnceCell<HashSet<usize>>,
     projections: Vec<String>,
     array_anchors: crate::generator::async_array_anchor::Recipes,
     addresses: HashMap<PlaceId, usize>,
@@ -215,6 +216,7 @@ impl<'a> Emitter<'a> {
             immediate: crate::generator::async_immediate::Plan::new(&function.graph)
                 .map_err(|error| fail(function, error.message))?,
             reference_cells: None,
+            cleanup_occupied_cache: OnceCell::new(),
             projections: Vec::new(),
             array_anchors: Default::default(),
             addresses: HashMap::new(),
@@ -579,6 +581,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn add_slot(&mut self, field: String, ty: Type) -> usize {
+        self.cleanup_occupied_cache.take();
         let slot = Slot {
             field,
             name: self.fresh("Slot"),
@@ -3221,8 +3224,17 @@ impl<'a> Emitter<'a> {
             .collect()
     }
 
-    fn cleanup_occupied(&self) -> HashSet<usize> {
+    fn cleanup_occupied(&self) -> &HashSet<usize> {
+        // The graph, transfer plans, and slot mapping are fixed after new.
+        // Private cancellation and public cleanup need the same owner-inclusive
+        // result; the reference-only Pending plan cannot substitute for it.
+        self.cleanup_occupied_cache
+            .get_or_init(|| self.compute_cleanup_occupied())
+    }
+
+    fn compute_cleanup_occupied(&self) -> HashSet<usize> {
         use crate::generator::async_cells::Cell;
+        let _timing = crate::timing::detail("generator.async.cancellation_cells");
         crate::generator::async_cells::Plan::cancellation(
             &self.function.graph,
             self.types,
@@ -3342,7 +3354,7 @@ impl<'a> Emitter<'a> {
     /// private cleanup use this sequence, so neither can export a dangling child.
     fn in_place_cleanup(&self) -> Result<String, Error> {
         let occupied = self.cleanup_occupied();
-        let names = self.cleanup_names(&occupied)?;
+        let names = self.cleanup_names(occupied)?;
         let handlers = self.cancellation_handlers()?;
         let mut dependent = self
             .slots
@@ -3437,7 +3449,7 @@ impl<'a> Emitter<'a> {
             return Ok(String::new());
         }
         let occupied = self.cleanup_occupied();
-        let names = self.cleanup_names(&occupied)?;
+        let names = self.cleanup_names(occupied)?;
         let cleanup = format!("{}-cleanup", self.frame);
         let mut fields = Vec::new();
         let mut definitions = Vec::new();
@@ -4328,6 +4340,109 @@ mod tests {
             (#case (work-pending next) (#block (#set task next) ()))
             (#case (work-ready value) (#block (#return value) (#unreachable)))))
         (#return (#unreachable)))";
+
+    #[test]
+    fn public_and_private_cancellation_share_one_owner_inclusive_solve() {
+        let mut planning = prepare_generator(
+            "#async-fn-pinned",
+            "(#fn work (: seed #u64) #u64
+              (#let owner Child (Start seed))
+              (#let amount #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+              (#forget owner) (#return (#u64.+.wrap seed amount)))",
+            "",
+        );
+        planning.public_cleanup = true;
+        let function = &planning.functions[0];
+        let mut emitter = Emitter::new(&planning, function).unwrap();
+        let owner = BindingId(
+            function
+                .graph
+                .bindings
+                .iter()
+                .position(|binding| binding.name == "owner")
+                .unwrap(),
+        );
+        assert!(!emitter.reference_cells.as_ref().is_some_and(|plan| plan
+            .cancel_live
+            .contains(&crate::generator::async_cells::Cell::Binding(owner))));
+        let before = crate::generator::async_cells::CANCELLATION_SOLVES.with(|count| count.get());
+        assert!(emitter.cleanup_occupied_cache.get().is_none());
+        assert!(emitter
+            .cleanup_occupied()
+            .contains(&emitter.bindings[&owner]));
+        assert!(std::ptr::eq(
+            emitter.cleanup_occupied(),
+            emitter.cleanup_occupied()
+        ));
+        assert_eq!(
+            crate::generator::async_cells::CANCELLATION_SOLVES.with(|count| count.get()),
+            before + 1
+        );
+        emitter.add_slot("test-extra".into(), Type::U64);
+        assert!(emitter.cleanup_occupied_cache.get().is_none());
+        emitter.cleanup_occupied();
+        assert_eq!(
+            crate::generator::async_cells::CANCELLATION_SOLVES.with(|count| count.get()),
+            before + 2
+        );
+        // Extra test storage is not part of the graph; use a fresh emitter to
+        // exercise all actual private/public cleanup emission call paths.
+        let before = crate::generator::async_cells::CANCELLATION_SOLVES.with(|count| count.get());
+        let generated = Emitter::new(&planning, function).unwrap().emit().unwrap();
+        assert_eq!(
+            crate::generator::async_cells::CANCELLATION_SOLVES.with(|count| count.get()),
+            before + 1
+        );
+        crate::CheckedProgram::validate(&program(&planning, &[generated]).unwrap()).unwrap();
+    }
+
+    #[test]
+    #[ignore = "manual cancellation-analysis microbenchmark"]
+    fn benchmark_async_cancellation_occupancy() {
+        let mut body = String::new();
+        for index in 0..16 {
+            body.push_str(&format!("(#let owner-{index} Child (Start seed))\n"));
+            body.push_str(&format!("(#let value-{index} #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))\n"));
+        }
+        for index in 0..16 {
+            body.push_str(&format!("(#forget owner-{index})\n"));
+        }
+        body.push_str("(#return seed)");
+        let planning = prepare_generator(
+            "#async-fn-pinned",
+            &format!("(#fn work (: seed #u64) #u64 {body})"),
+            "",
+        );
+        let mut emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let expected = emitter.compute_cleanup_occupied();
+        assert!(!expected.is_empty());
+        let mut uncached = Vec::new();
+        let mut cached = Vec::new();
+        for _ in 0..11 {
+            let started = Instant::now();
+            for _ in 0..20 {
+                for _ in 0..3 {
+                    assert_eq!(
+                        std::hint::black_box(emitter.compute_cleanup_occupied()),
+                        expected
+                    );
+                }
+            }
+            uncached.push(started.elapsed().as_nanos());
+            let started = Instant::now();
+            for _ in 0..20 {
+                emitter.cleanup_occupied_cache.take();
+                for _ in 0..3 {
+                    assert_eq!(std::hint::black_box(emitter.cleanup_occupied()), &expected);
+                }
+            }
+            cached.push(started.elapsed().as_nanos());
+        }
+        uncached.sort_unstable();
+        cached.sort_unstable();
+        eprintln!("cancellation occupancy, 20 emitters x 3 queries: uncached median={} us cached median={} us reduction={:.1}%",
+            uncached[5] / 1000, cached[5] / 1000, 100.0 * (1.0 - cached[5] as f64 / uncached[5] as f64));
+    }
 
     #[test]
     fn owning_cell_initializers_check_empty_before_extracting_pinned_storage() {
