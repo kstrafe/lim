@@ -3,11 +3,11 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 fn assert_single_poll(generated: &str, poll: &str) {
-    let names = lim::parse(generated)
-        .unwrap()
-        .into_iter()
+    let nodes = lim::parse(generated).unwrap();
+    let names = nodes
+        .iter()
         .filter_map(|node| {
-            let lim::Expr::List(items) = node.expr else {
+            let lim::Expr::List(items) = &node.expr else {
                 return None;
             };
             if !matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#fn") {
@@ -30,8 +30,55 @@ fn assert_single_poll(generated: &str, poll: &str) {
         assert!(!name.starts_with(&format!("{poll}-move-child-")), "{name}");
         assert!(!name.starts_with(&format!("{poll}-move-resume-")), "{name}");
     }
-    assert!(generated.contains(".dispatch"), "{generated}");
-    assert!(generated.contains("#continue-to"), "{generated}");
+    // Both routes execute one dispatcher inside the public poll function.
+    // Check the graph's actual PC loop, not the legacy label spelling.
+    let body = nodes
+        .iter()
+        .find_map(|node| match &node.expr {
+            lim::Expr::List(items)
+                if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#fn")
+                    && matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == poll) =>
+            {
+                Some(&items[4..])
+            }
+            _ => None,
+        })
+        .unwrap();
+    fn has_pc_dispatch(expr: &lim::Expr) -> bool {
+        let lim::Expr::List(items) = expr else {
+            return false;
+        };
+        if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#loop") {
+            if let Some(lim::Expr::List(dispatch)) = items.get(1) {
+                if matches!(dispatch.first(), Some(lim::Expr::Symbol(head)) if head == "#match") {
+                    if let Some(lim::Expr::List(value)) = dispatch.get(1) {
+                        if matches!(value.as_slice(), [lim::Expr::Symbol(get), _, lim::Expr::Symbol(field)] if get == "#get" && field == "pc")
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        items.iter().any(has_pc_dispatch)
+    }
+    fn has_symbol(expr: &lim::Expr, predicate: fn(&str) -> bool) -> bool {
+        match expr {
+            lim::Expr::Symbol(name) => predicate(name),
+            lim::Expr::List(items) => items.iter().any(|item| has_symbol(item, predicate)),
+            _ => false,
+        }
+    }
+    let legacy_dispatch = body
+        .iter()
+        .any(|expr| has_symbol(expr, |name| name.ends_with(".dispatch")))
+        && body
+            .iter()
+            .any(|expr| has_symbol(expr, |name| name == "#continue-to"));
+    assert!(
+        body.iter().any(has_pc_dispatch) || legacy_dispatch,
+        "{poll} must contain a single resumable dispatcher"
+    );
 }
 
 #[test]
@@ -329,7 +376,10 @@ fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
     );
     let generated = build_and_run(&source, 42);
     assert_single_poll(&generated, "work-poll");
-    assert!(generated.contains("work-frame-await-1"));
+    assert!(
+        generated.contains("Work-frame-cleanup-await-1")
+            || generated.contains("work-frame-await-1")
+    );
     assert!(generated.contains("(#fn work-poll-cancel"));
 
     // Cached inspectable output is precisely the executable dispatcher, not
@@ -366,9 +416,10 @@ fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
     let artifacts = sources();
     assert_eq!(compile(), cold);
     assert_eq!(sources(), artifacts);
-    assert!(artifacts
-        .iter()
-        .any(|(_, source)| String::from_utf8_lossy(source).contains(".dispatch")));
+    assert!(artifacts.iter().any(|(_, source)| {
+        let source = String::from_utf8_lossy(source);
+        source.contains("(#match (#get task pc)") || source.contains(".dispatch")
+    }));
 }
 
 #[test]
@@ -393,7 +444,25 @@ fn many_ready_awaits_advance_within_one_poll_without_stage_calls() {
           (#case (work-ready value) value) (#case (work-pending task) (#block (#forget task) (#unreachable))))))");
     let generated = build_and_run(&source, 42);
     assert_single_poll(&generated, "work-poll");
-    assert!(generated.contains("work-task-await-15"));
+    // Each source await has its own child poll edge, but no separate resume
+    // function. Do not require legacy physical state-constructor names.
+    fn count_child_polls(expr: &lim::Expr) -> usize {
+        let lim::Expr::List(items) = expr else {
+            return 0;
+        };
+        usize::from(matches!(items.as_slice(),
+            [lim::Expr::Symbol(head), lim::Expr::Symbol(name), ..]
+                if head == "#call" && name == "step-poll"))
+            + items.iter().map(count_child_polls).sum::<usize>()
+    }
+    assert_eq!(
+        lim::parse(&generated)
+            .unwrap()
+            .iter()
+            .map(|node| count_child_polls(&node.expr))
+            .sum::<usize>(),
+        16
+    );
 }
 
 #[test]
@@ -602,13 +671,11 @@ fn example_source() -> String {
 
 fn example_without_cancel_work() -> String {
     let original = example_source();
-    let (prefix, rest) = original.split_once("(#fn cancel-work").unwrap();
-    let (_, main) = rest.split_once("(#fn main () #u64").unwrap();
-    let main = format!("(#fn main () #u64{main}").replace(
-        "  (#call cancel-work (: task (#call work (: offset 99u64))))\n",
-        "",
-    );
-    format!("{prefix}{main}")
+    let declaration = ": cancel (cancel-work ((step cancel-step) (await-0 cancel-step)))";
+    let invocation = "  (#call cancel-work (: task (#call work-poll-cleanup (: task (#call work (: offset 99u64))))))\n";
+    assert_eq!(original.matches(declaration).count(), 1);
+    assert_eq!(original.matches(invocation).count(), 1);
+    original.replace(declaration, "").replace(invocation, "")
 }
 
 fn build_and_run(source: &str, expected: i32) -> String {

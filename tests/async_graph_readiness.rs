@@ -9,8 +9,12 @@ use std::fs;
 fn graph_route_compiles_every_valid_example_including_transitive_imports() {
     // Match the broad staged-contract audit's stack rather than the small
     // default test thread. Individual CLI compilation remains separately tested.
-    std::thread::Builder::new().stack_size(32 * 1024 * 1024)
-        .spawn(audit).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(32 * 1024 * 1024)
+        .spawn(audit)
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 fn audit() {
