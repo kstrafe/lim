@@ -1,9 +1,37 @@
 # Async safety and lowering audit
 
-This audit covers the five requested async improvements, not a claim that the
-language's entire borrow checker is formally verified. The runtime remains
+This audit originally covered the five migration and cleanup improvements
+listed below. Their completion does not certify the subsequent aggregate-storage,
+cloning and analysis-performance goal, or formally verify the language's entire
+borrow checker. The runtime remains
 ordinary generated Lim source. Both original-source checking and final ordinary
 generated-program checking remain mandatory, including on cache hits.
+
+## Current follow-up scope (2026-10-11)
+
+Field-aware storage now supports partial moves and restoration of nested
+structs, stationary sibling borrows and explicit cancellation obligations.
+Owning clones preserve references for named/reused owners and computed
+temporaries, including checked field/tuple paths and runtime-indexed arrays.
+Cold/warm and independently compiled ordinary generated-code regressions cover
+these paths. See the later implementation and verification records in
+[Graph async production route](async-graph-production.md).
+
+The follow-up goal is still active. Whole aggregate borrows/clones cannot yet
+be taken over decomposed independent field cells, which are not a contiguous
+instance of the original type. Preserving pointer identity and real loan origins
+while supporting that access remains required; casting unrelated cells or
+weakening validation is not an acceptable substitute.
+
+Guarded/lending analysis has incremental measured improvements, not a completed
+performance audit. Provenance reuse, vacuous-query elimination, use indexing and
+dense transfer membership reduce specific repeated work. Whole-check speedups
+are fixture-dependent and sometimes absent; current paired measurements and
+their limits are recorded in the production-route journal.
+
+Earlier suite counts and migration gates below are historical evidence. They
+must not be read as the current verification count or as outstanding legacy
+route work: production has one graph lowering route, with no legacy fallback.
 
 ## 1. Children borrowing parent locals
 
@@ -110,7 +138,7 @@ semantic passes. This includes validation and cache writes, excludes backend
 emission/linking, and is consistent with the earlier stage-specific result;
 it is not a new paired whole-compiler speedup measurement.
 
-## Verification record
+## Historical migration verification record
 
 After the whole-element fix, 1,350 library tests, ten dependent-cancellation
 tests, six dynamic-array tests, all 229 async tests, and five independent
@@ -127,7 +155,8 @@ Two native-linking launches failed with Linux `ETXTBSY`; all 34 native-linking
 tests passed in a serial rerun. This records the launch issue rather than
 claiming that the parallel harness race has been eliminated.
 
-All five requested improvements are implemented and have current verification
-evidence. Necessary safety boundaries remain explicit: a local borrow crossing
+The five migration/cleanup improvements above have verification evidence;
+the current follow-up scope remains unfinished. Necessary safety boundaries
+remain explicit: a local borrow crossing
 suspension needs a stationary pinned frame, unsafe emitted storage does not
 authorize invalid original source, and cache hits do not bypass validation.

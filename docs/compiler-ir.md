@@ -677,9 +677,17 @@ an address-keyed compatibility bridge until IR-02 removes that dependence.
 `CheckedProgram::dump_typed_ir()` exposes a deterministic
 debugging view (not a stable interchange format).
 
-## Remaining migration
+## Historical reference-content migration journal
 
-### Reference-bearing writes across calls
+The entries below record earlier opt-in staging checkpoints. They are not a
+current list of disabled production features or outstanding legacy-route gates.
+Production now checks referent entry and escaping-reference contracts through
+`Declarations::check_referent_entry_contracts`, including parameter contents and
+callee-before-caller inference. The current enforcing boundary is described in
+[Production ownership boundary](#production-ownership-boundary); current async
+follow-up limitations are listed in [the async audit](async-goal-audit.md).
+
+### Reference-bearing writes across calls (historical staging)
 
 The test-only `staged_store_loan_origins` solver supplements return-origin
 summaries with final reference contents a callee stores through an argument. It
