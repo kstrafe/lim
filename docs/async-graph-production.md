@@ -2150,3 +2150,38 @@ and explicitly asserts that the mutation is present. That test passes with the
 unchanged expected native result, 43; neither checker rules nor timeouts were
 relaxed. The remaining guard cases and independently checked cold/warm artifacts
 passed, as did the heap-contents and self-borrow suites.
+
+## Rejected lexical-scope intersection experiment
+
+After the named-type cache, a prototype changed
+`definitely_active_bindings_before` to intersect existing binding sets in place
+and removed its unused per-node output snapshots. This retained the must-analysis
+and worklist rules. A differential test compared the allocating and in-place
+versions across 128 branch/backedge graphs and checked unreachable nodes and
+the expected surviving bindings. All 1,368 library tests passed (seven ignored),
+as did cancellation, generated-boundary, immediate-borrow, graph-production,
+frame-restoration, self-borrow, adversarial, UI and native-example suites.
+All-target checking passed. Five representative examples emitted identical
+assembly and four type/borrow/pinning failures emitted identical diagnostics.
+
+Twenty-one alternating warm release pairs used CPU 8, three warmups per binary
+and no concurrent compiler builds or tests. Baseline and prototype total-check
+medians, in milliseconds, were:
+
+| Fixture | Baseline | Prototype |
+| --- | ---: | ---: |
+| Nested partial struct | 61.517 | 61.990 |
+| While-let dependencies | 56.483 | 56.594 |
+| Local self-reference | 55.304 | 54.690 |
+| Partial borrow | 96.272 | 96.228 |
+| Small linear guard | 1.027 | 1.032 |
+| Suspended reference guard | 255.554 | 259.176 |
+
+The guard repeat used 31 pairs after four alternating warmups. Total medians
+were 255.142 / 255.977 ms, with overlapping ranges of 251.771–278.622 /
+251.139–271.906 ms. Borrow-validation medians were 63.410 / 62.538 ms;
+referent-contract medians were 126.268 / 126.231 ms. These do not demonstrate a
+whole-check improvement. Both source changes and the prototype-only differential
+test were removed, and the production release binary was rebuilt. Reduced
+allocation alone is not evidence of improved compilation time; this result does
+not close the guarded-analysis performance item.
