@@ -76,6 +76,14 @@ impl Solver<'_> {
         }
     }
 
+    fn clear_bindings(&self, states: &mut [State], bindings: &[BindingId]) {
+        for binding in bindings {
+            if let Some(index) = self.bindings[binding.0] {
+                states[index] = State::Empty;
+            }
+        }
+    }
+
     fn action(&self, states: &mut [State], action: &Action, source: Option<NodeId>) {
         match action {
             Action::Compute { dst, operation } => {
@@ -223,6 +231,7 @@ impl Solver<'_> {
             self.define(&mut states, *child);
             if let Some(plan) = self.retirement {
                 self.clear(&mut states, &plan.edge[block.0][1]);
+                self.clear_bindings(&mut states, &plan.pending_bindings[block.0]);
             }
             outputs.push((*pending, states));
         }
@@ -407,6 +416,7 @@ impl Plan {
             solver.define(&mut states, child);
             if let Some(plan) = retirement {
                 solver.clear(&mut states, &plan.edge[index][1]);
+                solver.clear_bindings(&mut states, &plan.pending_bindings[index]);
             }
             cancel_live.extend(
                 solver
@@ -538,6 +548,98 @@ mod tests {
         let mut states = vec![State::Full];
         solver.action(&mut states, &store.action, store.source);
         assert_eq!(states, vec![State::Full]);
+    }
+
+    #[test]
+    fn pending_retires_only_dead_exclusive_bindings() {
+        let context = crate::parse_program(
+            "(#type View (#ref-mut #u64))
+              (#enum ChildPoll ((Pending View) (Ready #u64)))
+              (#fn step-poll (: task View : waker (#ref #u64)) ChildPoll
+                (#return (Pending task)))",
+        )
+        .unwrap();
+        for (body, dead) in [
+            (
+                "(#let answer #u64 (#await #u64 View Pending Ready step-poll view))
+                (#return answer)",
+                true,
+            ),
+            (
+                "(#let answer #u64 (#await #u64 View Pending Ready step-poll view))
+                (#forget answer) (#return (#deref view))",
+                false,
+            ),
+            (
+                "(#let answer #u64 (#await #u64 View Pending Ready step-poll view))
+                (#return (#if selected (#deref view) answer))",
+                false,
+            ),
+            (
+                "(#while (#u64.< (#deref view) 2u64)
+                (#let answer #u64 (#await #u64 View Pending Ready step-poll view))
+                (#forget answer)) (#return 2u64)",
+                false,
+            ),
+        ] {
+            let source = crate::parse(&format!(
+                "(#fn work (: view View : selected #bool) #u64 {body})"
+            ))
+            .unwrap()
+            .remove(0);
+            let lowered =
+                crate::generator::async_source::lower(&source, crate::Type::U64, &context).unwrap();
+            let program = lowered.program(&context).unwrap();
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+            let lowered_body = &declarations.bodies[&lowered.body_name];
+            let flow = &declarations.flows[&lowered.body_name];
+            let sites = lowered.map(lowered_body, flow, &declarations).unwrap();
+            let graph = crate::generator::async_exec::build(lowered_body, &sites).unwrap();
+            graph.validate().unwrap();
+            let types = LinearTypes::from_program(&program);
+            let lending =
+                crate::generator::async_lend::Plan::new(lowered_body, flow, &types).unwrap();
+            let mut retirement = crate::generator::async_retire::Plan::with_exclusive_handles(
+                &graph,
+                &types,
+                &std::collections::HashSet::new(),
+                &declarations.aliases,
+            );
+            let plan = Plan::new(&graph, &types, retirement.as_ref(), lending.as_ref()).unwrap();
+            for (block, cells) in &plan.pending_empty {
+                assert_eq!(cells.contains(&Cell::Binding(BindingId(0))), dead, "{body}");
+                if let Some(retirement) = retirement.as_mut() {
+                    retirement.validate(&graph).unwrap();
+                    assert_eq!(
+                        retirement.pending_bindings[block.0].contains(&BindingId(0)),
+                        dead
+                    );
+                    // The validator must reject clearing a live handle, or
+                    // omitting the agreed physical retirement for a dead one.
+                    retirement.pending_bindings[block.0] =
+                        if dead { vec![] } else { vec![BindingId(0)] };
+                    assert!(retirement
+                        .validate(&graph)
+                        .unwrap_err()
+                        .message
+                        .contains("liveness"));
+                    if dead {
+                        retirement.protect_binding_anchors(
+                            &graph,
+                            &std::collections::HashSet::from([BindingId(0)]),
+                        );
+                        retirement.validate(&graph).unwrap();
+                        assert!(
+                            !retirement.pending_bindings[block.0].contains(&BindingId(0)),
+                            "derived internal addresses keep their source storage alive"
+                        );
+                    }
+                } else {
+                    assert!(!dead);
+                }
+            }
+        }
     }
 
     #[test]

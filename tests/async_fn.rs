@@ -199,8 +199,49 @@ fn pinned_async_protocols_lend_the_frame_instead_of_moving_it() {
           (#case (parent-ready value) value)
           (#case (parent-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget frame) (#return answer))";
-    let generated = build_and_run(source, 42);
+    let generated = build_and_run_graph(source, 42);
     assert!(generated.contains("(#syntax ChildAwait (#u64 (#pin-ref-mut Child-frame) child-pending child-ready child-poll))"), "{generated}");
+    assert_single_poll(&generated, "parent-poll");
+    let repeated = source
+        .replace("(#u64.== count 0u64)", "(#u64.< count 2u64)")
+        .replace(
+            "(TickPending (Waiting 1u64))",
+            "(TickPending (Waiting (#u64.+.wrap count 1u64)))",
+        )
+        .replace(
+            "(#let answer #u64 (#match result",
+            "(#let-else (parent-pending again) Parent-poll-result result (#unreachable))
+          (#let third Parent-poll-result
+            (#call parent-poll (: task again : waker (#borrow waker))))
+          (#let answer #u64 (#match third",
+        );
+    build_and_run_graph(&repeated, 42);
+
+    let cancellation = source
+        .replace("(#let result Parent-poll-result\n          (#call parent-poll (: task pending-task : waker (#borrow waker))))",
+          "(#let cleanup Parent-task-cleanup (#call parent-poll-cleanup (: task pending-task)))
+          (#forget cleanup)
+          (#let result Child-poll-result
+            (#call child-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))")
+        .replace("(#case (parent-ready value)", "(#case (child-ready value)")
+        .replace("(#case (parent-pending unexpected)", "(#case (child-pending unexpected)");
+    assert_ne!(cancellation, source);
+    build_and_run_graph(&cancellation, 42);
+
+    let premature = source
+        .replace(
+            "        (#forget frame) (#return answer)",
+            "        (#return answer)",
+        )
+        .replace(
+            "        (#let result Parent-poll-result",
+            "        (#forget frame)\n        (#let result Parent-poll-result",
+        );
+    let error = graph_compile_error(&premature, "async-child-frame-retained-pin");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    assert!(error.message.contains("frame"), "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&premature[span.start..span.end], "#forget");
 }
 
 #[test]

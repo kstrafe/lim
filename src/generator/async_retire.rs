@@ -14,6 +14,7 @@ use crate::generator::async_exec::{
     ValueId,
 };
 use crate::linearcheck::LinearTypes;
+use crate::typed_body::BindingId;
 
 #[derive(Debug)]
 pub(crate) struct Plan {
@@ -22,7 +23,11 @@ pub(crate) struct Plan {
     /// Goto: 0; branch/pattern: yes 0, no 1; await: Ready 0, Pending 1.
     /// Normal edges clear AFTER staging arguments but BEFORE destination puts.
     pub edge: Vec<Vec<Vec<ValueId>>>,
+    /// Dead non-owning exclusive input/local holders, not their referents. A
+    /// child may retain a reborrow after the source holder's last use.
+    pub pending_bindings: Vec<Vec<BindingId>>,
     candidates: HashSet<ValueId>,
+    binding_candidates: HashSet<BindingId>,
 }
 
 pub(crate) fn edges(terminal: &Terminator) -> Vec<&Edge> {
@@ -124,7 +129,106 @@ fn sorted(values: impl IntoIterator<Item = ValueId>) -> Vec<ValueId> {
     values
 }
 
+fn pending_binding_retirement(
+    graph: &Graph,
+    candidates: &HashSet<BindingId>,
+) -> Vec<Vec<BindingId>> {
+    if candidates.is_empty() {
+        return vec![vec![]; graph.blocks.len()];
+    }
+    let mut entry = vec![HashSet::new(); graph.blocks.len()];
+    let reachable = graph.reachable();
+    loop {
+        let mut changed = false;
+        for block in &reachable {
+            let body = &graph.blocks[block.0];
+            let mut held = HashSet::new();
+            for successor in graph.successors(*block) {
+                held.extend(entry[successor.0].iter().copied());
+            }
+            for located in body.actions.iter().rev() {
+                match &located.action {
+                    Action::Bind { binding, .. } => {
+                        held.remove(binding);
+                    }
+                    Action::ScopeEnter(bindings) | Action::ScopeExit(bindings) => {
+                        for binding in bindings {
+                            held.remove(binding);
+                        }
+                    }
+                    Action::Commit(pattern)
+                    | Action::Preview(pattern)
+                    | Action::EndPreview(pattern) => {
+                        for binding in &pattern.bindings {
+                            held.remove(binding);
+                        }
+                    }
+                    Action::Place { descriptor, .. } => {
+                        if let AddressRoot::Local(binding) = descriptor.root {
+                            if candidates.contains(&binding) {
+                                held.insert(binding);
+                            }
+                        }
+                    }
+                    Action::Load { place, .. }
+                    | Action::Borrow { place, .. }
+                    | Action::Store { place, .. }
+                    | Action::Release { place, .. } => {
+                        if let AddressRoot::Local(binding) = graph.places[place.0].root {
+                            if candidates.contains(&binding) {
+                                held.insert(binding);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if held != entry[block.0] {
+                entry[block.0] = held;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    graph
+        .blocks
+        .iter()
+        .map(|block| {
+            let Terminator::Await { pending, ready, .. } = &block.terminator else {
+                return vec![];
+            };
+            let mut retired = candidates
+                .iter()
+                .filter(|binding| {
+                    !entry[pending.0].contains(binding) && !entry[ready.target.0].contains(binding)
+                })
+                .copied()
+                .collect::<Vec<_>>();
+            retired.sort_by_key(|binding| binding.0);
+            retired
+        })
+        .collect()
+}
+
 impl Plan {
+    /// A selected internal address can keep its source holder alive even
+    /// without another lexical read. Such frame storage is not dead merely
+    /// because later graph operations use the derived value instead.
+    pub(crate) fn protect_binding_anchors(&mut self, graph: &Graph, anchors: &HashSet<BindingId>) {
+        if !self
+            .binding_candidates
+            .iter()
+            .any(|binding| anchors.contains(binding))
+        {
+            return;
+        }
+        self.binding_candidates
+            .retain(|binding| !anchors.contains(binding));
+        self.pending_bindings = pending_binding_retirement(graph, &self.binding_candidates);
+    }
+
     pub fn new(graph: &Graph, types: &LinearTypes) -> Option<Self> {
         Self::with_exclusive_handles(graph, types, &HashSet::new(), &HashMap::new())
     }
@@ -155,7 +259,19 @@ impl Plan {
                 .then_some(ValueId(index))
             })
             .collect::<HashSet<_>>();
-        if candidates.is_empty() {
+        let binding_candidates = graph
+            .bindings
+            .iter()
+            .enumerate()
+            .filter_map(|(index, binding)| {
+                (types.contains_reference(&binding.ty)
+                    && !types.is_linear(&binding.ty)
+                    && !types.can_repeat(&binding.ty))
+                .then_some(BindingId(index))
+            })
+            .collect::<HashSet<_>>();
+        let pending_bindings = pending_binding_retirement(graph, &binding_candidates);
+        if candidates.is_empty() && pending_bindings.iter().all(Vec::is_empty) {
             return None;
         }
         let mut live = graph.reachable().into_iter().collect::<Vec<_>>();
@@ -214,6 +330,8 @@ impl Plan {
             }
         }
         let mut plan = Self {
+            pending_bindings,
+            binding_candidates,
             entry: vec![vec![]; graph.blocks.len()],
             after_action: graph
                 .blocks
@@ -285,8 +403,15 @@ impl Plan {
         if self.entry.len() != graph.blocks.len()
             || self.after_action.len() != graph.blocks.len()
             || self.edge.len() != graph.blocks.len()
+            || self.pending_bindings.len() != graph.blocks.len()
         {
             return Err(failure(None, "retirement plan has the wrong block count"));
+        }
+        if self.pending_bindings != pending_binding_retirement(graph, &self.binding_candidates) {
+            return Err(failure(
+                None,
+                "Pending binding retirement disagrees with source liveness",
+            ));
         }
         for (index, block) in graph.blocks.iter().enumerate() {
             if self.after_action[index].len() != block.actions.len()

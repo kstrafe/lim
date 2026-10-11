@@ -439,6 +439,18 @@ impl<'a> Emitter<'a> {
             &exclusive_handles,
             &planning.declarations.aliases,
         );
+        if let Some(plan) = &mut emitter.retirement {
+            let mut anchors = HashSet::new();
+            for slot in &emitter.slots {
+                anchors.extend(slot.dependencies.iter().copied());
+                for place in slot.anchor.iter().flatten() {
+                    if let crate::typed_body::PlaceRoot::Local(binding) = place.root {
+                        anchors.insert(binding);
+                    }
+                }
+            }
+            plan.protect_binding_anchors(&function.graph, &anchors);
+        }
         if let Some(plan) = &emitter.retirement {
             plan.validate(&function.graph)
                 .map_err(|error| fail(function, error.message))?;
@@ -2994,6 +3006,13 @@ impl<'a> Emitter<'a> {
                 let store = self.put_value(*child, &next);
                 let edge = self.edge(block, 0, ready, Some(&result))?;
                 let retired = self.retire_edge(block, 1);
+                let bindings = self.retirement.as_ref().map_or_else(Vec::new, |plan| {
+                    plan.pending_bindings[block.0]
+                        .iter()
+                        .filter_map(|binding| self.bindings.get(binding).copied())
+                        .collect::<Vec<_>>()
+                });
+                let retired_bindings = self.clear_handle_slots(&bindings);
                 let empty = self.expose_empty_reference_cells(block, false);
                 // A movable graph frame has no retained self-loans. Internal
                 // field pinning is retired by explicit unsafe extraction;
@@ -3005,7 +3024,7 @@ impl<'a> Emitter<'a> {
                 };
                 Ok(format!("(#let {polled} {} {call})\n\
                   (#match {polled}\n\
-                    (#case ({} {next}) (#block {store} {retired} {empty} {} (#return ({} {pending_task})) (#unreachable)))\n\
+                    (#case ({} {next}) (#block {store} {retired} {retired_bindings} {empty} {} (#return ({} {pending_task})) (#unreachable)))\n\
                     (#case ({} {result}) (#block {edge} (#unreachable))))", crate::type_source(poll_type), protocol.pending, self.set_pc(pending.0 as u32), self.pending, protocol.ready))
             }
             Terminator::Return(value) => {

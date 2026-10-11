@@ -555,3 +555,36 @@ including the annotation in the later conditional branch. Assignment
 to an immutable captured local underlines the offending identifier. These
 changes do not resolve the exclusive-storage failures above, and the complete
 graph-default matrix has not been rerun after this four-test migration.
+
+### Retiring dead exclusive source holders
+
+The pinned-child composition failure above is now covered on the explicit
+graph route. Its factory retained one input pin correctly, but a Pending poll
+retained both that original source handle and the child's reborrow. The source
+never read the original handle again. Value-cell retirement alone did not end
+the binding cell's physical obligation, leaving an unnecessary overlapping
+loan in the next poll's argument summary.
+
+Binding liveness now includes both Ready successors and Pending retries,
+branches, cyclic paths, and later place-recipe accesses. Pending explicitly
+clears dead non-owning exclusive holders in place, after restoring the child.
+Owning/linear aggregates are not candidates. Internal selected-address anchors
+and retained dependency holders are excluded too: a derived address can still
+need that storage without another lexical read.
+The physical cell solver applies the same retirement for retry and cancellation
+metadata, and the plan validator rejects a retirement inconsistent with source
+liveness. This does not authorize
+moving a referent, clearing a live holder, or ignoring overlapping loans.
+
+Native regressions cover two Pending returns before Ready, parent cleanup
+followed by reacquiring the child's pin, and rejection of destroying the child
+frame while the parent retains its borrow. Alias-aware solver tests keep an
+input handle live when it is read after Ready, in a selected branch, or on the
+next loop iteration; removing or adding an incorrect retirement is rejected.
+Original source witnesses and generated ordinary code still pass their full
+ownership checks. Cases that genuinely need both ancestor and child handles
+live, and the other graph-default failures, remain separate work.
+
+Final verification for this change passed 1,334 library tests (one ignored),
+213 async integration tests, all 32 graph-production tests, and 54 dedicated
+self-borrow, cancellation, guard, immediate-borrow, and rejection tests.
