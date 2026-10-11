@@ -3721,7 +3721,7 @@ fn async_let_else_diverging_branch_can_return_after_multiple_awaits() {
 }
 
 #[test]
-fn async_function_requires_explicit_type_for_nested_let_else_await() {
+fn async_graph_nested_let_else_await_uses_the_child_result_contract() {
     let source = "(#enum Maybe ((Some #u64) None))
       (#enum Child ((Waiting #u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
@@ -3734,11 +3734,39 @@ fn async_function_requires_explicit_type_for_nested_let_else_await() {
             (#return (#u64.+.wrap 1u64
               (#await Child ChildPending ChildReady child-poll (Waiting 7u64)))))
           (#return value))))";
-    let error = lim::parse_program(source).unwrap_err();
-    assert!(
-        error.contains("nested #await requires an explicit result type"),
-        "{error}"
+    let source = format!(
+        "{source}
+        (#fn run (: input Maybe) #u64
+          (#let waker #u64 0u64)
+          (#let result Work-poll-result
+            (#call work-poll (: task (#call work (: input input)) : waker (#borrow waker))))
+          (#return (#match result
+            (#case (work-ready value) value)
+            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+        (#fn main () #u64
+          (#return (#u64.+.wrap
+            (#call run (: input (Some 42u64)))
+            (#call run (: input None)))))"
     );
+    let generated = build_and_run_graph(&source, 50);
+    assert_single_poll(&generated, "work-poll");
+    let suspended = source
+        .replace(
+            "(ChildReady value)))))",
+            "(#if (#u64.== value 7u64) (ChildPending (Waiting 8u64)) (ChildReady 7u64))))))",
+        )
+        .replace(
+            "(#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))",
+            "(#case (work-pending pending-task)
+              (#block
+                (#let second Work-poll-result
+                  (#call work-poll (: task pending-task : waker (#borrow waker))))
+                (#match second
+                  (#case (work-ready resumed) resumed)
+                  (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
+        );
+    assert_ne!(suspended, source);
+    build_and_run_graph(&suspended, 50);
 }
 
 #[test]
@@ -3888,7 +3916,7 @@ fn async_function_releases_let_else_success_borrow_after_ready() {
 }
 
 #[test]
-fn async_function_requires_types_for_nested_awaits() {
+fn async_graph_nested_await_uses_the_child_result_contract() {
     let source = "(#enum Child ((Waiting #u64)))
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll (#return (ChildReady 1u64)))
@@ -3897,11 +3925,45 @@ fn async_function_requires_types_for_nested_awaits() {
           (#return (#u64.+.wrap
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64))
             1u64)))))";
-    let error = lim::parse_program(source).unwrap_err();
-    assert!(
-        error.contains("nested #await requires an explicit result type"),
-        "{error}"
+    let source = format!(
+        "{source}
+        (#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let result Work-poll-result
+            (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
+          (#return (#match result
+            (#case (work-ready value) value)
+            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
     );
+    let generated = build_and_run_graph(&source, 2);
+    assert_single_poll(&generated, "work-poll");
+    let suspended = source
+        .replace(
+            "(#return (ChildReady 1u64))",
+            "(#return (#match task (#case (Waiting count)
+              (#if (#u64.== count 0u64) (ChildPending (Waiting 1u64)) (ChildReady count)))))",
+        )
+        .replace(
+            "(#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))",
+            "(#case (work-pending pending-task)
+              (#block
+                (#let second Work-poll-result
+                  (#call work-poll (: task pending-task : waker (#borrow waker))))
+                (#match second
+                  (#case (work-ready resumed) resumed)
+                  (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
+        );
+    assert_ne!(suspended, source);
+    build_and_run_graph(&suspended, 2);
+    let mismatched = source.replace(
+        "#await Child ChildPending",
+        "#await #u32 Child ChildPending",
+    );
+    let error = graph_compile_error(&mismatched, "async-nested-await-contract");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
+    assert!(error.message.contains("Ready payload"), "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&mismatched[span.start..span.end], "#u32");
 }
 
 #[test]
@@ -4447,11 +4509,17 @@ fn async_function_rejects_conditional_awaits_with_different_result_types() {
         "#await #u64 Child ChildPending ChildAlternateReady child-poll-alt",
         "#await #u32 Child ChildPending ChildAlternateReady child-poll-alt",
     );
-    let error = lim::parse_program(&mismatched).unwrap_err();
+    let error = graph_compile_error(&mismatched, "async-conditional-await-contract");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
     assert!(
-        error.contains("result type does not match function result")
-            && error.contains("found #u32, expected #u64"),
-        "{error}"
+        error.message.contains("#await result type does not match"),
+        "{error:?}"
+    );
+    let span = error.span.unwrap();
+    assert_eq!(&mismatched[span.start..span.end], "#u32");
+    assert_eq!(
+        span.start,
+        mismatched.rfind("#await").unwrap() + "#await ".len()
     );
 }
 
@@ -4786,11 +4854,16 @@ fn async_function_rejects_assignment_to_immutable_capture() {
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
           (#set total result)
           (#return result))))";
-    let error = lim::parse_program(source).unwrap_err();
+    let error = graph_compile_error(source, "async-immutable-capture");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
     assert!(
-        error.contains("assignment to 'total' requires a mutable"),
-        "{error}"
+        error
+            .message
+            .contains("cannot assign to immutable variable 'total'"),
+        "{error:?}"
     );
+    let span = error.span.unwrap();
+    assert_eq!(&source[span.start..span.end], "total");
 }
 
 #[test]

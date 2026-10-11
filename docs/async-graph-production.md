@@ -527,3 +527,31 @@ separate: their generated thin-pointer representation is not expected to have
 the legacy frame's physical reference slots. Two legacy-layout solver probes
 remain; removing these layout dependencies is progress toward legacy removal,
 not the default switch.
+
+### Graph-default integration audit
+
+A temporary default selection of graph lowering ran the entire 213-test async
+integration suite: 138 passed and 75 failed. The previous audit had 104 passes
+and 109 failures. The default was restored to legacy after the run; these
+numbers do not authorize a production switch. The run included a native-test
+timeout and many assertions about legacy private helper names, so the failure
+count is not a count of independent language defects.
+
+There are still semantic gaps. The public pinned-child protocol composition
+case rejects a parent poll as overlapping exclusive borrows. Tracing the call
+analysis shows the same exclusive referent appearing at two different tagged
+frame storage positions. Nested exclusive-reference aggregate captures trigger
+similar errors. Resolving their storage/path provenance is required; removing
+the overlap check or treating matching source spans as permission is not a fix.
+Synchronous mutation of local values through borrowed places also fails graph
+storage planning and needs coverage before switching the default.
+
+Four regressions from this audit now select graph explicitly. Two obsolete
+legacy restrictions on nested await result annotations were replaced with
+native Ready and Pending/resume tests: the child's declared poll-result payload
+supplies the result contract, including inside a let-else failure arm. Explicit
+conflicting annotations still fail with a Type diagnostic underlining `#u32`,
+including the annotation in the later conditional branch. Assignment
+to an immutable captured local underlines the offending identifier. These
+changes do not resolve the exclusive-storage failures above, and the complete
+graph-default matrix has not been rerun after this four-test migration.
