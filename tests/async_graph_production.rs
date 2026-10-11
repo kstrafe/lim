@@ -153,6 +153,95 @@ fn public_cancellation_examples_use_cleanup_slots_not_legacy_state_variants() {
 }
 
 #[test]
+fn enum_self_reference_example_checks_and_runs_as_standalone_graph_code() {
+    let source = include_str!("../examples/async_fn_enum_self_reference.lim")
+        .replace("read-after-await", "work")
+        .replace("Read-after-await", "Work")
+        .replace("ReadAfterAwaitAwait", "WorkAwait");
+    run_expected(&source, "async-enum-self-reference-graph", 42);
+}
+
+#[test]
+fn enum_self_reference_graph_pending_handle_blocks_frame_destruction() {
+    let source = include_str!("../examples/async_fn_enum_self_reference.lim")
+        .replace("  (#forget frame)\n  (#forget waker)", "  (#forget waker)")
+        .replace(
+            "  (#let second Read-after-await-poll-result",
+            "  (#forget frame)\n  (#let second Read-after-await-poll-result",
+        );
+    let scratch = support::Scratch::new("async-enum-self-reference-pending-conflict");
+    let error = lim::compile_source_to_assembly(
+        &source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .expect_err("a live Pending handle must keep its frame alive");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error
+        .span
+        .expect("caller conflict must retain its source span");
+    let start = source.find("(#forget frame)").unwrap();
+    assert!(
+        span.start >= start && span.end <= start + "(#forget frame)".len(),
+        "{error:?}"
+    );
+    assert!(error.message.contains("borrow"), "{error:?}");
+}
+
+#[test]
+fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
+    let counter = "(#struct Counter (: storage (#atomic #u64))) (#linear Counter)
+      (#fn read-counter (: count (#ref Counter)) #u64
+        (#return (#atomic-load (#borrow (#get count storage)) #memory-relaxed)))
+      (#fn bump-counter (: count (#ref Counter)) ()
+        (#atomic-store (#borrow (#get count storage))
+          (#u64.+.wrap (#call read-counter (: count count)) 1u64) #memory-relaxed)
+        (#return ()))";
+    let prefix = include_str!("../examples/async_fn_enum_self_reference.lim")
+        .split("(#fn main")
+        .next()
+        .unwrap()
+        .replace("read-after-await", "work")
+        .replace("Read-after-await", "Work")
+        .replace("ReadAfterAwaitAwait", "WorkAwait")
+        .replace(": waker #u64", ": waker #u64 : cancel (work-cancel ((await-0 cancel-child)))")
+        .replace("(#enum Child ((Waiting #u64)))", "(#enum Child ((Waiting (#ref Counter) #u64)))")
+        .replace("(Waiting count)", "(Waiting counter count)")
+        .replace("(Waiting 1u64)", "(Waiting counter 1u64)")
+        .replace("(Waiting 0u64)", "(Waiting counter 0u64)")
+        .replace("(#fn work ((owner Owner))", "(#fn work ((owner Owner) (counter (#ref Counter)))")
+        .replace("(#forget task) (#return ()))", "(#match task (#case (Waiting counter count) (#block (#call bump-counter (: count counter)) (#drop counter) ()))) (#return ()))");
+    let first = "(#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+      (#let-else (work-pending pending) Work-poll-result first (#unreachable))";
+    let second =
+        "(#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+      (#let answer #u64 (#match second (#case (work-ready value) value)
+        (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+      (#assert (#u64.== answer 42u64))";
+    for (polls, handle, cancellations) in [
+        (String::new(), "(#pin-borrow-mut task)", 0),
+        (first.to_owned(), "pending", 1),
+        (format!("{first}\n{second}"), "(#pin-borrow-mut task)", 0),
+    ] {
+        let source = format!(
+            "{counter} {prefix}
+          (#fn main () #u64 (#let waker #u64 0u64)
+            (#let count Counter (#struct-literal Counter (: storage (#atomic-init #u64 0u64))))
+            (#let-mut task Work-frame (#call work (: owner (#struct-literal Owner
+              (: choice (Number (#struct-literal NumberPayload (: value 40u64))))) : counter (#borrow count))))
+            {polls}
+            (#call work-cancel (: task (#call work-poll-cleanup (: task {handle}))))
+            (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+            (#assert (#u64.== (#call read-counter (: count (#borrow count))) {cancellations}u64))
+            (#forget count) (#forget task) (#return 42u64))"
+        );
+        run_expected(&source, "async-enum-self-reference-public-cleanup", 42);
+    }
+}
+
+#[test]
 fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
     let first = "(#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
       (#let-else (work-pending next) Work-poll-result first (#unreachable))";

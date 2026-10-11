@@ -25,14 +25,6 @@
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap (#deref view) result)))))
 
-(#fn cancel-enum-state ((task Read-after-await-frame-state)) ()
-  (#match task
-    (#case read-after-await-frame-start ())
-    (#case (read-after-await-frame-await-0 view child)
-      (#call cancel-child (: task child)))
-    (#case read-after-await-frame-done ()))
-  (#return ()))
-
 (#fn main () #u64
   (#let-mut frame Read-after-await-frame
     (#call read-after-await

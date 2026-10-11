@@ -372,6 +372,15 @@ graph configuration for both native execution and the staged contract audit.
 This is migration bookkeeping, not a second runtime API: the default route is
 still legacy, and the selectors must be removed when the default switch lands.
 
+The enum self-reference example no longer declares an unused function matching
+legacy frame-state variants. Its unchanged native result (42) now runs via
+`graph-exit`, with cold/warm and standalone ordinary-artifact checks. Additional
+regressions exercise public cleanup at construction, Pending and Ready, repeated
+cleanup, exactly-once child destruction, and a source-spanned rejection of
+destroying a frame while its Pending handle is live. The direct owner-field
+replacement in `async_fn_self_reference.lim` remains a separate migration gate;
+this change does not remove that behavior or switch the default.
+
 The printing example now uses graph lowering with the same IO and cancellation
 behavior. Its synchronous Copy array slices project ordinary storage and do not
 inhabit the future frame. Printing between Pending and resume therefore needs
