@@ -110,7 +110,33 @@ impl<'a> PhysicalUses<'a> {
         place: PlaceId,
         result: ValueId,
     ) -> bool {
-        let index = self.clone_uses.get_or_init(|| {
+        let index = self.clone_use_index();
+        index.total[value.0]
+            > index.places.get(&(place, value)).copied().unwrap_or(0)
+                + index.loads.get(&(result, value)).copied().unwrap_or(0)
+    }
+
+    /// Projected clones also form parent address recipes. Those formations
+    /// are part of this clone, not retained owning uses; actual later loads,
+    /// borrows, stores, releases and edge arguments still retain the source.
+    pub(crate) fn retained_after_projected_clone(
+        &self,
+        value: ValueId,
+        place: PlaceId,
+        result: ValueId,
+    ) -> bool {
+        let index = self.clone_use_index();
+        let mut excluded = index.loads.get(&(result, value)).copied().unwrap_or(0);
+        let mut current = Some(place);
+        while let Some(place) = current {
+            excluded += index.places.get(&(place, value)).copied().unwrap_or(0);
+            current = self.graph.places[place.0].parent;
+        }
+        index.total[value.0] > excluded
+    }
+
+    fn clone_use_index(&self) -> &CloneUses {
+        self.clone_uses.get_or_init(|| {
             let mut index = CloneUses {
                 total: vec![0; self.graph.values.len()],
                 places: HashMap::new(),
@@ -148,10 +174,7 @@ impl<'a> PhysicalUses<'a> {
                 }
             }
             index
-        });
-        index.total[value.0]
-            > index.places.get(&(place, value)).copied().unwrap_or(0)
-                + index.loads.get(&(result, value)).copied().unwrap_or(0)
+        })
     }
 }
 
@@ -743,6 +766,46 @@ mod tests {
                     .flat_map(|edge| &edge.arguments)
                     .any(|argument| matches!(argument, Argument::Value(actual) if *actual == value))
         })
+    }
+
+    #[test]
+    fn projected_clone_retention_excludes_only_its_parent_formations() {
+        let (mut graph, _) = prepare(
+            "(#struct Resource (: value #u64)) (#linear Resource)
+             (#struct Envelope (: item (#tuple Resource #u64)))
+             (#fn make () Envelope
+               (#return (#struct-literal Envelope (: item
+                 (#tuple (#tuple Resource #u64)
+                   (#struct-literal Resource (: value 42u64)) 0u64)))))
+             (#fn work () ()
+               (#let duplicate Resource (#clone (#get (#get (#call make ()) item) 0)))
+               (#forget duplicate) (#return ()))",
+        );
+        let (value, place, result) = graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .find_map(|located| match located.action {
+                Action::Load {
+                    dst,
+                    place,
+                    kind: super::super::async_exec::LoadKind::Clone,
+                } => match graph.places[place.0].root {
+                    AddressRoot::Value(value) => Some((value, place, dst)),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .unwrap();
+        let uses = PhysicalUses::new(&graph);
+        assert!(uses.retained_after_clone(value, place, result));
+        assert!(!uses.retained_after_projected_clone(value, place, result));
+        drop(uses);
+        // A real later dependency, including a control input, is not one of
+        // those inert formation sites. This synthetic exit tests counting,
+        // not permission to return an owner from a unit-returning function.
+        graph.blocks.last_mut().unwrap().terminator = Terminator::Return(Some(value));
+        assert!(PhysicalUses::new(&graph).retained_after_projected_clone(value, place, result));
     }
 
     #[test]

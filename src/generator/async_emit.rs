@@ -3323,6 +3323,118 @@ impl<'a> Emitter<'a> {
         )
     }
 
+    fn computed_owned_projection(&self, descriptor: &PlaceDescriptor) -> bool {
+        let AddressRoot::Value(value) = descriptor.root else {
+            return false;
+        };
+        !descriptor.projections.is_empty()
+            && descriptor.projections.iter().all(|step| {
+                matches!(
+                    step,
+                    AddressProjection::Field(_) | AddressProjection::Tuple(_)
+                )
+            })
+            && matches!(
+                crate::typed_ir::resolve_type(
+                    &self.function.graph.values[value.0].ty,
+                    &self.planning.declarations.aliases,
+                ),
+                Ok(Type::Named(_) | Type::Tuple(_))
+            )
+            && self
+                .values
+                .get(&value)
+                .is_some_and(|slot| !self.slots[*slot].raw)
+    }
+
+    fn clone_computed_projection(
+        &mut self,
+        dst: ValueId,
+        place: PlaceId,
+        descriptor: &PlaceDescriptor,
+    ) -> Result<String, Error> {
+        let AddressRoot::Value(value) = descriptor.root else {
+            return Err(fail(self.function, "computed clone lost its owning root"));
+        };
+        let mut ty = crate::typed_ir::resolve_type(
+            &self.function.graph.values[value.0].ty,
+            &self.planning.declarations.aliases,
+        )
+        .map_err(|message| fail(self.function, message))?;
+        let owner_ty = crate::type_source(&ty);
+        let argument = self.fresh("clone-owner-input");
+        let helper = self.fresh("clone-owner-projection");
+        let mut projected = format!("(#deref {argument})");
+        for step in &descriptor.projections {
+            let field = match step {
+                AddressProjection::Field(id) => {
+                    let declaration = self.planning.declarations.field(*id);
+                    if self.planning.declarations.field_id(&ty, &declaration.name) != Some(*id) {
+                        return Err(fail(
+                            self.function,
+                            "computed clone lost its checked field identity",
+                        ));
+                    }
+                    ty = declaration.ty.clone();
+                    declaration.name.clone()
+                }
+                AddressProjection::Tuple(index) => {
+                    let Type::Tuple(fields) = ty else {
+                        return Err(fail(
+                            self.function,
+                            "computed clone lost its checked tuple type",
+                        ));
+                    };
+                    ty = fields.get(*index).cloned().ok_or_else(|| {
+                        fail(self.function, "computed clone tuple index is out of bounds")
+                    })?;
+                    index.to_string()
+                }
+                _ => {
+                    return Err(fail(
+                        self.function,
+                        "computed clone needs a fixed owning projection",
+                    ))
+                }
+            };
+            ty = crate::typed_ir::resolve_type(&ty, &self.planning.declarations.aliases)
+                .map_err(|message| fail(self.function, message))?;
+            projected = format!("(#get {projected} {field})");
+        }
+        let expected =
+            crate::typed_ir::resolve_type(&descriptor.ty, &self.planning.declarations.aliases)
+                .map_err(|message| fail(self.function, message))?;
+        if ty != expected {
+            return Err(fail(
+                self.function,
+                "computed clone disagrees with its checked leaf type",
+            ));
+        }
+        let ty = crate::type_source(&ty);
+        self.projections.push(format!(
+            "(#fn {helper} (: {argument} (#pin-ref {owner_ty})) {ty}\n  (#return (#clone {projected})))"
+        ));
+        let slot = &self.slots[self.values[&value]];
+        let reference = format!(
+            "(#pin-get-payload {} {} 0)",
+            Self::slot_ref(slot, false),
+            slot.full
+        );
+        let retire = if !self.types.can_repeat(&slot.ty)
+            && !self
+                .physical_uses
+                .retained_after_projected_clone(value, place, dst)
+        {
+            format!("(#forget {})", self.value(value, true))
+        } else {
+            String::new()
+        };
+        let cloned = self.fresh("cloned-projection");
+        Ok(self.put_value(dst, &format!(
+            "(#block (#let {cloned} {ty} (#call {helper} (: {argument} {reference})))\n  {retire}\n  {cloned})"
+        )))
+    }
+
     fn action(
         &mut self,
         located: &crate::generator::async_exec::LocatedAction,
@@ -3477,8 +3589,9 @@ impl<'a> Emitter<'a> {
                             AddressProjection::Field(_) | AddressProjection::Tuple(_)
                         )
                     });
-                let computed_value = matches!(descriptor.root, AddressRoot::Value(_))
-                    && descriptor.projections.is_empty();
+                let computed_value = (matches!(descriptor.root, AddressRoot::Value(_))
+                    && descriptor.projections.is_empty())
+                    || self.computed_owned_projection(descriptor);
                 let global_value = matches!(descriptor.root, AddressRoot::Global(_))
                     && descriptor.projections.is_empty();
                 if (!simple_owned && !simple_handle && !computed_value && !global_value)
@@ -3511,6 +3624,9 @@ impl<'a> Emitter<'a> {
                     return Ok(self.put_value(*dst, &read));
                 }
                 if let AddressRoot::Value(value) = descriptor.root {
+                    if *kind == LoadKind::Clone && self.computed_owned_projection(descriptor) {
+                        return self.clone_computed_projection(*dst, *place, descriptor);
+                    }
                     if descriptor.projections.is_empty() {
                         if !self.types.can_repeat(&descriptor.ty) {
                             if *kind == LoadKind::Clone {
@@ -5601,6 +5717,111 @@ mod tests {
             (#case (work-pending next) (#block (#set task next) ()))
             (#case (work-ready value) (#block (#return value) (#unreachable)))))
         (#return (#unreachable)))";
+
+    #[test]
+    fn computed_projected_clone_preserves_reference_origins() {
+        let function = "(#fn work (: owner (#ref #u64)) #u64
+          (#let duplicate Holder (#clone (#get (#call make-envelope (: reference owner)) item)))
+          (#let delta #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#let result #u64 (#deref (#get duplicate reference)))
+          (#forget duplicate) (#return result))";
+        let main = "(#struct Holder (: reference (#ref #u64))) (#linear Holder)
+          (#struct Envelope (: item Holder))
+          (#fn make-envelope (: reference (#ref #u64)) Envelope
+            (#return (#struct-literal Envelope
+              (: item (#struct-literal Holder (: reference reference))))))
+          (#fn main () #u64
+            (#let owner #u64 42u64) (#let waker #u64 0u64)
+            (#let first Work-poll-result (#call work-poll
+              (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+            (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+            (#let second Work-poll-result (#call work-poll
+              (: task pending : waker (#borrow waker))))
+            (#return (#match second
+              (#case (work-ready result) result)
+              (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+        let generated = runtime_planned(prepare_function(function, main), 42);
+        let standalone =
+            crate::parse_program(&format!("{CONTEXT}\n{}\n{main}", generated[0].source)).unwrap();
+        crate::CheckedProgram::validate(&standalone).unwrap();
+        let tuple_function = function.replace(
+            "(#get (#call make-envelope (: reference owner)) item)",
+            "(#get (#call make-tuple (: reference owner)) 0)",
+        );
+        assert_ne!(tuple_function, function);
+        let tuple_main = format!(
+            "{main}\n(#fn make-tuple (: reference (#ref #u64)) (#tuple Holder #u64)
+          (#return (#tuple (#tuple Holder #u64)
+            (#struct-literal Holder (: reference reference)) 0u64)))"
+        );
+        runtime_planned(prepare_function(&tuple_function, &tuple_main), 42);
+        let hooked_main = main
+            .replace(
+                "(#struct Holder (: reference (#ref #u64)))",
+                "(#struct Holder (: reference (#ref #u64) : offset #u64))",
+            )
+            .replace(
+                "(#struct-literal Holder (: reference reference))",
+                "(#struct-literal Holder (: reference reference : offset 0u64))",
+            );
+        let hooked_main = format!(
+            "{hooked_main}\n(#fn Holder-clone (: source Holder) Holder
+          (#let reference (#ref #u64) (#get source reference))
+          (#let offset #u64 (#u64.+.wrap (#get source offset) 1u64))
+          (#forget source)
+          (#return (#struct-literal Holder (: reference reference : offset offset))))"
+        );
+        let hooked_function = function.replace(
+            "(#let result #u64 (#deref (#get duplicate reference)))",
+            "(#let result #u64 (#u64.+.wrap (#deref (#get duplicate reference)) (#get duplicate offset)))",
+        );
+        assert_ne!(hooked_function, function);
+        runtime_planned(prepare_function(&hooked_function, &hooked_main), 43);
+
+        let reused_function = function
+            .replace(
+                "(#let delta #u64",
+                "(#let original Envelope (#call make-envelope (: reference owner)))\n          (#let delta #u64",
+            )
+            .replace(
+                "(#let result #u64 (#deref (#get duplicate reference)))",
+                "(#let result #u64 (#u64.+.wrap (#deref (#get duplicate reference)) (#deref (#get (#get original item) reference))))\n          (#forget original)",
+            );
+        let mut reused = prepare_function(&reused_function, main);
+        let callee = reused.declarations.function_id("make-envelope").unwrap();
+        let body_name = reused.functions[0].model.body_name.clone();
+        let graph = &mut reused.functions[0].graph;
+        let calls = graph
+            .blocks
+            .iter()
+            .enumerate()
+            .flat_map(|(block, body)| {
+                body.actions
+                    .iter()
+                    .enumerate()
+                    .filter_map(move |(action, located)| match &located.action {
+                        Action::Compute {
+                            dst,
+                            operation: Compute::Checked(operation),
+                        } if operation.callee == Some(callee) => Some((block, action, *dst)),
+                        _ => None,
+                    })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        let (block, action, dst) = calls[1];
+        // Both constructors in this fixture are pure and identical. Model
+        // reuse explicitly, not general elimination of arbitrary user calls.
+        graph.blocks[block].actions[action].action = Action::Compute {
+            dst,
+            operation: Compute::Identity(calls[0].2),
+        };
+        graph.validate().unwrap();
+        graph
+            .validate_against(&reused.declarations.bodies[&body_name])
+            .unwrap();
+        runtime_planned(reused, 84);
+    }
 
     #[test]
     fn reused_computed_reference_owner_remains_available_after_cloning() {

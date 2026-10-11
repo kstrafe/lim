@@ -1801,3 +1801,38 @@ For 1,024 computed clones, median retention-query time fell from 56,597 to 153
 microseconds (99.7% lower, about 370 times faster), including index construction.
 The source graph was prepared before timing; parsing, checking, emission and
 linking are not included. This is not a claimed 370-fold compiler speedup.
+
+## Clone fixed projections of computed owning temporaries
+
+A clone such as `(#clone (#get (#call make-envelope (: reference owner)) item))`
+now reads the original typed owning cell through a shared pinned projection.
+Checked field identities and tuple positions determine the helper's path and
+its exact result type. The helper performs ordinary `#clone` dispatch on the
+leaf, preserving its custom clone hook and reference origins; it neither moves
+the field nor invokes hooks on parent aggregates.
+
+Parent address formations are part of that clone operation, not independent
+retained uses. The retention query excludes those formations, but still counts
+actual later operations and terminator inputs. A sole-use original is explicitly
+forgotten after the clone; a reused original remains Full for its later transfer.
+The first native regression caught the distinction: retaining an unused parent
+merely because its address recipe was formed caused the final frame check to
+trap. The fixed regression executes successfully rather than hiding that check.
+
+Native unit cases cover struct and tuple projections, a leaf clone hook that
+changes the result exactly once, and explicit reuse of a pure computed owner.
+The integration case runs cold and warm generated artifacts and independently
+compiled ordinary Lim. It rejects caller mutation while Pending and after Ready
+when the cloned reference-bearing owner is returned to the caller. The Pending
+rejection retains the original mutation span. `examples/async_clone_projection.lim`
+is included in the native outcome manifest with exit code 42.
+
+This extension covers fixed field/tuple paths, not dynamic array selection or
+whole borrows/clones of decomposed noncontiguous aggregate storage. Erased
+storage itself is used only for thin references, not owning aggregate values;
+the defensive raw-slot clone rejection should not be read as evidence that
+all computed reference-bearing owners remain unsupported. Mutable-reference
+and owning-pin clones still fail ordinary source checking.
+Verification passes all 230 selected async unit tests (four manual benchmarks
+ignored), 232 async integration tests, the expanded clone-return regression,
+five native example tests and all-target checking.

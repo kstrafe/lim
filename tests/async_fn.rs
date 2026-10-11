@@ -6983,6 +6983,35 @@ fn async_clones_computed_reference_bearing_owners() {
         "(#let second Work-poll-result",
         "(#set owner 43u64) (#let second Work-poll-result",
     );
+    let projected = source
+        .replace(
+            "(#enum Step (Start Resume))",
+            "(#struct Envelope (: item Holder))
+             (#fn make-envelope (: reference (#ref #u64)) Envelope
+               (#return (#struct-literal Envelope
+                 (: item (#call make-holder (: reference reference))))))
+             (#enum Step (Start Resume))",
+        )
+        .replace(
+            "(#clone (#call make-holder (: reference owner)))",
+            "(#clone (#get (#call make-envelope (: reference owner)) item))",
+        );
+    assert!(projected.contains("(#clone (#get (#call make-envelope"));
+    build_and_run_partial_storage(&projected, 42);
+    let projected_invalid = projected.replace(
+        "(#let second Work-poll-result",
+        "(#set owner 43u64) (#let second Work-poll-result",
+    );
+    let error = graph_compile_error(&projected_invalid, "projected-clone-retains-origin");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let write = projected_invalid.find("(#set owner 43u64)").unwrap();
+    let span = error
+        .span
+        .expect("projected clone keeps original caller span");
+    assert!(
+        span.start >= write && span.end <= write + "(#set owner 43u64)".len(),
+        "{error:?}"
+    );
     let error = graph_compile_error(&invalid, "computed-clone-retains-origin");
     assert!(error.message.contains("borrow"), "{error:?}");
     let write = invalid.find("(#set owner 43u64)").unwrap();
@@ -6993,6 +7022,28 @@ fn async_clones_computed_reference_bearing_owners() {
         span.start >= write && span.end <= write + "(#set owner 43u64)".len(),
         "{error:?}"
     );
+    let returned_projection = projected
+        .replace(
+            "(#fn work (: owner (#ref #u64)) #u64",
+            "(#fn work (: owner (#ref #u64)) Holder",
+        )
+        .replace(
+            "(#let result #u64 (#deref (#get holder reference)))\n          (#forget holder)\n          (#return result)",
+            "(#return holder)",
+        )
+        .replace(
+            "(#case (work-ready result) result)",
+            "(#case (work-ready result) (#block
+              (#let data #u64 (#deref (#get result reference))) (#forget result) data))",
+        );
+    assert!(returned_projection.contains("(#return holder)"));
+    build_and_run_partial_storage(&returned_projection, 42);
+    let returned_invalid = returned_projection.replace(
+        "(#return (#match second",
+        "(#set owner 43u64) (#return (#match second",
+    );
+    let error = graph_compile_error(&returned_invalid, "returned-projected-clone-retains-origin");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
     let exclusive = source
         .replace("(#ref #u64)", "(#ref-mut #u64)")
         .replace("waker (#ref-mut #u64)", "waker (#ref #u64)")
