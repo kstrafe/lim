@@ -5901,7 +5901,9 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
         (#return (#match task
           (#case (BodyWaiting value) (BodyPending (BodyResuming value)))
           (#case (BodyResuming value) (BodyReady value)))))
-      (@#async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64
+        : cancel (cancel-frame ((payload cancel-payload)))
+        : function
         (#fn work ((#mut decision #bool)) Payload
           (#let-mut payload Payload
             (#struct-literal Payload ((value 1u64))))
@@ -5918,45 +5920,9 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
             (#set payload replacement)
             (#set decision false))
           (#return payload))))
-      (#fn cancel-body-start ((task (#tuple #bool Payload))) ()
-        (#let (#tuple decision payload) (#tuple #bool Payload) task)
-        (#forget payload) (#return ()))
-      (#fn cancel-body-await-0 ((task (#tuple #bool Payload BodyTask))) ()
-        (#let (#tuple decision payload child) (#tuple #bool Payload BodyTask) task)
-        (#forget payload) (#forget child) (#return ()))
-      (#fn cancel-body-await-1 ((task (#tuple #bool Payload BodyTask))) ()
-        (#let (#tuple decision payload child) (#tuple #bool Payload BodyTask) task)
-        (#forget payload) (#forget child) (#return ()))
-      (@#task-cancel cancel-body Lim.async.work.choice-0-body-frame
-        ((Lim.async.work.choice-0-body-frame-start cancel-body-start ((decision #bool) (payload Payload)))
-         (Lim.async.work.choice-0-body-frame-await-0 cancel-body-await-0 ((decision #bool) (payload Payload) (child BodyTask)))
-         (Lim.async.work.choice-0-body-frame-await-1 cancel-body-await-1 ((decision #bool) (payload Payload) (child BodyTask)))))
-      (#fn cancel-condition-wait ((task (#tuple ConditionTask #bool Payload))) ()
-        (#let (#tuple child decision payload) (#tuple ConditionTask #bool Payload) task)
-        (#forget child) (#forget payload) (#return ()))
-      (#fn cancel-body-wait ((task (#tuple Lim.async.work.choice-0-body-frame))) ()
-        (#let (#tuple child) (#tuple Lim.async.work.choice-0-body-frame) task)
-        (#call cancel-body (: task child)) (#return ()))
-      (@#task-cancel cancel-condition-body Lim.async.work.choice-2-condition-body-task
-        ((Lim.async.work.choice-2-wait-condition cancel-condition-wait ((child ConditionTask) (decision #bool) (payload Payload)))
-         (Lim.async.work.choice-2-wait-body cancel-body-wait ((child Lim.async.work.choice-0-body-frame)))))
-      (#fn cancel-run-start ((task (#tuple #bool Payload #bool))) ()
-        (#let (#tuple decision payload stopped) (#tuple #bool Payload #bool) task)
-        (#forget payload) (#return ()))
-      (#fn cancel-run-wait ((task (#tuple #bool #bool Lim.async.work.choice-2-condition-body-task))) ()
-        (#let (#tuple decision stopped child) (#tuple #bool #bool Lim.async.work.choice-2-condition-body-task) task)
-        (#call cancel-condition-body (: task child)) (#return ()))
-      (@#task-cancel cancel-run Lim.async.work.choice-13-task
-        ((Lim.async.work.choice-13-start cancel-run-start ((decision #bool) (payload Payload) (stopped #bool)))
-         (Lim.async.work.choice-13-wait cancel-run-wait ((decision #bool) (stopped #bool) (child Lim.async.work.choice-2-condition-body-task)))))
-      (#fn cancel-frame-start ((task (#tuple #bool))) ()
-        (#let (#tuple decision) (#tuple #bool) task) (#return ()))
-      (#fn cancel-frame-await ((task (#tuple Lim.async.work.choice-13-task))) ()
-        (#let (#tuple child) (#tuple Lim.async.work.choice-13-task) task)
-        (#call cancel-run (: task child)) (#return ()))
-      (@#task-cancel cancel-frame Work-task
-        ((work-task-start cancel-frame-start ((decision #bool)))
-         (work-task-await-0 cancel-frame-await ((child Lim.async.work.choice-13-task)))))
+      (#fn cancel-payload (: value Payload) ()
+        (#assert (#u64.== (#get value value) 1u64))
+        (#forget value) (#return ()))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let first Work-poll-result (#call work-poll (: task (#call work (: decision true)) : waker (#borrow waker))))
@@ -5977,17 +5943,17 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
         (#let cancel-second Work-poll-result
           (#call work-poll (: task cancel-pending-first : waker (#borrow waker))))
         (#let-else (work-pending cancel-pending-second) Work-poll-result cancel-second (#unreachable))
-        (#call cancel-frame (: task cancel-pending-second))
+        (#call cancel-frame (: task (#call work-poll-cleanup (: task cancel-pending-second))))
         (#forget waker)
         (#return result))"
         .replace("{}", env!("CARGO_MANIFEST_DIR"));
-    let generated = build_and_run(&source, 2);
+    let generated = build_and_run_graph(&source, 2);
     assert!(generated.contains("Payload"), "{generated}");
 
     let returning_source = source.replace("(#set decision false)", "(#return payload)");
     let (prefix, _) = returning_source
-        .split_once("(#fn cancel-body-start")
-        .expect("cancellation helpers follow the async declaration");
+        .split_once("(#fn main")
+        .expect("main follows the async declaration and cancellation helpers");
     let returning_source = format!(
         "{prefix}(#fn main () #u64
           (#let waker #u64 0u64)
@@ -6005,7 +5971,43 @@ fn async_while_body_transfers_a_mutated_linear_capture_after_suspension() {
           (#forget waker)
           (#return (#if (#u64.== result 2u64) 42u64 0u64)))"
     );
-    build_and_run(&returning_source, 42);
+    build_and_run_graph(&returning_source, 42);
+
+    let (prefix, _) = source.split_once("(#fn main").unwrap();
+    for (polls, expected) in [
+        (0, None),
+        (1, Some(1)),
+        (2, Some(1)),
+        (3, Some(1)),
+        (4, Some(2)),
+    ] {
+        let assertion = expected.map_or_else(
+            || "(#assert false)".into(),
+            |value| format!("(#assert (#u64.== (#get value value) {value}u64))"),
+        );
+        let prefix = prefix.replace("(#assert (#u64.== (#get value value) 1u64))", &assertion);
+        let mut canceled = format!(
+            "{prefix}
+          (#fn main () #u64
+            (#let waker #u64 0u64)
+            (#let state-0 Work-task (#call work (: decision true)))"
+        );
+        for index in 0..polls {
+            canceled.push_str(&format!(
+                "
+              (#let outcome-{index} Work-poll-result
+                (#call work-poll (: task state-{index} : waker (#borrow waker))))
+              (#let-else (work-pending state-{}) Work-poll-result outcome-{index} (#unreachable))",
+                index + 1
+            ));
+        }
+        canceled.push_str(&format!(
+            "
+            (#call cancel-frame (: task (#call work-poll-cleanup (: task state-{polls}))))
+            (#forget waker) (#return 42u64))"
+        ));
+        build_and_run_graph(&canceled, 42);
+    }
 }
 
 #[test]
@@ -8354,7 +8356,11 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         (#return (#match task
           (#case SecondBodyWaiting (SecondBodyPending SecondBodyResuming))
           (#case SecondBodyResuming (SecondBodyReady 9u64)))))
-      (@#async-fn (: protocol work-await : waker #u64 : function
+      (@#async-fn (: protocol work-await : waker #u64
+        : cancel (cancel-frame ((value cancel-resource)
+          (await-0 cancel-initializer) (await-1 cancel-body-task)
+          (await-2 cancel-second-body-task)))
+        : function
         (#fn work () #u64
           (#let-mut done #bool false)
           (#for (#let-else (Some index) MaybeAlias
@@ -8372,36 +8378,16 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
             (#assert (#u64.== destroyed second-value))
             (#set done true))
           (#return 42u64))))
-      (#fn cancel-empty ((task ())) () (#return ()))
-      (#fn cancel-initializer-state ((task (#tuple #bool InitTask))) ()
-        (#let (#tuple done child) (#tuple #bool InitTask) task)
-        (#forget child)
-        (#return ()))
+      (#fn cancel-initializer (: task InitTask) () (#forget task) (#return ()))
+      (#fn cancel-resource (: resource Resource) ()
+        (#let destroyed #u64 (#call Resource-destroy (: resource resource)))
+        (#assert (#u64.== destroyed 9u64)) (#return ()))
       (#fn cancel-body-task ((task BodyTask)) ()
         (#forget task)
         (#return ()))
       (#fn cancel-second-body-task ((task SecondBodyTask)) ()
         (#forget task)
         (#return ()))
-      (#fn cancel-sequence-task ((task Lim.async.work.choice-2-sequence-task)) ()
-        (#return (#match task
-          (#case (Lim.async.work.choice-2-wait-first child)
-            (#call cancel-body-task (: task child)))
-          (#case (Lim.async.work.choice-2-wait-second resource child)
-            (#block
-              (#let destroyed #u64 (#call Resource-destroy (: resource resource)))
-              (#assert (#u64.== destroyed 9u64))
-              (#call cancel-second-body-task (: task child))
-              (#return ()))))))
-      (#fn cancel-loop-task ((task Lim.async.work.choice-4-task)) ()
-        (#return (#match task
-          (#case (Lim.async.work.choice-4-start done index) ())
-          (#case (Lim.async.work.choice-4-wait done index child)
-            (#call cancel-sequence-task (: task child))))))
-      (@#task-cancel cancel-frame Work-task
-        ((work-task-start cancel-empty ())
-         (work-task-await-0 cancel-initializer-state ((done #bool) (child InitTask)))
-         (work-task-await-1 cancel-loop-task)))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let task Work-task (#call work (:)))
@@ -8425,15 +8411,99 @@ fn async_for_let_else_initializer_composes_with_a_suspending_body() {
         (#let cancel-third Work-poll-result
           (#call work-poll (: task cancel-after-body : waker (#borrow waker))))
         (#let-else (work-pending cancel-after-second-body) Work-poll-result cancel-third (#unreachable))
-        (#call cancel-frame (: task cancel-after-second-body))
+        (#call cancel-frame (: task (#call work-poll-cleanup (: task cancel-after-second-body))))
         (#forget waker)
         (#return result))";
     let source = format!(
         "(#import \"{}/library/tasks.lim\")\n{source}",
         env!("CARGO_MANIFEST_DIR")
     );
-    let generated = build_and_run(&source, 42);
+    let generated = build_and_run_graph(&source, 42);
     assert!(generated.contains("BodyPending"), "{generated}");
+    let (prefix, _) = source.split_once("(#fn main").unwrap();
+    for polls in 0..=3 {
+        let prefix = if polls < 3 {
+            prefix.replace("(#assert (#u64.== destroyed 9u64))", "(#assert false)")
+        } else {
+            prefix.to_owned()
+        };
+        let mut canceled = format!(
+            "{prefix}
+          (#fn main () #u64
+            (#let waker #u64 0u64)
+            (#let state-0 Work-task (#call work ()))"
+        );
+        for index in 0..polls {
+            canceled.push_str(&format!(
+                "
+              (#let outcome-{index} Work-poll-result
+                (#call work-poll (: task state-{index} : waker (#borrow waker))))
+              (#let-else (work-pending state-{}) Work-poll-result outcome-{index} (#unreachable))",
+                index + 1
+            ));
+        }
+        canceled.push_str(&format!(
+            "
+            (#call cancel-frame (: task (#call work-poll-cleanup (: task state-{polls}))))
+            (#forget waker) (#return 42u64))"
+        ));
+        build_and_run_graph(&canceled, 42);
+    }
+    let counted = prefix
+        .replace(
+            "(#struct Resource ((value #u64)))",
+            "(#struct Resource ((value #u64) (counter (#ref (#atomic #u64)))))",
+        )
+        .replace("(#ref #u64)", "(#ref (#atomic #u64))")
+        .replace(": waker #u64", ": waker (#atomic #u64)")
+        .replace(
+            "(#struct-literal Resource ((value 9u64)))",
+            "(#struct-literal Resource ((value 9u64) (counter waker)))",
+        )
+        .replace(
+            "(#let result #u64 (#get resource value))",
+            "(#atomic-store (#get resource counter)
+          (#u64.+.wrap (#atomic-load (#get resource counter) #memory-relaxed) 1u64) #memory-relaxed)
+          (#let result #u64 (#get resource value))",
+        );
+    for polls in 0..=3 {
+        let mut canceled = format!(
+            "{counted}
+          (#fn main () #u64
+            (#let waker (#atomic #u64) (#atomic-init #u64 0u64))
+            (#let state-0 Work-task (#call work ()))"
+        );
+        for index in 0..polls {
+            canceled.push_str(&format!(
+                "
+              (#let outcome-{index} Work-poll-result
+                (#call work-poll (: task state-{index} : waker (#borrow waker))))
+              (#let-else (work-pending state-{}) Work-poll-result outcome-{index} (#unreachable))",
+                index + 1
+            ));
+        }
+        let expected = u64::from(polls == 3);
+        canceled.push_str(&format!(
+            "
+            (#call cancel-frame (: task (#call work-poll-cleanup (: task state-{polls}))))
+            (#assert (#u64.== (#atomic-load (#borrow waker) #memory-relaxed) {expected}u64))
+            (#forget waker) (#return 42u64))"
+        ));
+        build_and_run_graph(&canceled, 42);
+        if polls == 3 {
+            let conflicting = canceled
+                .replace("(#forget waker) (#return 42u64)", "(#return 42u64)")
+                .replace(
+                    "(#assert (#u64.== (#atomic-load (#borrow waker) #memory-relaxed) 1u64))",
+                    "",
+                )
+                .replace("(#call cancel-frame", "(#forget waker) (#call cancel-frame");
+            let error = graph_compile_error(&conflicting, "pending-resource-retains-poll-context");
+            assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+            let span = error.span.unwrap();
+            assert_eq!(&conflicting[span.start..span.end], "#forget");
+        }
+    }
 }
 
 #[test]

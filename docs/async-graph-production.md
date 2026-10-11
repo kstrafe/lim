@@ -945,6 +945,31 @@ This removes test dependencies on private staging layout without recreating
 legacy helper functions or weakening the source scenarios. It is not evidence
 that all graph-default failures or cancellation-interface differences are gone.
 
+### Public cancellation protocol regression migration
+
+The cancellation regressions for a mutated linear while-loop capture and a
+let-else for-loop initializer followed by two body awaits now use the public
+`work-poll-cleanup` result and source-named cancellation handlers. They no longer
+declare handlers against `Lim.async.work.choice-0-body-frame` or
+`Lim.async.work.choice-2-sequence-task` and their nested private staging enums.
+Normal completion and the while body's direct linear return remain native
+checks with their original results.
+
+Additional native programs cancel before the first poll and at every Pending
+point. The while-loop payload destructor verifies value 1 during both body
+awaits and value 2 after replacement at the final condition await. Before the
+payload exists, a trapping destructor must never be invoked. The for-loop
+resource similarly remains absent until the first body await completes.
+
+An instrumented resource retains a shared reference to a stack atomic supplied
+as poll context. Its destruction callback increments that counter: cancellation
+counts are zero before resource creation and exactly one while the resource is
+retained across the second body await. Forgetting the counter before canceling
+that Pending frame is rejected with Borrow at `#forget`. The negative program
+removes subsequent direct counter reads, isolating the retained resource loan
+from an ordinary use-after-consume error. This is checked by ordinary generated
+function contracts; no async-specific loan permission was added.
+
 ### Earlier audit
 
 A temporary graph default followed by `cargo test --test async_fn --quiet`
