@@ -1871,15 +1871,8 @@ fn async_function_awaits_directly_in_explicit_return() {
             (#case (work-pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 1);
-    assert!(
-        !generated.contains("(#fn work-poll-resume-0"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("(work-ready lim.async.return-value)"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 1);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -1908,19 +1901,12 @@ fn async_function_extracts_typed_awaits_from_value_expressions() {
             (#case (work-pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 30);
-    assert!(
-        generated.contains("lim.async.nested-await-0"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("lim.async.nested-await-1"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 30);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
-fn async_call_arguments_are_evaluated_in_source_order_before_suspension() {
+fn async_call_arguments_are_evaluated_in_declaration_order_before_suspension() {
     let source = "(#enum Child (Waiting))
       (#linear Child)
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
@@ -1948,8 +1934,13 @@ fn async_call_arguments_are_evaluated_in_source_order_before_suspension() {
         (#forget pending)
         (#forget waker)
         (#return counter))";
-    let generated = build_and_run(source, 1);
+    let generated = build_and_run_graph(source, 1);
     assert!(generated.contains("(#call mark"), "{generated}");
+    let reordered = source.replace(
+        "first (#call mark (: counter counter))\n              : second (#await #u64 Child ChildPending ChildReady child-poll Waiting)",
+        "second (#await #u64 Child ChildPending ChildReady child-poll Waiting)\n              : first (#call mark (: counter counter))");
+    assert_ne!(reordered, source);
+    build_and_run_graph(&reordered, 1);
 }
 
 #[test]
@@ -1977,7 +1968,7 @@ fn async_numeric_operands_are_evaluated_in_source_order_before_suspension() {
         (#forget pending)
         (#forget waker)
         (#return counter))";
-    build_and_run(source, 1);
+    build_and_run_graph(source, 1);
 }
 
 #[test]
@@ -2008,7 +1999,7 @@ fn async_enum_payloads_are_evaluated_in_source_order_before_awaits() {
         (#forget pending)
         (#forget waker)
         (#return counter))";
-    build_and_run(source, 1);
+    build_and_run_graph(source, 1);
 }
 
 #[test]
@@ -2046,7 +2037,7 @@ fn async_nested_block_bindings_survive_suspension_inside_an_initializer() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return (#u64.+.wrap counter result)))";
-    build_and_run(source, 46);
+    build_and_run_graph(source, 46);
 }
 
 #[test]
@@ -2080,7 +2071,7 @@ fn async_nested_block_assignments_resume_after_awaited_rhs_values() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    build_and_run(source, 45);
+    build_and_run_graph(source, 45);
 }
 
 #[test]
@@ -3136,7 +3127,7 @@ fn async_function_assigns_conditional_await_result_inside_a_block() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    build_and_run(source, 42);
+    build_and_run_graph(source, 42);
 }
 
 #[test]
@@ -3176,19 +3167,8 @@ fn async_function_resumes_multiple_awaits_inside_one_block() {
             (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("lim.async.work-poll.dispatch"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("lim.async.nested-await-0"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("lim.async.nested-await-1"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
