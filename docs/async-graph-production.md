@@ -1244,3 +1244,43 @@ seconds with the unchanged default. Graph is not yet the default; remaining
 interface/diagnostic migrations and the broader safety goal are still open.
 The final library run passed 1,354 tests (three manual benchmarks ignored).
 Formatting and whitespace checks also passed.
+
+## Move while-let helper assertions to the public graph interface
+
+After provenance reuse, a fresh temporary graph-default async audit passed
+195 and failed 34 tests in 34.07 seconds. The aggregate compilation timeout
+was resolved. Legacy was restored after the audit.
+
+Three failures happened after successful native compilation and execution:
+the tests still required `expression-frame`, `body-frame`, or the private
+`body-poll.dispatch` name. The scrutinee sequencing, repeated body suspension
+and nested body-statement regressions now use explicit graph lowering and
+assert the single public `work-poll` interface instead. Both Copy and linear
+matched enum variants remain covered. The native inputs, expected results,
+poll counts and timeout are unchanged.
+
+Removing the first private-helper assertion exposed a previously unexecuted
+linear matched-enum variant. Graph rejected the synthetic clone of its
+computed await result; after materializing the clone, it also lacked the
+result's source identity for cancellation and retained an occupied original
+temporary through later cell cleanup.
+
+Computed, reference-free owning temporaries now clone through a checked shared
+pinned projection, then explicitly forget the original after the clone borrow
+ends. This requires a sole-use temporary: additional action, control or edge
+argument uses still reject rather than moving a reused owner. Raw erased and
+reference-bearing owning clone sources remain unsupported by this path.
+Await result values use their authoritative checked-site span, even when
+ordinary structural normalization lost the driver's span. The span regression
+also preserves execution order when other spans collapse and flow IDs change.
+
+Native regressions cover default cloning, an observable clone hook that
+increments the matched payload exactly once, and two full iterations with
+repeated Pending to verify that the original value cell can be safely refilled.
+
+The library suite passed 1,354 tests (three manual benchmarks ignored), and
+the isolated async suite passed all 229 tests in 28.36 seconds. Running both
+suites concurrently hit the aggregate test's unchanged 20-second timeout;
+the isolated rerun passed. A fresh temporary graph-default audit then passed
+198 and failed 31 in 34.67 seconds. Legacy was restored and the ordinary
+compiler rebuilt. The remaining migrations still prevent the default switch.

@@ -6604,8 +6604,8 @@ fn async_while_let_sequences_awaits_in_its_scrutinee_expression() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -6696,16 +6696,57 @@ fn async_while_let_body_can_suspend_multiple_times_after_matching() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("body-frame"), "{generated}");
-    assert!(generated.contains("body-poll.dispatch"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let linear_source = source.replace(
         "(#enum Maybe ((Some #u64) None))",
         "(#enum Maybe ((Some #u64) None))\n      (#linear Maybe)",
     );
-    let generated = build_and_run(&linear_source, 42);
-    assert!(generated.contains("body-frame"), "{generated}");
+    let generated = build_and_run_graph(&linear_source, 42);
+    assert_single_poll(&generated, "work-poll");
+
+    let hooked = format!(
+        "(#fn Maybe-clone (: value Maybe) Maybe\n\
+           (#return (#match value\n\
+             (#case (Some original) (Some (#u64.+.wrap original 1u64)))\n\
+             (#case None None))))\n{}",
+        linear_source.replace(
+            "(#let first #u64\n              (#await",
+            "(#assert (#u64.== payload 43u64))\n            (#let first #u64\n              (#await",
+        ),
+    );
+    assert!(hooked.contains("(#assert (#u64.== payload 43u64))"));
+    let generated = build_and_run_graph(&hooked, 42);
+    assert_single_poll(&generated, "work-poll");
+
+    let repeated = format!(
+        "{}\n(#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let-mut task Work-task (#call work (:)))
+          (#for-range (attempt #u64) 0u64 8u64
+            (#let outcome Work-poll-result
+              (#call work-poll (: task task : waker (#borrow waker))))
+            (#match outcome
+              (#case (work-pending next) (#block (#set task next) ()))
+              (#case (work-ready result) (#block (#return result)))))
+          (#forget task)
+          (#return (#unreachable)))",
+        hooked
+            .split_once("(#fn main () #u64")
+            .unwrap()
+            .0
+            .replace(
+                "(#fn work () #u64",
+                "(#fn work () #u64 (#let-mut cycles #u64 0u64)"
+            )
+            .replace(
+                "(#break)",
+                "(#set cycles (#u64.+.wrap cycles 1u64)) (#if (#u64.== cycles 2u64) (#break) ())"
+            ),
+    );
+    let generated = build_and_run_graph(&repeated, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -6743,8 +6784,8 @@ fn async_while_let_suspends_in_a_nested_body_statement() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("body-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]

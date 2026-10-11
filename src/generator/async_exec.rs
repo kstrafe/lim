@@ -519,7 +519,14 @@ impl Builder<'_> {
             return Ok(*value);
         }
         let ty = self.ty(id)?;
-        let span = self.node(id)?.span;
+        // Structural source normalization may introduce a clone around a
+        // while-let scrutinee and lose its driver's expression span. The
+        // checked await mapping retains the original result identity.
+        let span = self
+            .sites
+            .get(&id)
+            .map(|site| self.graph.awaits[*site].span)
+            .or(self.node(id)?.span);
         let value = ValueId(self.graph.values.len());
         self.graph.values.push(Value {
             source: Some(id),
@@ -3162,6 +3169,7 @@ mod tests {
         for node in &mut body.nodes {
             node.span = span;
         }
+        body.nodes[sites[0].result_value.0].span = None;
         let flow = declarations.flows.get_mut(&lowered.body_name).unwrap();
         let count = flow.nodes.len();
         let remap = |id: FlowNodeId| FlowNodeId(count - 1 - id.0);
@@ -3180,6 +3188,10 @@ mod tests {
             .collect();
         let sites = mapped(&lowered, &declarations);
         let rebuilt = build(&declarations.bodies[&lowered.body_name], &sites).unwrap();
+        assert_eq!(
+            rebuilt.values[rebuilt.values_by_node[&sites[0].result_value].0].span,
+            Some(sites[0].span),
+        );
         let shape = |graph: &Graph| {
             let mut blocks = graph.blocks.clone();
             for block in &mut blocks {

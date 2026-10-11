@@ -2848,6 +2848,52 @@ impl<'a> Emitter<'a> {
                 if let AddressRoot::Value(value) = descriptor.root {
                     if descriptor.projections.is_empty() {
                         if !self.types.can_repeat(&descriptor.ty) {
+                            if *kind == LoadKind::Clone {
+                                let used_elsewhere = graph.blocks.iter().any(|block| {
+                                    block.actions.iter().any(|action| {
+                                        match &action.action {
+                                            Action::Place { dst, .. } if dst == place => false,
+                                            Action::Load { dst: actual, .. } if actual == dst => false,
+                                            other => crate::generator::async_retire::uses(graph, other)
+                                                .contains(&value),
+                                        }
+                                    }) || crate::generator::async_retire::control(&block.terminator)
+                                        .contains(&value)
+                                        || crate::generator::async_retire::edges(&block.terminator)
+                                            .iter().flat_map(|edge| &edge.arguments)
+                                            .any(|argument| matches!(argument, Argument::Value(actual) if *actual == value))
+                                });
+                                if used_elsewhere || self.types.contains_reference(&descriptor.ty) {
+                                    return Err(error("computed owning clone requires an exclusive reference-free temporary"));
+                                }
+                                let index = *self.values.get(&value).ok_or_else(|| {
+                                    error("computed clone source has no owning cell")
+                                })?;
+                                let slot = &self.slots[index];
+                                if slot.raw {
+                                    return Err(error(
+                                        "computed clone requires typed owning storage",
+                                    ));
+                                }
+                                let reference = format!(
+                                    "(#pin-get-payload {} {} 0)",
+                                    Self::slot_ref(slot, false),
+                                    slot.full
+                                );
+                                let helper = self.fresh("clone-computed");
+                                let argument = self.fresh("clone-input");
+                                let ty = crate::type_source(&descriptor.ty);
+                                // Clone from the existing stationary cell.
+                                // End the clone's shared borrow before taking
+                                // and explicitly forgetting the sole-use
+                                // original, so a loop can refill its cell.
+                                self.projections.push(format!(
+                                    "(#fn {helper} (: {argument} (#pin-ref {ty})) {ty}\n  (#return (#clone (#deref {argument}))))"
+                                ));
+                                let cloned = self.fresh("cloned-temporary");
+                                let read = format!("(#block (#let {cloned} {ty}\n  (#call {helper} (: {argument} {reference})))\n  (#forget {})\n  {cloned})", self.value(value, true));
+                                return Ok(self.put_value(*dst, &read));
+                            }
                             return Err(error(
                                 "computed owning value loads require explicit lending storage",
                             ));
