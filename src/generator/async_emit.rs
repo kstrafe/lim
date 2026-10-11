@@ -3514,20 +3514,8 @@ impl<'a> Emitter<'a> {
                     if descriptor.projections.is_empty() {
                         if !self.types.can_repeat(&descriptor.ty) {
                             if *kind == LoadKind::Clone {
-                                let used_elsewhere = graph.blocks.iter().any(|block| {
-                                    block.actions.iter().any(|action| {
-                                        match &action.action {
-                                            Action::Place { dst, .. } if dst == place => false,
-                                            Action::Load { dst: actual, .. } if actual == dst => false,
-                                            other => self.physical_uses.uses(other)
-                                                .contains(&value),
-                                        }
-                                    }) || crate::generator::async_retire::control(&block.terminator)
-                                        .contains(&value)
-                                        || crate::generator::async_retire::edges(&block.terminator)
-                                            .iter().flat_map(|edge| &edge.arguments)
-                                            .any(|argument| matches!(argument, Argument::Value(actual) if *actual == value))
-                                });
+                                let used_elsewhere =
+                                    self.physical_uses.retained_after_clone(value, *place, *dst);
                                 let index = *self.values.get(&value).ok_or_else(|| {
                                     error("computed clone source has no owning cell")
                                 })?;

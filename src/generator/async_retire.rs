@@ -7,11 +7,12 @@
 //! evaluated roots/indices, not only the graph's formed address token.
 #![allow(dead_code)]
 
+use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::generator::async_exec::{
-    Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Edge, Graph, Terminator,
-    ValueId,
+    Action, AddressProjection, AddressRoot, Argument, BlockId, Compute, Edge, Graph, PlaceId,
+    Terminator, ValueId,
 };
 use crate::linearcheck::LinearTypes;
 use crate::typed_body::BindingId;
@@ -61,6 +62,13 @@ fn recipe(place: &crate::generator::async_exec::PlaceDescriptor) -> Vec<ValueId>
 pub(crate) struct PhysicalUses<'a> {
     graph: &'a Graph,
     scopes: HashMap<crate::typed_body::NodeId, Vec<ValueId>>,
+    clone_uses: OnceCell<CloneUses>,
+}
+
+struct CloneUses {
+    total: Vec<usize>,
+    places: HashMap<(PlaceId, ValueId), usize>,
+    loads: HashMap<(ValueId, ValueId), usize>,
 }
 
 impl<'a> PhysicalUses<'a> {
@@ -79,7 +87,11 @@ impl<'a> PhysicalUses<'a> {
                     .extend(recipe(&graph.places[place.0]));
             }
         }
-        Self { graph, scopes }
+        Self {
+            graph,
+            scopes,
+            clone_uses: OnceCell::new(),
+        }
     }
 
     pub(crate) fn uses(&self, action: &Action) -> Vec<ValueId> {
@@ -87,6 +99,59 @@ impl<'a> PhysicalUses<'a> {
             Action::EndBorrow { scope } => self.scopes.get(scope).cloned().unwrap_or_default(),
             _ => uses(self.graph, action),
         }
+    }
+
+    /// Match the emitter's whole-graph retention query, including unreachable
+    /// actions. Exclude only this clone's place formation and result load.
+    /// Build lazily: ordinary retirement/lending queries need no clone index.
+    pub(crate) fn retained_after_clone(
+        &self,
+        value: ValueId,
+        place: PlaceId,
+        result: ValueId,
+    ) -> bool {
+        let index = self.clone_uses.get_or_init(|| {
+            let mut index = CloneUses {
+                total: vec![0; self.graph.values.len()],
+                places: HashMap::new(),
+                loads: HashMap::new(),
+            };
+            for block in &self.graph.blocks {
+                for located in &block.actions {
+                    let mut values = self.uses(&located.action);
+                    values.sort_unstable_by_key(|value| value.0);
+                    values.dedup();
+                    for value in values {
+                        index.total[value.0] += 1;
+                        match located.action {
+                            Action::Place { dst, .. } => {
+                                *index.places.entry((dst, value)).or_default() += 1;
+                            }
+                            Action::Load { dst, .. } => {
+                                *index.loads.entry((dst, value)).or_default() += 1;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                let mut values = control(&block.terminator);
+                values.extend(edges(&block.terminator).iter().flat_map(|edge| {
+                    edge.arguments.iter().filter_map(|argument| match argument {
+                        Argument::Value(value) => Some(*value),
+                        _ => None,
+                    })
+                }));
+                values.sort_unstable_by_key(|value| value.0);
+                values.dedup();
+                for value in values {
+                    index.total[value.0] += 1;
+                }
+            }
+            index
+        });
+        index.total[value.0]
+            > index.places.get(&(place, value)).copied().unwrap_or(0)
+                + index.loads.get(&(result, value)).copied().unwrap_or(0)
     }
 }
 
@@ -640,6 +705,133 @@ mod tests {
             "(#fn work (: view (#ref-mut #u64)) () {statements} (#return ()))"
         ))
         .0
+    }
+
+    fn clone_graph(count: usize) -> Graph {
+        let statements = (0..count)
+            .map(|index| {
+                format!(
+                    "(#let duplicate{index} Resource (#clone (#call make (: value {index}u64))))
+                 (#forget duplicate{index})"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        prepare(&format!(
+            "(#struct Resource (: value #u64)) (#linear Resource)
+             (#fn make (: value #u64) Resource
+               (#return (#struct-literal Resource (: value value))))
+             (#fn work () () {statements} (#return ()))"
+        ))
+        .0
+    }
+
+    fn retained_after_clone_scan(
+        uses: &PhysicalUses<'_>,
+        value: ValueId,
+        place: PlaceId,
+        result: ValueId,
+    ) -> bool {
+        uses.graph.blocks.iter().any(|block| {
+            block.actions.iter().any(|located| match &located.action {
+                Action::Place { dst, .. } if *dst == place => false,
+                Action::Load { dst, .. } if *dst == result => false,
+                other => uses.uses(other).contains(&value),
+            }) || control(&block.terminator).contains(&value)
+                || edges(&block.terminator)
+                    .iter()
+                    .flat_map(|edge| &edge.arguments)
+                    .any(|argument| matches!(argument, Argument::Value(actual) if *actual == value))
+        })
+    }
+
+    #[test]
+    fn clone_retention_index_matches_scan_for_all_exclusion_pairs() {
+        let branch = prepare(
+            "(#fn work (: choose #bool : value #u64) #u64
+               (#return (#if choose (#clone value) (#clone (#u64.+.wrap value value)))))",
+        )
+        .0;
+        for mut graph in [clone_graph(3), scoped_graph(3), branch] {
+            let indexed = PhysicalUses::new(&graph);
+            assert!(indexed.clone_uses.get().is_none());
+            for action in graph.blocks.iter().flat_map(|block| &block.actions) {
+                indexed.uses(&action.action);
+            }
+            assert!(indexed.clone_uses.get().is_none());
+            drop(indexed);
+            // Preserve baseline behavior even for duplicate formation/load
+            // sites in synthetic graphs, rather than subtracting just one use.
+            let duplicates = graph.blocks[0].actions.clone();
+            graph.blocks[0].actions.extend(duplicates);
+            let indexed = PhysicalUses::new(&graph);
+            for value in (0..graph.values.len()).map(ValueId) {
+                for place in (0..=graph.places.len()).map(PlaceId) {
+                    for result in (0..=graph.values.len()).map(ValueId) {
+                        assert_eq!(
+                            indexed.retained_after_clone(value, place, result),
+                            retained_after_clone_scan(&indexed, value, place, result),
+                            "value {value:?}, place {place:?}, result {result:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual computed clone retention benchmark"]
+    fn benchmark_computed_clone_retention() {
+        use std::{hint::black_box, time::Instant};
+        let graph = clone_graph(1024);
+        let queries = graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .filter_map(|located| match located.action {
+                Action::Load {
+                    dst,
+                    place,
+                    kind: super::super::async_exec::LoadKind::Clone,
+                } => match graph.places[place.0].root {
+                    AddressRoot::Value(value) => Some((value, place, dst)),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(queries.len(), 1024);
+        let mut baseline = Vec::new();
+        let mut indexed = Vec::new();
+        for sample in 0..8 {
+            let run = |cached: bool| {
+                let start = Instant::now();
+                let uses = PhysicalUses::new(black_box(&graph));
+                let mut kept = 0;
+                for &(value, place, result) in &queries {
+                    kept += usize::from(if cached {
+                        uses.retained_after_clone(black_box(value), place, result)
+                    } else {
+                        retained_after_clone_scan(&uses, black_box(value), place, result)
+                    });
+                }
+                (start.elapsed().as_micros(), black_box(kept))
+            };
+            let (old, new) = if sample % 2 == 0 {
+                (run(false), run(true))
+            } else {
+                let new = run(true);
+                (run(false), new)
+            };
+            assert_eq!(old.1, new.1);
+            if sample > 0 {
+                baseline.push(old.0);
+                indexed.push(new.0);
+            }
+        }
+        baseline.sort_unstable();
+        indexed.sort_unstable();
+        eprintln!("computed clone retention, 1024 clones, seven samples: baseline {}us, indexed {}us (includes construction)", baseline[3], indexed[3]);
     }
 
     #[test]

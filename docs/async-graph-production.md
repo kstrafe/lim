@@ -1779,3 +1779,25 @@ worsened. This establishes eliminated solver work, not a demonstrated overall
 compilation speedup. Guarded/lending performance remains open.
 All 232 async integration tests, five native example tests and the all-target
 build check also pass with the empty-domain shortcuts.
+
+## Index computed clone retention queries
+
+The dispatcher previously scanned every graph action, control input and edge
+argument for each computed owning clone to decide whether its source cell must
+remain Full. A lazy immutable use index now counts uses per action and excludes
+the clone's own place formation and result load. It preserves unreachable uses,
+duplicate sites and scoped physical dependencies exactly. This is a retention
+query optimization, not an ownership proof or permission to clone new types.
+Programs with no computed owning clone do not build the index.
+
+An exhaustive fixture comparison checks every value/place/result exclusion pair
+against the old scan, including duplicate sites, scoped borrows and branch
+edges. All 228 selected async unit tests pass (four manual benchmarks ignored),
+as do all 232 async integration tests and the all-target build check.
+
+With the build and other test runs finished, the release microbenchmark ran on
+CPU 8 with one discarded warmup and seven alternating baseline/indexed pairs.
+For 1,024 computed clones, median retention-query time fell from 56,597 to 153
+microseconds (99.7% lower, about 370 times faster), including index construction.
+The source graph was prepared before timing; parsing, checking, emission and
+linking are not included. This is not a claimed 370-fold compiler speedup.
