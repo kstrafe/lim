@@ -3,6 +3,8 @@
 
 Example:
   python3 scripts/benchmark-compile.py examples/async_fn.lim --baseline /tmp/lim-before
+  python3 scripts/benchmark-compile.py --async-heavy --cfg async-lowering=graph \\
+      --baseline /tmp/lim-before
 
 Each compiler gets separate warmups because compiler fingerprints invalidate
 generator caches. Outputs go in a temporary directory, never over user binaries.
@@ -16,8 +18,10 @@ import tempfile
 import time
 
 
-def measure(compiler, source, output, repetitions, compare_runtime=False):
+def measure(compiler, source, output, repetitions, compare_runtime=False, cfgs=()):
     command = [str(compiler.resolve()), str(source), "-o", str(output)]
+    for cfg in cfgs:
+        command.extend(["--cfg", cfg])
     for _ in range(2):
         subprocess.run(command, check=True, stdout=subprocess.DEVNULL)
     samples = []
@@ -91,6 +95,32 @@ def thread_heavy_source():
     return "\n".join(lines) + "\n"
 
 
+def async_heavy_source():
+    """Exercise shared declaration identities across 64 graph invocations."""
+    lines = [
+        "(#enum Step ((StepStart #u64)))",
+        "(#enum StepPoll ((StepPending Step) (StepReady #u64)))",
+        "(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))",
+        "(#fn step-poll (: task Step : waker (#ref #u64)) StepPoll "
+        "(#return (#match task (#case (StepStart value) (StepReady value)))))",
+    ]
+    for function in range(64):
+        lines.append(
+            f"(@#async-fn (: protocol JobAwait-{function} : waker #u64 : function "
+            f"(#fn job-{function} (: seed #u64) #u64 "
+            f"(#let value #u64 (#await StepAwait (StepStart {function}u64))) "
+            "(#return (#u64.+.wrap value seed)))))")
+    lines.append(
+        "(#fn main () #u64 (#let waker #u64 0u64) "
+        "(#let result Job-0-poll-result "
+        "(#call job-0-poll (: task (#call job-0 (: seed 42u64)) "
+        ": waker (#borrow waker)))) "
+        "(#forget waker) (#return (#match result "
+        "(#case (job-0-ready value) value) "
+        "(#case (job-0-pending task) (#block (#forget task) (#unreachable))))))")
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, nargs="?")
@@ -102,6 +132,10 @@ def main():
                         help="benchmark 64 functions with 24 lexical branch-result aliases each")
     parser.add_argument("--thread-heavy", action="store_true",
                         help="benchmark 256 tasks with forward-declared worker signatures")
+    parser.add_argument("--async-heavy", action="store_true",
+                        help="benchmark 64 async functions sharing a declaration environment")
+    parser.add_argument("--cfg", action="append", default=[],
+                        help="pass a compile configuration to both compilers (repeatable)")
     parser.add_argument("--compiler", type=Path, default=Path("target/release/lim"))
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--repetitions", type=int, default=20)
@@ -109,7 +143,7 @@ def main():
                         help="compare exit status/stdout/stderr instead of identical binary bytes (no stdin)")
     args = parser.parse_args()
     if sum((args.source is not None, args.reference_heavy, args.scoped_heavy,
-            args.snapshot_heavy, args.thread_heavy)) != 1:
+            args.snapshot_heavy, args.thread_heavy, args.async_heavy)) != 1:
         parser.error("provide a source file or exactly one heavy-workload flag")
     if args.repetitions < 1:
         parser.error("--repetitions must be positive")
@@ -127,10 +161,13 @@ def main():
         if args.thread_heavy:
             args.source = Path(directory) / "thread-heavy.lim"
             args.source.write_text(thread_heavy_source())
+        if args.async_heavy:
+            args.source = Path(directory) / "async-heavy.lim"
+            args.source.write_text(async_heavy_source())
         baseline = None
         if args.baseline:
-            baseline = measure(args.baseline, args.source, output, args.repetitions, args.compare_runtime)
-            if args.reference_heavy or args.scoped_heavy or args.snapshot_heavy or args.thread_heavy:
+            baseline = measure(args.baseline, args.source, output, args.repetitions, args.compare_runtime, args.cfg)
+            if args.reference_heavy or args.scoped_heavy or args.snapshot_heavy or args.thread_heavy or args.async_heavy:
                 # Each synthetic workload needs an equally sized warm cache.
                 # Compiler fingerprints otherwise leave both artifact sets in
                 # one directory and bias whichever compiler runs second.
@@ -139,7 +176,7 @@ def main():
                 isolated_source = isolated / args.source.name
                 isolated_source.write_text(args.source.read_text())
                 args.source = isolated_source
-        current = measure(args.compiler, args.source, output, args.repetitions, args.compare_runtime)
+        current = measure(args.compiler, args.source, output, args.repetitions, args.compare_runtime, args.cfg)
         if baseline:
             if args.compare_runtime and baseline[2] != current[2]:
                 raise SystemExit("baseline and current runtime outcomes differ")

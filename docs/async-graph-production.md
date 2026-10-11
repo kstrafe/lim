@@ -485,3 +485,27 @@ native emission are excluded; these are entry-analysis improvements, not an
 end-to-end async compilation claim. Full source and emitted ownership validation
 still run; source-fact remapping across planning and assembled program arenas
 remains unfinished.
+
+### Reusing graph cache-key context
+
+Graph expansion and source publication each serialize their immutable shared
+dependency, Copy-type, and declaration environment once per pass rather than
+once per invocation. Per-invocation keys remain byte-identical to the previous
+v3 format; this changes neither invalidation nor cache validation. A regression
+checks exact identity and dependency/type changes. Source planning, original
+ownership witnesses, and emitted ordinary-code validation still run.
+
+The repeatable workload is `scripts/benchmark-compile.py --async-heavy
+--cfg async-lowering=graph --baseline /path/to/previous/lim --repetitions 20`.
+It compiles 64 async functions with separate warm caches for both compilers.
+After concurrent test processes finished, the release median measured
+1526.05 -> 1518.28ms (0.5%); sample ranges overlapped (1499.22..1564.40ms
+versus 1499.15..1566.65ms). Executable bytes were identical. This is not a
+convincing end-to-end speedup; repeated declaration sorting/serialization is
+eliminated, but the larger semantic-analysis cost remains.
+
+At this checkpoint, all 1,333 library tests, 213 async integration tests, and
+32 graph-production tests pass. More loop, value-break, external-borrow, and
+three-phase condition/body/step regressions now explicitly exercise graph
+lowering instead of relying on legacy private helper names. These checks do
+not complete the default switch, legacy removal, or source-fact remapping.

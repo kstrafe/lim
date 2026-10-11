@@ -472,8 +472,9 @@ fn graph_generated_owned_program(
         .collect::<Vec<_>>();
     let mut generated = Vec::with_capacity(invocations.len());
     let mut staged = Vec::new();
+    let key_context = graph_source_key_context(prepared);
     for (function, invocation) in planning.functions.iter().zip(&invocations) {
-        let key = graph_source_key(prepared, invocation)?;
+        let key = graph_source_key(&key_context, invocation)?;
         let origins = vec![graph_source_origin(prepared, invocation.span)];
         // Probe through the shared key/digest/parser verifier. Its callback
         // deliberately refuses publication on a miss: all fresh output must
@@ -608,13 +609,19 @@ fn graph_source_origin(prepared: &PreparedProgramSyntax, span: Span) -> String {
     format!("{path}:{}", span.line)
 }
 
-fn graph_source_key(
-    prepared: &PreparedProgramSyntax,
-    invocation: &SpannedExpr,
-) -> Result<String, String> {
-    Ok(format!("lim-inspectable-async-graph-v3\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}",
+// The whole-program environment is immutable throughout an expansion or
+// publication pass. Sort and serialize it once, not for every invocation.
+fn graph_source_key_context(prepared: &PreparedProgramSyntax) -> String {
+    format!("lim-inspectable-async-graph-v3\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}",
         env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), prepared.graph_dependency_context,
-        async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types), expression_source(&invocation.expr)?))
+        async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types))
+}
+
+fn graph_source_key(context: &str, invocation: &SpannedExpr) -> Result<String, String> {
+    Ok(format!(
+        "{context}\ninvocation={}",
+        expression_source(&invocation.expr)?
+    ))
 }
 
 fn expand_prepared_program_with_route(
@@ -1495,6 +1502,9 @@ fn write_prepared_generated_sources_reusing_graph(
         Vec::new()
     };
     let mut graph_output = retained_graph_output.unwrap_or(&graph_output).iter();
+    let graph_key_context = (route == AsyncRoute::Graph
+        && expanded.iter().any(is_async_invocation))
+    .then(|| graph_source_key_context(prepared));
     let mut written_builtin_keys = HashSet::new();
     for expression in expanded {
         if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
@@ -1519,7 +1529,7 @@ fn write_prepared_generated_sources_reusing_graph(
                 .at(expression.span)
                 .attach(&prepared.source_files)
             })?;
-            let key = graph_source_key(prepared, expression)?;
+            let key = graph_source_key(graph_key_context.as_deref().unwrap(), expression)?;
             let origins = builtin_origins
                 .get(&invocation)
                 .cloned()
@@ -1616,6 +1626,51 @@ mod async_migration_tests {
     fn syntax(text: &str, cache: Option<&Path>) -> PreparedProgramSyntax {
         prepare_program_syntax(text, Path::new("."), None, &CompileConfig::default(), cache)
             .unwrap()
+    }
+
+    #[test]
+    fn shared_graph_key_context_preserves_complete_per_invocation_identity() {
+        let text = format!(
+            "{}\n{}",
+            source("(#return seed)"),
+            source("(#return (#u64.+.wrap seed 1u64))")
+                .replace(CONTEXT, "")
+                .replace("WorkAwait", "OtherAwait")
+                .replace("#fn work", "#fn other")
+        );
+        let mut prepared = syntax(&text, None);
+        let context = graph_source_key_context(&prepared);
+        let invocations = prepared
+            .expressions
+            .iter()
+            .filter(|node| is_async_invocation(node))
+            .collect::<Vec<_>>();
+        assert_eq!(invocations.len(), 2);
+        let mut keys = Vec::new();
+        for invocation in invocations {
+            // Byte-identical to the former per-invocation serialization: no
+            // cache schema change or loss of dependency/type information.
+            let expected = format!("lim-inspectable-async-graph-v3\ncompiler={}\nimplementation={}\ndependency-context={}\ncopy-types={}\ntype-environment={}\ninvocation={}",
+                env!("CARGO_PKG_VERSION"), env!("LIM_BUILD_FINGERPRINT"), prepared.graph_dependency_context,
+                async_copy_type_identity(&prepared.async_copy_types), async_type_environment_identity(&prepared.async_types), expression_source(&invocation.expr).unwrap());
+            let actual = graph_source_key(&context, invocation).unwrap();
+            assert_eq!(actual, expected);
+            keys.push(actual);
+        }
+        assert_ne!(keys[0], keys[1]);
+        prepared
+            .graph_dependency_context
+            .push_str("changed dependency");
+        assert_ne!(graph_source_key_context(&prepared), context);
+        let dependency_context = graph_source_key_context(&prepared);
+        prepared.async_copy_types.insert("NewCopyType".into());
+        assert_ne!(graph_source_key_context(&prepared), dependency_context);
+        let copy_context = graph_source_key_context(&prepared);
+        prepared
+            .async_types
+            .aliases
+            .insert("NewAlias".into(), "#u64".into());
+        assert_ne!(graph_source_key_context(&prepared), copy_context);
     }
 
     struct Scratch(PathBuf);
