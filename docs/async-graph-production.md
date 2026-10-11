@@ -673,9 +673,20 @@ tests compile and execute the inspectable artifact as standalone Lim. The
 existing loop-mutation regression now uses graph lowering for its scalar and
 struct-reference variants. Scoped local borrows also use this boundary proof:
 ending the scope before suspension permits movement, but retaining the scope
-across suspension still requires a pinned frame. The retained fat-slice variant
-and other default-switch requirements remain open. Legacy lowering is still
-the default.
+across suspension still requires a pinned frame. Fat-slice storage and other
+default-switch requirements remain open. Legacy lowering is still the default.
+
+The array variant of
+`async_loop_body_restores_values_mutated_through_borrowed_places` is a narrower
+fat-slice gate than retention across suspension: it creates a mutable slice,
+calls a synchronous helper on `#slice-mut-idx`, and explicitly forgets the slice
+**before** awaiting. Running that variant through graph lowering currently
+rejects the indexed argument with `selected addresses require safe checked
+references`. The selected-address snapshot emitter accepts thin reference roots
+but lacks this fat-slice root/projection path. Implement that checked address
+selection and its original slice/owner loan retention before migrating the
+variant; do not reinterpret the valid program as an expected rejection or
+assume forgetting the slice alone makes its physical frame storage safe.
 
 `examples/async_fn_poll_local_borrow.lim` demonstrates stored mutable field
 reborrows and a scoped shared read, releases both before suspension, then moves
