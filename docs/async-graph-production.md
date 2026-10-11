@@ -110,9 +110,14 @@ consumption of borrowed owners, and returning a reference to a source local.
 Cancellation clears these non-owning handles before extracting owning cells.
 External references keep their ordinary lifetime-bearing storage and caller
 contracts. A single handle that can refer either inside or outside the frame
-is rejected instead of erasing its caller lifetime. Handles selecting multiple
-internal referents are also rejected until checked selected-anchor storage is
-available.
+is rejected instead of erasing its caller lifetime. Thin handles may select
+multiple internal referents with checked static struct/tuple projections. Their
+raw address preserves the source choice; reconstruction first checks each
+candidate owner's Full tag, then compares its projected address. It never
+accesses an Empty owner's payload. Shared and exclusive references can select
+different owners across branches and loop iterations. Source loan checking
+still protects all possible referents, and ordinary generated-code checking
+remains mandatory.
 
 Owning aggregates and child futures retaining frame-local borrows require a
 configured cancellation handler. Cleanup first retires non-owning poll handles,

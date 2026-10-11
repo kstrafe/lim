@@ -350,6 +350,166 @@ fn run_native(source: &str, label: &str, expected: i32) {
 }
 
 #[test]
+fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
+    for mutable in [false, true] {
+        let suffix = if mutable { "-mut" } else { "" };
+        let write = if mutable {
+            "(#deref-set view 42u64)"
+        } else {
+            ""
+        };
+        let owner_check = if mutable {
+            "(#assert (#if choose (#bool.&& (#u64.== left 42u64) (#u64.== right 50u64))
+              (#bool.&& (#u64.== left 40u64) (#u64.== right 42u64))))"
+        } else {
+            ""
+        };
+        let (left_result, right_result) = if mutable { (44, 44) } else { (42, 52) };
+        let source = format!("{CHILD}
+          (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
+            : function (#fn work (: choose #bool) #u64
+              (#let-mut left #u64 40u64)
+              (#let-mut right #u64 50u64)
+              (#let view (#ref{suffix} #u64)
+                (#if choose (#borrow{suffix} left) (#borrow{suffix} right)))
+              (#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+              {write}
+              (#let answer #u64 (#u64.+.wrap (#deref view) ignored))
+              (#drop view) {owner_check} (#forget left) (#forget right) (#return answer))))
+          (#fn run (: choose #bool) #u64
+            (#let waker #u64 0u64)
+            (#let-mut task Work-frame (#call work (($ choose))))
+            (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
+            (#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+            (#let-else (work-pending last) Work-poll-result second (#unreachable))
+            (#let answer #u64 (#match (#call work-poll (: task last : waker (#borrow waker)))
+              (#case (work-ready value) value)
+              (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+            (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+            (#forget task) (#return answer))
+          (#fn main () #u64
+            (#assert (#u64.== (#call run (: choose true)) {left_result}u64))
+            (#assert (#u64.== (#call run (: choose false)) {right_result}u64))
+            (#return 42u64))");
+        run_native(&source, "async-selected-internal-reference", 42);
+    }
+}
+
+#[test]
+fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
+    let source = format!(
+        "{CHILD}
+      (#struct Left (: selected #u64 : other #u64))
+      (#struct Right (: other #u64 : selected #u64))
+      (#linear Left) (#linear Right)
+      (#fn destroy-left (: value Left) ()
+        (#assert (#u64.== (#get value selected) 10u64)) (#forget value) (#return ()))
+      (#fn destroy-right (: value Right) ()
+        (#assert (#u64.== (#get value selected) 20u64)) (#forget value) (#return ()))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+        : cancel (work-cancel ((left destroy-left) (right destroy-right) (await-0 cancel-child)))
+        : function (#fn work (: choose #bool) #u64
+          (#let-mut left Left (#struct-literal Left (: selected 10u64 : other 80u64)))
+          (#let-mut right Right (#struct-literal Right (: other 90u64 : selected 20u64)))
+          (#let view (#ref-mut #u64) (#if choose
+            (#borrow-mut (#get left selected)) (#borrow-mut (#get right selected))))
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#deref-set view 42u64) (#drop view) (#forget ignored)
+          (#assert (#u64.== (#get left other) 80u64))
+          (#assert (#u64.== (#get right other) 90u64))
+          (#let answer #u64 (#if choose (#get left selected) (#get right selected)))
+          (#assert (#u64.== (#if choose (#get right selected) (#get left selected))
+            (#if choose 20u64 10u64)))
+          (#forget left) (#forget right) (#return answer))))
+      (#fn run (: choose #bool) #u64
+        (#let waker #u64 0u64)
+        (#let-mut task Work-frame (#call work (($ choose))))
+        (#let answer #u64 (#loop
+          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (work-pending next) (#block (#drop next) (#continue)))
+            (#case (work-ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+        (#forget task) (#return answer))
+      (#fn cancel-run (: choose #bool) ()
+        (#let waker #u64 0u64)
+        (#let-mut task Work-frame (#call work (($ choose))))
+        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task next))))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+        (#forget task) (#return ()))
+      (#fn main () #u64
+        (#call cancel-run (: choose true)) (#call cancel-run (: choose false))
+        (#assert (#u64.== (#call run (: choose true)) 42u64))
+        (#return (#call run (: choose false))))"
+    );
+    run_native(&source, "async-selected-internal-projections", 42);
+}
+
+#[test]
+fn selected_internal_reference_can_switch_owners_on_loop_backedges() {
+    let source = format!(
+        "{CHILD}
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
+        : function (#fn work () #u64
+          (#let left #u64 40u64) (#let right #u64 50u64)
+          (#let-mut iteration #u64 0u64) (#let-mut total #u64 0u64)
+          (#while (#u64.< iteration 2u64)
+            (#let view (#ref #u64) (#if (#u64.== iteration 0u64) (#borrow left) (#borrow right)))
+            (#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+            (#forget ignored) (#set total (#u64.+.wrap total (#deref view))) (#drop view)
+            (#set iteration (#u64.+.wrap iteration 1u64)))
+          (#forget left) (#forget right) (#return total))))
+      (#fn main () #u64
+        (#let waker #u64 0u64) (#let-mut task Work-frame (#call work ()))
+        (#let answer #u64 (#loop
+          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (work-pending next) (#block (#drop next) (#continue)))
+            (#case (work-ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+        (#forget task) (#assert (#u64.== answer 90u64)) (#return 42u64))"
+    );
+    run_native(&source, "async-selected-internal-loop", 42);
+}
+
+#[test]
+fn selected_internal_references_do_not_invent_branch_correlated_consumption() {
+    let source = format!(
+        "{CHILD}
+      (#struct Owner (: value #u64)) (#linear Owner)
+      (#fn destroy-owner (: value Owner) () (#forget value) (#return ()))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+        : cancel (work-cancel ((left destroy-owner) (right destroy-owner) (await-0 cancel-child)))
+        : function (#fn work (: choose #bool) #u64
+          (#let left Owner (#struct-literal Owner (: value 40u64)))
+          (#let right Owner (#struct-literal Owner (: value 50u64)))
+          (#let view (#ref #u64) (#if choose
+            (#block (#forget right) (#borrow (#get left value)))
+            (#block (#forget left) (#borrow (#get right value)))))
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#let answer #u64 (#u64.+.wrap (#deref view) ignored))
+          (#drop view) (#if choose (#forget left) (#forget right)) (#return answer))))
+      (#fn run (: choose #bool) #u64
+        (#let waker #u64 0u64) (#let-mut task Work-frame (#call work (($ choose))))
+        (#let answer #u64 (#loop
+          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (work-pending next) (#block (#drop next) (#continue)))
+            (#case (work-ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+        (#forget task) (#return answer))
+      (#fn main () #u64
+        (#assert (#u64.== (#call run (: choose true)) 42u64))
+        (#assert (#u64.== (#call run (: choose false)) 52u64)) (#return 42u64))"
+    );
+    let error = compile_error(&source, "async-selected-correlated-consumption");
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+    assert!(error.message.contains("already consumed"), "{error:?}");
+    let span = error.span.expect("conflicting consumption span");
+    assert_eq!(&source[span.start..span.end], "left");
+}
+
+#[test]
 fn forgetting_a_pending_handle_does_not_make_the_self_referential_frame_movable() {
     let source = format!(
         "{CHILD}

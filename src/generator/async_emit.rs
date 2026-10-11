@@ -46,7 +46,7 @@ struct Slot {
     ty: Type,
     storage: Type,
     raw: bool,
-    anchor: Option<crate::typed_place::Place>,
+    anchor: Option<Vec<crate::typed_place::Place>>,
     dependencies: Vec<BindingId>,
     copy: bool,
     linear: bool,
@@ -273,7 +273,7 @@ impl<'a> Emitter<'a> {
                     let anchor =
                         crate::generator::async_self_borrow::direct_place(&function.graph, place)
                             .map_err(|message| fail(function, message))?;
-                    emitter.erase_reference(slot, anchor)?;
+                    emitter.erase_reference(slot, vec![anchor])?;
                 }
                 emitter.scopes.insert(scope, slot);
             }
@@ -438,7 +438,7 @@ impl<'a> Emitter<'a> {
     fn erase_reference(
         &mut self,
         index: usize,
-        anchor: crate::typed_place::Place,
+        anchor: Vec<crate::typed_place::Place>,
     ) -> Result<(), Error> {
         let slot = &mut self.slots[index];
         let (mutable, target) =
@@ -461,12 +461,8 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn internal_anchor(&self, slot: &Slot, mutable: bool) -> String {
+    fn internal_anchor(&self, place: &crate::typed_place::Place, mutable: bool) -> String {
         use crate::typed_place::Segment;
-        let place = slot
-            .anchor
-            .as_ref()
-            .expect("raw internal slot has an owner anchor");
         let crate::typed_body::PlaceRoot::Local(binding) = place.root else {
             unreachable!()
         };
@@ -486,6 +482,51 @@ impl<'a> Emitter<'a> {
             anchor = format!("(#pin-borrow{suffix} (#get {anchor} {field}))");
         }
         anchor
+    }
+
+    fn materialize_internal_reference(
+        &self,
+        slot: &Slot,
+        pointer: &str,
+        mutable: bool,
+        pinned: bool,
+    ) -> String {
+        let places = slot
+            .anchor
+            .as_ref()
+            .expect("raw internal slot has checked anchors");
+        let materialize = |place| {
+            format!(
+                "(#unsafe (#{}ptr-borrow{} {} {pointer}))",
+                if pinned { "pin-" } else { "" },
+                if mutable { "-mut" } else { "" },
+                self.internal_anchor(place, mutable)
+            )
+        };
+        if let [place] = places.as_slice() {
+            return materialize(place);
+        }
+        // The raw address retains the choice made by the source expression.
+        // Probe only occupied owners, then reconstruct from that owner's
+        // checked projection. Short-circuiting must precede payload access:
+        // an unselected branch may never have initialized its owner cell.
+        let mut selected = "(#unreachable)".to_owned();
+        for place in places.iter().rev() {
+            let crate::typed_body::PlaceRoot::Local(binding) = place.root else {
+                unreachable!()
+            };
+            let owner = &self.slots[self.bindings[&binding]];
+            selected = format!(
+                "(#if (#bool.&& (#variant-is {} {})
+                (#usize.== (#ptr-address {pointer}) (#ptr-address (#ref-ptr {}))))
+                {} {selected})",
+                Self::slot_ref(owner, false),
+                owner.full,
+                self.internal_anchor(place, false),
+                materialize(place)
+            );
+        }
+        selected
     }
 
     fn slot_ref(slot: &Slot, mutable: bool) -> String {
@@ -519,11 +560,9 @@ impl<'a> Emitter<'a> {
                 Ok(Type::PinnedReference { .. })
             );
             return format!(
-                "(#block (#let {pointer} {} {read})\n(#unsafe (#{}ptr-borrow{} {} {pointer})))",
+                "(#block (#let {pointer} {} {read})\n{})",
                 crate::type_source(&slot.storage),
-                if pinned { "pin-" } else { "" },
-                if mutable { "-mut" } else { "" },
-                self.internal_anchor(slot, mutable)
+                self.materialize_internal_reference(slot, &pointer, mutable, pinned)
             );
         }
         if slot.copy && (!transfer || self.types.contains_reference(&slot.ty)) {

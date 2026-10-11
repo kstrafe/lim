@@ -13,8 +13,8 @@ use crate::Type;
 
 #[derive(Default)]
 pub(crate) struct Plan {
-    pub bindings: HashMap<BindingId, crate::typed_place::Place>,
-    pub values: HashMap<ValueId, crate::typed_place::Place>,
+    pub bindings: HashMap<BindingId, Vec<crate::typed_place::Place>>,
+    pub values: HashMap<ValueId, Vec<crate::typed_place::Place>>,
     /// Owning cells whose references depend on local stationary storage.
     pub dependent_bindings: HashMap<BindingId, Vec<BindingId>>,
     pub dependent_values: HashMap<ValueId, Vec<BindingId>>,
@@ -52,29 +52,29 @@ fn classify(origins: &[LoanOrigin]) -> Result<bool, String> {
     Ok(local)
 }
 
-fn anchor(origins: &[LoanOrigin]) -> Result<Option<crate::typed_place::Place>, String> {
+fn anchor(origins: &[LoanOrigin]) -> Result<Option<Vec<crate::typed_place::Place>>, String> {
     if !classify(origins)? {
         return Ok(None);
     }
-    let mut places = origins
-        .iter()
-        .filter(|origin| internal(origin))
-        .map(|origin| &origin.place);
-    let first = places.next().unwrap();
-    if places.any(|place| place != first) {
-        return Err("async handles selecting different frame-local referents require a checked selected-anchor representation".into());
+    let mut places = Vec::new();
+    for origin in origins.iter().filter(|origin| internal(origin)) {
+        if !places.contains(&origin.place) {
+            places.push(origin.place.clone());
+        }
     }
-    if first.segments.iter().any(|segment| {
-        !matches!(
-            segment,
-            crate::typed_place::Segment::Field(_) | crate::typed_place::Segment::Tuple(_)
-        )
+    if places.iter().any(|place| {
+        place.segments.iter().any(|segment| {
+            !matches!(
+                segment,
+                crate::typed_place::Segment::Field(_) | crate::typed_place::Segment::Tuple(_)
+            )
+        })
     }) {
         return Err(
             "internal reference anchors require checked static struct/tuple projections".into(),
         );
     }
-    Ok(Some(first.clone()))
+    Ok(Some(places))
 }
 
 pub(crate) fn direct_place(
@@ -184,7 +184,7 @@ impl Plan {
                 if matches!(graph.places[place.0].root, AddressRoot::Local(_)) {
                     plan.values
                         .entry(value)
-                        .or_insert(at(direct_place(graph, place), action.span)?);
+                        .or_insert(vec![at(direct_place(graph, place), action.span)?]);
                 }
             }
         }
@@ -236,9 +236,11 @@ impl Plan {
                     {
                         let mut owners = Vec::new();
                         for operand in &operation.operands {
-                            if let Some(place) = self.values.get(&operand.value) {
-                                if let PlaceRoot::Local(owner) = place.root {
-                                    owners.push(owner);
+                            if let Some(places) = self.values.get(&operand.value) {
+                                for place in places {
+                                    if let PlaceRoot::Local(owner) = place.root {
+                                        owners.push(owner);
+                                    }
                                 }
                             }
                             owners.extend(
@@ -389,6 +391,20 @@ mod tests {
         .unwrap();
         assert_eq!(plan.bindings.len(), 1);
         assert!(!plan.values.is_empty());
+    }
+
+    #[test]
+    fn selected_internal_handles_retain_all_checked_static_anchors() {
+        let plan = plan(
+            "(#fn work (: choose #bool) #u64
+          (#let left #u64 40u64) (#let right #u64 50u64)
+          (#let view (#ref #u64) (#if choose (#borrow left) (#borrow right)))
+          (#let result #u64 (#deref view))
+          (#drop view) (#forget left) (#forget right) (#return result))",
+        )
+        .unwrap();
+        assert!(plan.bindings.values().any(|places| places.len() == 2));
+        assert!(plan.values.values().any(|places| places.len() == 2));
     }
 
     #[test]
