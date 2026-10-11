@@ -993,10 +993,48 @@ formerly unsupported constructs, and one 20-second native compilation timeout
 in `async_while_let_aggregate_payloads_use_declared_capture_types`. In particular,
 `async_branch_prefixes_capture_only_live_values` rejects reading a forgotten
 linear payload, but reports the physical Full-cell gate as `Type` instead of
-the intended source `Linear` diagnostic. That still needs a source-ownership
-diagnostic fix; changing the test's expected category would hide the problem.
+the intended source `Linear` diagnostic. At this audit point, that required a
+source-ownership diagnostic fix; changing the expected category would hide it.
 The timeout needs an isolated measurement before classifying it as load noise
 or an analysis-cost regression.
+
+### Original source ownership before graph emission and cache lookup
+
+Graph preparation now runs the ordinary typed-flow ownership checks on each
+original lowered source body before probing generated artifacts. It reuses the
+already resolved body and flow instead of reparsing or inventing a frame-based
+ownership rule. Guard consumption, consumed-value uses, exit obligations and
+projected replacement checks retain their ordinary diagnostic priority, source
+spans and consumption labels. Deferred callee effects and layouts still require
+the final ordinary-program validation; this check does not replace it.
+Invalid-source emitter fixtures now assert these earlier ownership errors. A
+separate adversarial fixture removes an owner initialization from an otherwise
+validated graph and confirms the physical Full-cell projection gate still
+rejects it; no production validation bypass was added.
+
+This resolves the preceding audit's forgotten-payload diagnostic mismatch:
+`async_branch_prefixes_capture_only_live_values` now reports `Linear` at the
+original use, with a label identifying the consumption. The valid graph program
+still executes natively and returns 47. Missing cleanup is rejected before a
+generated cache directory is published. Source ownership also runs on cache
+hits, so cached generated text cannot substitute for original-source checks.
+
+Source ownership and emission share the planning arena's immutable linear-type
+classification. Unlike the previous emission-only lazy classification, source
+validation needs it even on warm generated-cache hits. A separate
+`generator.async.source_ownership` timing records this added work. Five warm
+debug-build checks of `examples/async_fn.lim` with graph lowering measured
+0.202, 0.200, 0.199, 0.210 and 0.199 ms for that stage (median 0.200 ms).
+These are stage-cost samples, not a before/after compilation speedup, and do
+not show that redundant downstream checking has been eliminated.
+
+Verification passed the 229-test async suite, the updated explicit-graph
+prefix/consumption regression, 1,351 library tests (three manual benchmarks
+ignored), the added independent physical-gate fixture, all 32 graph-production
+tests, formatting and whitespace checks. The production suite includes cached
+and standalone generated-code checks, shared/exclusive reference-bearing guard
+previews, rejected-guard cleanup and caller-loan rejection. This does not prove
+all five production gates complete; Legacy is still the default.
 
 ### Earlier audit
 

@@ -8921,6 +8921,7 @@ fn async_branch_prefixes_capture_only_live_values() {
             .replace("first second) bias)", "first second) bias-value)")
     );
     build_and_run(&consumed_prefix, 47);
+    build_and_run_graph(&consumed_prefix, 47);
     build_and_run(
         &consumed_prefix.replace("(StepPending (Resume value))", "(StepReady value)"),
         47,
@@ -8965,11 +8966,13 @@ fn async_branch_prefixes_capture_only_live_values() {
         );
     build_and_run(&outer_child_only, 50);
     let scratch = support::Scratch::new("async-prefix-ownership");
+    let mut config = lim::CompileConfig::default();
+    config.set("async-lowering", "graph");
     let error_for = |source: &str| {
         lim::compile_source_to_assembly(
             source,
             &scratch.path().join("main.lim"),
-            &lim::CompileConfig::default(),
+            &config,
             &scratch.path().join("cache"),
             lim::TargetDescription::X86_64_SYSTEM_V,
         )
@@ -8986,13 +8989,29 @@ fn async_branch_prefixes_capture_only_live_values() {
         "{missing_cleanup:?}"
     );
     assert!(missing_cleanup.span.is_some(), "{missing_cleanup:?}");
+    assert!(
+        !scratch.path().join("cache").exists(),
+        "source ownership errors must precede generated cache publication"
+    );
     let reused = error_for(&consumed_prefix.replace(
         "first second) bias-value)",
         "first second) (#get bias value))",
     ));
     assert_eq!(reused.code, lim::DiagnosticCode::Linear, "{reused:?}");
     assert!(reused.message.contains("bias"), "{reused:?}");
-    assert!(reused.span.is_some(), "{reused:?}");
+    let span = reused.span.expect("consumed source read must have a span");
+    let invalid = consumed_prefix.replace(
+        "first second) bias-value)",
+        "first second) (#get bias value))",
+    );
+    assert!(invalid[span.start..span.end].contains("bias"), "{reused:?}");
+    assert!(
+        reused
+            .labels
+            .iter()
+            .any(|label| invalid[label.span.start..label.span.end].contains("bias")),
+        "the diagnostic must identify the original consumption: {reused:?}"
+    );
 }
 
 #[test]

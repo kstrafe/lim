@@ -33,9 +33,37 @@ pub(crate) struct Planning {
 }
 
 impl Planning {
-    /// Immutable declarative classification shared by every emitter in this
-    /// planning arena. This is not an ownership proof. Laziness avoids doing
-    /// the work when every generated function is read from the source cache.
+    /// Validate source moves before choosing a physical frame representation.
+    /// Deferred interfaces still need final ordinary-code validation; these
+    /// checks only establish the original body's local ownership obligations.
+    pub(crate) fn validate_source_ownership(&self) -> Result<(), SourceError> {
+        let _timing = crate::timing::detail("generator.async.source_ownership");
+        for function in &self.functions {
+            let name = &function.model.body_name;
+            let body = &self.declarations.bodies[name];
+            let flow = &self.declarations.flows[name];
+            let (results, _) = flow.check_linear_ownership_with_local_pin_accesses(
+                body,
+                self.linear_types(),
+                &self.declarations,
+            );
+            for result in results {
+                if let Err(conflict) = result {
+                    let mut error = SourceError::new(conflict.message, DiagnosticCode::Linear)
+                        .at(conflict.span.unwrap_or(function.source.function.span));
+                    for (span, message) in conflict.labels {
+                        error = error.with_label(span, message);
+                    }
+                    return Err(attach(error, &self.program));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Immutable declarative classification shared by source ownership and
+    /// every emitter in this planning arena. Classification alone is not an
+    /// ownership proof; source validation also runs on generated cache hits.
     pub(crate) fn linear_types(&self) -> &crate::linearcheck::LinearTypes {
         self.linear_types
             .get_or_init(|| crate::linearcheck::LinearTypes::from_program(&self.program))
@@ -270,6 +298,7 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
         linear_types: OnceCell::new(),
     };
     planning.validate_discarded_results()?;
+    planning.validate_source_ownership()?;
     Ok(planning)
 }
 
@@ -305,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn emission_classification_is_lazy_and_shared_by_all_functions() {
+    fn source_ownership_and_emission_share_classification_for_all_functions() {
         let text = format!(
             "{}
           (@#async-fn (: protocol OtherAwait : waker #u64
@@ -315,7 +344,7 @@ mod tests {
         let planning = prepare(&syntax(&text)).unwrap();
         assert_eq!(planning.functions.len(), 2);
         assert!(!planning.functions[0].graph.discarded_values.is_empty());
-        assert!(planning.linear_types.get().is_none());
+        assert!(planning.linear_types.get().is_some());
         let types = planning.linear_types();
         assert!(std::ptr::eq(types, planning.linear_types()));
         assert!(types.is_linear(&Type::Named("Child".into())));

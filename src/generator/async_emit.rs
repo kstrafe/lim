@@ -4444,6 +4444,14 @@ mod tests {
     }
 
     fn prepare_generator(generator: &str, function: &str, main: &str) -> Planning {
+        prepare_generator_result(generator, function, main).unwrap()
+    }
+
+    fn prepare_generator_result(
+        generator: &str,
+        function: &str,
+        main: &str,
+    ) -> Result<Planning, crate::source_error::SourceError> {
         let fn_name = function
             .split("(#fn ")
             .nth(1)
@@ -4463,7 +4471,7 @@ mod tests {
             None,
         )
         .unwrap();
-        crate::generator::async_prepare::prepare(&syntax).unwrap()
+        crate::generator::async_prepare::prepare(&syntax)
     }
 
     #[test]
@@ -4969,23 +4977,21 @@ mod tests {
           (#let result #u64 (#await Child ChildPending ChildReady child-poll resource))
           (#return (#u64.+.wrap result 2u64))";
         runtime(body, RUN, 42);
-        let planning = prepare(
-            "
+        let error = prepare_generator_result(
+            "#async-fn",
+            "(#fn work (: seed #u64) #u64
           (#let resource Child (Start seed))
           (#let result #u64 (#await Child ChildPending ChildReady child-poll (Start 1u64)))
-          (#return result)",
+          (#return result))",
             RUN,
-        );
-        let generated = generate(&planning).unwrap();
-        let program = program(&planning, &generated).unwrap();
-        let error = crate::CheckedProgram::validate_with_span(&program)
-            .err()
-            .unwrap();
-        assert_eq!(error.1, DiagnosticCode::Linear);
-        let span = error.2.unwrap();
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.code, DiagnosticCode::Linear);
+        let span = error.span.unwrap();
         assert_eq!(span.source_id, 0);
         assert_eq!(
-            &program.source_files[0].source[span.start..span.end],
+            &error.source_text.unwrap()[span.start..span.end],
             "resource"
         );
     }
@@ -5952,31 +5958,24 @@ mod tests {
     }
 
     #[test]
-    fn whole_owner_borrows_require_an_initialized_physical_cell() {
+    fn whole_owner_borrows_reject_a_consumed_source_owner() {
         let function = "(#fn work (: seed #u64) #u64
           (#let owner Source (#struct-literal Source (: amount seed)))
           (#forget owner)
           (#let view (#pin-ref Source) (#pin-borrow owner))
           (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#drop view) (#return child))";
-        let planning = prepare_generator(
+        let error = prepare_generator_result(
             "#async-fn-pinned",
             function,
             "(#struct Source (: amount #u64)) (#linear Source)",
-        );
-        let error = generate(&planning)
-            .err()
-            .expect("an Empty owner cannot supply a borrow");
-        assert!(
-            error.message.contains("definitely Full"),
-            "{}",
-            error.message
-        );
-        let source = &planning.program.source_files[error.span.source_id as usize].source;
-        assert_eq!(
-            &source[error.span.start..error.span.end],
-            "(#pin-borrow owner)"
-        );
+        )
+        .err()
+        .expect("a consumed owner cannot supply a borrow");
+        assert_eq!(error.code, DiagnosticCode::Linear);
+        let span = error.span.unwrap();
+        let source = error.source_text.unwrap();
+        assert_eq!(&source[span.start..span.end], "(#pin-borrow owner)");
     }
 
     #[test]
@@ -6815,23 +6814,22 @@ mod tests {
 
     #[test]
     fn in_place_lending_keeps_original_consumption_errors_at_the_source_use() {
-        let planning = prepare_function(
+        let error = prepare_generator_result(
+            "#async-fn",
             "(#fn work (: view (#ref-mut #u64)) #u64
               (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
               (#drop view) (#return (#deref view)))",
             "(#fn main () #u64 (#return 0u64))",
-        );
-        let generated = generate(&planning).unwrap();
-        let proposed = program(&planning, &generated).unwrap();
-        let error = crate::CheckedProgram::validate_with_span(&proposed)
-            .err()
-            .unwrap();
-        let span = error.2.unwrap();
-        let source = &proposed.source_files[span.source_id as usize].source;
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.code, DiagnosticCode::Linear);
+        let span = error.span.unwrap();
+        let source = error.source_text.unwrap();
         // The ordinary checker reports the original dereference, not a
         // generated slot extraction or a whole synthesized work-poll function.
         assert_eq!(&source[span.start..span.end], "(#deref view)");
-        assert!((span.source_id as usize) < planning.program.source_files.len());
+        assert_eq!(span.source_id, 0);
     }
 
     #[test]
@@ -7114,9 +7112,49 @@ mod tests {
     }
 
     #[test]
-    fn projected_access_does_not_reconstruct_an_empty_owner_cell() {
-        // Representation verification must fail even before the proposed
-        // ordinary program is checked. It is not a source ownership exemption.
+    fn physical_projection_gate_rejects_a_missing_checked_owner_initialization() {
+        // Source validation succeeds first. Corrupt only the executable graph
+        // to verify the independent representation guard still fails closed.
+        let mut planning = prepare(
+            "(#let-mut owner Owner (#struct-literal Owner (: value seed)))
+             (#let result #u64 (#get owner value))
+             (#forget owner) (#return result)",
+            &format!("(#struct Owner ((value #u64))) (#linear Owner) {RUN}"),
+        );
+        let function = &mut planning.functions[0];
+        let body = &planning.declarations.bodies[&function.model.body_name];
+        let owner = crate::typed_body::BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "owner")
+                .unwrap(),
+        );
+        let mut removed = 0;
+        for block in &mut function.graph.blocks {
+            block.actions.retain(|located| {
+                let keep =
+                    !matches!(located.action, Action::Bind { binding, .. } if binding == owner);
+                removed += usize::from(!keep);
+                keep
+            });
+        }
+        assert_eq!(removed, 1);
+        let error = generate(&planning)
+            .err()
+            .expect("an uninitialized physical cell cannot supply a projection");
+        assert!(
+            error.message.contains("definitely Full"),
+            "{}",
+            error.message
+        );
+        let source = &planning.program.source_files[error.span.source_id as usize].source;
+        assert!(source[error.span.start..error.span.end].contains("owner"));
+    }
+
+    #[test]
+    fn projected_access_rejects_consumed_source_owners_before_storage() {
+        // Original ownership rejects invalid projections before any physical
+        // representation can obscure the consumed source owner's identity.
         for body in [
             "(#forget owner) (#set-field owner value 42u64)",
             "(#if (#u64.== seed 0u64) (#forget owner) ())
@@ -7126,19 +7164,21 @@ mod tests {
             "(#set-field owner value (#block (#forget owner)
               (#await Child ChildPending ChildReady child-poll (Start 42u64))))",
         ] {
-            let planning = prepare(
+            let error = prepare_generator_result(
+                "#async-fn",
                 &format!(
-                    "(#let-mut owner Owner (#struct-literal Owner (: value seed)))
-                    {body} (#forget owner) (#return 42u64)"
+                    "(#fn work (: seed #u64) #u64
+                    (#let-mut owner Owner (#struct-literal Owner (: value seed)))
+                    {body} (#forget owner) (#return 42u64))"
                 ),
                 &format!("(#struct Owner ((value #u64))) (#linear Owner) {RUN}"),
-            );
-            let error = generate(&planning).err().expect("owner cell may be Empty");
-            assert!(
-                error.message.contains("definitely Full"),
-                "{}",
-                error.message
-            );
+            )
+            .err()
+            .expect("a consumed owner cannot supply a projection");
+            assert_eq!(error.code, DiagnosticCode::Linear);
+            assert!(error.message.contains("owner"), "{error:?}");
+            let span = error.span.unwrap();
+            assert!(error.source_text.unwrap()[span.start..span.end].contains("owner"));
         }
 
         // A genuine whole-cell reconstruction remains supported.
