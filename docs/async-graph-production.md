@@ -812,8 +812,10 @@ existing loop-mutation regression now uses graph lowering for its scalar,
 struct-reference, and mutable-slice variants. Scoped local borrows also use this
 boundary proof:
 ending the scope before suspension permits movement, but retaining the scope
-across suspension still requires a pinned frame. Other default-switch
-requirements remain open. Legacy lowering is still the default.
+across suspension still requires a pinned frame. At this historical checkpoint,
+other default-switch requirements remained open and legacy lowering was still
+the default. The later production-default switch and removal of the legacy
+implementation are recorded below; neither is remaining work today.
 
 The array variant of
 `async_loop_body_restores_values_mutated_through_borrowed_places` is a narrower
@@ -831,8 +833,9 @@ its selected references must be physically Empty before the frame can move.
 
 `examples/async_fn_poll_local_borrow.lim` demonstrates stored mutable field
 reborrows and a scoped shared read, releases both before suspension, then moves
-and resumes the pending task. Its native result is 42 with both lowering routes;
-the graph cache/standalone regression also covers this exact example.
+and resumes the pending task. At this checkpoint its native result was 42 with
+both lowering routes; only graph lowering remains available today. The graph
+cache/standalone regression also covers this exact example.
 
 Final verification passed 1,337 library tests (one ignored), all 301 selected
 async integration tests, formatting, and whitespace checks. The selected
@@ -873,8 +876,12 @@ byte native executables.
 The sample ranges overlap (cold: 4,521–4,615 ms versus 4,526–4,889 ms;
 warm: 2,896–3,019 ms versus 2,904–3,070 ms). No measurable end-to-end gain is
 claimed: the eliminated work is small relative to remaining analysis, and warm
-cache hits do not run this emission path. Reusing checked source facts across
-arenas, reducing remaining checks, and the default-route migration remain open.
+cache hits do not run this emission path. At this measurement checkpoint,
+cross-arena source-fact reuse, redundant analysis work and the default-route
+migration remained open. The migration subsequently completed. Further analysis
+reuse remains performance work, not permission to remove original-source or
+final generated-program validation; see the current follow-up scope in
+[Async safety and lowering audit](async-goal-audit.md).
 
 Reproduce with `scripts/benchmark-compile.py --async-pinned-heavy
 --cold-generators --cfg async-lowering=graph --baseline BEFORE --repetitions 10`;
