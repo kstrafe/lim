@@ -692,8 +692,8 @@ pub(crate) struct FlowReleases {
 
 /// Possible value consumptions from typed reads and explicit releases.
 pub(crate) struct FlowConsumptions {
-    before: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
-    after: Vec<Option<HashMap<Place, Vec<Option<Span>>>>>,
+    before: Vec<Option<ConsumptionSnapshot>>,
+    after: Vec<Option<ConsumptionSnapshot>>,
     at: Vec<HashSet<Place>>,
     local_pin_accesses: HashMap<NodeId, Place>,
     /// Resolved direct consuming accesses, independent of later restoration.
@@ -701,6 +701,131 @@ pub(crate) struct FlowConsumptions {
     definitely_before: Vec<Option<HashSet<Place>>>,
     /// Indirect accesses lacking provenance; never an ownership proof.
     unresolved: HashSet<FlowNodeId>,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ConsumptionSharing {
+    Shared,
+    #[cfg(test)]
+    Eager,
+}
+
+/// Immutable snapshots share unchanged maps within one solve. A write detaches
+/// from every earlier snapshot; no facts are reused across graphs or entries.
+#[derive(Debug)]
+struct ConsumptionSnapshot {
+    entries: std::sync::Arc<HashMap<Place, Vec<Option<Span>>>>,
+    sharing: ConsumptionSharing,
+}
+
+impl ConsumptionSnapshot {
+    fn new(entries: HashMap<Place, Vec<Option<Span>>>, sharing: ConsumptionSharing) -> Self {
+        Self {
+            entries: std::sync::Arc::new(entries),
+            sharing,
+        }
+    }
+
+    fn retain(&mut self, mut keep: impl FnMut(&Place, &Vec<Option<Span>>) -> bool) {
+        #[cfg(test)]
+        if matches!(self.sharing, ConsumptionSharing::Eager) {
+            std::sync::Arc::make_mut(&mut self.entries).retain(|place, spans| keep(place, spans));
+            return;
+        }
+        let removed = self
+            .entries
+            .iter()
+            .filter_map(|(place, spans)| (!keep(place, spans)).then(|| place.clone()))
+            .collect::<Vec<_>>();
+        if !removed.is_empty() {
+            let entries = std::sync::Arc::make_mut(&mut self.entries);
+            for place in removed {
+                entries.remove(&place);
+            }
+        }
+    }
+
+    fn extend(&mut self, entries: impl IntoIterator<Item = (Place, Vec<Option<Span>>)>) {
+        for (place, spans) in entries {
+            std::sync::Arc::make_mut(&mut self.entries).insert(place, spans);
+        }
+    }
+
+    fn join(&mut self, incoming: &Self) -> bool {
+        #[cfg(test)]
+        if matches!(self.sharing, ConsumptionSharing::Eager) {
+            let mut changed = false;
+            for (place, spans) in incoming.entries.iter() {
+                let held = std::sync::Arc::make_mut(&mut self.entries)
+                    .entry(place.clone())
+                    .or_default();
+                for span in spans {
+                    if !held.contains(span) {
+                        held.push(*span);
+                        changed = true;
+                    }
+                }
+            }
+            return changed;
+        }
+        if std::sync::Arc::ptr_eq(&self.entries, &incoming.entries) {
+            return false;
+        }
+        let mut changed = false;
+        for (place, spans) in incoming.entries.iter() {
+            if self
+                .entries
+                .get(place)
+                .is_some_and(|held| spans.iter().all(|span| held.contains(span)))
+            {
+                continue;
+            }
+            let held = std::sync::Arc::make_mut(&mut self.entries)
+                .entry(place.clone())
+                .or_default();
+            for span in spans {
+                if !held.contains(span) {
+                    held.push(*span);
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+}
+
+impl Clone for ConsumptionSnapshot {
+    fn clone(&self) -> Self {
+        #[cfg(test)]
+        if matches!(self.sharing, ConsumptionSharing::Eager) {
+            return Self::new((*self.entries).clone(), self.sharing);
+        }
+        Self {
+            entries: self.entries.clone(),
+            sharing: self.sharing,
+        }
+    }
+}
+
+impl PartialEq for ConsumptionSnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        self.entries == other.entries
+    }
+}
+
+impl Eq for ConsumptionSnapshot {}
+
+impl std::ops::Deref for ConsumptionSnapshot {
+    type Target = HashMap<Place, Vec<Option<Span>>>;
+    fn deref(&self) -> &Self::Target {
+        &self.entries
+    }
+}
+
+impl std::ops::DerefMut for ConsumptionSnapshot {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        std::sync::Arc::make_mut(&mut self.entries)
+    }
 }
 
 /// Ownership and provenance from the same body and call-contract solution.
@@ -866,8 +991,8 @@ fn outcome_candidates(
 fn refine_outcome_may(
     facts: &CallConsumptionFacts,
     calls: &HashMap<FlowNodeId, CallConsumptionFacts>,
-    before: &[Option<HashMap<Place, Vec<Option<Span>>>>],
-    state: &mut HashMap<Place, Vec<Option<Span>>>,
+    before: &[Option<ConsumptionSnapshot>],
+    state: &mut ConsumptionSnapshot,
 ) -> bool {
     if facts.outcomes.is_empty() {
         return true;
@@ -999,7 +1124,7 @@ impl FlowConsumptions {
         &self,
         node: FlowNodeId,
     ) -> Option<&HashMap<Place, Vec<Option<Span>>>> {
-        self.before.get(node.0)?.as_ref()
+        self.before.get(node.0)?.as_deref()
     }
 
     pub(crate) fn definite_regions_before(&self, node: FlowNodeId) -> Option<&HashSet<Place>> {
@@ -6809,6 +6934,27 @@ impl FlowGraph {
         entry_consumed: &[Place],
         local_pin_accesses: HashMap<NodeId, Place>,
     ) -> FlowConsumptions {
+        self.solve_consumptions_with_sharing(
+            body,
+            types,
+            origins,
+            calls,
+            entry_consumed,
+            local_pin_accesses,
+            ConsumptionSharing::Shared,
+        )
+    }
+
+    fn solve_consumptions_with_sharing(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        origins: Option<&FlowLoanOrigins>,
+        calls: Option<&HashMap<FlowNodeId, CallConsumptionFacts>>,
+        entry_consumed: &[Place],
+        local_pin_accesses: HashMap<NodeId, Place>,
+        sharing: ConsumptionSharing,
+    ) -> FlowConsumptions {
         let resolve = |id: FlowNodeId, place: &Place, value: NodeId| {
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
@@ -7115,12 +7261,13 @@ impl FlowGraph {
             }
             users
         };
-        before[self.entry.0] = Some(
+        before[self.entry.0] = Some(ConsumptionSnapshot::new(
             entry_consumed
                 .iter()
                 .map(|place| (place.clone(), vec![None]))
                 .collect::<HashMap<Place, Vec<Option<Span>>>>(),
-        );
+            sharing,
+        ));
         queued[self.entry.0] = true;
         while let Some(id) = pending.pop_front() {
             queued[id.0] = false;
@@ -7340,19 +7487,7 @@ impl FlowGraph {
             }
             for successor in &node.successors {
                 let changed = match &mut before[successor.0] {
-                    Some(existing) => {
-                        let mut changed = false;
-                        for (place, spans) in &state {
-                            let held = existing.entry(place.clone()).or_default();
-                            for span in spans {
-                                if !held.contains(span) {
-                                    held.push(*span);
-                                    changed = true;
-                                }
-                            }
-                        }
-                        changed
-                    }
+                    Some(existing) => existing.join(&state),
                     slot @ None => {
                         *slot = Some(state.clone());
                         true
@@ -16012,6 +16147,140 @@ mod tests {
         assert_eq!(left.resolved_at, right.resolved_at);
         assert_eq!(left.definitely_before, right.definitely_before);
         assert_eq!(left.unresolved, right.unresolved);
+    }
+
+    #[test]
+    fn consumption_snapshots_detach_only_for_real_mutations() {
+        let place = Place::root(PlaceRoot::Local(BindingId(0)));
+        let snapshot = ConsumptionSnapshot::new(
+            HashMap::from([(place.clone(), vec![None])]),
+            ConsumptionSharing::Shared,
+        );
+        let mut current = snapshot.clone();
+        assert!(std::sync::Arc::ptr_eq(&snapshot.entries, &current.entries));
+        current.retain(|_, _| true);
+        assert!(!current.join(&snapshot));
+        current.extend([]);
+        assert!(std::sync::Arc::ptr_eq(&snapshot.entries, &current.entries));
+        current.retain(|_, _| false);
+        assert!(current.is_empty());
+        assert_eq!(snapshot.get(&place), Some(&vec![None]));
+        assert!(!std::sync::Arc::ptr_eq(&snapshot.entries, &current.entries));
+        let mut modified = snapshot.clone();
+        modified.entry(place.clone()).or_default().push(None);
+        assert_eq!(snapshot[&place], vec![None]);
+        assert_eq!(modified[&place], vec![None, None]);
+        // The original join records a previously absent empty-span key but
+        // does not reschedule for it. Preserve that behavior, not a new lattice.
+        let empty_spans = ConsumptionSnapshot::new(
+            HashMap::from([(place.clone(), Vec::new())]),
+            ConsumptionSharing::Shared,
+        );
+        let mut joined = ConsumptionSnapshot::new(HashMap::new(), ConsumptionSharing::Shared);
+        assert!(!joined.join(&empty_spans));
+        assert!(joined.contains_key(&place));
+    }
+
+    #[test]
+    fn shared_consumption_snapshots_match_eager_solver_across_profiles() {
+        let mut programs = vec![
+            entry_pin_fixture(0),
+            entry_pin_fixture(1),
+            entry_pin_fixture(8),
+        ];
+        programs.push(
+            crate::parse_program(
+                "(#struct Token (: value #u64)) (#linear Token)
+             (#enum Outcome ((Done #u64) (Skip #u64)))
+             (#fn work (: input (#ref-mut Token) : choose #bool) Outcome
+               (#let token Token (#struct-literal Token (: value 7u64)))
+               (#if choose (#forget token) (#forget token))
+               (#while choose
+                 (#forget (#deref input))
+                 (#deref-set input (#struct-literal Token (: value 9u64)))
+                 (#break))
+               (#return (#if choose (Done 1u64) (Skip 2u64))))",
+            )
+            .unwrap(),
+        );
+        let mut filtered_count = 0;
+        for mut program in programs {
+            program.items.extend(
+                crate::parse_program("(#static Shared #u64 0u64)")
+                    .unwrap()
+                    .items,
+            );
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["work"];
+            let original = &declarations.flows["work"];
+            let types = LinearTypes::from_program(&program);
+            let filtered = original.return_output_variant_graphs(body);
+            filtered_count += filtered.len();
+            for graph in std::iter::once(original).chain(filtered.values()) {
+                let origins = graph.loan_origins(body);
+                let seed = Place::root(if body.parameter_count == 0 {
+                    PlaceRoot::Global(declarations.global_id("Shared").unwrap())
+                } else {
+                    PlaceRoot::Parameter(BindingId(0))
+                });
+                let calls = HashMap::from([
+                    (
+                        graph.entry,
+                        CallConsumptionFacts {
+                            possible: vec![(seed.clone(), vec![None])],
+                            definite: vec![seed.clone()],
+                            ..Default::default()
+                        },
+                    ),
+                    (
+                        graph.exit,
+                        CallConsumptionFacts {
+                            outcomes: vec![CallOutcomeSource {
+                                event: graph.entry,
+                                effects: Vec::new(),
+                                restored: vec![seed.clone()],
+                                consumed_entry: Vec::new(),
+                            }],
+                            ..Default::default()
+                        },
+                    ),
+                ]);
+                for entry in [Vec::new(), vec![seed]] {
+                    for origins in [None, Some(&origins)] {
+                        for calls in [None, Some(&calls)] {
+                            let pins = graph.local_pin_accesses_with_origins(body, &types, origins);
+                            let shared = graph.solve_consumptions_with_sharing(
+                                body,
+                                &types,
+                                origins,
+                                calls,
+                                &entry,
+                                pins.clone(),
+                                ConsumptionSharing::Shared,
+                            );
+                            let eager = graph.solve_consumptions_with_sharing(
+                                body,
+                                &types,
+                                origins,
+                                calls,
+                                &entry,
+                                pins,
+                                ConsumptionSharing::Eager,
+                            );
+                            assert_same_consumptions(&shared, &eager);
+                            let diagnostic = |moves: &FlowConsumptions| {
+                                graph
+                                    .check_linear_consumptions_with_origins(body, moves, origins)
+                                    .map_err(|error| (error.message, error.span, error.labels))
+                            };
+                            assert_eq!(diagnostic(&shared), diagnostic(&eager));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(filtered_count >= 2, "exercise independent outcome graphs");
     }
 
     #[test]

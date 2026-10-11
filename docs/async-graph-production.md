@@ -2034,3 +2034,49 @@ diagnostics are byte-identical. Filename parity, throttling and concurrent cache
 publication regressions pass, together with the full 1,363-test library suite
 (seven ignored), five native-example tests, two adversarial borrow tests, three
 UI tests and all-target checking.
+
+## Immutable consumption snapshots
+
+The may-consumption solver now shares immutable maps between unchanged flow
+events instead of eagerly cloning every place path and source-span vector.
+Mutation detaches the map with copy-on-write; removal filters that remove
+nothing, empty extensions, and joins already covered by the destination do
+not detach. Identical snapshot joins are constant-time. Each invocation still
+starts a fresh solve: entry states, filtered outcome graphs and call contracts
+are not cached across independent analyses. Must-consumption intersections,
+worklist ordering, span deduplication and unresolved-access handling are unchanged.
+
+A test-only eager mode retains the previous copying/join/filter behavior.
+Parity tests compare every before/after map, definite state, resolved transfer,
+pin-access fact, unresolved event and linear diagnostic, including labels and
+spans. The matrix varies entry seeds, provenance and call facts and independently
+solves filtered return-outcome graphs. Separate mutation tests ensure earlier
+snapshots cannot change, and preserve the old empty-span-key scheduling behavior.
+
+Against the retained release compiler at `f724644`, twenty-one alternating
+warmed `--check --timings` pairs after three warmups per compiler, pinned to
+CPU 8, measured these medians. No test/build processes ran during sampling.
+
+| Fixture | Total check before/after (ms) | Consumption before/after (ms) | Contract before/after (ms) | Wall before/after (ms) |
+| --- | --- | --- | --- | --- |
+| async_nested_partial_struct | 66.585 / 62.565 | 7.699 / 5.257 | 22.027 / 18.930 | 68.477 / 64.409 |
+| async_while_let_dependencies | 60.071 / 56.600 | 7.402 / 5.423 | 20.742 / 17.918 | 61.670 / 58.270 |
+| async_fn_local_self_reference | 58.984 / 54.877 | 7.803 / 4.724 | 20.352 / 16.376 | 60.564 / 56.478 |
+| async_partial_borrow | 111.960 / 94.549 | 19.676 / 10.663 | 49.178 / 35.535 | 114.288 / 98.881 |
+| match_linear_guard | 1.067 / 1.025 | 0.088 / 0.056 | 0.221 / 0.188 | 1.514 / 1.473 |
+
+Total check time improves 5.8–15.6% on the four async fixtures; consumption
+time improves 26.7–45.8%. Contract time also improves because contract analysis
+invokes consumption solving. The small guard control improves about 3.9% in
+total check time. These are warm-cache fixture measurements, not universal
+compilation or runtime speedups, and do not close the broader analysis audit.
+
+The five fixtures emit byte-identical assembly and retain native exits 44, 40,
+42, 45 and 7. Four representative borrow/type/pinning diagnostics are byte-identical.
+All 1,365 library tests pass (seven ignored), together with the five native-example
+tests, two adversarial borrow tests, three UI tests and all-target checking.
+All 337 tests in the async-function, graph-production, immediate-borrow,
+dependent-cancellation, dynamic-array, generated-boundary, frame-restoration,
+heap-contents and self-borrow suites also pass with four workers. Their cold/warm
+and independent ordinary generated-code matrices retain source and emitted-code
+validation; the existing compiler timeouts are unchanged.

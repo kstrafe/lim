@@ -35,10 +35,13 @@ references retained across Pending. See ASYNC-DEEP-FIELD-BORROW and the newer
 production-route record; whole aggregate borrows remain a distinct storage gap.
 
 Guarded/lending analysis has incremental measured improvements, not a completed
-performance audit. Provenance reuse, vacuous-query elimination, use indexing and
-dense transfer membership reduce specific repeated work. Whole-check speedups
-are fixture-dependent and sometimes absent; current paired measurements and
-their limits are recorded in the production-route journal.
+performance audit. Provenance reuse, vacuous-query elimination, use indexing,
+dense transfer membership and immutable consumption snapshots reduce repeated
+work.
+Snapshot sharing reduces warm total check time 5.8–15.6% on four measured async
+fixtures without reusing facts across independent entry/outcome analyses.
+Whole-check speedups are fixture-dependent and sometimes absent; paired
+measurements and their limits are recorded in the production-route journal.
 
 Earlier suite counts and migration gates below are historical evidence. They
 must not be read as the current verification count or as outstanding legacy
