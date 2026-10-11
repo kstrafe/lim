@@ -17,6 +17,32 @@ use crate::{Span, Type};
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct FlowNodeId(pub usize);
 
+/// Direct and affine transfer membership for the checked body arena. These
+/// classes are independent: a call-duration reference reborrow can be direct
+/// without transferring the exclusive handle. No iteration order is needed.
+struct TransferMembership {
+    classes: Vec<u8>,
+}
+
+impl TransferMembership {
+    fn new(nodes: usize) -> Self {
+        Self {
+            classes: vec![0; nodes],
+        }
+    }
+
+    fn insert(&mut self, value: NodeId, affine: bool) -> bool {
+        let class = 1 << u8::from(affine);
+        let previous = self.classes[value.0];
+        self.classes[value.0] |= class;
+        previous & class == 0
+    }
+
+    fn contains(&self, value: NodeId, affine: bool) -> bool {
+        self.classes[value.0] & (1 << u8::from(affine)) != 0
+    }
+}
+
 /// Dense membership with a traversal-order list for iteration. Flow IDs are
 /// arena indices, so reachability needs neither hashing nor per-key allocation.
 pub(crate) struct ReachableNodes {
@@ -6970,20 +6996,14 @@ impl FlowGraph {
                 transfer_roots.extend(children.iter().skip(1).copied());
             }
         }
-        let mut direct_transfers = HashSet::new();
-        let mut affine_transfers = HashSet::new();
+        let mut transfers = TransferMembership::new(body.nodes.len());
         let mut pending_values = transfer_roots
             .into_iter()
             .map(|value| (value, false))
             .chain(affine_roots.into_iter().map(|value| (value, true)))
             .collect::<Vec<_>>();
         while let Some((value, affine)) = pending_values.pop() {
-            let transfers = if affine {
-                &mut affine_transfers
-            } else {
-                &mut direct_transfers
-            };
-            if !transfers.insert(value) {
+            if !transfers.insert(value, affine) {
                 continue;
             }
             match &body.nodes[value.0].kind {
@@ -7119,7 +7139,7 @@ impl FlowGraph {
                     place,
                     place_base: false,
                 } if matches!(place.root, PlaceRoot::Local(_))
-                    && affine_transfers.contains(value)
+                    && transfers.contains(*value, true)
                     && !reads_through_reference(body, *value)
                     && body.nodes[value.0]
                         .ty
@@ -7145,7 +7165,7 @@ impl FlowGraph {
                     place,
                     place_base: false,
                 } if matches!(place.root, PlaceRoot::Local(_))
-                    && direct_transfers.contains(value)
+                    && transfers.contains(*value, false)
                     && body.nodes[value.0]
                         .ty
                         .as_ref()
@@ -15478,6 +15498,94 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dense_transfer_membership_preserves_independent_classes() {
+        for count in [0, 1, 31, 1024] {
+            let mut dense = TransferMembership::new(count);
+            let mut hashed = [HashSet::new(), HashSet::new()];
+            for affine in [false, true, false, true] {
+                for index in (0..count).rev() {
+                    if index % 3 == usize::from(affine) {
+                        assert_eq!(
+                            dense.insert(NodeId(index), affine),
+                            hashed[usize::from(affine)].insert(NodeId(index))
+                        );
+                    }
+                    for class in [false, true] {
+                        assert_eq!(
+                            dense.contains(NodeId(index), class),
+                            hashed[usize::from(class)].contains(&NodeId(index))
+                        );
+                    }
+                }
+            }
+            // A value already seen in one class must still be visited once
+            // when it first enters the other class, including shared tails.
+            for index in 0..count {
+                for affine in [false, true, false, true] {
+                    assert_eq!(
+                        dense.insert(NodeId(index), affine),
+                        hashed[usize::from(affine)].insert(NodeId(index))
+                    );
+                }
+                assert!(dense.contains(NodeId(index), false));
+                assert!(dense.contains(NodeId(index), true));
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "manual release transfer-membership benchmark; run with --ignored --nocapture"]
+    fn benchmark_dense_transfer_membership() {
+        use std::{hint::black_box, time::Instant};
+        let count = 8192;
+        let trace = (0..count * 4)
+            .map(|index| (NodeId(index % count), index % 3 == 0))
+            .collect::<Vec<_>>();
+        let mut samples = [Vec::new(), Vec::new()];
+        let mut checksums = [0; 2];
+        for iteration in 0..10 {
+            for mode in [iteration % 2, 1 - iteration % 2] {
+                let started = Instant::now();
+                let mut checksum = 0;
+                for _ in 0..8 {
+                    if mode == 0 {
+                        let mut sets = [HashSet::new(), HashSet::new()];
+                        for &(value, affine) in black_box(&trace) {
+                            checksum += usize::from(sets[usize::from(affine)].insert(value));
+                            checksum += usize::from(sets[0].contains(&value));
+                            checksum += usize::from(sets[1].contains(&value));
+                        }
+                        black_box(sets);
+                    } else {
+                        let mut dense = TransferMembership::new(count);
+                        for &(value, affine) in black_box(&trace) {
+                            checksum += usize::from(dense.insert(value, affine));
+                            checksum += usize::from(dense.contains(value, false));
+                            checksum += usize::from(dense.contains(value, true));
+                        }
+                        black_box(dense);
+                    }
+                }
+                checksums[mode] = black_box(checksum);
+                if iteration != 0 {
+                    samples[mode].push(started.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+            assert_eq!(checksums[0], checksums[1]);
+        }
+        for sample in &mut samples {
+            sample.sort_by(f64::total_cmp);
+        }
+        let before = samples[0][samples[0].len() / 2];
+        let after = samples[1][samples[1].len() / 2];
+        println!(
+            "transfer membership, 8192 nodes, 8 repeated traces, 9 alternating samples: \
+             hashed={before:.3}ms dense={after:.3}ms reduction={:.1}%",
+            (before - after) * 100.0 / before
+        );
+    }
 
     #[test]
     fn empty_referent_summary_candidates_skip_consumption_solves() {

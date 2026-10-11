@@ -1871,3 +1871,43 @@ Verification passes 233 async integration tests, 230 selected async unit tests
 (four manual benchmarks ignored), the expanded indexed-clone return regression,
 both large-reference backend tests, five native example tests and all-target
 checking.
+
+## Dense consumption transfer membership
+
+Each consumption solve formerly built two hash sets of body-node IDs solely
+for membership queries. A byte per arena node now records two independent
+transfer classes. Direct transfers and exclusive-handle transfers remain
+distinct: passing a reference can reborrow it without consuming its handle.
+Duplicate visits, branch/block tails and the existing root classification keep
+the same behavior. The sets were never iterated, so no traversal or diagnostic
+ordering changes. This does not share entry states or facts across graphs;
+every guarded/outcome-specific solve retains its own analysis.
+
+The membership parity test compares both classes and insertion results with
+independent hash sets, including duplicates and nodes entering both classes.
+The manual release benchmark runs eight repeated traces over 8,192 nodes with
+one discarded warmup and nine alternating pairs, pinned to CPU 8. Median
+membership time is 7.515 ms hashed versus 0.151 ms dense (98.0% less). This is
+only membership construction and queries, not the entire consumption solver.
+
+After the release build and test suites finished, 21 alternating warm release
+`--check --timings` pairs per fixture ran on CPU 8 against the retained
+`f29ef6b` baseline. Three warmup pairs preceded measurement. Internal medians:
+
+| Fixture | Consumption before / after | Contracts before / after | Total before / after |
+| --- | --- | --- | --- |
+| `async_nested_partial_struct.lim` | 8.356 / 7.887 ms | 22.667 / 22.268 ms | 67.230 / 67.526 ms |
+| `async_while_let_dependencies.lim` | 8.068 / 7.415 ms | 21.443 / 20.730 ms | 61.232 / 60.658 ms |
+| `match_linear_guard.lim` | 0.095 / 0.089 ms | 0.232 / 0.230 ms | 1.096 / 1.096 ms |
+| `async_fn_local_self_reference.lim` | 8.247 / 7.794 ms | 20.785 / 20.430 ms | 60.274 / 59.795 ms |
+
+Consumption time improves 5.5–8.1% on the larger fixtures. Total check time
+improves only 0.8–0.9% on two fixtures, is unchanged on the small guard case,
+and worsens 0.4% on nested partial storage. Process-wall medians likewise
+show only small changes: 69.668 / 70.106, 63.561 / 62.841, 1.862 / 1.872,
+and 62.575 / 62.418 ms respectively. No universal whole-compiler speedup or
+completion of guarded-analysis performance work is claimed.
+
+Verification passes 1,361 library tests, all 233 async integration tests,
+three UI diagnostic tests, five native example tests and all-target checking.
+The ignored membership benchmark passes separately in release mode.
