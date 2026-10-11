@@ -120,6 +120,38 @@ fn async_protocols_compose_with_forward_references_and_derived_names() {
     assert_single_poll(&generated, "child-poll");
 }
 
+fn assert_frame_has_program_counter(generated: &str, name: &str) {
+    let nodes = lim::parse(generated).unwrap();
+    let fields = nodes.iter().find_map(|node| match &node.expr {
+        lim::Expr::List(items)
+            if matches!(items.as_slice(), [lim::Expr::Symbol(head), lim::Expr::Symbol(frame), ..]
+                if head == "#struct" && frame == name) => match items.get(2) {
+                    Some(lim::Expr::List(fields)) => Some(fields),
+                    _ => None,
+                },
+        _ => None,
+    }).expect("the generated frame must be a struct");
+    assert!(fields.iter().any(|field| matches!(field,
+        lim::Expr::List(items) if matches!(items.as_slice(),
+            [lim::Expr::Symbol(field), lim::Expr::Symbol(ty)] if field == "pc" && ty == "#u32"))));
+}
+
+fn assert_generated_signature(generated: &str, signature: &str) {
+    let expected = lim::parse(signature).unwrap().remove(0).expr;
+    let lim::Expr::List(expected) = expected else {
+        panic!("expected a signature");
+    };
+    assert_eq!(expected.len(), 4);
+    assert!(
+        lim::parse(generated)
+            .unwrap()
+            .iter()
+            .any(|node| matches!(&node.expr,
+        lim::Expr::List(items) if items.get(..4) == Some(expected.as_slice()))),
+        "missing generated signature: {signature}"
+    );
+}
+
 fn assert_generated_type_names_are_capitalized(generated: &str) {
     for node in lim::parse(generated).unwrap() {
         let lim::Expr::List(items) = node.expr else {
@@ -1090,12 +1122,9 @@ fn async_lowering_errors_highlight_the_later_nested_await() {
 
 #[test]
 fn async_function_suspends_resumes_and_is_inspectable() {
-    let generated = build_and_run(&example_source(), 42);
-    assert!(generated
-        .contains("(#enum Work-task ((work-task-start #u64) (work-task-await-0 #u64 #u64 Step)))"));
-    assert!(!generated.contains("(#fn work-poll-resume-"));
-    assert!(generated.contains("lim.async.work-poll.dispatch"));
-    assert!(generated.contains("(#fn work-poll"));
+    let generated = build_and_run_graph(&example_source(), 42);
+    assert_frame_has_program_counter(&generated, "Work-task");
+    assert_single_poll(&generated, "work-poll");
     assert!(!generated.contains("#await"));
 }
 
@@ -1117,13 +1146,6 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
             (#await Child ChildPending ChildReady child-poll (Waiting 0u64))
           )
           (#return (#u64.+.wrap value offset)))))
-      (#fn cancel-frame ((task Work-frame-state)) ()
-        (#match task
-          (#case (work-frame-start offset) (#forget offset))
-          (#case (work-frame-await-0 offset child)
-            (#block (#forget offset) (#call cancel-child (: task child))))
-          (#case work-frame-done ()))
-        (#return ()))
       (#fn main () #u64
         (#let-mut frame Work-frame (#call work (: offset 40u64)))
         (#let waker #u64 0u64)
@@ -1142,11 +1164,17 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
         (#let first-cancel Work-poll-result
           (#call work-poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
         (#let-else (work-pending cancel-pin) Work-poll-result first-cancel (#unreachable))
-        (#let state-to-cancel Work-frame-state (#call work-poll-cancel (: task cancel-pin)))
+        (#let state-to-cancel Work-frame-cleanup (#call work-poll-cleanup (: task cancel-pin)))
         (#call cancel-frame (: task state-to-cancel))
         (#forget cancelled-frame)
         (#forget waker)
         (#return result))";
+    let source = source.replace(
+        ": waker #u64 : function",
+        ": waker #u64 : cancel (cancel-frame ((await-0 cancel-child))) : function",
+    );
+    let mut config = lim::CompileConfig::default();
+    config.set("async-lowering", "graph");
     let moved = source.replace(
         "(#let second Work-poll-result",
         "(#let moved Work-frame frame)\n        (#let second Work-poll-result",
@@ -1155,7 +1183,7 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
     let diagnostic = lim::compile_source_to_assembly(
         &moved,
         &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
+        &config,
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
@@ -1185,7 +1213,16 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
           (#return (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))))
         (#fn main () #u64",
     );
-    let error = lim::check_types(&lim::parse_program(&escaping).unwrap()).unwrap_err();
+    let error = lim::compile_source_to_assembly(
+        &escaping,
+        &scratch.path().join("escape.lim"),
+        &config,
+        &scratch.path().join("escape-cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .err()
+    .expect("a pinned frame handle must not escape its owner")
+    .message;
     assert!(
         error.contains("outlive")
             || error.contains("borrow")
@@ -1194,33 +1231,18 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
         "pinned frame handle must not escape its owner: {error}"
     );
 
-    let generated = build_and_run(source, 41);
+    let generated = build_and_run_graph(&source, 41);
     assert!(
         generated.contains("(#pin-ref-mut Work-frame)"),
         "work-poll must borrow the pinned frame: {generated}"
     );
-    assert!(
-        generated.contains("(#struct Work-frame ((state Work-frame-state)))"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("(#pin-borrow-mut (#get task state))"),
-        "work-poll must project the state field from the pinned shell: {generated}"
-    );
+    assert_frame_has_program_counter(&generated, "Work-frame");
+    assert_single_poll(&generated, "work-poll");
     assert!(!generated.contains("(#pin-read task)"), "{generated}");
     assert!(!generated.contains("(#pin-write task"), "{generated}");
-    assert!(
-        generated.contains("(#pin-read lim.async.pin-state)"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("(#pin-write lim.async.pending-state"),
-        "{generated}"
-    );
-    assert!(
-        generated
-            .contains("(#fn work-poll-cancel ((task (#pin-ref-mut Work-frame))) Work-frame-state"),
-        "{generated}"
+    assert_generated_signature(
+        &generated,
+        "(#fn work-poll-cleanup ((task (#pin-ref-mut Work-frame))) Work-frame-cleanup)",
     );
     assert!(generated.contains("(#fn work-poll-cancel"), "{generated}");
 }
@@ -1497,7 +1519,7 @@ fn async_function_can_complete_without_suspension() {
             "(#let step Step (Waiting 0u64))"
         )
     );
-    build_and_run(&source, 41);
+    build_and_run_graph(&source, 41);
 }
 
 #[test]
@@ -1528,12 +1550,8 @@ fn async_function_without_await_runs_its_body_on_first_poll() {
                          42u64 0u64)))",
         env!("CARGO_MANIFEST_DIR")
     );
-    let generated = build_and_run(&source, 42);
-    assert!(!generated.contains("(#fn work-poll-start"), "{generated}");
-    assert!(
-        generated.contains("lim.async.work-poll.dispatch"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(&source, 42);
+    assert_single_poll(&generated, "work-poll");
     assert!(generated.contains("(work-ready"), "{generated}");
 }
 
@@ -1567,7 +1585,8 @@ fn pinned_async_function_without_await_runs_on_first_poll() {
                          42u64 0u64)))",
         env!("CARGO_MANIFEST_DIR")
     );
-    let generated = build_and_run(&source, 42);
+    let generated = build_and_run_graph(&source, 42);
+    assert_single_poll(&generated, "work-poll");
     assert!(
         generated.contains("(#pin-ref-mut Work-frame)"),
         "{generated}"
@@ -1699,10 +1718,8 @@ fn async_function_supports_multiple_awaits() {
          (#return (#u64.+.wrap total offset))",
         )
         .replace("((offset #u64)) #u64", "((#mut offset #u64)) #u64");
-    let generated = build_and_run(&source, 48);
-    assert!(generated.contains("work-task-await-1"));
-    assert!(!generated.contains("(#fn work-poll-resume-1"));
-    assert!(generated.contains("lim.async.work-poll.dispatch"));
+    let generated = build_and_run_graph(&source, 48);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -1733,8 +1750,12 @@ fn async_function_has_no_fixed_suspension_count_limit() {
            (#forget waker)
            (#return result))"
     );
-    let generated = build_and_run(&source, 32);
-    assert!(generated.contains("work-task-await-32"), "{generated}");
+    let generated = build_and_run_graph(&source, 32);
+    assert_single_poll(&generated, "work-poll");
+    assert!(
+        generated.contains("Work-task-cleanup-await-32"),
+        "{generated}"
+    );
 }
 
 #[test]
@@ -10614,7 +10635,7 @@ fn async_function_can_suspend_at_each_await() {
            (#forget executor)
            (#return (#u64.+.wrap value notifications)))"
     );
-    build_and_run(&source, 43);
+    build_and_run_graph(&source, 43);
 }
 
 #[test]
@@ -10631,7 +10652,7 @@ fn async_function_pending_state_can_be_cancelled_explicitly() {
            (#let first Work-poll-result
              (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
            (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-           (#call cancel-work (: task pending))
+           (#call cancel-work (: task (#call work-poll-cleanup (: task pending))))
            (#call local-waker-destroy (: waker waker))
            (#let executor-ref (#ref Executor) (#borrow executor))
            (#let notifications #u64 (#call CellU64-get (: cell (#borrow (#get executor-ref notifications)))))
@@ -10639,13 +10660,12 @@ fn async_function_pending_state_can_be_cancelled_explicitly() {
            (#forget executor)
            (#return notifications))"
     );
-    build_and_run(&source, 1);
+    build_and_run_graph(&source, 1);
 }
 
 #[test]
-fn generated_async_frames_support_exhaustive_task_cancellation() {
-    let source = "(#import \"{}/library/tasks.lim\")
-      (#enum Child ((Waiting #u64)))
+fn generated_async_frames_support_source_named_task_cancellation() {
+    let source = "(#enum Child ((Waiting #u64)))
       (#linear Child)
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
@@ -10660,71 +10680,68 @@ fn generated_async_frames_support_exhaustive_task_cancellation() {
           (#let value #u64
             (#await Child ChildPending ChildReady child-poll (Waiting 2u64)))
           (#return (#u64.+.wrap value offset)))))
-      (#fn cancel-offset ((task #u64)) () (#forget task) (#return ()))
-      (#fn cancel-await-state ((task (#tuple #u64 Child))) ()
-        (#let (#tuple offset child) (#tuple #u64 Child) task)
-        (#call cancel-offset (: task offset))
-        (#call child-cancel (: task child))
-        (#return ()))
-      (@#task-cancel cancel-frame Work-task
-        ((work-task-start cancel-offset)
-         (work-task-await-0 cancel-await-state ((offset #u64) (child Child)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
         (#let frame Work-task (#call work (: offset 40u64)))
         (#let first Work-poll-result (#call work-poll (: task frame : waker (#borrow waker))))
         (#let-else (work-pending pending-frame) Work-poll-result first (#unreachable))
-        (#call cancel-frame (: task pending-frame))
+        (#call cancel-frame (: task (#call work-poll-cleanup (: task pending-frame))))
         (#forget waker)
         (#return 42u64))";
-    let source = source.replace("{}", env!("CARGO_MANIFEST_DIR"));
-    build_and_run(&source, 42);
+    let source = source.replace(
+        ": waker #u64 : function",
+        ": waker #u64 : cancel (cancel-frame ((await-0 child-cancel))) : function",
+    );
+    build_and_run_graph(&source, 42);
 }
 
 #[test]
-fn async_fn_generates_state_specific_cancel_dispatch() {
+fn async_fn_generates_source_specific_cancel_dispatch() {
     let source = include_str!("../examples/async_fn_cancel_dispatch.lim");
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("(#fn cancel-work ((task Work-task)) ()"));
-    assert!(generated.contains("(#case (work-task-start"));
-    assert!(generated.contains("(#case (work-task-await-0"));
-    assert!(generated.contains("cancel-await"));
+    let generated = build_and_run_graph(source, 42);
+    assert!(generated.contains("(#fn cancel-work ((task Work-task-cleanup)) ()"));
+    assert!(generated.contains("Work-task-cleanup-token-full"));
+    assert!(generated.contains("Work-task-cleanup-await-0-full"));
+    assert!(generated.contains("child-cancel"));
 }
 
 #[test]
-fn async_fn_cancel_mapping_must_cover_each_generated_state() {
+fn async_fn_cancel_mapping_must_cover_each_source_slot() {
     let source = "(#enum Child ((Waiting #u64)))
+      (#linear Child)
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (ChildReady 1u64)))
-      (#fn cancel-start ((task #u64)) () (#forget task) (#return ()))
       (@#async-fn (: protocol work-await
                   : waker #u64
-                  : cancel (cancel-frame ((work-task-start cancel-start)))
+                  : cancel (cancel-frame ())
                   : function
         (#fn work ((input #u64)) #u64
           (#let result #u64
             (#await #u64 Child ChildPending ChildReady child-poll (Waiting input)))
           (#return result))))";
     let scratch = support::Scratch::new("async-cancel-missing-state");
+    let mut config = lim::CompileConfig::default();
+    config.set("async-lowering", "graph");
     let error = lim::compile_source_to_assembly(
         source,
         &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
+        &config,
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
-    .unwrap_err();
+    .err()
+    .expect("a linear child requires a cancellation handler");
     assert!(
         error
             .message
-            .contains("async cancellation requires a handler for state 'work-task-await-0'"),
+            .contains("missing graph cleanup handler for source slot 'await-0'"),
         "{error:?}"
     );
 }
 
 #[test]
-fn pinned_async_fn_dispatches_cleanup_after_state_extraction() {
+fn pinned_async_fn_dispatches_cleanup_after_source_slot_extraction() {
     let source = "(#enum Child ((Waiting #u64)))
       (#linear Child)
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
@@ -10734,18 +10751,10 @@ fn pinned_async_fn_dispatches_cleanup_after_state_extraction() {
       (#enum Token ((TokenValue #u64)))
       (#linear Token)
       (#fn destroy-token ((task Token)) () (#forget task) (#return ()))
-      (#fn cancel-start ((task Token)) ()
-        (#call destroy-token (: task task))
-        (#return ()))
-      (#fn cancel-await ((task (#tuple Token Child))) ()
-        (#let (#tuple token child) (#tuple Token Child) task)
-        (#call destroy-token (: task token))
-        (#call child-cancel (: task child))
-        (#return ()))
       (@#async-fn-pinned (: protocol work-await
                   : waker #u64
                   : cancel (cancel-frame
-                    ((work-frame-start cancel-start) (work-frame-await-0 cancel-await)))
+                    ((token destroy-token) (await-0 child-cancel)))
                   : function
         (#fn work ((token Token)) #u64
           (#let child-result #u64
@@ -10758,10 +10767,10 @@ fn pinned_async_fn_dispatches_cleanup_after_state_extraction() {
         (#let outcome Work-poll-result
           (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
         (#let-else (work-pending cancel-pin) Work-poll-result outcome (#unreachable))
-        (#let state Work-frame-state (#call work-poll-cancel (: task cancel-pin)))
+        (#let state Work-frame-cleanup (#call work-poll-cleanup (: task cancel-pin)))
         (#call cancel-frame (: task state))
         (#forget frame)
         (#forget waker)
         (#return 42u64))";
-    build_and_run(source, 42);
+    build_and_run_graph(source, 42);
 }
