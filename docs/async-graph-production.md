@@ -718,3 +718,29 @@ Verification passed 1,338 library tests (two ignored, including the manual
 benchmark), 87 focused async integration tests, all six synthetic benchmark
 workloads, formatting, and whitespace checks. The manual benchmark was run
 separately and passed.
+
+## Default-route audit after movable poll-local reference support
+
+A temporary graph default followed by `cargo test --test async_fn --quiet`
+completed with 145 passing and 68 failing tests (213 total, 45.11 seconds).
+The temporary default was restored to legacy after the audit. This is not a
+claim that 68 distinct semantic bugs remain: failures include assertions about
+legacy private layouts, different diagnostics, and native compilation timeouts
+under parallel testing, as well as genuine lowering/borrow failures. The audit
+does not justify switching the default or deleting legacy yet.
+
+`graph_nested_destructuring_preserves_projection_types_and_retained_loans`
+now exercises the explicit graph route independently of that default. It runs
+ten native programs covering nested tuples, arrays, structs, aliases, pattern
+initialization between awaits, mutation of two pattern leaves, and shared
+external references retained through both suspension points. Both choices of a
+reference selecting between two external owners return the selected value.
+Forgetting the Pending frame retires its shared loan and permits subsequent
+referent mutation. Negative cases preserve the original retained-loan `#set`
+span and immutable pattern binding's assignment-target span.
+
+This evidence does not cover the unresolved live exclusive-reference aggregate
+case. The existing legacy regression remains positive: destructuring a nested
+exclusive reference must eventually work on graph too, not become an expected
+rejection. Default migration also still requires resolving the remaining public
+interface differences and auditing the other control-flow failures.

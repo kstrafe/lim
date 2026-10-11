@@ -9284,6 +9284,129 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
 }
 
 #[test]
+fn graph_nested_destructuring_preserves_projection_types_and_retained_loans() {
+    let source = include_str!("../examples/async_destructure.lim");
+    build_and_run_graph(source, 42);
+    let aliased = format!(
+        "(#type ValuesAlias Values)\n{}",
+        source
+            .replace("(values Values)", "(values ValuesAlias)")
+            .replace("bias) Values values", "bias) ValuesAlias values")
+    );
+    build_and_run_graph(&aliased, 42);
+    let array = source
+        .replace("(#tuple #u16 #u16)", "(#array #u16 2)")
+        .replace("(#tuple left right)", "(#array left right)")
+        .replace(
+            "(#tuple (#array #u16 2) 9u16 11u16)",
+            "(#array-of (#array #u16 2) 9u16 11u16)",
+        );
+    build_and_run_graph(&array, 42);
+    let nested_struct = format!(
+        "(#struct Bits ((first #u16) (second #u16)))\n{}",
+        source
+            .replace("(z (#tuple #u16 #u16))", "(z Bits)")
+            .replace("(#tuple left right)", "(Bits left right)")
+            .replace(
+                "(#tuple (#tuple #u16 #u16) 9u16 11u16)",
+                "(#struct-literal Bits (: first 9u16 : second 11u16))",
+            )
+    );
+    build_and_run_graph(&nested_struct, 42);
+    let between = source
+        .replace(
+            "    (#let (Values (#tuple left right) bias) Values values)\n",
+            "",
+        )
+        .replace("(Start (#as left #u64))", "(Start 9u64)")
+        .replace(
+            "(#let second #u64",
+            "(#let (Values (#tuple left right) bias) Values values) (#let second #u64",
+        );
+    build_and_run_graph(&between, 42);
+    let mutable = between
+        .replace("(#let (Values", "(#let-mut (Values")
+        .replace(
+            "(#let second #u64",
+            "(#set bias (#u64.+.wrap bias 2u64)) (#set right (#u16.+.wrap right 1u16)) (#let second #u64",
+        );
+    build_and_run_graph(&mutable, 45);
+    let referenced = source
+        .replace("(#tuple #u16 #u16)", "(#tuple #u16 (#ref #u64))")
+        .replace("(#as right #u64)", "(#deref right)")
+        .replace(
+            "(#let waker #u64",
+            "(#let-mut owner #u64 11u64) (#let waker #u64",
+        )
+        .replace("9u16 11u16", "9u16 (#borrow owner)");
+    build_and_run_graph(&referenced, 42);
+    // A single projected field may retain either external storage location.
+    // Its source type and selected value must survive both suspension points.
+    for (choice, expected) in [(true, 42), (false, 62)] {
+        let selected = referenced
+            .replace(
+                "(#let-mut owner #u64 11u64)",
+                "(#let-mut owner #u64 11u64) (#let-mut other #u64 31u64)",
+            )
+            .replace(
+                "(#let waker #u64 0u64)",
+                &format!(
+                    "(#let waker #u64 {}u64) (#let choose #bool (#u64.== waker 0u64))",
+                    if choice { 0 } else { 1 },
+                ),
+            )
+            .replace(
+                "9u16 (#borrow owner)",
+                "9u16 (#if choose (#borrow owner) (#borrow other))",
+            );
+        build_and_run_graph(&selected, expected);
+    }
+    let definitions = referenced.split_once("(#fn main").unwrap().0;
+    let cancelled = format!(
+        "{definitions}
+        (#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let-mut owner #u64 11u64)
+          (#let frame Work-task (#call work (: values
+            (#struct-literal Values (: a 22u64 : z
+              (#tuple (#tuple #u16 (#ref #u64)) 9u16 (#borrow owner)))))))
+          (#let-else (work-pending pending) Work-poll-result
+            (#call work-poll (: task frame : waker (#borrow waker))) (#unreachable))
+          (#forget pending)
+          (#set owner 42u64)
+          (#return owner))"
+    );
+    build_and_run_graph(&cancelled, 42);
+    let invalid = referenced.replace(
+        "(#block (#set task next) ())",
+        "(#block (#set owner 99u64) (#set task next) ())",
+    );
+    assert_ne!(invalid, referenced);
+    let error = graph_compile_error(&invalid, "graph-destructured-retained-loan");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error
+        .span
+        .expect("retained projection keeps its source span");
+    assert_eq!(&invalid[span.start..span.end], "#set", "{error:?}");
+    assert_eq!(span.start, invalid.find("#set owner 99u64").unwrap());
+    let immutable = mutable.replace("(#let-mut (Values", "(#let (Values");
+    let error = graph_compile_error(&immutable, "graph-immutable-pattern-assignment");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
+    assert!(
+        error.message.contains("immutable variable 'bias'"),
+        "{error:?}"
+    );
+    let span = error
+        .span
+        .expect("immutable pattern assignment is source-spanned");
+    assert_eq!(&immutable[span.start..span.end], "bias", "{error:?}");
+    assert_eq!(
+        span.start,
+        immutable.find("#set bias").unwrap() + "#set ".len()
+    );
+}
+
+#[test]
 fn async_struct_payload_patterns_preserve_declared_field_order() {
     let source = include_str!("../examples/async_struct_patterns.lim");
     build_and_run(source, 42);
