@@ -11949,6 +11949,64 @@ fn reference_binding(body: &Body, id: NodeId) -> Option<BindingId> {
     .then_some(binding)
 }
 
+/// An exact pointer round trip has the owner's actual referent, not merely
+/// its lifetime. Restrict this proof to one named binding: comparing arbitrary
+/// expressions would reevaluate calls or projections and could select another
+/// address. No provenance is recovered from an unrelated raw pointer.
+fn identity_pointer_borrow(body: &Body, children: &[NodeId]) -> bool {
+    let [_, owner, pointer] = children else {
+        return false;
+    };
+    let NodeKind::Symbol {
+        binding: Some(owner),
+        ..
+    } = &body.nodes[owner.0].kind
+    else {
+        return false;
+    };
+    let NodeKind::Form {
+        head,
+        children,
+        callee: None,
+        ..
+    } = &body.nodes[pointer.0].kind
+    else {
+        return false;
+    };
+    head == "ref-ptr"
+        && children.len() == 2
+        && matches!(&body.nodes[children[1].0].kind,
+            NodeKind::Symbol { binding: Some(source), .. } if source == owner)
+}
+
+#[cfg(test)]
+mod identity_pointer_borrow_tests {
+    #[test]
+    fn only_the_same_named_owner_recovers_actual_referent_identity() {
+        let program = crate::parse_program(
+            "(#fn work (: owner (#pin-ref (#slice #u64)) : other (#pin-ref (#slice #u64))) ()
+              (#let exact (#ref (#slice #u64)) (#unsafe (#ptr-borrow owner (#ref-ptr owner))))
+              (#let unrelated (#ref (#slice #u64)) (#unsafe (#ptr-borrow owner (#ref-ptr other))))
+              (#forget exact) (#forget unrelated) (#return ()))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["work"];
+        let origins = declarations.flows["work"].loan_origins(body);
+        let union = origins.binding_origin_union(body.bindings.len());
+        let held = |name| {
+            &union[body
+                .bindings
+                .iter()
+                .position(|binding| binding.name == name)
+                .unwrap()]
+        };
+        assert!(held("exact").iter().any(|origin| !origin.lifetime_only));
+        assert!(!held("unrelated").is_empty());
+        assert!(held("unrelated").iter().all(|origin| origin.lifetime_only));
+    }
+}
+
 fn set_slice_reborrow_parent(body: &Body, source: NodeId, ranged: bool, origin: &mut LoanOrigin) {
     if ranged || matches!(body.nodes[source.0].ty, Some(Type::MutableSlice(_))) {
         if let Some(place) = Place::from_expression(body, source) {
@@ -12448,10 +12506,17 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             ) && children.len() == 3 =>
         {
             let mut origins = value_loan_origins(body, children[1], state);
+            let exact = identity_pointer_borrow(body, children);
             for origin in &mut origins {
-                origin.lifetime_only = true;
+                origin.lifetime_only |= !exact;
+                if exact && origin.storage.is_empty() {
+                    origin.mutable =
+                        matches!(head.as_str(), "ptr-borrow-mut" | "pin-ptr-borrow-mut");
+                    origin.pinned =
+                        matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut");
+                }
             }
-            if matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut") {
+            if !exact && matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut") {
                 // The pinned type describes the raw pointer's referent, while
                 // this tracked place is only the lifetime anchor. Do not treat
                 // the anchor value itself as the pointer's pinned pointee.
@@ -12992,10 +13057,17 @@ fn value_loan_origins_at_events(
         {
             let mut pointer_origins =
                 value_loan_origins_at_events(body, flow, before, children[1], state);
+            let exact = identity_pointer_borrow(body, children);
             for origin in &mut pointer_origins {
-                origin.lifetime_only = true;
+                origin.lifetime_only |= !exact;
+                if exact && origin.storage.is_empty() {
+                    origin.mutable =
+                        matches!(head.as_str(), "ptr-borrow-mut" | "pin-ptr-borrow-mut");
+                    origin.pinned =
+                        matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut");
+                }
             }
-            if matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut") {
+            if !exact && matches!(head.as_str(), "pin-ptr-borrow" | "pin-ptr-borrow-mut") {
                 for origin in &mut pointer_origins {
                     origin.pinned = false;
                 }

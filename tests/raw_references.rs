@@ -28,6 +28,37 @@ fn run(source: &str, stdout: &[u8]) {
 }
 
 #[test]
+fn exact_reference_pointer_round_trip_preserves_nested_slice_contents() {
+    let source = r#"
+      (#fn recover (: owner (#pin-ref (#slice #u64))) (#ref (#slice #u64))
+        (#return (#unsafe (#ptr-borrow owner (#ref-ptr owner)))))
+      (#fn main () #u64
+        (#let backing (#array #u64 1) (#array-of (#array #u64 1) 42u64))
+        (#let descriptor (#slice #u64) (#slice-of (#borrow backing)))
+        (#let view (#ref (#slice #u64)) (#call recover (: owner (#pin-shared descriptor))))
+        (#let answer #u64 (#deref (#slice-idx (#deref view) 0usize)))
+        (#forget view) (#forget descriptor) (#forget backing) (#return answer))"#;
+    run(source, &[]);
+    let conflicting = source
+        .replace("(#let backing", "(#let-mut backing")
+        .replace(
+            "(#let answer",
+            "(#set-index backing 0usize 0u64) (#let answer",
+        );
+    let scratch = support::Scratch::new("identity-pointer-borrow-conflict");
+    let error = lim::compile_source_to_assembly(
+        &conflicting,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    assert!(error.span.is_some(), "{error:?}");
+}
+
+#[test]
 fn packed_scalar_references_access_exact_width_at_a_guard_page() {
     for (ty, old, new, bytes) in [
         ("#u8", "250u8", "42u8", 1),
