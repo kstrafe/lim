@@ -2273,3 +2273,22 @@ generated-boundary, adversarial, UI and native-example integration tests.
 All-target checking and whitespace checks pass. Six representative fixtures
 emit identical assembly; four type/borrow/pinning diagnostics are identical.
 Original-source and ordinary generated-code validation remain mandatory.
+
+## Loan-origin comparison-order experiment (discarded)
+
+Following the equality hotspot in the current profile, a trial moved scalar
+permission and ancestry comparisons before referent-path equality. It kept
+every qualifier and ignored diagnostic spans exactly as before. A new pairwise
+contract test varies all identity fields, both place roots and projections,
+and diagnostic-only spans; every comparison matches the original predicate.
+
+Twenty-one alternating warm release pairs on CPU 8, after three warmups per
+binary and without concurrent builds/tests, measured total medians of
+231.549 / 229.948 ms for the suspended reference guard (0.7% less) and
+62.077 / 62.342 ms for nested partial structs (0.4% more). Guard ranges overlap
+at 227.119–242.956 / 226.323–242.543 ms. Guard provenance medians are
+122.566 / 123.366 ms, and referent contracts are 113.091 / 113.107 ms.
+This is not evidence of a useful equality or whole-check speedup, so the
+comparison-order change was removed. The equality-contract regression remains.
+The trial passed all 1,369 library tests with seven existing ignored tests;
+the retained regression is rerun against the unchanged production predicate.

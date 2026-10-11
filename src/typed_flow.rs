@@ -16553,6 +16553,65 @@ mod tests {
     }
 
     #[test]
+    fn loan_origin_equality_preserves_every_qualifier_and_ignores_spans() {
+        let base = allocation_origin(NodeId(0), vec![1], None);
+        let mut variants = vec![base.clone()];
+        macro_rules! variant {
+            ($field:ident, $value:expr) => {{
+                let mut origin = base.clone();
+                origin.$field = $value;
+                variants.push(origin);
+            }};
+        }
+        variant!(owned_allocation, !base.owned_allocation);
+        variant!(mutable, !base.mutable);
+        variant!(pinned, !base.pinned);
+        variant!(lifetime_only, !base.lifetime_only);
+        variant!(borrowed_from, Some(BindingId(1)));
+        variant!(call_reborrow, !base.call_reborrow);
+        variant!(entry_loan, Some(1));
+        variant!(place, Place::root(PlaceRoot::Local(BindingId(1))));
+        let mut projected = base.place.clone();
+        projected.segments.push(Segment::Index(1));
+        variant!(place, projected);
+        variant!(reborrow_slot, Some(base.place.clone()));
+        variant!(storage, vec![Segment::Index(1)]);
+        variant!(parameter_storage, Some(vec![Segment::Index(1)]));
+        variant!(storage_inputs, vec![Some(1)]);
+        variant!(
+            span,
+            Some(Span {
+                start: 1,
+                end: 2,
+                line: 1,
+                column: 2,
+                source_id: 0,
+            })
+        );
+        for left in &variants {
+            for right in &variants {
+                let old = left.place == right.place
+                    && left.owned_allocation == right.owned_allocation
+                    && left.mutable == right.mutable
+                    && left.pinned == right.pinned
+                    && left.lifetime_only == right.lifetime_only
+                    && left.borrowed_from == right.borrowed_from
+                    && left.reborrow_slot == right.reborrow_slot
+                    && left.call_reborrow == right.call_reborrow
+                    && left.entry_loan == right.entry_loan
+                    && left.storage == right.storage
+                    && left.parameter_storage == right.parameter_storage
+                    && left.storage_inputs == right.storage_inputs;
+                assert_eq!(left == right, old);
+            }
+        }
+        assert_eq!(variants[0], *variants.last().unwrap());
+        for origin in &variants[1..variants.len() - 1] {
+            assert_ne!(*origin, base);
+        }
+    }
+
+    #[test]
     fn distinct_snapshot_joins_detach_only_for_new_binding_origins() {
         let first = allocation_origin(NodeId(0), Vec::new(), None);
         let second = allocation_origin(NodeId(1), Vec::new(), None);
