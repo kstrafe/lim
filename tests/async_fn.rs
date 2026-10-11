@@ -2208,8 +2208,8 @@ fn async_function_extracts_typed_await_from_another_await_task() {
             (#case (work-pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("nested-await-0"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let inferred_source = source.replacen(
         "#await #u64 ChildTask ChildPending ChildReady child-poll\n              (Waiting",
@@ -2217,15 +2217,15 @@ fn async_function_extracts_typed_await_from_another_await_task() {
         1,
     );
     assert_ne!(inferred_source, source);
-    let generated = build_and_run(&inferred_source, 42);
-    assert!(generated.contains("nested-await-0"), "{generated}");
+    let generated = build_and_run_graph(&inferred_source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let return_source = source
         .replace("(#let result #u64\n            ", "(#return ")
         .replace("          (#return result)", "");
     assert_ne!(return_source, source);
-    let generated = build_and_run(&return_source, 42);
-    assert!(generated.contains("nested-await-0"), "{generated}");
+    let generated = build_and_run_graph(&return_source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2260,8 +2260,11 @@ fn async_function_suspends_in_a_value_block_with_conditional_await() {
                   (#block (#forget unexpected) 0u64))))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 26);
-    assert!(generated.contains("choice"), "{generated}");
+    let generated = build_and_run_graph(source, 26);
+    assert_single_poll(&generated, "work-poll");
+    let immediate = source.replace("(: choose true)", "(: choose false)");
+    assert_ne!(immediate, source);
+    build_and_run_graph(&immediate, 13);
 }
 
 #[test]
@@ -2993,15 +2996,11 @@ fn async_function_awaits_before_selecting_an_if_branch() {
             (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("lim.async.nested-await-0"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("(#if lim.async.nested-await-0"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
+    let false_branch = source.replace("(ChildReady true)", "(ChildReady false)");
+    assert_ne!(false_branch, source);
+    build_and_run_graph(&false_branch, 0);
 }
 
 #[test]
@@ -3032,15 +3031,11 @@ fn async_function_awaits_before_selecting_a_match_arm() {
             (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("lim.async.nested-await-0"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("(#match lim.async.nested-await-0"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
+    let stopped = source.replace("(ChildReady (Continue 42u64))", "(ChildReady Stop)");
+    assert_ne!(stopped, source);
+    build_and_run_graph(&stopped, 0);
 }
 
 #[test]
@@ -3081,19 +3076,8 @@ fn async_function_resumes_inside_a_value_producing_block() {
             (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("(condition lim.async.nested-await-"),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("(#let lim.async.nested-await-1 #u64"),
-        "the block-local value must be carried across work-pending: {generated}"
-    );
-    assert!(
-        generated.contains("(#u64.-.wrap lim.async.nested-await-1 (#literal #u64 39))"),
-        "block-local setup must also initialize the child task: {generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -4018,11 +4002,14 @@ fn async_function_awaits_after_conditional_task_selection() {
               (#case (choose-match-pending task) (#block (#forget task) (#unreachable))))))
         (#forget waker)
         (#return total))";
-    let generated = build_and_run(source, 40);
-    assert!(
-        generated.contains("lim.async.nested-await-0"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 40);
+    assert_single_poll(&generated, "choose-if-poll");
+    assert_single_poll(&generated, "choose-match-poll");
+    let small = source
+        .replace("(: large true)", "(: large false)")
+        .replace("(: choice Large)", "(: choice Small)");
+    assert_ne!(small, source);
+    build_and_run_graph(&small, 20);
 }
 
 #[test]
@@ -4108,9 +4095,9 @@ fn async_conditional_await_joins_with_an_immediate_value() {
         (#return (#u64.+.wrap
           (#u64.+.wrap awaited-value immediate-value)
           (#u64.+.wrap match-awaited-value match-immediate-value))))";
-    let generated = build_and_run(source, 86);
-    assert!(generated.contains(".choice-"), "{generated}");
-    assert!(generated.contains("-poll-result"), "{generated}");
+    let generated = build_and_run_graph(source, 86);
+    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "work-match-poll");
 }
 
 #[test]
@@ -4776,6 +4763,7 @@ fn async_function_carries_mutable_locals_across_pending_resume() {
               (StepReady count))))))
       (@#async-fn (: protocol work-await : waker Waker : function
         (#fn work ((#mut initial #u64)) #u64
+          (#set initial (#u64.+.wrap initial 1u64))
           (#let-mut total #u64 initial)
           (#let-mut result #u64
             (#await Step StepPending StepReady step-poll (Waiting 0u64)))
@@ -4795,10 +4783,10 @@ fn async_function_carries_mutable_locals_across_pending_resume() {
             (#case (work-pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 3);
-    assert!(generated.contains("(#mut initial #u64)"), "{generated}");
-    assert!(generated.contains("(#let-mut total #u64"), "{generated}");
-    assert!(generated.contains("(#let-mut result #u64"), "{generated}");
+    let generated = build_and_run_graph(source, 4);
+    assert_single_poll(&generated, "work-poll");
+    // Mutability belongs to the source body, not its capture-only constructor.
+    assert_generated_signature(&generated, "(#fn work ((initial #u64)) Work-task)");
 }
 
 #[test]
