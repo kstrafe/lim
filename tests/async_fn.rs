@@ -5419,17 +5419,15 @@ fn awaited_while_condition_and_body_resume_in_source_order() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("condition-body-task"), "{generated}");
-    assert!(generated.contains("wait-condition"), "{generated}");
-    assert!(generated.contains("wait-body"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let conditional_source = source.replace(
         "(#await #u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting input))",
         "(#if true\n                (#await #u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting input))\n                42u64)",
     );
-    let generated = build_and_run(&conditional_source, 42);
-    assert!(generated.contains("choice"), "{generated}");
+    let generated = build_and_run_graph(&conditional_source, 42);
+    assert_single_poll(&generated, "work-poll");
 
     let for_source = source
         .replace(
@@ -5440,8 +5438,8 @@ fn awaited_while_condition_and_body_resume_in_source_order() {
             "condition-poll ConditionWaiting)\n            (#let value",
             "condition-poll ConditionWaiting) ()\n            (#let value",
         );
-    let generated = build_and_run(&for_source, 42);
-    assert!(generated.contains("condition-body-task"), "{generated}");
+    let generated = build_and_run_graph(&for_source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -5487,7 +5485,7 @@ fn awaited_false_while_condition_does_not_poll_the_body_task() {
 }
 
 #[test]
-fn awaited_while_body_reports_noncopy_task_captures() {
+fn awaited_while_body_rejects_unconsumed_linear_parameter_on_exit() {
     let source = "(#struct Resource ((value #u64)))
       (#linear Resource)
       (#enum ConditionTask (ConditionWaiting ConditionResuming))
@@ -5511,20 +5509,12 @@ fn awaited_while_body_reports_noncopy_task_captures() {
               (#await #u64 BodyTask BodyPending BodyReady body-poll (BodyWaiting resource)))
             (#break))
           (#return 42u64))))";
-    let scratch = support::Scratch::new("async-while-noncopy-capture");
-    let error = lim::compile_source_to_assembly(
-        source,
-        &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
+    let error = graph_compile_error(source, "async-while-noncopy-capture");
+    assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
+    assert!(error.message.contains("resource"), "{error:?}");
     assert!(
-        error
-            .message
-            .contains("composed awaited while body captures non-Copy local 'resource'"),
-        "{error:?}"
+        error.span.is_some(),
+        "linear parameter error must retain source location: {error:?}"
     );
 }
 
@@ -7860,17 +7850,19 @@ fn async_while_let_carries_named_copy_aggregate_to_body_task() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 43);
-    assert!(generated.contains("scrutinee-body-task"), "{generated}");
+    let generated = build_and_run_graph(source, 43);
+    assert_single_poll(&generated, "work-poll");
 
     let linear_source = source.replace(
         "(#struct Captures ((left #u64) (right #u64)))",
         "(#struct Captures ((left #u64) (right #u64))) (#linear Captures)",
     );
-    let error = lim::parse_program(&linear_source).unwrap_err();
+    let error = graph_compile_error(&linear_source, "async-while-let-linear-captures");
+    assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
+    assert!(error.message.contains("captures"), "{error:?}");
     assert!(
-        error.contains("non-Copy local 'captures'"),
-        "explicitly linear aggregates must not be treated as Copy captures: {error}"
+        error.span.is_some(),
+        "linear aggregate error must retain source location: {error:?}"
     );
 }
 
@@ -7945,66 +7937,71 @@ fn async_while_condition_composes_multiple_body_awaits_in_a_child_frame() {
         (#set view-owner 0u64)
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 87);
-    assert!(generated.contains("body-function"), "{generated}");
-    assert!(generated.contains("body-poll.dispatch"), "{generated}");
+    let generated = build_and_run_graph(source, 87);
+    assert_single_poll(&generated, "work-poll");
 
     let linear_capture_source = source.replace(
         "(#struct Captures ((left #u64) (right #u64)))",
         "(#struct Captures ((left #u64) (right #u64))) (#linear Captures)",
     );
-    let error = lim::parse_program(&linear_capture_source).unwrap_err();
+    let error = graph_compile_error(&linear_capture_source, "async-loop-linear-captures");
+    assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
+    assert!(error.message.contains("captures"), "{error:?}");
     assert!(
-        error.contains("non-Copy local 'captures'"),
-        "linear aggregate captures must retain their ownership diagnostic: {error}"
+        error.span.is_some(),
+        "linear aggregate error must retain source location: {error:?}"
     );
 
     let pending_mutation = source.replace(
         "(#let-else (work-pending pending) Work-poll-result first (#unreachable))",
         "(#let-else (work-pending pending) Work-poll-result first (#unreachable))\n        (#set view-owner 9u64)",
     );
-    let program = lim::parse_program(&pending_mutation).unwrap();
-    let error = lim::check_types(&program).unwrap_err();
-    assert!(
-        error.contains("borrow") || error.contains("access"),
-        "the nested async body must retain the external borrow while work-pending: {error}"
+    let error = graph_compile_error(&pending_mutation, "async-loop-pending-mutation");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error
+        .span
+        .expect("pending external loan mutation has a source span");
+    assert_eq!(&pending_mutation[span.start..span.end], "#set");
+    assert_eq!(
+        span.start,
+        pending_mutation.find("#set view-owner 9u64").unwrap()
     );
 
     let continue_source = source.replace(
         "(#set total (#u64.+.wrap total subtotal)))",
         "(#set total (#u64.+.wrap total subtotal))\n            (#continue))",
     );
-    build_and_run(&continue_source, 87);
+    build_and_run_graph(&continue_source, 87);
 
     let break_source = source.replace(
         "(#set total (#u64.+.wrap total subtotal)))",
         "(#set total (#u64.+.wrap total subtotal))\n            (#break))",
     );
-    build_and_run(&break_source, 87);
+    build_and_run_graph(&break_source, 87);
 
     let branch_continue_source = source.replace(
         "(#set total (#u64.+.wrap total subtotal)))",
         "(#set total (#u64.+.wrap total subtotal))\n            (#if (#u64.== first 21u64) (#continue) (#break)))",
     );
-    build_and_run(&branch_continue_source, 87);
+    build_and_run_graph(&branch_continue_source, 87);
 
     let branch_break_source = source.replace(
         "(#set total (#u64.+.wrap total subtotal)))",
         "(#set total (#u64.+.wrap total subtotal))\n            (#if (#u64.== first 21u64) (#break) (#continue)))",
     );
-    build_and_run(&branch_break_source, 87);
+    build_and_run_graph(&branch_break_source, 87);
 
     let match_continue_source = source.replace(
         "(#set total (#u64.+.wrap total subtotal)))",
         "(#set total (#u64.+.wrap total subtotal))\n            (#match first (#case 21u64 (#continue)) (#case _ (#break))))",
     );
-    build_and_run(&match_continue_source, 87);
+    build_and_run_graph(&match_continue_source, 87);
 
     let conditional_await_source = source.replace(
         "(#await ChildTask ChildPending ChildReady child-poll\n                (Waiting (#get captures right)))",
         "(#if true\n                (#await #u64 ChildTask ChildPending ChildReady child-poll\n                  (Waiting (#get captures right)))\n                0u64)",
     );
-    build_and_run(&conditional_await_source, 87);
+    build_and_run_graph(&conditional_await_source, 87);
 }
 
 #[test]
@@ -8223,7 +8220,7 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
+    let generated = build_and_run_graph(source, 42);
     assert!(generated.contains("InitPending"), "{generated}");
 
     let conditional_initializer = source
@@ -8236,14 +8233,14 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
             "(#let result #u64\n          (#match first\n            (#case (work-ready value) value)\n            (#case (work-pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
     );
     assert_ne!(conditional_initializer, source);
-    let generated = build_and_run(&conditional_initializer, 42);
+    let generated = build_and_run_graph(&conditional_initializer, 42);
     assert!(generated.contains("(#fn work-poll"), "{generated}");
 
     let nested_initializer = source.replace(
         "(#let-mut iteration #u64\n                  (#await InitTask InitPending InitReady init-poll (Waiting 0u64)))",
         "(#let-mut iteration #u64\n                  (#u64.+.wrap 0u64 (#await #u64 InitTask InitPending InitReady init-poll (Waiting 0u64))))",
     );
-    let generated = build_and_run(&nested_initializer, 42);
+    let generated = build_and_run_graph(&nested_initializer, 42);
     assert!(generated.contains("InitPending"), "{generated}");
 
     let multiple_nested_initializers = source
@@ -8258,7 +8255,7 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
             "(#let-else (work-pending second-pending) Work-poll-result second (#unreachable))\n        (#let third Work-poll-result\n          (#call work-poll (: task second-pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match third\n            (#case (work-ready value) value)\n            (#case (work-pending unexpected)\n              (#block (#forget unexpected) 0u64))))",
         );
     assert_ne!(multiple_nested_initializers, source);
-    let generated = build_and_run(&multiple_nested_initializers, 42);
+    let generated = build_and_run_graph(&multiple_nested_initializers, 42);
     assert!(generated.contains("InitPending"), "{generated}");
 
     let initializer_then_body_await = source
@@ -8270,7 +8267,7 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
             "(#set total (#u64.+.wrap total iteration))",
             "(#let body-value #u64\n              (#await InitTask InitPending InitReady init-poll (Waiting iteration)))\n            (#set total (#u64.+.wrap total body-value))",
         );
-    let generated = build_and_run(&initializer_then_body_await, 42);
+    let generated = build_and_run_graph(&initializer_then_body_await, 42);
     assert!(generated.contains("InitPending"), "{generated}");
 
     let initializer_then_condition_await = source
@@ -8293,20 +8290,21 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
             "(#let second Work-poll-result\n          (#call work-poll (: task pending : waker (#borrow waker))))\n        (#let-else (work-pending condition-pending) Work-poll-result second (#unreachable))\n        (#let third Work-poll-result\n          (#call work-poll (: task condition-pending : waker (#borrow waker))))\n        (#let-else (work-pending resumed-condition-pending) Work-poll-result third (#unreachable))\n        (#let fourth Work-poll-result\n          (#call work-poll (: task resumed-condition-pending : waker (#borrow waker))))\n        (#let result #u64\n          (#match fourth",
         );
     assert_ne!(initializer_then_condition_await, source);
-    let generated = build_and_run(&initializer_then_condition_await, 42);
+    let generated = build_and_run_graph(&initializer_then_condition_await, 42);
     assert!(generated.contains("ConditionPending"), "{generated}");
 
-    let unsupported = source.replace(
+    let protocol_typed_initializer = source.replace(
         "(#let-mut iteration #u64\n                  (#await InitTask InitPending InitReady init-poll (Waiting 0u64)))",
         "(#let-mut iteration #u64\n                  (#u64.+.wrap 1u64 (#await InitTask InitPending InitReady init-poll (Waiting 0u64))))",
     );
-    let error = match lim::parse_program(&unsupported) {
-        Err(error) => error,
-        Ok(program) => lim::check_types(&program).unwrap_err(),
-    };
-    assert!(
-        error.contains("nested #await requires an explicit result type"),
-        "nested initializer suspension should be diagnosed explicitly: {error}"
+    // The child protocol supplies #u64 even inside the addition. Starting
+    // at 1 + 2 means the loop is empty and total remains zero.
+    let generated = build_and_run_graph(&protocol_typed_initializer, 0);
+    assert_single_poll(&generated, "work-poll");
+    build_and_run_graph(
+        &protocol_typed_initializer
+            .replace("(#set total (#u64.+.wrap total iteration))", "(#panic)"),
+        0,
     );
 
     let task_initializer = "(#enum OuterTask ((Waiting #u64) (Resuming #u64)))
@@ -8344,7 +8342,7 @@ fn async_for_initializer_awaits_once_before_entering_the_loop() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(task_initializer, 42);
+    let generated = build_and_run_graph(task_initializer, 42);
     assert!(!generated.contains("(#await"), "{generated}");
 }
 
@@ -9158,11 +9156,12 @@ fn async_scoped_blocks_keep_nested_pattern_captures() {
 #[test]
 fn async_awaited_aggregate_can_be_destructured_directly() {
     let source = include_str!("../examples/async_await_destructure.lim");
-    build_and_run(source, 42);
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
     let immediate = source.replace("(InputPending (InputResume values))", "(InputReady values)");
-    build_and_run(&immediate, 42);
+    build_and_run_graph(&immediate, 42);
     let without_result_type = source.replace("(#await Values InputTask", "(#await InputTask");
-    build_and_run(&without_result_type, 42);
+    build_and_run_graph(&without_result_type, 42);
     let aliased = format!(
         "(#type ValuesAlias Values)\n{}",
         source
@@ -9170,11 +9169,11 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
             .replace("bias) Values\n", "bias) ValuesAlias\n")
             .replace("(#await Values InputTask", "(#await ValuesAlias InputTask")
     );
-    build_and_run(&aliased, 42);
+    build_and_run_graph(&aliased, 42);
     let mutable = source
         .replace("(#let (Values", "(#let-mut (Values")
         .replace("(#let second #u64", "(#set bias (#u64.+.wrap bias 2u64)) (#set right (#u16.+.wrap right 1u16)) (#let second #u64");
-    build_and_run(&mutable, 45);
+    build_and_run_graph(&mutable, 45);
     let array = source
         .replace("(#tuple #u16 #u16)", "(#array #u16 2)")
         .replace("(#tuple left right)", "(#array left right)")
@@ -9182,7 +9181,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
             "(#tuple (#array #u16 2) 9u16 11u16)",
             "(#array-of (#array #u16 2) 9u16 11u16)",
         );
-    build_and_run(&array, 42);
+    build_and_run_graph(&array, 42);
     let tuple = source
         .replace(
             "(#struct Values ((z (#tuple #u16 #u16)) (a #u64)))",
@@ -9196,7 +9195,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
             "(#struct-literal Values (: a 22u64 : z (#tuple (#tuple #u16 #u16) 9u16 11u16)))",
             "(#tuple (#tuple (#tuple #u16 #u16) #u64) (#tuple (#tuple #u16 #u16) 9u16 11u16) 22u64)",
         );
-    build_and_run(&tuple, 42);
+    build_and_run_graph(&tuple, 42);
     let single_variant = source
         .replace(
             "(#struct Values ((z (#tuple #u16 #u16)) (a #u64)))",
@@ -9215,7 +9214,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
             "(#struct-literal Values (: a 22u64 : z (#tuple (#tuple #u16 #u16) 9u16 11u16)))",
             "(Only (#tuple (#tuple #u16 #u16) 9u16 11u16) 22u64)",
         );
-    build_and_run(&single_variant, 42);
+    build_and_run_graph(&single_variant, 42);
     let enum_options = single_variant
         .replace(
             "(#enum Values ((Only (#tuple #u16 #u16) #u64)))",
@@ -9225,19 +9224,19 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
             "input-poll (InputStart values)) (#unreachable))",
             "input-poll (InputStart values)) (#return 5u64))",
         );
-    build_and_run(&enum_options, 42);
+    build_and_run_graph(&enum_options, 42);
     let mismatched = enum_options
         .replace(
             "(Only (#tuple (#tuple #u16 #u16) 9u16 11u16) 22u64)",
             "Missing",
         )
         .replace("(StepPending (Resume value))", "(#panic)");
-    build_and_run(&mismatched, 5);
+    build_and_run_graph(&mismatched, 5);
     let owned = format!("(#struct Token ((value #u64))) (#linear Token)\n{}", source
         .replace("(a #u64)", "(a Token)")
         .replace(": a 22u64", ": a (#struct-literal Token (: value 22u64))")
         .replace("(#return (#u64.+.wrap (#u64.+.wrap (#as left #u64) second) bias))", "(#let total #u64 (#u64.+.wrap (#u64.+.wrap (#as left #u64) second) (#get bias value))) (#forget bias) (#return total)"));
-    build_and_run(&owned, 42);
+    build_and_run_graph(&owned, 42);
     let effect = format!(
         "(#fn make-input ((values Values) (count (#ref-mut #u64))) InputTask
       (#deref-set count (#u64.+.wrap (#deref count) 1u64))
@@ -9264,7 +9263,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
                 "(#block (#assert (#u64.== touches 1u64)) (#return value))"
             )
     );
-    build_and_run(&effect, 42);
+    build_and_run_graph(&effect, 42);
     let factory = format!("(#enum Factory ((FactoryStart Values) (FactoryResume Values)))
       (#enum FactoryPoll ((FactoryPending Factory) (FactoryReady InputTask)))
       (#fn factory-poll ((task Factory) (waker (#ref #u64))) FactoryPoll
@@ -9273,7 +9272,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
           (#case (FactoryResume values) (FactoryReady (InputStart values))))))\n{}", source
         .replace("input-poll (InputStart values)", "input-poll (#await InputTask Factory FactoryPending FactoryReady factory-poll (FactoryStart values))")
         .replace("0u64 4u64", "0u64 5u64"));
-    build_and_run(&factory, 42);
+    build_and_run_graph(&factory, 42);
     let referenced = source
         .replace("(#tuple #u16 #u16)", "(#tuple #u16 (#ref #u64))")
         .replace("(#as right #u64)", "(#deref right)")
@@ -9282,7 +9281,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
             "(#let-mut owner #u64 11u64) (#let waker #u64",
         )
         .replace("9u16 11u16", "9u16 (#borrow owner)");
-    build_and_run(&referenced, 42);
+    build_and_run_graph(&referenced, 42);
     let exclusive = referenced
         .replace("(#tuple #u16 (#ref #u64))", "(#tuple #u16 (#ref-mut #u64))")
         .replace("(#borrow owner)", "(#borrow-mut owner)");
@@ -9320,15 +9319,8 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
         "(#block (#set task next) ())",
         "(#block (#set owner 99u64) (#set task next) ())",
     );
-    let scratch = support::Scratch::new("async-awaited-pattern-borrow");
-    let error = lim::compile_source_to_assembly(
-        &invalid,
-        &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
+    let error = graph_compile_error(&invalid, "async-awaited-pattern-borrow");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
     assert!(
         error.message.contains("owner") && error.message.contains("borrow"),
         "{error:?}"
@@ -9338,16 +9330,7 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
         .expect("awaited pattern loan must retain its source span");
     assert_eq!(&invalid[span.start..span.end], "#set", "{error:?}");
     assert_eq!(span.start, invalid.find("#set owner 99u64").unwrap());
-    let error_for = |source: &str| {
-        lim::compile_source_to_assembly(
-            source,
-            &scratch.path().join("main.lim"),
-            &lim::CompileConfig::default(),
-            &scratch.path().join("cache"),
-            lim::TargetDescription::X86_64_SYSTEM_V,
-        )
-        .unwrap_err()
-    };
+    let error_for = |source: &str| graph_compile_error(source, "async-awaited-pattern-errors");
     let missing_cleanup = owned.replace("(#forget bias)", "()");
     let error = error_for(&missing_cleanup);
     assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
@@ -9372,27 +9355,37 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
         "{wrong_arity:?}"
     );
     assert!(wrong_arity.span.is_some(), "{wrong_arity:?}");
-    let mismatch = error_for(&source.replace("(#await Values InputTask", "(#await #u64 InputTask"));
+    let invalid_type = source.replace("(#await Values InputTask", "(#await #u64 InputTask");
+    let mismatch = error_for(&invalid_type);
+    assert_eq!(mismatch.code, lim::DiagnosticCode::Type, "{mismatch:?}");
     assert!(
         mismatch
             .message
-            .contains("#await result type does not match binding"),
+            .contains("#await result type does not match its Ready payload"),
         "{mismatch:?}"
     );
-    assert!(mismatch.span.is_some(), "{mismatch:?}");
+    let span = mismatch
+        .span
+        .expect("await type mismatch retains its source span");
+    assert_eq!(&invalid_type[span.start..span.end], "#u64");
+    assert_eq!(
+        span.start,
+        invalid_type.find("#await #u64 InputTask").unwrap() + "#await ".len()
+    );
 }
 
 #[test]
 fn async_nested_local_destructuring_retains_all_declared_bindings() {
     let source = include_str!("../examples/async_destructure.lim");
-    build_and_run(source, 42);
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
     let aliased = format!(
         "(#type ValuesAlias Values)\n{}",
         source
             .replace("(values Values)", "(values ValuesAlias)")
             .replace("bias) Values values", "bias) ValuesAlias values")
     );
-    build_and_run(&aliased, 42);
+    build_and_run_graph(&aliased, 42);
     let array = source
         .replace("(#tuple #u16 #u16)", "(#array #u16 2)")
         .replace("(#tuple left right)", "(#array left right)")
@@ -9400,7 +9393,7 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
             "(#tuple (#array #u16 2) 9u16 11u16)",
             "(#array-of (#array #u16 2) 9u16 11u16)",
         );
-    build_and_run(&array, 42);
+    build_and_run_graph(&array, 42);
     let nested_struct = format!(
         "(#struct Bits ((first #u16) (second #u16)))\n{}",
         source
@@ -9411,14 +9404,14 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
                 "(#struct-literal Bits (: first 9u16 : second 11u16))"
             )
     );
-    build_and_run(&nested_struct, 42);
+    build_and_run_graph(&nested_struct, 42);
     let mutable = source
         .replace("(#let (Values", "(#let-mut (Values")
         .replace(
             "(#let second #u64",
             "(#set bias (#u64.+.wrap bias 2u64)) (#let second #u64",
         );
-    build_and_run(&mutable, 44);
+    build_and_run_graph(&mutable, 44);
     let between = source
         .replace(
             "    (#let (Values (#tuple left right) bias) Values values)\n",
@@ -9429,44 +9422,39 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
             "(#let second #u64",
             "(#let (Values (#tuple left right) bias) Values values) (#let second #u64",
         );
-    build_and_run(&between, 42);
+    build_and_run_graph(&between, 42);
     let mutable_between = between
         .replace("(#let (Values", "(#let-mut (Values")
         .replace(
             "(#let second #u64",
             "(#set bias (#u64.+.wrap bias 2u64)) (#let second #u64",
         );
-    build_and_run(&mutable_between, 44);
+    build_and_run_graph(&mutable_between, 44);
     let both_updated = mutable_between.replace(
         "(#let second #u64",
         "(#set right (#u16.+.wrap right 1u16)) (#let second #u64",
     );
-    build_and_run(&both_updated, 45);
+    build_and_run_graph(&both_updated, 45);
     let final_prefix = source
         .replace("    (#let (Values (#tuple left right) bias) Values values)\n", "")
         .replace("(Start (#as left #u64))", "(Start 9u64)")
         .replace("(Start (#as right #u64))", "(Start 11u64)")
         .replace("(#return (#u64.+.wrap", "(#let-mut (Values (#tuple left right) bias) Values values) (#set bias 24u64) (#return (#u64.+.wrap");
-    build_and_run(&final_prefix, 44);
+    build_and_run_graph(&final_prefix, 44);
     let immutable_update = mutable_between.replace("(#let-mut (Values", "(#let (Values");
-    let scratch = support::Scratch::new("async-resume-pattern-immutable");
-    let error = lim::compile_source_to_assembly(
-        &immutable_update,
-        &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
+    let error = graph_compile_error(&immutable_update, "async-resume-pattern-immutable");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
     assert!(
-        error
-            .message
-            .contains("assignment to 'bias' requires a mutable"),
+        error.message.contains("immutable variable 'bias'"),
         "{error:?}"
     );
-    assert!(
-        error.span.is_some(),
-        "immutable pattern update must be source-spanned: {error:?}"
+    let span = error
+        .span
+        .expect("immutable pattern update must be source-spanned");
+    assert_eq!(&immutable_update[span.start..span.end], "bias");
+    assert_eq!(
+        span.start,
+        immutable_update.find("#set bias").unwrap() + "#set ".len()
     );
     let owned = format!(
         "(#struct Token ((value #u64))) (#linear Token)\n{}",
@@ -9475,7 +9463,7 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
             .replace(": a 22u64", ": a (#struct-literal Token (: value 22u64))")
             .replace("(#return (#u64.+.wrap (#u64.+.wrap first second) bias))", "(#let total #u64 (#u64.+.wrap (#u64.+.wrap first second) (#get bias value))) (#forget bias) (#return total)")
     );
-    build_and_run(&owned, 42);
+    build_and_run_graph(&owned, 42);
     let referenced = source
         .replace("(#tuple #u16 #u16)", "(#tuple #u16 (#ref #u64))")
         .replace("(#as right #u64)", "(#deref right)")
@@ -9484,7 +9472,7 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
             "(#let-mut owner #u64 11u64) (#let waker #u64",
         )
         .replace("9u16 11u16", "9u16 (#borrow owner)");
-    build_and_run(&referenced, 42);
+    build_and_run_graph(&referenced, 42);
     let exclusive = referenced
         .replace("(#ref #u64)", "(#ref-mut #u64)")
         .replace("(#borrow owner)", "(#borrow-mut owner)");
@@ -9506,21 +9494,14 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
         (#set owner 42u64)
         (#return owner))"
     );
-    build_and_run(&cancelled, 42);
+    build_and_run_graph(&cancelled, 42);
     let invalid = referenced.replace(
         "(#block (#set task next) ())",
         "(#block (#set owner 99u64) (#set task next) ())",
     );
     assert_ne!(invalid, referenced);
-    let scratch = support::Scratch::new("async-local-pattern-borrow");
-    let error = lim::compile_source_to_assembly(
-        &invalid,
-        &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
+    let error = graph_compile_error(&invalid, "async-local-pattern-borrow");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
     assert!(
         error.message.contains("owner") && error.message.contains("borrow"),
         "{error:?}"
@@ -11567,12 +11548,13 @@ fn explicit_await_contracts_are_checked_before_loop_lowering() {
 #[test]
 fn async_for_initializers_register_every_declared_pattern_leaf() {
     let source = include_str!("../examples/async_for_patterns.lim");
-    build_and_run(source, 42);
-    build_and_run(
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
+    build_and_run_graph(
         &source.replace("(StepPending (Resume value))", "(StepReady value)"),
         42,
     );
-    build_and_run(
+    build_and_run_graph(
         &source
             .replace("0u64 2u64", "0u64 0u64")
             .replace("(StepPending (Resume value))", "(#panic)"),
@@ -11584,7 +11566,7 @@ fn async_for_initializers_register_every_declared_pattern_leaf() {
             .replace("(bounds Bounds)", "(bounds BoundsAlias)")
             .replace("bias) Bounds bounds", "bias) BoundsAlias bounds")
     );
-    build_and_run(&aliased, 42);
+    build_and_run_graph(&aliased, 42);
     let narrow = source
         .replace(
             "(z (#tuple #u64 #u64)) (a #u64)",
@@ -11601,7 +11583,7 @@ fn async_for_initializers_register_every_declared_pattern_leaf() {
             ": a 20u64 : z (#tuple (#tuple #u64 #u64) 0u64 2u64)",
             ": a 20u32 : z (#tuple (#tuple #u8 #u16) 0u8 2u16)",
         );
-    build_and_run(&narrow, 42);
+    build_and_run_graph(&narrow, 42);
     let awaited =
         format!("(#enum InitTask ((InitStart Bounds) (InitResume Bounds)))
       (#enum InitPoll ((InitPending InitTask) (InitReady Bounds)))
@@ -11611,8 +11593,8 @@ fn async_for_initializers_register_every_declared_pattern_leaf() {
           (#case (InitResume bounds) (InitReady bounds)))))\n{}", source.replace(
             "bias) Bounds bounds)",
             "bias) Bounds (#await InitTask InitPending InitReady init-poll (InitStart bounds)))"));
-    build_and_run(&awaited, 42);
-    build_and_run(
+    build_and_run_graph(&awaited, 42);
+    build_and_run_graph(
         &awaited.replace("(#await InitTask", "(#await Bounds InitTask"),
         42,
     );
@@ -11623,17 +11605,17 @@ fn async_for_initializers_register_every_declared_pattern_leaf() {
           (TestPending (#struct-literal TestTask (: decision (#get task decision) : resume true))))))\n{}", source
         .replace("(#u64.< iteration limit)", "(#await #bool TestTask TestPending TestReady test-poll (#struct-literal TestTask (: decision (#u64.< iteration limit) : resume false)))")
         .replace("0u64 4u64", "0u64 12u64"));
-    build_and_run(&condition, 42);
+    build_and_run_graph(&condition, 42);
     let step = source.replace(
         "(#set iteration (#u64.+.wrap iteration 1u64))",
         "(#set iteration (#await #u64 Step StepPending StepReady step-poll (Start (#u64.+.wrap iteration 1u64))))",
     ).replace("0u64 4u64", "0u64 12u64");
-    build_and_run(&step, 42);
+    build_and_run_graph(&step, 42);
     let all_phases = condition.replace(
         "(#set iteration (#u64.+.wrap iteration 1u64))",
         "(#set iteration (#await #u64 Step StepPending StepReady step-poll (Start (#u64.+.wrap iteration 1u64))))",
     );
-    build_and_run(&all_phases, 42);
+    build_and_run_graph(&all_phases, 42);
     let referenced = source
         .replace("(a #u64)", "(a (#ref #u64))")
         .replace("value bias)", "value (#deref bias))")
@@ -11642,38 +11624,28 @@ fn async_for_initializers_register_every_declared_pattern_leaf() {
             "(#let-mut owner #u64 20u64) (#let waker #u64",
         )
         .replace(": a 20u64", ": a (#borrow owner)");
-    build_and_run(&referenced, 42);
-    build_and_run(
+    build_and_run_graph(&referenced, 42);
+    build_and_run_graph(
         &referenced
             .replace("(a (#ref #u64))", "(a (#ref-mut #u64))")
             .replace("(#borrow owner)", "(#borrow-mut owner)"),
         42,
     );
-    build_and_run(
+    build_and_run_graph(
         &referenced.replace(
             "(#block (#return value))",
             "(#block (#set owner 99u64) (#return value))",
         ),
         42,
     );
-    build_and_run(
+    build_and_run_graph(
         &referenced.replace(
             "(#block (#set task next) ())",
             "(#block (#forget next) (#set owner 99u64) (#return owner))",
         ),
         99,
     );
-    let scratch = support::Scratch::new("async-for-pattern-errors");
-    let error_for = |source: &str| {
-        lim::compile_source_to_assembly(
-            source,
-            &scratch.path().join("main.lim"),
-            &lim::CompileConfig::default(),
-            &scratch.path().join("cache"),
-            lim::TargetDescription::X86_64_SYSTEM_V,
-        )
-        .unwrap_err()
-    };
+    let error_for = |source: &str| graph_compile_error(source, "async-for-pattern-errors");
     let immutable = error_for(&source.replace("(#for (#let-mut", "(#for (#let"));
     assert!(
         immutable.message.contains("mutable") && immutable.span.is_some(),
@@ -11716,13 +11688,24 @@ fn async_for_initializers_register_every_declared_pattern_leaf() {
         "{leaked:?}"
     );
     assert!(leaked.span.is_some(), "{leaked:?}");
-    let mismatch =
-        error_for(&condition.replace("(#await Step StepPending", "(#await #u32 Step StepPending"));
+    let invalid_type =
+        condition.replace("(#await Step StepPending", "(#await #u32 Step StepPending");
+    let mismatch = error_for(&invalid_type);
+    assert_eq!(mismatch.code, lim::DiagnosticCode::Type, "{mismatch:?}");
     assert!(
-        mismatch.message.contains("result type") && mismatch.message.contains("value"),
+        mismatch
+            .message
+            .contains("#await result type does not match its Ready payload"),
         "{mismatch:?}"
     );
-    assert!(mismatch.span.is_some(), "{mismatch:?}");
+    let span = mismatch
+        .span
+        .expect("loop await mismatch keeps its explicit type span");
+    assert_eq!(&invalid_type[span.start..span.end], "#u32");
+    assert_eq!(
+        span.start,
+        invalid_type.find("#await #u32 Step").unwrap() + "#await ".len()
+    );
 }
 
 #[test]
