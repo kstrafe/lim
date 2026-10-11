@@ -1033,22 +1033,38 @@ impl<'a> Emitter<'a> {
         // Repetition is allowed only by the ordinary checked type. A shared
         // reference snapshot keeps its pointee loan; it is not a borrow of the
         // scrutinee cell, including inside Copy aggregates. Exclusive handles
-        // and linear payloads still require
-        // stationary aliases rather than owning reads during Preview.
+        // are reborrowed through ordinary identity helpers; linear payloads
+        // still require stationary aliases rather than owning preview reads.
         if !commit {
             let ty = &self.function.graph.values[pattern.scrutinee.0].ty;
             if !self.types.can_repeat(ty) {
                 let mut names = HashMap::new();
                 let mut bindings = HashMap::new();
+                let mut lenders = HashMap::new();
                 for &binding in &pattern.bindings {
                     let ty = &self.function.graph.bindings[binding.0].ty;
-                    if !self.types.can_repeat(ty) {
+                    let exclusive = matches!(
+                        crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases),
+                        Ok(Type::Reference { mutable: true, .. }
+                            | Type::PinnedReference { mutable: true, .. })
+                    );
+                    if !self.types.can_repeat(ty) && !exclusive {
                         return Err(fail(
                             self.function,
                             "move-only guard bindings require stationary storage aliases",
                         ));
                     }
                     let name = self.fresh("guard-preview");
+                    if exclusive {
+                        let helper = self.fresh("guard-lend");
+                        let argument = self.fresh("guard-lend-input");
+                        self.projections.push(format!(
+                            "(#fn {helper} (: {argument} {}) {} (#return {argument}))",
+                            crate::type_source(ty),
+                            crate::type_source(ty)
+                        ));
+                        lenders.insert(name.clone(), (helper, argument));
+                    }
                     bindings.insert(name.clone(), ty.clone());
                     names.insert(binding, name);
                 }
@@ -1063,8 +1079,9 @@ impl<'a> Emitter<'a> {
                     )
                 })?];
                 let reference = crate::parse(&format!(
-                    "(#pin-get-payload {} {} 0)",
-                    Self::slot_ref(slot, false),
+                    "(#pin-get-payload{} {} {} 0)",
+                    if lenders.is_empty() { "" } else { "-mut" },
+                    Self::slot_ref(slot, !lenders.is_empty()),
                     slot.full
                 ))
                 .map_err(|error| fail(self.function, error.to_string()))?
@@ -1076,6 +1093,7 @@ impl<'a> Emitter<'a> {
                     ty,
                     reference,
                     &bindings,
+                    &lenders,
                 )
                 .map_err(|message| fail(self.function, message))?;
                 let mut stores = Vec::new();

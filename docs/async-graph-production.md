@@ -85,8 +85,17 @@ the containing cell. Rejection clears the preview and preserves the scrutinee
 for later arms. Copy reference-bearing struct and tuple previews preserve their
 nested pointee origins, including after a rejected awaiting guard. Their checked
 shared-reference field reads do not create loans of the containing cell.
-Reference-bearing writes still require restoration storage. Exclusive/move-only
-guard aliases still require stationary storage aliases and fail closed. Legal
+Reference-bearing writes still require restoration storage. Direct exclusive
+reference guard leaves now use ordinary checked identity reborrows of the retained
+scrutinee, not copies of its unique handle. Nested patterns request exclusive
+projections only along paths that need a lender; shared sibling leaves remain
+shared. The commit edge retires every preview before moving the scrutinee, just
+as rejection and cancellation retire aliases before destroying their owners.
+Native regressions cover rejected and accepted suspended exclusive guards,
+mutation after commitment, caller alias conflicts, and reading cleanup handlers
+at entry, guard suspension and fallback suspension, including repeated cleanup.
+Move-only non-reference guard bindings still require stationary storage aliases
+and fail closed. Legal
 enum `#or` guards have no pattern bindings and therefore perform no payload
 preview; their tests still discriminate variants before any committed read.
 The ordinary language continues to reject bindings in enum alternatives.

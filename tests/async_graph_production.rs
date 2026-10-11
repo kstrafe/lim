@@ -388,6 +388,10 @@ fn reference_guard_cancellation_releases_entry_preview_and_committed_loans() {
 }
 
 fn run_guard_cancellation_matrix(declarations: &str, label: &str) {
+    run_guard_cancellation_matrix_with_borrow(declarations, label, "#borrow");
+}
+
+fn run_guard_cancellation_matrix_with_borrow(declarations: &str, label: &str, borrow: &str) {
     let poll_first = "(#let first Work-poll-result
       (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
       (#let-else (work-pending next) Work-poll-result first (#unreachable))";
@@ -399,7 +403,8 @@ fn run_guard_cancellation_matrix(declarations: &str, label: &str) {
         (poll_first.into(), "next"),
         (format!("{poll_first}\n{poll_second}"), "last"),
     ] {
-        let source = cancelled_guard_source(declarations, &polls, handle);
+        let source = cancelled_guard_source(declarations, &polls, handle)
+            .replace("(#borrow owner)", &format!("({borrow} owner)"));
         run(&source, label);
     }
 }
@@ -464,8 +469,23 @@ fn suspended_reference_guard_does_not_allow_mutating_the_callers_referent() {
 }
 
 #[test]
-fn exclusive_reference_guard_is_not_duplicated_by_shared_preview_support() {
-    let source = shared_reference_guard_source()
+fn exclusive_reference_guard_reborrows_without_duplicating_the_owner() {
+    run(
+        &exclusive_reference_guard_source(&shared_reference_guard_source()),
+        "async-graph-exclusive-guard",
+    );
+}
+
+#[test]
+fn pinned_exclusive_reference_guard_reborrows_without_losing_pinning() {
+    let source = exclusive_reference_guard_source(&shared_reference_guard_source())
+        .replace("(#ref-mut #u64)", "(#pin-ref-mut #u64)")
+        .replace("(#borrow-mut owner)", "(#pin-borrow-mut owner)");
+    run(&source, "async-graph-pinned-exclusive-guard");
+}
+
+fn exclusive_reference_guard_source(source: &str) -> String {
+    source
         .replace(
             "Holder ((Holding (#ref #u64)))",
             "Holder ((Holding (#ref-mut #u64)))",
@@ -478,17 +498,114 @@ fn exclusive_reference_guard_is_not_duplicated_by_shared_preview_support() {
         .replace(
             "(: source (#borrow owner))",
             "(: source (#borrow-mut owner))",
+        )
+}
+
+#[test]
+fn exclusive_guard_commit_releases_the_preview_before_mutating_the_payload() {
+    let source = exclusive_reference_guard_source(&shared_reference_guard_source());
+    let declarations = source[..source.find("(#fn main").unwrap()]
+        .replace("(Start 0u64)", "(Start 42u64)")
+        .replace(
+            "(#deref view))\n            (#case",
+            "(#block (#deref-set view 43u64) (#deref view)))\n            (#case",
         );
-    let scratch = support::Scratch::new("async-graph-exclusive-guard");
-    let error = lim::parse_program_from_path_with_config_and_cache(
-        &source,
-        &scratch.path().join("input.lim"),
-        &config(),
-        &scratch.path().join("cache"),
-    )
-    .expect_err("exclusive preview needs a stationary alias, not a duplicated handle");
-    assert!(error.contains("stationary storage aliases"), "{error}");
-    assert!(!scratch.path().join("cache").exists());
+    let source = format!(
+        "{declarations}
+      (#fn main () #u64 (#let waker #u64 0u64) (#let-mut owner #u64 42u64)
+        (#let-mut frame Work-frame (#call work (: source (#borrow-mut owner))))
+        (#let first Work-poll-result
+          (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let answer #u64 (#match
+          (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready result) result)
+          (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+        (#forget frame) (#assert (#u64.== owner 43u64)) (#return answer))"
+    );
+    run_expected(&source, "async-graph-exclusive-guard-commit", 43);
+}
+
+#[test]
+fn nested_guard_previews_lend_only_exclusive_fields_regardless_of_order() {
+    for swapped in [false, true] {
+        let source = exclusive_reference_guard_source(&shared_reference_guard_source());
+        let (fields, pattern) = if swapped {
+            (
+                "(: exclusive (#ref-mut #u64) : shared (#ref #u64))",
+                "(View view shared)",
+            )
+        } else {
+            (
+                "(: shared (#ref #u64) : exclusive (#ref-mut #u64))",
+                "(View shared view)",
+            )
+        };
+        let source = source
+            .replace(
+                "(#enum Holder ((Holding (#ref-mut #u64))))",
+                &format!("(#struct View {fields})\n(#enum Holder ((Holding View)))"),
+            )
+            .replace(
+                "work (: source (#ref-mut #u64))",
+                "work (: source (#ref-mut #u64) : other (#ref #u64))",
+            )
+            .replace(
+                "(Holding source)",
+                "(Holding (#struct-literal View (: shared other : exclusive source)))",
+            )
+            .replace("(Holding view)", &format!("(Holding {pattern})"))
+            .replace(
+                "(#deref view)",
+                "(#u64.+.wrap (#deref shared) (#deref view))",
+            )
+            .replace(
+                "(: source (#borrow-mut owner))",
+                "(: source (#borrow-mut owner) : other (#borrow waker))",
+            );
+        run(&source, "async-graph-mixed-guard");
+    }
+}
+
+#[test]
+fn suspended_exclusive_guard_rejects_shared_and_exclusive_caller_aliases() {
+    for borrow in ["#borrow", "#borrow-mut"] {
+        let source = exclusive_reference_guard_source(&shared_reference_guard_source()).replace(
+            "(#let second Work-poll-result",
+            &format!("(#let alias ({} #u64) ({borrow} owner))\n(#drop alias)\n(#let second Work-poll-result",
+                if borrow == "#borrow" { "#ref" } else { "#ref-mut" }),
+        );
+        let scratch = support::Scratch::new("async-graph-exclusive-guard-conflict");
+        let error = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("input.lim"),
+            &config(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .expect_err("the suspended exclusive guard must retain its caller's loan");
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        let span = error.span.expect("caller alias conflict has an exact span");
+        assert_eq!(&source[span.start..span.end], borrow, "{error:?}");
+        assert!(!scratch.path().join("cache").exists());
+    }
+}
+
+#[test]
+fn reading_exclusive_guard_cleanup_releases_preview_before_consuming_holder() {
+    let declarations = exclusive_reference_guard_source(&guard_cancellation_declarations())
+        .replace(
+            "(#fn cancel-holder (: holder Holder) () (#forget holder) (#return ()))",
+            "(#fn cancel-holder (: holder Holder) ()
+          (#match holder (#case (Holding held)
+            (#block (#assert (#u64.== (#deref held) 42u64)) (#drop held) ())))
+          (#return ()))",
+        );
+    run_guard_cancellation_matrix_with_borrow(
+        &declarations,
+        "async-graph-exclusive-guard-cancel",
+        "#borrow-mut",
+    );
 }
 
 #[test]

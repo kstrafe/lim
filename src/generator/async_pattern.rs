@@ -211,6 +211,7 @@ pub(crate) fn preview(
     ty: &Type,
     reference: Expr,
     bindings: &std::collections::HashMap<String, Type>,
+    lenders: &std::collections::HashMap<String, (String, String)>,
 ) -> Result<Vec<(String, Expr)>, String> {
     let ty = crate::typed_ir::resolve_type(ty, &declarations.aliases)?;
     if let Expr::Symbol(name) = pattern {
@@ -218,7 +219,19 @@ pub(crate) fn preview(
             if crate::typed_ir::resolve_type(expected, &declarations.aliases)? != ty {
                 return Err("stationary guard binding changed its checked type".into());
             }
-            return Ok(vec![(name.clone(), form("#deref", [reference]))]);
+            let value = form("#deref", [reference]);
+            let value = if let Some((helper, argument)) = lenders.get(name) {
+                form(
+                    "#call",
+                    [
+                        symbol(helper),
+                        Expr::List(vec![symbol(":"), symbol(argument), value]),
+                    ],
+                )
+            } else {
+                value
+            };
+            return Ok(vec![(name.clone(), value)]);
         }
         return Ok(Vec::new());
     }
@@ -239,7 +252,16 @@ pub(crate) fn preview(
         // Ordinary enum alternatives cannot bind values. PatternTest already
         // checked their shape: preview must not read any rejected payload.
         for alternative in &parts[1..] {
-            if !preview(declarations, alternative, &ty, reference.clone(), bindings)?.is_empty() {
+            if !preview(
+                declarations,
+                alternative,
+                &ty,
+                reference.clone(),
+                bindings,
+                lenders,
+            )?
+            .is_empty()
+            {
                 return Err("alternative guard previews cannot bind values".into());
             }
         }
@@ -256,10 +278,17 @@ pub(crate) fn preview(
                 .iter()
                 .enumerate()
                 .map(|(index, ty)| {
+                    let mutable = parts
+                        .get(index + 1)
+                        .is_some_and(|part| needs_lender(part, lenders));
                     (
                         ty.clone(),
                         form(
-                            "#pin-get-payload",
+                            if mutable {
+                                "#pin-get-payload-mut"
+                            } else {
+                                "#pin-get-payload"
+                            },
                             [
                                 reference.clone(),
                                 symbol(constructor),
@@ -275,11 +304,19 @@ pub(crate) fn preview(
             .get(owner)
             .ok_or("stationary guard struct lost its checked layout")?
             .iter()
-            .map(|field| {
+            .enumerate()
+            .map(|(index, field)| {
+                let mutable = parts
+                    .get(index + 1)
+                    .is_some_and(|part| needs_lender(part, lenders));
                 (
                     field.ty.clone(),
                     form(
-                        "#pin-borrow",
+                        if mutable {
+                            "#pin-borrow-mut"
+                        } else {
+                            "#pin-borrow"
+                        },
                         [form("#get", [reference.clone(), symbol(&field.name)])],
                     ),
                 )
@@ -289,10 +326,17 @@ pub(crate) fn preview(
             .iter()
             .enumerate()
             .map(|(index, ty)| {
+                let mutable = parts
+                    .get(index + 1)
+                    .is_some_and(|part| needs_lender(part, lenders));
                 (
                     ty.clone(),
                     form(
-                        "#pin-borrow",
+                        if mutable {
+                            "#pin-borrow-mut"
+                        } else {
+                            "#pin-borrow"
+                        },
                         [form(
                             "#get",
                             [reference.clone(), Expr::Integer(index as i128)],
@@ -303,10 +347,17 @@ pub(crate) fn preview(
             .collect(),
         Type::Array(element, length) if constructor == "#array" => (0..*length)
             .map(|index| {
+                let mutable = parts
+                    .get(index + 1)
+                    .is_some_and(|part| needs_lender(part, lenders));
                 (
                     element.as_ref().clone(),
                     form(
-                        "#pin-borrow",
+                        if mutable {
+                            "#pin-borrow-mut"
+                        } else {
+                            "#pin-borrow"
+                        },
                         [form(
                             "#index",
                             [reference.clone(), symbol(format!("{index}usize"))],
@@ -322,9 +373,27 @@ pub(crate) fn preview(
     }
     let mut result = Vec::new();
     for (nested, (ty, reference)) in parts[1..].iter().zip(fields) {
-        result.extend(preview(declarations, nested, &ty, reference, bindings)?);
+        result.extend(preview(
+            declarations,
+            nested,
+            &ty,
+            reference,
+            bindings,
+            lenders,
+        )?);
     }
     Ok(result)
+}
+
+fn needs_lender(
+    pattern: &Expr,
+    lenders: &std::collections::HashMap<String, (String, String)>,
+) -> bool {
+    match pattern {
+        Expr::Symbol(name) => lenders.contains_key(name),
+        Expr::List(parts) => parts.iter().skip(1).any(|part| needs_lender(part, lenders)),
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -396,6 +465,7 @@ mod tests {
             &literal_alternatives,
             &Type::Named("Choice".into()),
             symbol("value"),
+            &std::collections::HashMap::new(),
             &std::collections::HashMap::new()
         )
         .unwrap()

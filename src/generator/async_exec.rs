@@ -1384,6 +1384,11 @@ impl Builder<'_> {
                 self.cleanup(reject, depth);
                 self.goto(reject, failure);
                 self.scopes.pop();
+                self.action(
+                    commit,
+                    Some(pattern.source),
+                    Action::EndPreview(pattern.clone()),
+                );
                 commit
             } else {
                 success
