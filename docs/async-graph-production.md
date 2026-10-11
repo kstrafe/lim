@@ -1452,3 +1452,27 @@ for the obsolete implementation/cache codec, not disabling graph regressions.
 All 229 async integration tests, ten dependent-cancellation tests, five
 standalone generated-code boundary tests, thirteen immediate-borrow tests,
 and three heap-contents tests also passed.
+
+## Empty-plan plumbing and duplicate source-publication checking removed
+
+Frontend expansion returns the ordinary program (or an owned checked arena plus
+its retained graph output), not an always-empty legacy capture-plan map. The
+single-variant route selector and route-specific wrappers are gone. Compilation,
+checking, source publication and editor lookup use the same graph pipeline.
+
+Standalone inspectable-source publication previously expanded and checked the
+graph to obtain that empty map, then prepared and checked it again in the writer.
+It now prepares it once. A cold-publication regression requires exactly two
+semantic passes: the original source and its emitted ordinary program. The
+existing retained-output regression still requires zero extra semantic passes
+during publication following checked owned expansion.
+
+Measured with `nix develop -c cargo test --release --lib
+graph_source_publication_cold_timing -- --ignored --nocapture`: seven cold-cache
+samples after one executable-path warmup, one simple async function, same source
+and fresh output directories per sample. Median publication time fell from
+32.777 ms to 17.774 ms (45.8% lower), and semantic passes from four to two.
+The timed region includes source loading/preparation, checking and generated-cache
+writes; it excludes compiler process startup, backend emission and native linking.
+This is a measurement of the standalone source writer, not a claimed 46% speedup
+for normal executable compilation, which already retains its checked output.

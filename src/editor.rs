@@ -184,7 +184,7 @@ pub(crate) fn program_in_context(
         None,
     )
     .map_err(|error| crate::generator_diagnostic(error, &entry, &entry_source))?;
-    let (program, _) = crate::expand_prepared_program(&prepared)
+    let program = crate::expand_prepared_program(&prepared)
         .map_err(|error| crate::generator_diagnostic(error, &entry, &entry_source))?;
     if context.is_some()
         && !program

@@ -9,8 +9,6 @@ pub(crate) fn is_async_invocation(expression: &SpannedExpr) -> bool {
         && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#async-fn" | "#async-fn-pinned")))
 }
 
-pub(crate) type ExpansionPlans = HashMap<(u32, usize, usize), HashMap<usize, HashSet<String>>>;
-
 pub(crate) fn async_type_environment(
     expressions: &[SpannedExpr],
 ) -> async_types::AsyncTypeEnvironment {
@@ -231,7 +229,6 @@ pub(crate) fn parse_program_in_directory(
     cache_directory: Option<&Path>,
 ) -> Result<Program, SourceError> {
     expand_program_in_directory(source, base, source_path, config, cache_directory)
-        .map(|(program, _)| program)
 }
 
 pub(crate) fn expand_program_in_directory(
@@ -240,15 +237,9 @@ pub(crate) fn expand_program_in_directory(
     source_path: Option<&Path>,
     config: &CompileConfig,
     cache_directory: Option<&Path>,
-) -> Result<(Program, ExpansionPlans), SourceError> {
+) -> Result<Program, SourceError> {
     let prepared = prepare_program_syntax(source, base, source_path, config, cache_directory)?;
     expand_prepared_program(&prepared)
-}
-
-pub(crate) fn expand_prepared_program(
-    prepared: &PreparedProgramSyntax,
-) -> Result<(Program, ExpansionPlans), SourceError> {
-    expand_prepared_program_with_route(prepared, prepared.async_route)
 }
 
 pub(crate) fn expand_prepared_owned_program(
@@ -258,33 +249,22 @@ pub(crate) fn expand_prepared_owned_program(
 ) -> Result<
     (
         typecheck::OwnedProgram,
-        ExpansionPlans,
         Option<Vec<super::async_emit::Generated>>,
     ),
     SourceError,
 > {
-    if prepared.async_route == AsyncRoute::Graph
-        && prepared.expressions.iter().any(is_async_invocation)
-    {
+    if prepared.expressions.iter().any(is_async_invocation) {
         let (program, generated) = graph_generated_owned_program(
             prepared,
             prepared.capture_cache_directory.as_deref(),
             Some((config, target)),
         )?;
-        Ok((program, ExpansionPlans::new(), Some(generated)))
+        Ok((program, Some(generated)))
     } else {
-        let (program, plans) = expand_prepared_program(prepared)?;
-        Ok((typecheck::OwnedProgram::new(program), plans, None))
+        let program = expand_prepared_program(prepared)?;
+        Ok((typecheck::OwnedProgram::new(program), None))
     }
 }
-
-/// The same graph implementation serves executable and inspectable output.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AsyncRoute {
-    Graph,
-}
-
-const DEFAULT_ASYNC_ROUTE: AsyncRoute = AsyncRoute::Graph;
 
 fn validate_syntax_bundle_declarations(
     items: &[Item],
@@ -488,21 +468,18 @@ fn graph_source_key(context: &str, invocation: &SpannedExpr) -> Result<String, S
     ))
 }
 
-fn expand_prepared_program_with_route(
+pub(crate) fn expand_prepared_program(
     prepared: &PreparedProgramSyntax,
-    route: AsyncRoute,
-) -> Result<(Program, ExpansionPlans), SourceError> {
-    if route == AsyncRoute::Graph && prepared.expressions.iter().any(is_async_invocation) {
+) -> Result<Program, SourceError> {
+    if prepared.expressions.iter().any(is_async_invocation) {
         let (program, _) =
             graph_generated_program(prepared, prepared.capture_cache_directory.as_deref())?;
-        return Ok((program, ExpansionPlans::new()));
+        return Ok(program);
     }
-    let program = parse_prepared_program_items(prepared, None, true)?;
-    Ok((program, ExpansionPlans::new()))
+    parse_prepared_program_items(prepared, true)
 }
 
 pub(crate) struct PreparedProgramSyntax {
-    async_route: AsyncRoute,
     graph_dependency_context: String,
     pub(crate) bundles: syntax_bundle::Bundles,
     pub(crate) capture_cache_directory: Option<PathBuf>,
@@ -523,13 +500,11 @@ pub(crate) fn prepare_program_syntax(
     config: &CompileConfig,
     cache_directory: Option<&Path>,
 ) -> Result<PreparedProgramSyntax, SourceError> {
-    let async_route = match config.values.get("async-lowering").map(String::as_str) {
-        None => DEFAULT_ASYNC_ROUTE,
-        Some("graph") => AsyncRoute::Graph,
-        Some(value) => {
-            return Err(format!("unknown async-lowering '{value}'; expected graph").into())
+    if let Some(value) = config.values.get("async-lowering") {
+        if value != "graph" {
+            return Err(format!("unknown async-lowering '{value}'; expected graph").into());
         }
-    };
+    }
     let (loaded, source_files) = load_imports_with_sources(source, base, source_path, config)?;
     let dependency_context = generator_dependency_context(&loaded, config);
     let mut bundles = syntax_bundle::Bundles::default();
@@ -662,7 +637,6 @@ pub(crate) fn prepare_program_syntax(
         })
         .collect();
     Ok(PreparedProgramSyntax {
-        async_route,
         graph_dependency_context: {
             // Current witnesses retain spans; artifact identity retains only
             // semantic dependencies and configuration, independent of location.
@@ -698,12 +672,11 @@ pub(crate) fn prepare_program_syntax(
 pub(crate) fn parse_prepared_async_declarations(
     prepared: &PreparedProgramSyntax,
 ) -> Result<Program, SourceError> {
-    parse_prepared_program_items(prepared, None, false)
+    parse_prepared_program_items(prepared, false)
 }
 
 pub(crate) fn parse_prepared_program_items(
     prepared: &PreparedProgramSyntax,
-    _capture_plans: Option<&ExpansionPlans>,
     expand_async: bool,
 ) -> Result<Program, SourceError> {
     let expressions = prepared.expressions.clone();
@@ -985,62 +958,27 @@ pub(crate) fn write_generated_sources_in_directory(
         .unwrap_or_else(|| directory.join("cache"));
     let prepared =
         prepare_program_syntax(source, base, source_path, config, Some(&generated_cache))?;
-    let has_async = prepared.expressions.iter().any(|expression| matches!(&expression.expr,
-        Expr::List(items) if matches!(items.first(), Some(Expr::At))
-            && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#async-fn" | "#async-fn-pinned"))));
-    let plans = if has_async {
-        expand_prepared_program(&prepared)?.1
-    } else {
-        ExpansionPlans::new()
-    };
-    write_prepared_generated_sources(&prepared, directory, cache_directory, &plans)
+    write_prepared_generated_sources(&prepared, directory, cache_directory)
 }
 
 pub(crate) fn write_prepared_generated_sources(
     prepared: &PreparedProgramSyntax,
     directory: &Path,
     cache_directory: Option<&Path>,
-    async_plans: &ExpansionPlans,
 ) -> Result<(), SourceError> {
-    write_prepared_generated_sources_with_route(
-        prepared,
-        directory,
-        cache_directory,
-        async_plans,
-        prepared.async_route,
-    )
-}
-
-fn write_prepared_generated_sources_with_route(
-    prepared: &PreparedProgramSyntax,
-    directory: &Path,
-    cache_directory: Option<&Path>,
-    async_plans: &ExpansionPlans,
-    route: AsyncRoute,
-) -> Result<(), SourceError> {
-    write_prepared_generated_sources_reusing_graph(
-        prepared,
-        directory,
-        cache_directory,
-        async_plans,
-        route,
-        None,
-    )
+    write_prepared_expanded_sources(prepared, directory, cache_directory, None)
 }
 
 pub(crate) fn write_prepared_expanded_sources(
     prepared: &PreparedProgramSyntax,
     directory: &Path,
     cache_directory: Option<&Path>,
-    async_plans: &ExpansionPlans,
     graph_output: Option<&[super::async_emit::Generated]>,
 ) -> Result<(), SourceError> {
     write_prepared_generated_sources_reusing_graph(
         prepared,
         directory,
         cache_directory,
-        async_plans,
-        prepared.async_route,
         graph_output,
     )
 }
@@ -1049,8 +987,6 @@ fn write_prepared_generated_sources_reusing_graph(
     prepared: &PreparedProgramSyntax,
     directory: &Path,
     cache_directory: Option<&Path>,
-    _async_plans: &ExpansionPlans,
-    route: AsyncRoute,
     retained_graph_output: Option<&[super::async_emit::Generated]>,
 ) -> Result<(), SourceError> {
     let expanded = &prepared.expressions;
@@ -1082,18 +1018,17 @@ fn write_prepared_generated_sources_reusing_graph(
             )
         })
         .collect::<HashMap<_, _>>();
-    let graph_output = if retained_graph_output.is_none()
-        && route == AsyncRoute::Graph
-        && expanded.iter().any(is_async_invocation)
-    {
-        graph_generated_program(prepared, Some(&generated_cache))?.1
-    } else {
-        Vec::new()
-    };
+    let graph_output =
+        if retained_graph_output.is_none() && expanded.iter().any(is_async_invocation) {
+            graph_generated_program(prepared, Some(&generated_cache))?.1
+        } else {
+            Vec::new()
+        };
     let mut graph_output = retained_graph_output.unwrap_or(&graph_output).iter();
-    let graph_key_context = (route == AsyncRoute::Graph
-        && expanded.iter().any(is_async_invocation))
-    .then(|| graph_source_key_context(prepared));
+    let graph_key_context = expanded
+        .iter()
+        .any(is_async_invocation)
+        .then(|| graph_source_key_context(prepared));
     let mut written_builtin_keys = HashSet::new();
     for expression in expanded {
         if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
@@ -1101,7 +1036,7 @@ fn write_prepared_generated_sources_reusing_graph(
             continue;
         }
         let invocation = expression_source(&expression.expr)?;
-        if route == AsyncRoute::Graph && is_async_invocation(expression) {
+        if is_async_invocation(expression) {
             // The planner and this loop both preserve invocation order, including
             // generator-produced forms whose original trees needed reparsing.
             let generated = graph_output.next().ok_or_else(|| {
@@ -1251,6 +1186,65 @@ mod async_migration_tests {
     }
 
     #[test]
+    fn graph_source_publication_checks_original_and_emitted_once() {
+        let scratch = Scratch::new();
+        let text =
+            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
+        typecheck::SEMANTIC_PASSES.with(|count| count.set(0));
+        write_generated_sources_in_directory(
+            &text,
+            Path::new("."),
+            None,
+            &scratch.0,
+            &CompileConfig::default(),
+            Some(&scratch.0),
+        )
+        .unwrap();
+        typecheck::SEMANTIC_PASSES.with(|count| {
+            assert_eq!(
+                count.get(),
+                2,
+                "check the original source and ordinary emitted program once each"
+            )
+        });
+    }
+
+    #[test]
+    #[ignore = "manual source-publication benchmark; run in release with --ignored --nocapture"]
+    fn graph_source_publication_cold_timing() {
+        let text =
+            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
+        let mut walls = Vec::new();
+        let mut passes = Vec::new();
+        for _ in 0..8 {
+            let scratch = Scratch::new();
+            typecheck::SEMANTIC_PASSES.with(|count| count.set(0));
+            let started = std::time::Instant::now();
+            write_generated_sources_in_directory(
+                &text,
+                Path::new("."),
+                None,
+                &scratch.0,
+                &CompileConfig::default(),
+                Some(&scratch.0),
+            )
+            .unwrap();
+            walls.push(started.elapsed().as_secs_f64() * 1000.0);
+            passes.push(typecheck::SEMANTIC_PASSES.with(|count| count.get()));
+            assert_eq!(
+                fs::read_dir(generator::generated_source_directory(&scratch.0))
+                    .unwrap()
+                    .count(),
+                1
+            );
+        }
+        walls.remove(0); // Warm executable paths, not the measured source caches.
+        passes.remove(0);
+        walls.sort_by(f64::total_cmp);
+        println!("cold inspectable graph source publication: median={:.3}ms samples={} semantic_passes={passes:?}; includes validation and cache writes, excludes backend emission/linking", walls[walls.len()/2], walls.len());
+    }
+
+    #[test]
     fn graph_owned_expansion_retains_validation_and_materializes_without_rechecking() {
         let scratch = Scratch::new();
         let text =
@@ -1260,7 +1254,7 @@ mod async_migration_tests {
         let prepared =
             prepare_program_syntax(&text, Path::new("."), None, &config, Some(&scratch.0)).unwrap();
         for _ in 0..2 {
-            let (mut owned, plans, generated) =
+            let (mut owned, generated) =
                 expand_prepared_owned_program(&prepared, &config, "check").unwrap();
             typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
             let timing = crate::TimingSession::start();
@@ -1269,7 +1263,6 @@ mod async_migration_tests {
                 &prepared,
                 &scratch.0,
                 Some(&scratch.0),
-                &plans,
                 generated.as_deref(),
             )
             .unwrap();
@@ -1299,9 +1292,7 @@ mod async_migration_tests {
             source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
         let prepared = syntax(&text, Some(&scratch.0));
         let emissions = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
-        let (program, plans) =
-            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
-        assert!(plans.is_empty());
+        let program = expand_prepared_program(&prepared).unwrap();
         assert_eq!(
             super::super::async_emit::EMISSION_COUNT.with(|count| count.get()),
             emissions + 1
@@ -1315,16 +1306,8 @@ mod async_migration_tests {
         assert!(graph_file.source.contains("(#loop"));
         assert!(!graph_file.source.contains("poll-resume-"));
         for _ in 0..2 {
-            write_prepared_generated_sources_with_route(
-                &prepared,
-                &scratch.0,
-                Some(&scratch.0),
-                &plans,
-                AsyncRoute::Graph,
-            )
-            .unwrap();
-            let (cached, _) =
-                expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+            write_prepared_generated_sources(&prepared, &scratch.0, Some(&scratch.0)).unwrap();
+            let cached = expand_prepared_program(&prepared).unwrap();
             assert_eq!(
                 cached.source_files.last().unwrap().source,
                 graph_file.source
@@ -1382,8 +1365,7 @@ mod async_migration_tests {
                 Some(&scratch.0),
             )
             .unwrap();
-            let (program, _) =
-                expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+            let program = expand_prepared_program(&prepared).unwrap();
             let output = &program.source_files.last().unwrap().source;
             assert!(
                 output.contains("Work-frame-cleanup-source-expression-"),
@@ -1412,7 +1394,7 @@ mod async_migration_tests {
             source("(#return seed)")
         );
         let prepared = syntax(&text, Some(&scratch.0));
-        assert!(expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).is_err());
+        assert!(expand_prepared_program(&prepared).is_err());
         assert!(!generator::generated_source_directory(&scratch.0).exists());
     }
 
@@ -1421,7 +1403,7 @@ mod async_migration_tests {
         let scratch = Scratch::new();
         let text = source("(#return seed)").replace(": protocol WorkAwait", ": protocol Work-task");
         let prepared = syntax(&text, Some(&scratch.0));
-        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap_err();
+        let error = expand_prepared_program(&prepared).unwrap_err();
         assert!(error
             .to_string()
             .contains("declaration 'Work-task' conflicts with a syntax bundle"));
@@ -1461,7 +1443,7 @@ mod async_migration_tests {
             .path();
         let before = fs::read_to_string(&artifact).unwrap();
         let emissions = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
-        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap_err();
+        let error = expand_prepared_program(&prepared).unwrap_err();
         assert!(error
             .to_string()
             .contains("declaration 'Work-task' conflicts with a syntax bundle"));
@@ -1477,7 +1459,7 @@ mod async_migration_tests {
         let scratch = Scratch::new();
         let text = source("(#return seed)");
         let prepared = syntax(&text, Some(&scratch.0));
-        expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        expand_prepared_program(&prepared).unwrap();
         let emissions = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
         let artifact = fs::read_dir(generator::generated_source_directory(&scratch.0))
             .unwrap()
@@ -1488,9 +1470,7 @@ mod async_migration_tests {
         // Even parseable corruption must not be accepted or silently repaired.
         let corrupt = format!("{}\n; tampered\n", fs::read_to_string(&artifact).unwrap());
         fs::write(&artifact, &corrupt).unwrap();
-        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
-            .unwrap_err()
-            .to_string();
+        let error = expand_prepared_program(&prepared).unwrap_err().to_string();
         assert!(error.contains("invalid async graph cache entry"), "{error}");
         assert_eq!(
             super::super::async_emit::EMISSION_COUNT.with(|count| count.get()),
@@ -1518,20 +1498,12 @@ mod async_migration_tests {
         ] {
             let text = source(body);
             let prepared = syntax(&text, None);
-            let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
-                .err()
-                .unwrap();
+            let error = expand_prepared_program(&prepared).err().unwrap();
             assert!(error.message.contains(expected), "{error}");
             assert!(error.span.is_some());
             let scratch = Scratch::new();
-            let error = write_prepared_generated_sources_with_route(
-                &prepared,
-                &scratch.0,
-                Some(&scratch.0),
-                &ExpansionPlans::new(),
-                AsyncRoute::Graph,
-            )
-            .unwrap_err();
+            let error = write_prepared_generated_sources(&prepared, &scratch.0, Some(&scratch.0))
+                .unwrap_err();
             assert!(error.message.contains(expected), "{error}");
             assert_eq!(fs::read_dir(&scratch.0).unwrap().count(), 0);
         }
@@ -1549,8 +1521,7 @@ mod async_migration_tests {
         let text =
             format!("{text}\n(#fn cancel-child (: child Child) () (#forget child) (#return ()))");
         let prepared = syntax(&text, None);
-        let (program, _) =
-            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        let program = expand_prepared_program(&prepared).unwrap();
         let output = &program.source_files.last().unwrap().source;
         assert!(
             output.contains("(#fn work-cancel ((task Work-frame-cleanup)) ()"),
@@ -1564,9 +1535,7 @@ mod async_migration_tests {
     fn graph_route_preserves_exact_original_type_errors() {
         let text = source("(#let answer #u64 true) (#return answer)");
         let prepared = syntax(&text, None);
-        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
-            .err()
-            .unwrap();
+        let error = expand_prepared_program(&prepared).err().unwrap();
         assert_eq!(error.code, DiagnosticCode::Type);
         let span = error.span.unwrap();
         assert_eq!(&text[span.start..span.end], "true");
@@ -1591,8 +1560,7 @@ mod async_migration_tests {
             )
         );
         let prepared = syntax(&text, None);
-        let (program, _) =
-            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        let program = expand_prepared_program(&prepared).unwrap();
         let assembly = crate::generate_assembly(&program).unwrap();
         let binary = scratch.0.join("graph-runtime");
         crate::link_native_binary(
@@ -1624,8 +1592,7 @@ mod async_migration_tests {
         );
         let scratch = Scratch::new();
         let prepared = syntax(&text, Some(&scratch.0));
-        let (program, plans) =
-            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
+        let program = expand_prepared_program(&prepared).unwrap();
         assert_eq!(
             program
                 .source_files
@@ -1634,14 +1601,7 @@ mod async_migration_tests {
                 .count(),
             2
         );
-        write_prepared_generated_sources_with_route(
-            &prepared,
-            &scratch.0,
-            Some(&scratch.0),
-            &plans,
-            AsyncRoute::Graph,
-        )
-        .unwrap();
+        write_prepared_generated_sources(&prepared, &scratch.0, Some(&scratch.0)).unwrap();
         assert_eq!(
             fs::read_dir(generator::generated_source_directory(&scratch.0))
                 .unwrap()
@@ -1660,9 +1620,7 @@ mod async_migration_tests {
             source("(#return seed)")
         );
         let prepared = syntax(&text, None);
-        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
-            .err()
-            .unwrap();
+        let error = expand_prepared_program(&prepared).err().unwrap();
         assert_eq!(error.code, DiagnosticCode::Type);
         let span = error.span.unwrap();
         assert_eq!(&text[span.start..span.end], "true");
@@ -1685,25 +1643,20 @@ mod async_migration_tests {
             .replace("@#async-fn", "@#async-fn-pinned")
         );
         let prepared = syntax(&text, None);
-        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
-            .err()
-            .unwrap();
+        let error = expand_prepared_program(&prepared).err().unwrap();
         assert!(error.message.contains("struct match pattern"), "{error}");
     }
 
     #[test]
-    fn default_uses_graph_and_non_async_programs_do_not_create_async_plans() {
-        assert!(DEFAULT_ASYNC_ROUTE == AsyncRoute::Graph);
+    fn default_uses_graph_and_non_async_programs_do_not_create_validation_witnesses() {
         let prepared = syntax(&source("(#return seed)"), None);
-        let (default, _) = expand_prepared_program(&prepared).unwrap();
+        let default = expand_prepared_program(&prepared).unwrap();
         assert!(default
             .source_files
             .iter()
             .any(|file| file.path.to_string_lossy().starts_with("<async graph ")));
         let prepared = syntax("(#fn main () #u64 (#return 42u64))", None);
-        let (program, plans) =
-            expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
-        assert!(plans.is_empty());
+        let program = expand_prepared_program(&prepared).unwrap();
         assert!(program.generator_validation.is_none());
     }
 

@@ -2104,16 +2104,14 @@ pub fn check_source_with_generated_sources(
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
     let _stage = timing::stage("expansion");
-    let (mut owned, capture_plans, graph_output) =
-        expand_prepared_owned_program(&prepared, config, "check")
-            .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    let (mut owned, graph_output) = expand_prepared_owned_program(&prepared, config, "check")
+        .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
     let _stage = timing::stage("materialize_generated_sources");
     write_prepared_expanded_sources(
         &prepared,
         generated_directory,
         Some(cache_directory),
-        &capture_plans,
         graph_output.as_deref(),
     )
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
@@ -2178,7 +2176,7 @@ fn compile_source_with_artifacts(
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
     let _stage = timing::stage("expansion");
-    let (mut owned, capture_plans, graph_output) =
+    let (mut owned, graph_output) =
         expand_prepared_owned_program(&prepared, config, &format!("{target:?}"))
             .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
@@ -2188,7 +2186,6 @@ fn compile_source_with_artifacts(
             &prepared,
             directory,
             Some(cache_directory),
-            &capture_plans,
             graph_output.as_deref(),
         )
         .map_err(|message| generator_diagnostic(message, source_path, source))?;
