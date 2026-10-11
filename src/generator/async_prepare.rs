@@ -7,7 +7,7 @@
 //! the final generated ordinary-code proof are still mandatory.
 #![allow(dead_code)] // Consumed by the general state-machine emitter.
 
-use std::collections::HashSet;
+use std::{cell::OnceCell, collections::HashSet};
 
 use crate::generator::async_interfaces::Registry;
 use crate::generator::async_source::{Lowered, Source};
@@ -29,6 +29,17 @@ pub(crate) struct Planning {
     pub interfaces: Registry,
     pub declarations: crate::typed_ir::Declarations,
     pub functions: Vec<Function>,
+    linear_types: OnceCell<crate::linearcheck::LinearTypes>,
+}
+
+impl Planning {
+    /// Immutable declarative classification shared by every emitter in this
+    /// planning arena. This is not an ownership proof. Laziness avoids doing
+    /// the work when every generated function is read from the source cache.
+    pub(crate) fn linear_types(&self) -> &crate::linearcheck::LinearTypes {
+        self.linear_types
+            .get_or_init(|| crate::linearcheck::LinearTypes::from_program(&self.program))
+    }
 }
 
 /// Generator output can itself be an async invocation. Reparse its own text
@@ -215,6 +226,7 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
         interfaces,
         declarations,
         functions,
+        linear_types: OnceCell::new(),
     })
 }
 
@@ -247,6 +259,23 @@ mod tests {
           (@#async-fn (: protocol work-await : waker #u64
             : function (#fn work ((choose #bool)) #u64 {body})))"
         )
+    }
+
+    #[test]
+    fn emission_classification_is_lazy_and_shared_by_all_functions() {
+        let text = format!(
+            "{}
+          (@#async-fn (: protocol OtherAwait : waker #u64
+            : function (#fn other () #u64 (#return 42u64))))",
+            work("(#return (#await Child ChildPending ChildReady step-poll (Waiting 1u64)))")
+        );
+        let planning = prepare(&syntax(&text)).unwrap();
+        assert_eq!(planning.functions.len(), 2);
+        assert!(planning.linear_types.get().is_none());
+        let types = planning.linear_types();
+        assert!(std::ptr::eq(types, planning.linear_types()));
+        assert!(types.is_linear(&Type::Named("Child".into())));
+        assert!(types.can_repeat(&Type::U64));
     }
 
     #[test]

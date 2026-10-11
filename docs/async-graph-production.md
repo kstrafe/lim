@@ -178,3 +178,35 @@ migration or close the gates above.
 After removing the misleading fixed-target metadata from the non-graph v6
 inspectable key, all 12 frontend and 8 generated-source cache regressions passed
 again; the selected target remains part of dependency/config identity.
+
+## Compilation measurements
+
+Graph emitters share one lazy declarative ownership classification per planning
+arena. It is not an ownership proof, and cached generated output does not force
+this classification to be built. Source and generated ordinary-code checks
+remain mandatory.
+
+Run the manual sampler with:
+
+```sh
+nix develop -c cargo test --release --test async_graph_compile_timing -- --ignored --nocapture
+```
+
+Seven-sample medians on the same host, with 128 unrelated record declarations:
+
+| Async functions | Cache | Before sharing | After sharing |
+| --- | --- | ---: | ---: |
+| 1 | Cold | 37.563 ms | 36.987 ms |
+| 1 | Warm | 32.897 ms | 32.098 ms |
+| 8 | Cold | 250.460 ms | 248.198 ms |
+| 8 | Warm | 211.035 ms | 209.228 ms |
+
+These are in-process source-to-assembly measurements, excluding executable
+encoding/linking and process startup. Each cold sample has a new cache; each
+warm sample follows an unmeasured compilation into that cache. The small
+changes do not establish a reliable end-to-end speedup. Semantic work dominates
+the larger fixture: expansion still validates the generated program and source
+witnesses, then compilation validates the same program again. Reusing that
+checked result must preserve its association with immutable syntax and the
+fail-closed publication boundary, not trust mutable public programs or cache
+metadata.

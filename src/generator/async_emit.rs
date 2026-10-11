@@ -71,7 +71,7 @@ struct Emitter<'a> {
     scopes: HashMap<crate::typed_body::NodeId, usize>,
     reserved: RefCell<HashSet<String>>,
     next: Cell<usize>,
-    types: crate::linearcheck::LinearTypes,
+    types: &'a crate::linearcheck::LinearTypes,
     render: crate::generator::async_render::RenderContext<'a>,
     retirement: Option<crate::generator::async_retire::Plan>,
     lending: Option<crate::generator::async_lend::Plan>,
@@ -159,17 +159,17 @@ impl<'a> Emitter<'a> {
                 reserved.extend(variants.iter().map(|variant| variant.name.clone()));
             }
         }
-        let types = crate::linearcheck::LinearTypes::from_program(&planning.program);
+        let types = planning.linear_types();
         let lending = crate::generator::async_lend::Plan::new(
             body,
             &planning.declarations.flows[&function.model.body_name],
-            &types,
+            types,
         )
         .map_err(|error| fail(function, error.message))?;
         let leases = crate::generator::async_lease::Plan::new(
             &function.graph,
             lending.as_ref(),
-            &types,
+            types,
             &planning.declarations.aliases,
         )
         .map_err(|error| fail(function, error.message))?;
@@ -1683,7 +1683,7 @@ impl<'a> Emitter<'a> {
             &self.function.graph,
             descriptor,
             &self.planning.declarations,
-            &self.types,
+            self.types,
         )
         .map_err(|message| fail(self.function, message))?;
         let name = self.fresh("write");
@@ -2471,7 +2471,7 @@ impl<'a> Emitter<'a> {
         use crate::generator::async_cells::Cell;
         crate::generator::async_cells::Plan::cancellation(
             &self.function.graph,
-            &self.types,
+            self.types,
             self.retirement.as_ref(),
             self.lending.as_ref(),
         )
