@@ -7,6 +7,9 @@ exit 42 aarch64_ownership.lim - -
 exit 42 aarch64_syscall.lim examples/aarch64_syscall.stdout -
 exit 42 async_composition.lim - -
 exit 42 async_two_pinned.lim - -
+exit 42 async_fn_poll_local_borrow.lim - -
+exit 42 async_range_bounds_once.lim - -
+exit 42 range_bounds_once.lim - -
 exit 20 aggregate_block.lim - -
 exit 20 aggregate_control_argument.lim - -
 exit 20 aggregate_if.lim - -
