@@ -5038,6 +5038,7 @@ fn load_imports_inner(
                 .collect::<HashSet<_>>();
             for form in &mut imported {
                 prefix_expression(&mut form.expr, prefix, &generator_names);
+                synchronize_source_children(form);
                 if gensym::contains_reserved(&form.expr) {
                     let prefix_span = expression
                         .children
@@ -5281,6 +5282,30 @@ fn import_form(expression: &Expr) -> Result<Option<ImportSpec<'_>>, String> {
             }))
         }
         _ => Ok(None),
+    }
+}
+
+/// Prefixing changes identifiers, never expression shape or physical source
+/// spans. Keep the retained source tree semantically identical to its parent
+/// syntax so analyses of original bodies do not resurrect pre-import names.
+fn synchronize_source_children(expression: &mut SpannedExpr) {
+    match &expression.expr {
+        Expr::List(items) => {
+            for (child, value) in expression.children.iter_mut().zip(items) {
+                child.expr = value.clone();
+                synchronize_source_children(child);
+            }
+        }
+        Expr::Quote(value)
+        | Expr::QuasiQuote(value)
+        | Expr::Unquote(value)
+        | Expr::UnquoteSplicing(value) => {
+            if let Some(child) = expression.children.first_mut() {
+                child.expr = value.as_ref().clone();
+                synchronize_source_children(child);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -9424,6 +9449,63 @@ mod tests {
                 .unwrap_err();
         assert!(argument_error.contains("argument 0="));
         assert!(argument_error.contains("invocation at 2:1"));
+    }
+
+    #[test]
+    fn external_prefix_keeps_source_children_consistent_without_changing_spans() {
+        fn spans(node: &SpannedExpr, output: &mut Vec<Span>) {
+            output.push(node.span);
+            for child in &node.children {
+                spans(child, output);
+            }
+        }
+        fn consistent(node: &SpannedExpr) {
+            match &node.expr {
+                Expr::List(items) => {
+                    assert_eq!(items.len(), node.children.len());
+                    for (value, child) in items.iter().zip(&node.children) {
+                        assert_eq!(value, &child.expr);
+                        consistent(child);
+                    }
+                }
+                Expr::Quote(value)
+                | Expr::QuasiQuote(value)
+                | Expr::Unquote(value)
+                | Expr::UnquoteSplicing(value) => {
+                    assert_eq!(value.as_ref(), &node.children[0].expr);
+                    consistent(&node.children[0]);
+                }
+                _ => {}
+            }
+        }
+        let source = "(@#async-fn-pinned (: protocol WorkAwait : waker #u64
+          : function (#fn work (: owner Owner) #u64 (#return (#get owner amount)))))
+          (#gn literal (name) `(#type ,name '(Thing)))";
+        let mut forms = parse(source).unwrap();
+        let mut before = Vec::new();
+        for form in &forms {
+            spans(form, &mut before);
+        }
+        let generators = HashSet::from(["literal".to_owned()]);
+        for form in &mut forms {
+            prefix_expression(&mut form.expr, "Ext-", &generators);
+            synchronize_source_children(form);
+            consistent(form);
+        }
+        let mut after = Vec::new();
+        for form in &forms {
+            spans(form, &mut after);
+        }
+        assert_eq!(before, after);
+        let normalized = normalize_builtin_generator_invocation(&forms[0].expr).unwrap();
+        let text = expression_source(&normalized).unwrap();
+        assert!(text.contains("Ext-owner Ext-Owner"), "{text}");
+        assert!(text.contains("Ext-work"), "{text}");
+        assert!(text.contains("Ext-Owner"), "{text}");
+        assert!(
+            !text.contains("Ext-protocol") && !text.contains("Ext-access"),
+            "{text}"
+        );
     }
 
     #[test]

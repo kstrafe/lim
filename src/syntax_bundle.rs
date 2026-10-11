@@ -26,7 +26,7 @@ fn child(expression: &SpannedExpr, index: usize) -> SpannedExpr {
             span: expression.span,
             children: vec![],
         });
-    // External-import prefixing updates syntax independently of source children.
+    // Synthetic expansion trees may not carry children for every literal node.
     result.expr = items[index].clone();
     result
 }
