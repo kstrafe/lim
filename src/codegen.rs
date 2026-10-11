@@ -3023,6 +3023,19 @@ fn max_projection_depth_in_expression(expression: &Expr) -> usize {
                 .max()
                 .unwrap_or(0);
             if items.len() == 3
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "pin-write" | "deref-set"))
+            {
+                return children + 1;
+            }
+            if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "match") {
+                return children + 1;
+            }
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "forget" || operator == "drop")
+            {
+                return children + 1;
+            }
+            if items.len() == 3
                 && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "get" || operator == "index")
             {
                 children.max(1 + max_projection_depth_in_expression(&items[1]))
@@ -7906,7 +7919,7 @@ impl FunctionContext<'_> {
         }
         if self.return_pointer_slot.is_some()
             && self.is_aggregate_type(&self.return_type)
-            && matches!(&value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if"))
+            && matches!(&value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "if" || operator == "match"))
         {
             let return_type = self.return_type.clone();
             return self.store_indirect_value_words(value, &return_type, 0);
@@ -9043,6 +9056,16 @@ impl FunctionContext<'_> {
         };
         let variant_info = self.enum_variant_info(&items[0], variant_name)?;
         let Some((variant_owner, variant_discriminant, variant_fields)) = variant_info else {
+            if payload.len() + 1 > VALUE_REGISTERS.len() {
+                let slots = std::iter::once(discriminant)
+                    .chain(payload.iter().copied())
+                    .collect::<Vec<_>>();
+                return self.store_value_to_slots(
+                    value,
+                    &Type::Named(enum_name.to_owned()),
+                    &slots,
+                );
+            }
             self.expression_as_expected(value, &Type::Named(enum_name.to_owned()))?;
             self.output.push_str(&format!(
                 "    mov QWORD PTR [rbp-{}], rax\n",
@@ -10622,6 +10645,21 @@ impl FunctionContext<'_> {
                 let ty = self.expression_type(&items[1]).ok_or_else(|| {
                     "internal error: checked destruction operand lost its type".to_owned()
                 })?;
+                let words = storage_word_count(&ty, &self.structs, &self.enums)?;
+                if words > VALUE_REGISTERS.len() {
+                    let base = self.aggregate_temp_base.ok_or_else(|| {
+                        "large destruction operand has no aggregate temporary".to_owned()
+                    })? + (self.aggregate_argument_regions
+                        + self.aggregate_projection_depth)
+                        * self.aggregate_temp_words;
+                    self.aggregate_projection_depth += 1;
+                    let result =
+                        self.store_value_to_slots(&items[1], &ty, &flat_slots(base, words));
+                    self.aggregate_projection_depth -= 1;
+                    result?;
+                    self.output.push_str("    xor eax, eax\n");
+                    return Ok(());
+                }
                 let before = self.stack_depth;
                 self.push_value_words(&items[1], &ty, false)?;
                 let words = self.stack_depth - before;
@@ -10699,9 +10737,41 @@ impl FunctionContext<'_> {
                     return Ok(());
                 }
                 if words > VALUE_REGISTERS.len() {
-                    return Err(format!(
-                        "{operator} aggregate target exceeds native value registers"
+                    let base = self.aggregate_temp_base.ok_or_else(|| {
+                        "large reference write has no aggregate temporary".to_owned()
+                    })? + (self.aggregate_argument_regions
+                        + self.aggregate_projection_depth)
+                        * self.aggregate_temp_words;
+                    self.aggregate_projection_depth += 1;
+                    let result =
+                        self.store_value_to_slots(&items[2], &target, &flat_slots(base, words));
+                    self.aggregate_projection_depth -= 1;
+                    result?;
+                    self.output.push_str("    pop r11\n");
+                    self.stack_depth -= 1;
+                    let ascending = self.label("large_reference_write_ascending");
+                    let done = self.label("large_reference_write_done");
+                    self.output.push_str(&format!("    test r11, r11\n    jns {ascending}\n    btr r11, 63\n    btr r11, 62\n"));
+                    for index in 0..words {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11-{}], rax\n",
+                            (base + index) * 8,
+                            index * 8
+                        ));
+                    }
+                    self.output.push_str(&format!(
+                        "    jmp {done}\n{ascending}:\n    btr r11, 63\n    btr r11, 62\n"
                     ));
+                    for index in 0..words {
+                        self.output.push_str(&format!(
+                            "    mov rax, QWORD PTR [rbp-{}]\n    mov QWORD PTR [r11+{}], rax\n",
+                            (base + index) * 8,
+                            index * 8
+                        ));
+                    }
+                    self.output
+                        .push_str(&format!("{done}:\n    xor eax, eax\n"));
+                    return Ok(());
                 }
                 if words > 1 {
                     self.expression_as_expected(&items[2], &target)?;
@@ -11720,8 +11790,27 @@ impl FunctionContext<'_> {
             },
             _ => None,
         };
+        let mut held_enum_temporary = false;
         let direct_enum_base = if let Some(call) = direct_enum_call {
             Some(self.call_to_aggregate_temp(call)?)
+        } else if !matches!(scrutinee, Expr::Symbol(_))
+            && self.expression_type(scrutinee).is_some_and(|ty| {
+                self.is_enum_type(&ty)
+                    && storage_word_count(&ty, &self.structs, &self.enums)
+                        .is_ok_and(|words| words > VALUE_REGISTERS.len())
+            })
+        {
+            let ty = self.expression_type(scrutinee).unwrap();
+            let words = storage_word_count(&ty, &self.structs, &self.enums)?;
+            let base = self
+                .aggregate_temp_base
+                .ok_or_else(|| "large enum match has no aggregate temporary".to_owned())?
+                + (self.aggregate_argument_regions + self.aggregate_projection_depth)
+                    * self.aggregate_temp_words;
+            self.aggregate_projection_depth += 1;
+            self.store_value_to_slots(scrutinee, &ty, &flat_slots(base, words))?;
+            held_enum_temporary = true;
+            Some(base)
         } else {
             None
         };
@@ -11781,7 +11870,7 @@ impl FunctionContext<'_> {
                     discriminant * 8
                 ));
             }
-            Expr::List(_) if direct_enum_base.is_some() => {
+            _ if direct_enum_base.is_some() => {
                 self.output.push_str(&format!(
                     "    mov rax, QWORD PTR [rbp-{}]\n",
                     direct_enum_base.unwrap() * 8
@@ -12167,6 +12256,9 @@ impl FunctionContext<'_> {
         // an invalid tag as a loop backedge retaining the staged scrutinee.
         self.output.push_str(&format!("    ud2\n{end}:\n"));
         self.stack_depth = base_depth;
+        if held_enum_temporary {
+            self.aggregate_projection_depth -= 1;
+        }
         Ok(())
     }
 
