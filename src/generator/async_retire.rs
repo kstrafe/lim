@@ -55,6 +55,41 @@ fn recipe(place: &crate::generator::async_exec::PlaceDescriptor) -> Vec<ValueId>
     values
 }
 
+/// Physical dependencies from one immutable graph snapshot. In particular,
+/// closing each lending scope must not scan every borrow in the graph again.
+/// This is a use index, not a cache of ownership or loan-solving results.
+pub(crate) struct PhysicalUses<'a> {
+    graph: &'a Graph,
+    scopes: HashMap<crate::typed_body::NodeId, Vec<ValueId>>,
+}
+
+impl<'a> PhysicalUses<'a> {
+    pub(crate) fn new(graph: &'a Graph) -> Self {
+        let mut scopes = HashMap::<_, Vec<_>>::new();
+        for located in graph.blocks.iter().flat_map(|block| &block.actions) {
+            if let Action::Borrow {
+                scope: Some(scope),
+                place,
+                ..
+            } = located.action
+            {
+                scopes
+                    .entry(scope)
+                    .or_default()
+                    .extend(recipe(&graph.places[place.0]));
+            }
+        }
+        Self { graph, scopes }
+    }
+
+    pub(crate) fn uses(&self, action: &Action) -> Vec<ValueId> {
+        match action {
+            Action::EndBorrow { scope } => self.scopes.get(scope).cloned().unwrap_or_default(),
+            _ => uses(self.graph, action),
+        }
+    }
+}
+
 // Physical emitter dependencies, including roots of address recipes. The
 // lending-window verifier must use these too: graph address tokens alone do
 // not describe a root that the current emitter will evaluate at a later load.
@@ -302,6 +337,7 @@ impl Plan {
                 .filter(|value| candidates.contains(value))
                 .collect::<HashSet<_>>()
         };
+        let physical_uses = PhysicalUses::new(graph);
         let action_uses = graph
             .blocks
             .iter()
@@ -309,7 +345,7 @@ impl Plan {
                 block
                     .actions
                     .iter()
-                    .map(|located| selected(uses(graph, &located.action)))
+                    .map(|located| selected(physical_uses.uses(&located.action)))
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
@@ -533,11 +569,13 @@ impl Plan {
                 break;
             }
         }
+        let physical_uses = PhysicalUses::new(graph);
         for block in live {
             let mut held = before[block.0].clone();
             clear(&mut held, &self.entry[block.0]);
             for (index, located) in graph.blocks[block.0].actions.iter().enumerate() {
-                if uses(graph, &located.action)
+                if physical_uses
+                    .uses(&located.action)
                     .iter()
                     .any(|value| self.candidates.contains(value) && !held.contains(value))
                 {
@@ -594,6 +632,80 @@ mod tests {
         let graph = crate::generator::async_exec::build(&declarations.bodies["work"], &[]).unwrap();
         graph.validate().unwrap();
         (graph, LinearTypes::from_program(&program))
+    }
+
+    fn scoped_graph(count: usize) -> Graph {
+        let statements = "(#borrow (#deref view) ())\n".repeat(count);
+        prepare(&format!(
+            "(#fn work (: view (#ref-mut #u64)) () {statements} (#return ()))"
+        ))
+        .0
+    }
+
+    #[test]
+    fn physical_use_index_matches_scoped_and_ordinary_dependencies() {
+        let mut graph = scoped_graph(12);
+        // A scope may have multiple formation sites, including unreachable
+        // ones. Keep the baseline's exact order and duplicates, not just a set.
+        let borrowed = graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .find(|located| matches!(located.action, Action::Borrow { scope: Some(_), .. }))
+            .unwrap()
+            .clone();
+        graph.blocks[0].actions.push(borrowed);
+        let indexed = PhysicalUses::new(&graph);
+        for located in graph.blocks.iter().flat_map(|block| &block.actions) {
+            assert_eq!(indexed.uses(&located.action), uses(&graph, &located.action));
+        }
+        let missing = Action::EndBorrow {
+            scope: crate::typed_body::NodeId(usize::MAX),
+        };
+        assert_eq!(indexed.uses(&missing), uses(&graph, &missing));
+        assert!(indexed.uses(&missing).is_empty());
+    }
+
+    #[test]
+    #[ignore = "manual scoped lending dependency benchmark"]
+    fn benchmark_scoped_physical_uses() {
+        use std::{hint::black_box, time::Instant};
+        let graph = scoped_graph(1024);
+        let mut baseline = Vec::new();
+        let mut indexed = Vec::new();
+        for sample in 0..8 {
+            let run = |cached: bool| {
+                let start = Instant::now();
+                let index = cached.then(|| PhysicalUses::new(black_box(&graph)));
+                let mut sum = 0usize;
+                for action in graph.blocks.iter().flat_map(|block| &block.actions) {
+                    let values = match &index {
+                        Some(index) => index.uses(black_box(&action.action)),
+                        None => uses(black_box(&graph), black_box(&action.action)),
+                    };
+                    for value in values {
+                        sum = sum.wrapping_add(value.0 + 1);
+                    }
+                }
+                (start.elapsed().as_micros(), black_box(sum))
+            };
+            // Alternate ordering; the indexed measurement includes building
+            // the snapshot, not just queries on a prewarmed cache.
+            let (old, new) = if sample % 2 == 0 {
+                (run(false), run(true))
+            } else {
+                let new = run(true);
+                (run(false), new)
+            };
+            assert_eq!(old.1, new.1);
+            if sample > 0 {
+                baseline.push(old.0);
+                indexed.push(new.0);
+            }
+        }
+        baseline.sort_unstable();
+        indexed.sort_unstable();
+        eprintln!("scoped physical uses, 1024 scopes, seven samples: baseline {}us, indexed {}us (includes construction)", baseline[3], indexed[3]);
     }
 
     #[test]

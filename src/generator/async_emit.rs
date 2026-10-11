@@ -84,6 +84,7 @@ struct Emitter<'a> {
     types: &'a crate::linearcheck::LinearTypes,
     render: crate::generator::async_render::RenderContext<'a>,
     retirement: Option<crate::generator::async_retire::Plan>,
+    physical_uses: crate::generator::async_retire::PhysicalUses<'a>,
     lending: Option<crate::generator::async_lend::Plan>,
     leases: crate::generator::async_lease::Plan,
     immediate: crate::generator::async_immediate::Plan,
@@ -215,6 +216,7 @@ impl<'a> Emitter<'a> {
             )
             .map_err(|error| fail(function, error.message))?,
             retirement: None,
+            physical_uses: crate::generator::async_retire::PhysicalUses::new(&function.graph),
             lending,
             leases,
             immediate: crate::generator::async_immediate::Plan::new(&function.graph)
@@ -2949,7 +2951,7 @@ impl<'a> Emitter<'a> {
                                         match &action.action {
                                             Action::Place { dst, .. } if dst == place => false,
                                             Action::Load { dst: actual, .. } if actual == dst => false,
-                                            other => crate::generator::async_retire::uses(graph, other)
+                                            other => self.physical_uses.uses(other)
                                                 .contains(&value),
                                         }
                                     }) || crate::generator::async_retire::control(&block.terminator)

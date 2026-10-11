@@ -27,9 +27,10 @@ impl Plan {
         graph.validate()?;
         let mut users = vec![Vec::new(); graph.values.len()];
         let mut escapes = vec![false; graph.values.len()];
+        let physical_uses = super::async_retire::PhysicalUses::new(graph);
         for block in graph.reachable() {
             for (index, action) in graph.blocks[block.0].actions.iter().enumerate() {
-                let mut inputs = super::async_retire::uses(graph, &action.action);
+                let mut inputs = physical_uses.uses(&action.action);
                 inputs.sort_unstable_by_key(|value| value.0);
                 inputs.dedup();
                 for value in inputs {

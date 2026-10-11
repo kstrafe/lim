@@ -1549,3 +1549,23 @@ The companion mutation rejection retains the original caller source span.
 All 230 async integration tests and 76 emitter tests pass (one manual emitter
 benchmark remains ignored). Partial aggregate move/reconstruction storage and
 further guard/lending performance work remain separate unfinished improvements.
+
+## Index scoped physical uses instead of rescanning lending scopes
+
+Retirement, immediate-borrow and lending-window analysis used to resolve every
+`EndBorrow` dependency by scanning all graph actions for its matching borrow
+sites. Computed-clone reuse queries made the same scans. `PhysicalUses` now
+indexes scope recipes once per immutable graph snapshot. It preserves the old
+dependency order and duplicates, including unreachable formation sites, and
+returns no dependencies for an absent scope. No source ownership, loan solver,
+storage availability or generated-program check is cached or skipped.
+
+The release `benchmark_scoped_physical_uses` fixture has 1,024 ordinary lending
+scopes. Seven paired samples after one warmup, alternating execution order,
+measured median dependency collection of 2,290 us with the old scan and 120 us
+with the index (including construction): a 94.8% reduction for this stage.
+The benchmark checks identical dependency checksums; a separate test compares
+every action's exact dependency vector, including repeated formation sites and
+an absent scope. This is not a claim of a 94.8% whole-compilation improvement.
+All 224 selected async unit tests pass; three manual benchmarks are ignored in
+the regular run. Complex guarded loan solving still requires separate profiling.

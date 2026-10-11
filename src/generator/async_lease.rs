@@ -89,10 +89,11 @@ impl Plan {
         // graph with many reads must not rescan every action for each handle.
         let mut users = vec![Vec::new(); graph.values.len()];
         let mut escapes = vec![false; graph.values.len()];
+        let physical_uses = crate::generator::async_retire::PhysicalUses::new(graph);
         for &block in &reachable {
             let body = &graph.blocks[block.0];
             for (index, located) in body.actions.iter().enumerate() {
-                let mut inputs = crate::generator::async_retire::uses(graph, &located.action);
+                let mut inputs = physical_uses.uses(&located.action);
                 inputs.sort_unstable_by_key(|value| value.0);
                 inputs.dedup();
                 for value in inputs {
