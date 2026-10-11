@@ -9647,10 +9647,10 @@ fn async_mutating_branches_restore_their_outputs() {
             (#case (work-ready result) (#block (#return result)))))
         (#forget task)
         (#return 0u64))";
-    build_and_run(source, 42);
-    build_and_run(&source.replace(": selected true", ": selected false"), 42);
+    build_and_run_graph(source, 42);
+    build_and_run_graph(&source.replace(": selected true", ": selected false"), 42);
     let immediate = source.replace("(StepPending (Resume value))", "(StepReady value)");
-    build_and_run(&immediate, 42);
+    build_and_run_graph(&immediate, 42);
     let matched = source
         .replace("(#if selected", "(#match selected (#case true")
         .replace(
@@ -9659,14 +9659,14 @@ fn async_mutating_branches_restore_their_outputs() {
         )
         .replace("right)))", "right))))");
     assert_ne!(matched, source);
-    build_and_run(&matched, 42);
-    build_and_run(&matched.replace(": selected true", ": selected false"), 42);
+    build_and_run_graph(&matched, 42);
+    build_and_run_graph(&matched.replace(": selected true", ": selected false"), 42);
     let mixed = source.replace(
         "(#await #u64 Step StepPending StepReady step-poll (Start 30u64))",
         "30u64",
     );
-    build_and_run(&mixed, 42);
-    build_and_run(&mixed.replace(": selected true", ": selected false"), 42);
+    build_and_run_graph(&mixed, 42);
+    build_and_run_graph(&mixed.replace(": selected true", ": selected false"), 42);
     let borrowed = format!(
         "(#fn put ((target (#ref-mut #u64)) (value #u64)) ()
       (#deref-set target value) (#return ()))\n{}",
@@ -9680,29 +9680,22 @@ fn async_mutating_branches_restore_their_outputs() {
                 "(#call put (: target (#borrow-mut total) : value 12u64))"
             )
     );
-    build_and_run(&borrowed, 42);
-    build_and_run(&borrowed.replace(": selected true", ": selected false"), 42);
+    build_and_run_graph(&borrowed, 42);
+    build_and_run_graph(&borrowed.replace(": selected true", ": selected false"), 42);
     let linear = format!("(#struct Counter ((value #u64))) (#linear Counter)\n{}", source
         .replace("(#let-mut total #u64 0u64)", "(#let-mut total Counter (#struct-literal Counter ((value 0u64))))")
         .replace("(#set total", "(#set-field total value")
         .replace("(#return (#u64.+.wrap total value))", "(#let result #u64 (#u64.+.wrap (#get total value) value)) (#forget total) (#return result)"));
-    build_and_run(&linear, 42);
-    build_and_run(&linear.replace(": selected true", ": selected false"), 42);
+    build_and_run_graph(&linear, 42);
+    build_and_run_graph(&linear.replace(": selected true", ": selected false"), 42);
     let invalid = linear.replace("(#forget total)", "()");
-    let scratch = support::Scratch::new("async-branch-restored-owner");
-    let error = lim::compile_source_to_assembly(
-        &invalid,
-        &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .err()
-    .expect("restored linear owners still require explicit consumption");
+    let error = graph_compile_error(&invalid, "async-branch-restored-owner");
+    assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
     assert!(
         error.message.contains("total") && error.message.contains("consum"),
         "{error:?}"
     );
+    assert!(error.span.is_some(), "{error:?}");
 }
 
 #[test]

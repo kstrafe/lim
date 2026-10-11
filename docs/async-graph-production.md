@@ -588,3 +588,21 @@ live, and the other graph-default failures, remain separate work.
 Final verification for this change passed 1,334 library tests (one ignored),
 213 async integration tests, all 32 graph-production tests, and 54 dedicated
 self-borrow, cancellation, guard, immediate-borrow, and rejection tests.
+
+### Typed constants in synchronous borrow windows
+
+An operation-local mutable borrow followed by a typed constant argument now
+uses the existing synchronous-window representation. Numeric constants lower
+as checked `#literal` forms, so treating only Atom literals as effect-free
+incorrectly required a retained frame reference for an ordinary call such as
+`(#call put (: target (#borrow-mut total) : value 22u64))`.
+
+Only an operand-free builtin literal preserves this window. Rendering still
+rejects executable literal metadata, and intervening calls, stored handles,
+control edges, or awaits remain outside the certificate. This is an emission
+order check, not borrow permission; original and emitted checks still run.
+Direct scalar and field-projection tests cover suffix and explicit literal
+spellings. The mutation-branch regression now exercises graph lowering for
+both selected branches, match alternatives, immediate/mixed suspension, local
+borrowed writes, and linear-owner consumption failures. Longer-lived scoped
+reference holders and the other default-switch gates remain unfinished.

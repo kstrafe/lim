@@ -168,6 +168,19 @@ impl Plan {
                             | Compute::Bool(_),
                         ..
                     } => true,
+                    // Typed numeric constants lower as checked #literal
+                    // forms, not Atom literals. The renderer requires static
+                    // literal metadata; executable metadata is rejected. Only
+                    // operand-free constants preserve this call window.
+                    Action::Compute {
+                        operation: Compute::Checked(operation),
+                        ..
+                    } if operation.callee.is_none()
+                        && operation.head == "literal"
+                        && operation.operands.is_empty() =>
+                    {
+                        true
+                    }
                     _ => false,
                 });
             if valid {
@@ -285,6 +298,24 @@ mod tests {
           (#call touch (: target (#borrow-mut owner) : value 42u64)) (#return owner)",
         );
         assert_eq!(Plan::new(&graph).unwrap().borrows.len(), 1);
+    }
+
+    #[test]
+    fn typed_literal_after_the_borrow_keeps_the_synchronous_window() {
+        for value in ["42u64", "(#literal #u64 42)"] {
+            let direct = graph(&format!(
+                "(#let-mut owner #u64 0u64)
+                  (#call touch-before (: target (#borrow-mut owner) : value {value}))
+                  (#return owner)"
+            ));
+            assert_eq!(Plan::new(&direct).unwrap().borrows.len(), 1, "{value}");
+            let projected = graph(&format!(
+                "(#let-mut owner Pair (#struct-literal Pair (: left 0u64 : right 0u64)))
+                  (#call touch-before (: target (#borrow-mut (#get owner right)) : value {value}))
+                  (#return (#get owner right))"
+            ));
+            assert_eq!(Plan::new(&projected).unwrap().borrows.len(), 1, "{value}");
+        }
     }
 
     #[test]
