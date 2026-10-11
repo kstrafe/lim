@@ -446,7 +446,7 @@ fn one_poll_dispatcher_runs_inside_an_opaque_stationary_pin_scope() {
         generated.contains("Work-frame-cleanup-await-1")
             || generated.contains("work-frame-await-1")
     );
-    assert!(generated.contains("(#fn work-poll-cancel"));
+    assert!(generated.contains("(#fn work-poll-cleanup"));
 
     // Cached inspectable output is precisely the executable dispatcher, not
     // the private helper-shaped capture-analysis witness.
@@ -1331,7 +1331,7 @@ fn pinned_async_frames_poll_in_place_and_cancel_explicitly() {
         &generated,
         "(#fn work-poll-cleanup ((task (#pin-ref-mut Work-frame))) Work-frame-cleanup)",
     );
-    assert!(generated.contains("(#fn work-poll-cancel"), "{generated}");
+    assert!(generated.contains("(#fn work-poll-cleanup"), "{generated}");
 }
 
 #[test]
@@ -1646,7 +1646,7 @@ fn pinned_async_function_without_await_runs_on_first_poll() {
         generated.contains("(#pin-ref-mut Work-frame)"),
         "{generated}"
     );
-    assert!(generated.contains("(#fn work-poll-cancel"), "{generated}");
+    assert!(generated.contains("(#fn work-poll-cleanup"), "{generated}");
 }
 
 #[test]

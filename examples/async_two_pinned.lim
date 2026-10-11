@@ -27,12 +27,12 @@
           (#case (write-value-pending write-pending)
             (#block (#forget write-pending) (#unreachable)))))))
   ; Cancellation consumes each remaining state, including the unpolled future.
-  (#let reader-state Read-value-frame-state
-    (#call read-value-poll-cancel (: task (#pin reader))))
-  (#let writer-state Write-value-frame-state
-    (#call write-value-poll-cancel (: task (#pin writer))))
-  (#forget reader-state)
-  (#forget writer-state)
+  (#let reader-cleanup Read-value-frame-cleanup
+    (#call read-value-poll-cleanup (: task (#pin reader))))
+  (#let writer-cleanup Write-value-frame-cleanup
+    (#call write-value-poll-cleanup (: task (#pin writer))))
+  (#forget reader-cleanup)
+  (#forget writer-cleanup)
   (#forget reader)
   (#forget writer)
   (#return answer))
