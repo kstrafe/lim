@@ -6959,8 +6959,24 @@ fn async_for_range_awaits_bounds_in_source_order_before_iterating() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
+    let generated = build_and_run_graph(source, 42);
     assert!(!generated.contains("(#await"), "{generated}");
+}
+
+#[test]
+fn range_bounds_are_once_with_side_effects_and_labeled_continue() {
+    build_and_run(include_str!("../examples/range_bounds_once.lim"), 42);
+    let source = include_str!("../examples/async_range_bounds_once.lim");
+    build_and_run(source, 42);
+    build_and_run_graph(source, 42);
+    let immediate = source.replace("(ChildPending (Resume value))", "(ChildReady value)");
+    build_and_run(&immediate, 42);
+    build_and_run_graph(&immediate, 42);
+    let breaking = source
+        .replace("(#continue-to counting)", "(#break-to counting)")
+        .replace("total 39u64", "total 42u64");
+    build_and_run(&breaking, 42);
+    build_and_run_graph(&breaking, 42);
 }
 
 #[test]
@@ -6998,7 +7014,7 @@ fn async_for_range_composes_awaited_bounds_with_awaited_body() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
+    let generated = build_and_run_graph(source, 42);
     assert!(generated.contains("BoundWaiting"), "{generated}");
     assert!(generated.contains("Body"), "{generated}");
 }

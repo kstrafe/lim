@@ -7738,15 +7738,22 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
             let name = expect_symbol(binding.first(), "for-range binding name")?.to_owned();
             let ty = binding.get(1).cloned().unwrap();
             let counter = format!("__lim_range_counter_{name}");
+            let range_end = format!("__lim_range_end_{name}");
             let start = lower_expr(&items[2])?;
             let end = lower_expr(&items[3])?;
+            let bounds_type =
+                Expr::List(vec![Expr::Symbol("tuple".into()), ty.clone(), ty.clone()]);
             let mut lowered = vec![
                 Expr::Symbol("for".into()),
                 Expr::List(vec![
                     Expr::Symbol("let-mut".into()),
-                    Expr::Symbol(counter.clone()),
-                    ty.clone(),
-                    start,
+                    Expr::List(vec![
+                        Expr::Symbol("tuple".into()),
+                        Expr::Symbol(counter.clone()),
+                        Expr::Symbol(range_end.clone()),
+                    ]),
+                    bounds_type.clone(),
+                    Expr::List(vec![Expr::Symbol("tuple".into()), bounds_type, start, end]),
                 ]),
                 Expr::List(vec![
                     Expr::Symbol("<".into()),
@@ -7754,7 +7761,7 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
                         Expr::Symbol("clone".into()),
                         Expr::Symbol(counter.clone()),
                     ]),
-                    end,
+                    Expr::List(vec![Expr::Symbol("clone".into()), Expr::Symbol(range_end)]),
                 ]),
                 Expr::List(vec![
                     Expr::Symbol("set".into()),
@@ -8934,6 +8941,20 @@ mod tests {
             let span = diagnostic.span.expect("range body mutation has a span");
             assert_eq!(&source[span.start..span.end], "#set", "{diagnostic:?}");
             assert_eq!(span.start, source.find("#set value").unwrap());
+        }
+    }
+
+    #[test]
+    fn range_loop_bound_diagnostics_preserve_original_sources() {
+        for (start, end) in [("missing", "1u64"), ("0u64", "missing")] {
+            let source = format!(
+                "(#fn main () #u64\n  (#for-range (i #u64) {start} {end} ())\n  (#return 0u64))"
+            );
+            let diagnostic = structured_type_error(&parse_program(&source).unwrap());
+            assert!(diagnostic.message.contains("missing"), "{diagnostic:?}");
+            let span = diagnostic.span.expect("range bound has a source span");
+            assert_eq!(&source[span.start..span.end], "missing", "{diagnostic:?}");
+            assert_eq!(span.start, source.find("missing").unwrap());
         }
     }
 

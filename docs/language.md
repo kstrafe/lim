@@ -2148,7 +2148,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#f64` | `#f64` | `(#fn identity ((value #f64)) #f64 (#return value))` (function signature) | 64-bit IEEE 754 floating-point scalar type. |
 | `#fn` | `(#fn name (: arg Type : ...) ReturnType body...)`; the parameter list may also use nested pairs | `(#fn add (: a #u64 : b #u64) #u64 (#return (#u64.+.wrap a b)))` (top level) | Declares a monomorphic function with explicit parameter/return types and body. |
 | `#for` | `(#for init condition step body...)` | `(#for (#let-mut i #u64 0u64) (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)) (#set sum (#u64.+.wrap sum i)))` (statement) | Runs an explicitly structured init/condition/step loop. |
-| `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i #u64) 0u64 4u64 (#set sum (#u64.+.wrap sum i)))` (statement) | Iterates a typed, half-open range `[start, end)`. |
+| `#for-range` | `(#for-range (name Type) start end body...)` | `(#for-range (i #u64) 0u64 4u64 (#set sum (#u64.+.wrap sum i)))` (statement) | Evaluates start, then end, once and iterates the typed, half-open range `[start, end)`. |
 | `#forget` | `(#forget value)` | `(#forget raw-pointer)` (statement) | Discards a value without cleanup; use after explicit resource release. Forgetting a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. Lim never inserts destructors. Task handles/results cannot be forgotten. |
 | `#get` | `(#get aggregate field-or-index)` | `(#get point x)` or `(#get pair 0)` (expression) | Projects a struct field or tuple element. |
 | `#get-payload` | `(#get-payload enum variant index)` | `(#get-payload result Error 0)` (expression) | Projects a statically selected enum payload field. |
@@ -2469,7 +2469,13 @@ them back. See `examples/async_pattern_payloads.lim` for a tuple-payload match
 whose bias is retained across a child await (exit 42).
 
 `#for-range` is shorthand with a typed binding, start, and end.  Its bounds
-are explicit and the range is half-open:
+are explicit and the range is half-open. Start is evaluated first, then end;
+both are evaluated exactly once before iteration, including when either bound
+awaits a child. Changing a variable used by a bound inside the body does not
+change the captured endpoint. `#continue` and `#continue-to` do not evaluate
+the bounds again. By contrast, `#for` evaluates its condition on each iteration.
+See `examples/range_bounds_once.lim` and
+`examples/async_range_bounds_once.lim` for side effects and suspended bounds:
 
 ```lisp syntax
 (#for-range (i #u64) 0u64 10u64

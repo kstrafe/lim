@@ -115,6 +115,14 @@ Graph-default selection and legacy removal remain separate gates.
 
 ## Current support and gates
 
+Range bounds now have the same semantics in ordinary code and both async
+routes: evaluate start, then end, exactly once before entering the loop.
+Suspending either bound resumes its computation without evaluating a completed
+bound again. Labeled continue and break preserve the captured endpoints.
+Native regressions cover side-effecting factories, immediate children,
+suspending children, and an awaiting body. Classic `#for` conditions remain
+per-iteration computations.
+
 Source-time delayed initialization stays at the original graph Bind. Factories
 install only parameters; repeated Pending retries poll the existing child.
 Static pinned owner projections and supported checked selected addresses use

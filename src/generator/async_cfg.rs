@@ -589,6 +589,25 @@ impl<'a> Builder<'a> {
         } else {
             None
         };
+        let range_end = if kind == "for-range" {
+            let id = BindingId(self.graph.bindings.len());
+            let end = c.get(3).ok_or_else(|| Error {
+                message: "for-range is missing its end bound".into(),
+                span: node.span,
+            })?;
+            self.graph.bindings.push(Binding {
+                name: format!("lim.async.range-end-{}", id.0),
+                declared_type: range_type.clone(),
+                mutable: false,
+                source: end,
+            });
+            self.scopes.last_mut().unwrap().push(id);
+            let value = self.expression(end, range_type.as_deref(), None)?;
+            self.emit(end, Action::Bind(vec![id]), vec![value]);
+            Some(id)
+        } else {
+            None
+        };
         let loop_head = self.emit(node, Action::LoopHead, Vec::new());
         let exit = self.node(node, Action::Join, Vec::new());
         let step = if matches!(kind, "for" | "for-range") {
@@ -611,17 +630,9 @@ impl<'a> Builder<'a> {
         };
         if kind != "loop" {
             let condition = if kind == "for-range" {
-                // Preserve ordinary #for-range desugaring: start executes once,
-                // while end executes at each condition check, including awaits.
-                let end = c
-                    .get(3)
-                    .map(|end| self.expression(end, range_type.as_deref(), None))
-                    .transpose()?;
-                self.emit(
-                    node,
-                    Action::RangeCondition(counter.unwrap()),
-                    end.into_iter().collect(),
-                )
+                // Both bounds execute once, in source order, before the loop.
+                let end = self.emit(node, Action::Read(range_end.unwrap()), Vec::new());
+                self.emit(node, Action::RangeCondition(counter.unwrap()), vec![end])
             } else if let Some(condition) = c.get(if kind == "for" {
                 2
             } else if kind == "while-let" {
@@ -1322,7 +1333,7 @@ mod tests {
     }
 
     #[test]
-    fn range_start_is_once_but_end_is_a_loop_condition() {
+    fn range_bounds_are_once_before_the_loop_condition() {
         let source = "(#fn work () () (#for-range (index #u64)
           (#await #u64 Child Pending Ready poll 0u64)
           (#await #u64 Child Pending Ready poll 4u64)
@@ -1352,7 +1363,7 @@ mod tests {
             }
         }
         assert!(!visited.contains(&awaits[0]));
-        assert!(visited.contains(&awaits[1]));
+        assert!(!visited.contains(&awaits[1]));
         let step = graph
             .nodes
             .iter()

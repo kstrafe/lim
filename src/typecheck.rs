@@ -4529,21 +4529,16 @@ fn semantic_statement_source<'a>(
     // the generated condition/step syntax; zip only the real body statements.
     if matches!(source.children.first().map(|head| &head.expr), Some(Expr::Symbol(head)) if head == "#for-range")
     {
-        if let Statement::For {
-            init,
-            condition,
-            body,
-            ..
-        } = statement
-        {
-            let start = match init.as_ref() {
-                Statement::Let { value, .. } => value,
+        if let Statement::For { init, body, .. } = statement {
+            let bounds = match init.as_ref() {
+                Statement::Destructure {
+                    value: Expr::List(items),
+                    ..
+                } if matches!(items.first(), Some(Expr::Symbol(head)) if head == "tuple") => items,
                 _ => return None,
             };
-            let end = match condition {
-                Expr::List(items) => items.get(2)?,
-                _ => return None,
-            };
+            let start = bounds.get(2)?;
+            let end = bounds.get(3)?;
             return locate(start, source.children.get(2)?)
                 .or_else(|| locate(end, source.children.get(3)?))
                 .or_else(|| {
