@@ -6,11 +6,11 @@
 //! not the expression that constructed its child. Types below are declaration
 //! contracts; missing contracts remain unknown, never inferred from values.
 //!
-//! Production currently uses this graph to validate control transfers before
-//! rewriting. Frame emission and ownership/loan state at suspension are still
-//! provided by the legacy lowering and checked generated functions. Data-use
-//! liveness alone is NOT sufficient to select owned cancellation slots.
-#![allow(dead_code)] // The general frame emitter will consume the graph next.
+//! This test-only syntax graph is an independent control-flow contract oracle.
+//! Production uses the checked original-body graph in async_exec and emits
+//! ordinary source through async_emit. Data-use liveness alone is NOT
+//! sufficient to select owned cancellation slots.
+#![allow(dead_code)] // Independent test oracle, not a production lowering route.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 

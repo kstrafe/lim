@@ -3,10 +3,13 @@
 The graph generator is the default for the ordinary public compile, parse,
 and generated-source APIs. `CompileConfig::set("async-lowering", "graph")`
 explicitly selects the same route; the CLI supports the same configuration key.
-`legacy` is no longer a selectable route. The internal legacy implementation
-still needs removal. Earlier migration entries below
+`legacy` is no longer a selectable route, and its internal implementation has
+been deleted. Earlier migration entries below
 are historical verification records, not descriptions of the current default.
 Switching the default alone does not complete the full async safety goal.
+
+See [the requirement-by-requirement audit](async-goal-audit.md) for current
+invariants, coverage, performance measurements, and verification results.
 
 Graph selection applies to all async invocations in the prepared program,
 including imported and generator-produced invocations. Unsupported lowering

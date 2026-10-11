@@ -4,13 +4,13 @@
 //! The synchronous driver is an analysis model, not the async runtime. It
 //! evaluates a child once and polls it in an ordinary loop until Ready. The
 //! source function's branches, scopes and transfers are left intact. Ordinary
-//! type/ownership/loan checking can therefore see the original body instead
-//! of only the legacy, shape-specific generated continuations.
+//! type/ownership/loan checking can therefore see the original body separately
+//! from the proposed generated dispatcher and its physical storage layout.
 //!
 //! This is not permission to emit unsafe frame operations. In particular,
-//! promotion of pinned owners into externally lived storage and mapping all
-//! computed operands still need integration with the general frame emitter.
-#![allow(dead_code)] // The graph emitter will consume these source-body mappings.
+//! physical storage and computed operands must be validated by the graph
+//! emitter, followed by ordinary checking of its generated program.
+#![allow(dead_code)] // Source-body mappings are also inspected by structural tests.
 
 use std::collections::{HashMap, HashSet};
 

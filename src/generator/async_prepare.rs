@@ -5,7 +5,7 @@
 //! are signatures, not fake executable definitions or empty frame layouts.
 //! This boundary cannot authorize emission: the original ownership proof and
 //! the final generated ordinary-code proof are still mandatory.
-#![allow(dead_code)] // Consumed by the general state-machine emitter.
+#![allow(dead_code)] // Planning facts are also inspected by structural tests.
 
 use std::{cell::OnceCell, collections::HashSet};
 

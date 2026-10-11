@@ -5,7 +5,7 @@
 //! execution order. Every owning storage cell has an explicit Empty/Full tag.
 //! This module proposes code; graph validation is not ownership permission.
 //! The original model and generated ordinary program must both be checked.
-#![allow(dead_code)] // The default frontend switches after all storage modes land.
+#![allow(dead_code)] // Internal emission helpers also support structural tests.
 
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{HashMap, HashSet};

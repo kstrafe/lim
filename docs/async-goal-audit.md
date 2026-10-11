@@ -1,0 +1,133 @@
+# Async safety and lowering audit
+
+This audit covers the five requested async improvements, not a claim that the
+language's entire borrow checker is formally verified. The runtime remains
+ordinary generated Lim source. Both original-source checking and final ordinary
+generated-program checking remain mandatory, including on cache hits.
+
+## 1. Children borrowing parent locals
+
+`async_emit::in_place_cleanup` is shared by pinned cleanup and configured
+destruction. It orders occupied dependent cells before their referents, rejects
+dependency cycles, and preserves reference-bearing lender storage until its
+children are retired. Generated pinned children must have a safe, one-argument
+unit-returning handler taking their pinned mutable reference. The handler
+receives the actual stored payload; the cell is emptied only after it returns.
+An ordinary movable protocol child can instead be consumed by its handler while
+the parent remains stationary. This does not permit moving a pinned child.
+
+Evidence in `tests/async_dependent_cancellation.rs` covers shared and exclusive
+children, runtime-indexed owners, suspension in a for step, selected local and
+external referents, generated pinned children, entry/Ready/repeated destruction,
+and rejecting a by-value pinned-child handler before cache publication.
+`tests/async_self_borrows.rs` also rejects moving a self-referential frame after
+forgetting its Pending handle; discarding a handle does not undo pinning.
+
+## 2. References with varying targets
+
+Source loan origins retain resolved owner, field, variant, index, and external
+parameter identities. Emission preserves the selected address rather than
+reevaluating the source selection. Layout recipes validate each resolved
+projection against its actual owner type. Source aliases and lifetimes are
+checked separately from the physical representation.
+
+`graph_selected_reference_mixes_slice_and_external_reference_targets` in
+`tests/async_fn.rs` checks both branch choices and shared/exclusive selections
+among slices, external references, fields, and arrays. It includes rejection of
+overlapping inputs, illegal escapes, and conflicting writes. The pinned
+local/external selection test covers stationary frame storage.
+`tests/async_dynamic_array_edges.rs` covers empty layouts, nested nonempty
+layouts, and two runtime coordinates, including changed source indices.
+
+## 3. Control flow, guards, lending, projections, and reuse
+
+`tests/async_graph_production.rs` checks shared, exclusive, pinned-exclusive,
+aggregate, tuple, and alternative-pattern guards. Its cases cover suspended
+preview, rejection, commit, mutation after preview release, nested field order,
+caller alias rejection, and cleanup in entry/preview/committed states. Its helper
+reads the generated file, substitutes it for the invocation, and independently
+parses, type-checks, compiles, and runs the resulting ordinary program.
+
+`tests/async_graph_immediate_borrow.rs` covers synchronous lending, stored local
+handles retired before suspension, disjoint projections, selected addresses,
+slice bounds, and owner extraction. Whole aggregate array elements are tested
+in both explicitly linear and structurally Copy forms. The source index changes
+after borrowing; both selected elements must still be mutated correctly. The
+companion rejection test checks destruction and alias conflicts at original
+source lines and refuses a live local handle across a movable Pending boundary.
+
+Pending handles are repeatedly fed back to poll in these runtime suites.
+Pinned handles keep the same frame stationary. Movable frames must have all
+internal physical reference cells Empty at every reachable Pending edge;
+`movable_local_references_require_complete_physical_boundary_proofs` removes
+those facts deliberately and requires rejection. This includes checked-pointer
+storage: using a pointer does not exempt a live handle from the boundary proof.
+
+## 4. One implementation and cancellation interface
+
+Production routes only through original-body graph planning and emission.
+Graph lowering is the default; `async-lowering=legacy` is rejected. The old
+`async_fn.rs` and `async_dispatch.rs` implementations and capture-cache plumbing
+have been deleted. `async_cfg` and `async_contract` are test-only independent
+contract oracles, not alternative lowering routes.
+
+Both generator variants register their actual struct frame and always expose
+source-slot cleanup. The old fixed `Frame-state` type, raw `poll-cancel` function,
+and public-cleanup mode switch are gone. Private extraction storage uses a fresh
+name. `cleanup_is_uniform_and_does_not_reserve_a_private_state_api` verifies both
+variants and allows user declarations of the removed private type name.
+Negative frontend/integration tests reject the removed APIs through ordinary
+source-spanned diagnostics, rather than compatibility or migration handling.
+
+## 5. Reuse checked facts and measure redundant work
+
+`async_prepare::Planning` owns one resolved declaration/body/flow arena for the
+invocations and shares immutable `LinearTypes` classification. Binding-origin
+collection scans unique immutable snapshots once instead of scanning all events
+per binding. Outcome summaries share provenance within each filtered outcome
+graph, never borrowing the unfiltered graph's facts. Ordered-baseline and
+filtered-graph parity tests guard these optimizations.
+
+The standalone source writer no longer expands and checks once merely to obtain
+an empty capture map, then repeats that work for publication. Its regression
+requires two semantic passes: original source and emitted ordinary program.
+Retained owned expansion requires zero additional passes when validating again
+and publishing its already checked output. Neither optimization removes an
+ownership, access, lifetime, or final generated-code check.
+
+Measurements, methodology, and limitations are recorded in
+`async-graph-production.md`: binding-origin collection fell from 75,651 to
+6,946 microseconds on the measured collection workload; cold standalone source
+publication fell from 32.777 to 17.774 ms and four to two semantic passes.
+These are stage-specific improvements, not universal executable-build claims.
+Loan solving still does real work; the jump-table dispatcher does not eliminate
+source analysis, and no generic cross-graph loan-solver cache is claimed.
+
+A fresh release run of `graph_source_publication_cold_timing` after the
+whole-element fix measured a median of 18.038 ms across seven cold-cache
+samples after one executable-path warmup. Every sample recorded exactly two
+semantic passes. This includes validation and cache writes, excludes backend
+emission/linking, and is consistent with the earlier stage-specific result;
+it is not a new paired whole-compiler speedup measurement.
+
+## Verification record
+
+After the whole-element fix, 1,350 library tests, ten dependent-cancellation
+tests, six dynamic-array tests, all 229 async tests, and five independent
+generated-code boundary tests passed. All 32 graph-production tests passed,
+including the longer guard/cancellation matrices. All 15 immediate-borrow tests
+and 83 emitter tests passed separately. Retained-owner verification passed five
+frame-restoration, three heap-contents, two self-borrow cleanup, and 25
+self-borrow tests, including forgotten-Pending-handle move rejection.
+All-target checking and the fresh release source-publication benchmark passed.
+
+The preceding full all-target run passed the other suites, including all 32
+graph-production cases, native examples, and relocated cold/warm reproducibility.
+Two native-linking launches failed with Linux `ETXTBSY`; all 34 native-linking
+tests passed in a serial rerun. This records the launch issue rather than
+claiming that the parallel harness race has been eliminated.
+
+All five requested improvements are implemented and have current verification
+evidence. Necessary safety boundaries remain explicit: a local borrow crossing
+suspension needs a stationary pinned frame, unsafe emitted storage does not
+authorize invalid original source, and cache hits do not bypass validation.

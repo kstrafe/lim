@@ -203,6 +203,7 @@ fn pinned_child_rejects_a_by_value_cancellation_handler() {
         error.message
     );
     assert!(error.span.is_some());
+    assert!(!scratch.path().join("cache").exists());
     assert!(!scratch.path().join("generated").exists());
 }
 
