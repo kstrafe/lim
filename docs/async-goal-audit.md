@@ -47,6 +47,72 @@ obligations in ordinary generated-code checking. General partial-initialization
 storage is a possible language-level solution, not yet implemented or approved
 as a new public primitive; no async-only checker exemption is proposed.
 
+### Storage proposal for review (not implemented)
+
+The desired positive async case is now kept in
+[`async_partial_whole_borrow.lim`](../tests/fixtures/async_partial_whole_borrow.lim),
+not only in a temporary audit directory. It must eventually return 42, preserving
+the same sibling address across Pending and field restoration. It currently
+fails with E4000 at the whole borrow; this is deliberately recorded as an open
+acceptance case, not a passing regression or completed feature.
+
+The proposed general `(#storage T)` type would own one aligned, contiguous
+payload with exactly T's field offsets and a separate initialization sidecar.
+It is always linear and never implicitly destroys initialized contents.
+Moving an unborrowed, unpinned wrapper is permitted; a pinned local retains
+the existing permanent immovability rules. A movable heap-owning handle would
+retain its stationary allocation's identity under the existing pin-own rules.
+Neither forgetting a pin handle nor a storage handle unpins surviving data.
+
+Candidate spellings below are a design sketch, **not accepted Lim syntax**:
+
+```lisp
+(#let-mut slots (#storage Owner) (#storage-empty Owner))
+(#storage-put (#storage-field slots kept) 40u64)
+(#storage-put (#storage-field slots item)
+  (#struct-literal Token (: value 1u64)))
+(#let kept (#ref #u64) (#storage-borrow (#storage-field slots kept)))
+(#let moved Token (#storage-take (#storage-field slots item)))
+(#forget moved)
+(#storage-put (#storage-field slots item)
+  (#struct-literal Token (: value 2u64)))
+(#let whole (#ref Owner) (#storage-borrow slots))
+```
+
+Field selection is a checked place operation, not a detached reference or
+an address cast. Native loan origins must resolve to the wrapper's actual
+payload and typed projection. A whole borrow overlaps every descendant; a
+field borrow permits changes only to disjoint fields. Operations must not
+first borrow the entire wrapper mutably, which would unnecessarily reject
+restoring `item` while `kept` remains borrowed. Nested and indexed projections
+must preserve existing bounds, index-evaluation and alias rules.
+
+Initialization is independent of pinning. Taking a value clears its precise
+initialization state; putting a value requires empty destination storage and
+cannot implicitly overwrite a linear value. Whole access requires every
+relevant field initialized. Across function boundaries or runtime state
+branches, unknown initialization cannot be treated as Full: the design must
+either carry a statically checked proof or retain a runtime initialization
+check, like a bounds check, before forming a typed reference. The choice and
+public spellings require review. A known-empty access must not pass validation.
+No operation may bypass existing pinning, loan, replacement or escape rules.
+
+Reference-bearing contents must preserve their original parameter/allocation
+origins through stores, takes, returns and clones. Initialization bits alone
+cannot prove those lifetimes. Cancellation must explicitly consume only live
+contents and retire dependent loans before their owners; in-place destruction
+of pinned children must not become a by-value take. Nominal linear obligations
+remain explicit, including when all fields have individually been consumed.
+
+Implementation requires ordinary frontend, typed-flow and native-backend
+support for this general storage type. The async generator would merely emit
+its operations. Original-source checking and independently checked emitted Lim
+remain required on cold and warm caches; no async-only checker permission is
+part of this proposal. Acceptance must include shared/exclusive whole and field
+borrows, nested restoration, returned references, stack/heap pinning, early and
+repeated cancellation, exact address identity, and invalid accesses/escapes.
+This proposal has not added keywords or authorized their implementation.
+
 Deep scalar borrows within independently stored aggregate leaves now lower to
 references rooted in their actual field cells. Field/tuple/static-index/runtime-
 index tests cover shared/exclusive ordinary and pinned references, disjoint
