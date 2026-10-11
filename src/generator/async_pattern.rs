@@ -70,12 +70,12 @@ impl Inspector<'_> {
         if let Expr::List(parts) = pattern {
             if parts.first() == Some(&symbol("#or")) && parts.len() >= 2 {
                 let mut alternatives = parts[1..].iter();
-                let mut result = self.test(alternatives.next().unwrap(), ty, handle.clone())?;
+                // The root handle is already named by test(). Inspect each
+                // alternative through that same shared capability rather
+                // than constructing nested copies of its pin handle.
+                let mut result = self.inspect(alternatives.next().unwrap(), ty, handle)?;
                 for alternative in alternatives {
-                    result = form(
-                        "#bool.||",
-                        [result, self.test(alternative, ty, handle.clone())?],
-                    );
+                    result = form("#bool.||", [result, self.inspect(alternative, ty, handle)?]);
                 }
                 return Ok(result);
             }
@@ -204,7 +204,7 @@ pub(crate) fn test(
 /// Snapshot only checked repeatable guard bindings authorized by the emitter.
 /// Shared reference leaves retain their ordinary pointee loans. The scrutinee
 /// remains in its stationary cell until the arm commits. Move-only aliases and
-/// alternative-pattern address selection still require a separate storage proof.
+/// alternative-pattern bindings are not allowed by the ordinary language.
 pub(crate) fn preview(
     declarations: &Declarations,
     pattern: &Expr,
@@ -231,10 +231,19 @@ pub(crate) fn preview(
     let Some(Expr::Symbol(constructor)) = parts.first() else {
         return Err("stationary guard pattern lost its constructor".into());
     };
+    if constructor == "#literal" {
+        // Literal patterns are checked by PatternTest and bind no aliases.
+        return Ok(Vec::new());
+    }
     if constructor == "#or" {
-        return Err(
-            "alternative guard previews require selected stationary storage aliases".into(),
-        );
+        // Ordinary enum alternatives cannot bind values. PatternTest already
+        // checked their shape: preview must not read any rejected payload.
+        for alternative in &parts[1..] {
+            if !preview(declarations, alternative, &ty, reference.clone(), bindings)?.is_empty() {
+                return Err("alternative guard previews cannot bind values".into());
+            }
+        }
+        return Ok(Vec::new());
     }
     let fields = match &ty {
         Type::Named(owner) if declarations.enums.contains_key(owner) => {
@@ -354,5 +363,42 @@ mod tests {
           (#fn inspect ((value (#pin-ref Choice))) #bool (#return {text}))"
         );
         crate::CheckedProgram::validate(&crate::parse_program(&checked_source).unwrap()).unwrap();
+
+        let alternative = crate::parse("(#or (Some (Payload 42u64)) Empty)")
+            .unwrap()
+            .remove(0)
+            .expr;
+        let expression = test(
+            checked.declarations(),
+            &alternative,
+            &Type::Named("Choice".into()),
+            symbol("value"),
+            "choice",
+            &mut HashSet::new(),
+        )
+        .unwrap();
+        let text = crate::expression_source(&expression).unwrap();
+        assert_eq!(text.matches("(#pin-ref Choice)").count(), 1, "{text}");
+        for prohibited in ["#unsafe", "#pin-read", "#forget", "#drop", "#clone"] {
+            assert!(!text.contains(prohibited), "{text}");
+        }
+        let source = format!(
+            "{source}\n(#fn inspect-choice (: value (#pin-ref Choice)) #bool (#return {text}))"
+        );
+        crate::CheckedProgram::validate(&crate::parse_program(&source).unwrap()).unwrap();
+
+        let literal_alternatives = crate::parse("(#or (Some (Payload (#literal #u64 42))) Empty)")
+            .unwrap()
+            .remove(0)
+            .expr;
+        assert!(preview(
+            checked.declarations(),
+            &literal_alternatives,
+            &Type::Named("Choice".into()),
+            symbol("value"),
+            &std::collections::HashMap::new()
+        )
+        .unwrap()
+        .is_empty());
     }
 }

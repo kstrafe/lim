@@ -82,14 +82,29 @@ stationary storage. Repeatable scalar and ordinary shared-reference guard
 payloads can be previewed from a linear scrutinee while an awaiting guard
 executes. Shared snapshots retain their ordinary pointee loans, not loans of
 the containing cell. Rejection clears the preview and preserves the scrutinee
-for later arms. Exclusive/move-only guard aliases, reference-bearing aggregate
-previews and alternative-pattern previews still fail closed. Reading cleanup
-handlers for shared-reference enum payloads work at entry, preview suspension
-and fallback-arm suspension. Ordinary call analysis carries complete nested
+for later arms. Copy reference-bearing struct and tuple previews preserve their
+nested pointee origins, including after a rejected awaiting guard. Their checked
+shared-reference field reads do not create loans of the containing cell.
+Reference-bearing writes still require restoration storage. Exclusive/move-only
+guard aliases still require stationary storage aliases and fail closed. Legal
+enum `#or` guards have no pattern bindings and therefore perform no payload
+preview; their tests still discriminate variants before any committed read.
+The ordinary language continues to reject bindings in enum alternatives.
+Reading cleanup handlers for shared-reference enum payloads work at entry,
+preview suspension and fallback-arm suspension. Ordinary call analysis carries complete nested
 enum alternatives and removes output payloads whose mandatory input references
 are proved absent through one checked safe-reference boundary. Raw pointers,
 unknown tags and repeated dereferences cannot establish that absence; supporting
 a preview does not relax the ordinary checker boundary.
+
+Cold/warm and standalone native tests cover Copy struct and tuple previews,
+rejected guards followed by fallback-arm suspension, and both variants of a
+binding-free alternative guard. A caller mutation during a suspended aggregate
+guard is rejected at the original `#set` span before cache publication. A cleanup
+handler reading the aggregate's nested reference works at entry, suspended
+preview, and committed fallback; repeated cancellation then releases the caller's
+loan so it can mutate the referent. These are copied nonexclusive snapshots, not
+move-only or exclusive guard aliases.
 
 Scoped external borrows have explicit reference cells, tracked by the physical
 state solver through Pending and cleared on scope exit/cancellation. Their
@@ -340,8 +355,10 @@ a separate storage/provenance gate.
 The public cache audit now uses this migrated graph example. All three user
 generator invocations are expanded once across preparation, compilation and
 source publication. A warm hit reuses graph text, but the semantic-pass counter
-is still two on both cold and warm runs: original ownership witnesses and
-ordinary emitted code. Reusing more checked source facts remains a performance
-goal, not an optimization claimed by the slice-storage change. Corrupt graph
+is still two on both cold and warm runs: generation planning resolution followed
+by full validation of the assembled program, including source ownership witnesses
+and ordinary emitted code. Planning is not an ownership proof. Reusing its checked
+source typing/flow facts without skipping either ownership proof remains a
+performance goal, not an optimization claimed by the slice-storage change. Corrupt graph
 text is rejected without emission or repair; legacy capture-cache regeneration
 is not the graph cache's policy.

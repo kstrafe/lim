@@ -1032,7 +1032,8 @@ impl<'a> Emitter<'a> {
     ) -> Result<String, Error> {
         // Repetition is allowed only by the ordinary checked type. A shared
         // reference snapshot keeps its pointee loan; it is not a borrow of the
-        // scrutinee cell. Exclusive handles and linear payloads still require
+        // scrutinee cell, including inside Copy aggregates. Exclusive handles
+        // and linear payloads still require
         // stationary aliases rather than owning reads during Preview.
         if !commit {
             let ty = &self.function.graph.values[pattern.scrutinee.0].ty;
@@ -1041,14 +1042,11 @@ impl<'a> Emitter<'a> {
                 let mut bindings = HashMap::new();
                 for &binding in &pattern.bindings {
                     let ty = &self.function.graph.bindings[binding.0].ty;
-                    let shared_reference = matches!(
-                        crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases),
-                        Ok(Type::Reference { mutable: false, .. })
-                    );
-                    if !self.types.can_repeat(ty)
-                        || (self.types.contains_reference(ty) && !shared_reference)
-                    {
-                        return Err(fail(self.function, "move-only or reference-bearing guard bindings require stationary storage aliases"));
+                    if !self.types.can_repeat(ty) {
+                        return Err(fail(
+                            self.function,
+                            "move-only guard bindings require stationary storage aliases",
+                        ));
                     }
                     let name = self.fresh("guard-preview");
                     bindings.insert(name.clone(), ty.clone());
@@ -1408,7 +1406,10 @@ impl<'a> Emitter<'a> {
         mutable: bool,
     ) -> Result<(String, Type), Error> {
         let (place, ty) = self.owned_projection_address(descriptor, mutable)?;
-        if !self.types.can_repeat(&ty) || self.types.contains_reference(&ty) {
+        // A Copy read of a shared reference-bearing field preserves its
+        // stored pointee origins through ordinary checked projection. Writes
+        // still require the separate restoration protocol for those contents.
+        if !self.types.can_repeat(&ty) || (mutable && self.types.contains_reference(&ty)) {
             let reject = |message: &str| fail(self.function, message);
             return Err(reject(
                 "projected moves or reference holders need checked lending and restoration storage",

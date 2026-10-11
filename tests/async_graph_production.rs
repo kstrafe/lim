@@ -271,6 +271,86 @@ fn shared_reference_guard_preview_keeps_the_referent_through_rejected_awaits() {
     );
 }
 
+fn aggregate_reference_guard_source() -> String {
+    shared_reference_guard_source()
+        .replace(
+            "(#enum Holder ((Holding (#ref #u64))))",
+            "(#struct View ((value (#ref #u64))))\n(#enum Holder ((Holding View)))",
+        )
+        .replace(
+            "(Holding source)",
+            "(Holding (#struct-literal View ((value source))))",
+        )
+        .replace("(#deref view)", "(#deref (#get view value))")
+}
+
+#[test]
+fn copy_reference_aggregate_guard_retains_nested_referents_across_rejection() {
+    run(
+        &aggregate_reference_guard_source(),
+        "async-graph-aggregate-reference-guard",
+    );
+}
+
+#[test]
+fn copy_reference_tuple_guard_retains_nested_referents_across_rejection() {
+    let source = aggregate_reference_guard_source()
+        .replace(
+            "(#struct View ((value (#ref #u64))))",
+            "(#type View (#tuple #u64 (#ref #u64)))",
+        )
+        .replace(
+            "(#struct-literal View ((value source)))",
+            "(#tuple 0u64 source)",
+        )
+        .replace("(#get view value)", "(#get view 1)");
+    run(&source, "async-graph-tuple-reference-guard");
+}
+
+#[test]
+fn alternative_reference_guards_do_not_preview_payloads() {
+    let source = shared_reference_guard_source()
+        .replace(
+            "(#enum Holder ((Holding (#ref #u64))))",
+            "(#enum Holder ((Holding (#ref #u64)) (Other (#ref #u64))))",
+        )
+        .replace(
+            "(#case (Holding view)",
+            "(#case (#or (Holding _) (Other _))",
+        )
+        .replace("(#deref view)", "(#deref source)");
+    for source in [
+        source.clone(),
+        source.replace("(Holding source)", "(Other source)"),
+    ] {
+        run(&source, "async-graph-alternative-reference-guard");
+    }
+}
+
+#[test]
+fn suspended_aggregate_guard_keeps_the_callers_loan_alive() {
+    let source = aggregate_reference_guard_source()
+        .replace("(#let owner #u64", "(#let-mut owner #u64")
+        .replace(
+            "(#let second Work-poll-result",
+            "(#set owner 99u64)\n(#let second Work-poll-result",
+        );
+    let scratch = support::Scratch::new("async-graph-aggregate-guard-conflict");
+    let error = lim::compile_source_to_assembly(
+        &source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&source[span.start..span.end], "#set");
+    assert_eq!(span.start, source.find("#set owner").unwrap());
+    assert!(!scratch.path().join("cache").exists());
+}
+
 fn guard_cancellation_declarations() -> String {
     let source = shared_reference_guard_source();
     source[..source.find("(#fn main").unwrap()]
@@ -334,6 +414,29 @@ fn reading_guard_cleanup_resolves_conditional_call_input_provenance() {
           (#return ()))",
     );
     run_guard_cancellation_matrix(&declarations, "async-graph-reading-guard-cleanup");
+}
+
+#[test]
+fn reading_aggregate_guard_cleanup_preserves_and_releases_nested_loans() {
+    let declarations = guard_cancellation_declarations()
+        .replace(
+            "(#enum Holder ((Holding (#ref #u64))))",
+            "(#struct View ((value (#ref #u64))))\n(#enum Holder ((Holding View)))",
+        )
+        .replace(
+            "(Holding source)",
+            "(Holding (#struct-literal View ((value source))))",
+        )
+        .replace("(#deref view)", "(#deref (#get view value))")
+        .replace("source-expression-11", "source-expression-17")
+        .replace(
+            "(#fn cancel-holder (: holder Holder) () (#forget holder) (#return ()))",
+            "(#fn cancel-holder (: holder Holder) ()
+              (#match holder (#case (Holding held)
+                (#assert (#u64.== (#deref (#get held value)) 42u64))))
+              (#return ()))",
+        );
+    run_guard_cancellation_matrix(&declarations, "async-graph-reading-aggregate-guard-cleanup");
 }
 
 #[test]
