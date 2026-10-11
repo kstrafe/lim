@@ -1569,3 +1569,35 @@ every action's exact dependency vector, including repeated formation sites and
 an absent scope. This is not a claim of a 94.8% whole-compilation improvement.
 All 224 selected async unit tests pass; three manual benchmarks are ignored in
 the regular run. Complex guarded loan solving still requires separate profiling.
+
+## Independent storage for partially moved struct fields
+
+Selected struct bindings now store their immediate fields in independent typed
+Empty/Full cells. Moving one field does not make an unrelated field inaccessible,
+and assigning the moved field initializes its cell without reconstructing an
+incomplete parent. Whole-value transfer reconstructs the original struct only
+when all required cells are initialized. Factory parameters use the same field
+representation as local bindings.
+
+Cancellation exposes the remaining field obligations by source-derived names,
+such as `pair.left` and `pair.right`. An explicitly linear parent also retains a
+separate `pair.shell` obligation: consuming its fields must not silently consume
+the parent's own linear obligation. Shared references to stationary sibling
+fields remain valid while another field moves out and is restored.
+
+`async_rebuilds_a_partially_moved_struct_after_suspension` covers local and
+parameter storage, explicitly linear parents, cancellation of incomplete owners,
+and a pinned sibling borrow. Each positive variant runs native code from both
+cold and warm expansion, and independently reparses and checks the emitted Lim
+program. Negative variants reject repeated field consumption and conflicting
+borrows. An emitter test removes a restoration from an otherwise checked graph
+and verifies that reconstruction is rejected, rather than reading an Empty cell.
+`examples/async_partial_struct.lim` demonstrates the move/await/rebuild sequence.
+The complete 231-test async integration suite passes, as does the emitter's
+missing-restoration regression.
+
+This is not complete recursive aggregate storage. Nested owning field moves
+still require further lowering, and borrowing an entire decomposed struct is
+rejected because its cells do not form contiguous original-struct storage. Field
+layout selection is representation planning, not a replacement for source
+ownership analysis or ordinary generated-code validation.

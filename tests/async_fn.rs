@@ -773,6 +773,72 @@ fn build_and_run_route(source: &str, expected: i32, graph: bool) -> String {
     build_and_run_route_status(source, Some(expected), graph)
 }
 
+fn build_and_run_partial_storage(source: &str, expected: i32) -> String {
+    let scratch = support::Scratch::new("async-partial-storage");
+    let input = scratch.path().join("input.lim");
+    let cache = scratch.path().join("cache");
+    let output = scratch.path().join("generated");
+    let invocation = lim::parse(source).unwrap().into_iter().find(|node| {
+        matches!(&node.expr, lim::Expr::List(items)
+            if matches!(items.first(), Some(lim::Expr::At))
+                && matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "#async-fn" || name == "#async-fn-pinned"))
+    }).unwrap();
+    let mut previous = None;
+    let mut previous_artifact = None;
+    for _ in 0..2 {
+        let assembly = lim::compile_source_with_generated_sources(
+            source,
+            &input,
+            &lim::CompileConfig::default(),
+            &cache,
+            lim::TargetDescription::X86_64_SYSTEM_V,
+            None,
+            &output,
+        )
+        .unwrap_or_else(|error| panic!("{error:?}"));
+        let artifact = fs::read_dir(&output)
+            .unwrap()
+            .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+            .find(|text| text.contains("(#fn work-poll "))
+            .unwrap();
+        if let Some(previous) = &previous {
+            assert_eq!(&assembly, previous);
+        }
+        if let Some(previous) = &previous_artifact {
+            assert_eq!(&artifact, previous);
+        }
+        let standalone = format!(
+            "{}\n{artifact}\n{}",
+            &source[..invocation.span.start],
+            &source[invocation.span.end..]
+        );
+        let ordinary = lim::parse_program(&standalone).unwrap();
+        lim::check_types(&ordinary).unwrap_or_else(|error| panic!("{error}\n{standalone}"));
+        let independently_emitted = lim::generate_assembly(&ordinary).unwrap();
+        for (index, assembly) in [assembly.as_str(), independently_emitted.as_str()]
+            .into_iter()
+            .enumerate()
+        {
+            let binary = scratch.path().join(format!("program-{index}"));
+            lim::link_native_binary(
+                assembly,
+                &binary,
+                &[],
+                &[],
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            )
+            .unwrap();
+            let (status, stdout, stderr) =
+                support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
+            assert_eq!(status.code(), Some(expected), "{stderr:?}");
+            assert!(stdout.is_empty() && stderr.is_empty());
+        }
+        previous = Some(assembly);
+        previous_artifact = Some(artifact);
+    }
+    previous_artifact.unwrap()
+}
+
 fn build_and_run_route_status(source: &str, expected: Option<i32>, graph: bool) -> String {
     let scratch = support::Scratch::new("async-fn");
     let input = scratch.path().join("main.lim");
@@ -6617,6 +6683,127 @@ fn async_for_condition_sequences_awaits_in_a_value_expression() {
         (#return result))";
     let generated = build_and_run_graph(source, 42);
     assert_single_poll(&generated, "work-poll");
+}
+
+#[test]
+fn async_rebuilds_a_partially_moved_struct_after_suspension() {
+    let source = r#"
+      (#struct Resource (: value #u64))
+      (#linear Resource)
+      (#struct Pair (: left Resource : right Resource))
+      (#enum Step ((Start #u64) (Resume #u64)))
+      (#linear Step)
+      (#enum StepPoll ((Pending Step) (Ready #u64)))
+      (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+        (#return (#match task
+          (#case (Start value) (Pending (Resume value)))
+          (#case (Resume value) (Ready value)))))
+      (@#async-fn (: protocol WorkAwait : waker #u64 : function
+        (#fn work () #u64
+          (#let-mut pair Pair (#struct-literal Pair
+            (: left (#struct-literal Resource (: value 20u64))
+             : right (#struct-literal Resource (: value 22u64)))))
+          (#let moved Resource (#get pair left))
+          (#let delta #u64 (#await #u64 Step Pending Ready step-poll (Start 2u64)))
+          (#let old #u64 (#get moved value))
+          (#forget moved)
+          (#set-field pair left (#struct-literal Resource (: value (#u64.+.wrap old delta))))
+          (#let result #u64 (#u64.+.wrap (#get (#get pair left) value) (#get (#get pair right) value)))
+          (#forget pair)
+          (#return result))))
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result (#call work-poll
+          (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (work-pending task) Work-poll-result first (#unreachable))
+        (#return (#match (#call work-poll (: task task : waker (#borrow waker)))
+          (#case (work-ready result) result)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#;
+    let generated = build_and_run_partial_storage(source, 44);
+    assert_single_poll(&generated, "work-poll");
+    let explicit = source.replace(
+        "(#struct Pair (: left Resource : right Resource))",
+        "(#struct Pair (: left Resource : right Resource)) (#linear Pair)",
+    );
+    build_and_run_partial_storage(&explicit, 44);
+
+    let parameter = source
+        .replace("(#fn work () #u64", "(#fn work ((#mut pair Pair)) #u64")
+        .replace("(#let-mut pair Pair (#struct-literal Pair\n            (: left (#struct-literal Resource (: value 20u64))\n             : right (#struct-literal Resource (: value 22u64)))))", "")
+        .replace("(#call work (:))", "(#call work (: pair (#struct-literal Pair (: left (#struct-literal Resource (: value 20u64)) : right (#struct-literal Resource (: value 22u64))))))");
+    assert!(!parameter.contains("(#let-mut pair Pair"));
+    build_and_run_partial_storage(&parameter, 44);
+
+    let prefix = source.split_once("(#fn main () #u64").unwrap().0;
+    let cancelled = format!(
+        r#"{prefix}
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result (#call work-poll
+          (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let (Work-task-cleanup moved left right waiting) Work-task-cleanup
+          (#call work-poll-cleanup (: task pending)))
+        (#match left
+          (#case Work-task-cleanup-pair.left-empty ())
+          (#case (Work-task-cleanup-pair.left-full unexpected) (#block (#forget unexpected) (#unreachable))))
+        (#let-else (Work-task-cleanup-moved-full original) Work-task-cleanup-moved moved (#unreachable))
+        (#let-else (Work-task-cleanup-pair.right-full sibling) Work-task-cleanup-pair.right right (#unreachable))
+        (#forget waiting)
+        (#let result #u64 (#u64.+.wrap (#get original value) (#get sibling value)))
+        (#forget original) (#forget sibling)
+        (#return result))"#
+    );
+    build_and_run_partial_storage(&cancelled, 42);
+    let explicit_cancel = cancelled
+        .replace("(#struct Pair (: left Resource : right Resource))", "(#struct Pair (: left Resource : right Resource)) (#linear Pair)")
+        .replace("Work-task-cleanup moved left right waiting", "Work-task-cleanup moved left right shell waiting")
+        .replace("(#forget waiting)", "(#assert (#variant-is (#borrow shell) Work-task-cleanup-pair.shell-full)) (#forget shell) (#forget waiting)");
+    build_and_run_partial_storage(&explicit_cancel, 42);
+
+    let pinned = prefix
+        .replace("@#async-fn ", "@#async-fn-pinned ")
+        .replace(
+            "(#let moved Resource",
+            "(#let view (#ref Resource) (#borrow (#get pair right))) (#let moved Resource",
+        )
+        .replace("(#get (#get pair right) value)", "(#get view value)")
+        .replace("(#forget pair)", "(#drop view) (#forget pair)");
+    let pinned = format!(
+        r#"{pinned}
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let-mut frame Work-frame (#call work (:)))
+        (#let first Work-poll-result (#call work-poll
+          (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let result #u64 (#match (#call work-poll (: task pending : waker (#borrow waker)))
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame)
+        (#return result))"#
+    );
+    build_and_run_partial_storage(&pinned, 44);
+    for (source, needle, replacement, expected) in [
+        (
+            source,
+            "(#let delta #u64",
+            "(#let stolen Resource (#get pair left)) (#forget stolen) (#let delta #u64",
+            "more than once",
+        ),
+        (
+            pinned.as_str(),
+            "(#let delta #u64",
+            "(#let overlap (#ref-mut Resource) (#borrow-mut (#get pair right))) (#drop overlap) (#let delta #u64",
+            "borrow",
+        ),
+    ] {
+        let invalid = source.replace(needle, replacement);
+        let error = graph_compile_error(&invalid, "partial-storage-invalid");
+        assert!(error.message.contains(expected), "{error:?}");
+        assert!(error.span.is_some(), "{error:?}");
+    }
 }
 
 #[test]

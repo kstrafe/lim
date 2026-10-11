@@ -64,6 +64,7 @@ enum TemplateValue {
 }
 
 pub(crate) mod async_addresses;
+pub(crate) mod async_aggregate;
 pub(crate) mod async_array_anchor;
 pub(crate) mod async_cells;
 // Independent source-contract regressions; executable lowering uses the

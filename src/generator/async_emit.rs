@@ -62,6 +62,18 @@ struct OwnedIndex {
     slot: usize,
 }
 
+struct AggregateField {
+    id: crate::typed_ir::FieldId,
+    name: String,
+    slot: usize,
+}
+
+struct Aggregate {
+    constructor: String,
+    fields: Vec<AggregateField>,
+    shell: Option<(usize, String)>,
+}
+
 struct Emitter<'a> {
     planning: &'a Planning,
     function: &'a Function,
@@ -76,6 +88,7 @@ struct Emitter<'a> {
     pinned: bool,
     slots: Vec<Slot>,
     bindings: HashMap<BindingId, usize>,
+    aggregates: HashMap<BindingId, Aggregate>,
     external_captures: HashMap<BindingId, usize>,
     values: HashMap<ValueId, usize>,
     scopes: HashMap<crate::typed_body::NodeId, usize>,
@@ -203,6 +216,7 @@ impl<'a> Emitter<'a> {
             pinned: function.source.pinned_frame.is_some(),
             slots: Vec::new(),
             bindings: HashMap::new(),
+            aggregates: HashMap::new(),
             external_captures: HashMap::new(),
             values: HashMap::new(),
             scopes: HashMap::new(),
@@ -262,6 +276,69 @@ impl<'a> Emitter<'a> {
                 emitter.plan_reference_storage(slot, anchor.clone())?;
             }
             emitter.bindings.insert(BindingId(index), slot);
+        }
+        for layout in crate::generator::async_aggregate::layouts(
+            &function.graph,
+            &planning.declarations,
+            emitter.lending.as_ref(),
+            types,
+        )
+        .map_err(|message| fail(function, message))?
+        {
+            let mut fields = Vec::new();
+            for field in layout.fields {
+                let slot = emitter.add_slot(
+                    format!("binding.{}.field.{}", layout.binding.0, field.id.index),
+                    field.ty,
+                );
+                if types.contains_reference(&emitter.slots[slot].ty) {
+                    emitter.slots[slot].dependencies = emitter.slots
+                        [emitter.bindings[&layout.binding]]
+                        .dependencies
+                        .clone();
+                }
+                fields.push(AggregateField {
+                    id: field.id,
+                    name: field.name,
+                    slot,
+                });
+            }
+            let explicit_owner = types
+                .linear_obligation_paths(&function.graph.bindings[layout.binding.0].ty)
+                .iter()
+                .any(Vec::is_empty);
+            let shell = if explicit_owner {
+                let name = format!(
+                    "{}-{}-shell",
+                    emitter.frame, function.graph.bindings[layout.binding.0].name
+                );
+                if !emitter.reserved.borrow_mut().insert(name.clone()) {
+                    return Err(fail(function, format!("async ownership marker '{name}' conflicts with an existing declaration")));
+                }
+                let full = emitter.fresh("AggregateAlive");
+                emitter
+                    .projections
+                    .push(format!("(#enum {name} ({full}))\n(#linear {name})"));
+                let slot = emitter.add_slot(
+                    format!("binding.{}.shell", layout.binding.0),
+                    Type::Named(name),
+                );
+                // This generated nominal marker has an explicit ownership
+                // obligation, although it is absent from source type metadata.
+                emitter.slots[slot].copy = false;
+                emitter.slots[slot].linear = true;
+                Some((slot, full))
+            } else {
+                None
+            };
+            emitter.aggregates.insert(
+                layout.binding,
+                Aggregate {
+                    constructor: layout.constructor,
+                    fields,
+                    shell,
+                },
+            );
         }
         for (index, value) in function.graph.values.iter().enumerate() {
             if matches!(value.ty, Type::Unit | Type::Never)
@@ -777,7 +854,20 @@ impl<'a> Emitter<'a> {
             crate::typed_body::PlaceRoot::Parameter(binding) => (binding, true),
             _ => unreachable!(),
         };
-        let owner = &self.slots[if external {
+        let part = if !external && prefix > 0 {
+            self.aggregates.get(&binding).and_then(|aggregate| {
+                let Some(Segment::Field(id)) = place.segments.first() else {
+                    return None;
+                };
+                aggregate.fields.iter().find(|field| field.id == *id)
+            })
+        } else {
+            None
+        };
+        let skip = usize::from(part.is_some());
+        let owner = &self.slots[if let Some(part) = part {
+            part.slot
+        } else if external {
             self.external_captures[&binding]
         } else {
             self.bindings[&binding]
@@ -791,9 +881,12 @@ impl<'a> Emitter<'a> {
         if external {
             anchor = format!("(#deref {anchor})");
         }
-        if let Some(projected) = self
-            .array_anchors
-            .project(place, prefix, mutable, &anchor, indices)
+        if let Some(projected) = (skip == 0)
+            .then(|| {
+                self.array_anchors
+                    .project(place, prefix, mutable, &anchor, indices)
+            })
+            .flatten()
         {
             return projected;
         }
@@ -822,7 +915,7 @@ impl<'a> Emitter<'a> {
             }
         }
         let mut steps = Vec::new();
-        for (position, segment) in place.segments[..prefix].iter().enumerate() {
+        for (position, segment) in place.segments[..prefix].iter().enumerate().skip(skip) {
             if position != 0 {
                 let parent = self.fresh("anchor-parent");
                 let target = crate::generator::async_array_anchor::target_type(
@@ -993,7 +1086,21 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let index = match place.root {
-                crate::typed_body::PlaceRoot::Local(binding) => self.bindings[&binding],
+                crate::typed_body::PlaceRoot::Local(binding) => self
+                    .aggregates
+                    .get(&binding)
+                    .and_then(|aggregate| {
+                        let Some(crate::typed_place::Segment::Field(id)) = place.segments.first()
+                        else {
+                            return None;
+                        };
+                        aggregate
+                            .fields
+                            .iter()
+                            .find(|field| field.id == *id)
+                            .map(|field| field.slot)
+                    })
+                    .unwrap_or(self.bindings[&binding]),
                 crate::typed_body::PlaceRoot::Parameter(binding) => self
                     .external_captures
                     .get(&binding)
@@ -1198,6 +1305,102 @@ impl<'a> Emitter<'a> {
             .map_or_else(|| expression.to_owned(), |slot| self.put(*slot, expression))
     }
 
+    fn put_binding(&self, binding: BindingId, expression: &str) -> String {
+        let Some(aggregate) = self.aggregates.get(&binding) else {
+            return self
+                .bindings
+                .get(&binding)
+                .map_or_else(|| expression.to_owned(), |slot| self.put(*slot, expression));
+        };
+        let names = aggregate
+            .fields
+            .iter()
+            .map(|_| self.fresh("aggregate-part"))
+            .collect::<Vec<_>>();
+        let ty = crate::type_source(&self.function.graph.bindings[binding.0].ty);
+        let mut stores = aggregate
+            .fields
+            .iter()
+            .zip(&names)
+            .map(|(field, name)| self.put(field.slot, name))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Some((slot, alive)) = &aggregate.shell {
+            stores.push_str(&format!("\n{}", self.put(*slot, &format!("({alive})"))));
+        }
+        format!(
+            "(#block (#let ({} {}) {ty} {expression})\n{stores}\n())",
+            aggregate.constructor,
+            names.join(" ")
+        )
+    }
+
+    fn read_binding(&self, binding: BindingId, transfer: bool) -> String {
+        let Some(aggregate) = self.aggregates.get(&binding) else {
+            return self
+                .bindings
+                .get(&binding)
+                .map_or_else(|| "()".into(), |slot| self.read(*slot, transfer));
+        };
+        let fields = aggregate
+            .fields
+            .iter()
+            .map(|field| format!("({} {})", field.name, self.read(field.slot, transfer)))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let value = format!("(#struct-literal {} ({fields}))", aggregate.constructor);
+        let clear_refs = if transfer {
+            aggregate
+                .fields
+                .iter()
+                .filter(|field| {
+                    let slot = &self.slots[field.slot];
+                    slot.copy && self.types.contains_reference(&slot.ty)
+                })
+                .map(|field| {
+                    let slot = &self.slots[field.slot];
+                    format!(
+                        "(#call {} (: slot {}))",
+                        slot.clear,
+                        Self::slot_ref(slot, true)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            String::new()
+        };
+        let shell = if transfer {
+            aggregate
+                .shell
+                .as_ref()
+                .map(|(slot, _)| format!("(#forget {})", self.read(*slot, true)))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        if clear_refs.is_empty() && shell.is_empty() {
+            return value;
+        }
+        let result = self.fresh("reconstructed-owner");
+        let ty = crate::type_source(&self.function.graph.bindings[binding.0].ty);
+        format!("(#block (#let {result} {ty} {value}) {clear_refs} {shell} {result})")
+    }
+
+    fn aggregate_field(&self, descriptor: &PlaceDescriptor) -> Option<&AggregateField> {
+        let AddressRoot::Local(binding) = descriptor.root else {
+            return None;
+        };
+        let Some(AddressProjection::Field(id)) = descriptor.projections.first() else {
+            return None;
+        };
+        self.aggregates
+            .get(&binding)?
+            .fields
+            .iter()
+            .find(|field| field.id == *id)
+    }
+
     fn slot_definitions(&self) -> String {
         let mut lenders = self
             .bindings
@@ -1308,6 +1511,23 @@ impl<'a> Emitter<'a> {
     }
 
     fn clear_binding(&self, binding: BindingId) -> String {
+        if let Some(aggregate) = self.aggregates.get(&binding) {
+            return aggregate
+                .fields
+                .iter()
+                .map(|field| field.slot)
+                .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
+                .map(|index| {
+                    let slot = &self.slots[index];
+                    format!(
+                        "(#call {} (: slot {}))",
+                        slot.clear,
+                        Self::slot_ref(slot, true)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
         self.bindings
             .get(&binding)
             .map_or_else(String::new, |slot| {
@@ -1593,10 +1813,10 @@ impl<'a> Emitter<'a> {
                         .ok_or_else(|| {
                             fail(self.function, "guard preview lost its source binding")
                         })?;
-                    if let Some(slot) = self.bindings.get(&binding) {
+                    if self.bindings.contains_key(&binding) {
                         stores.push(
-                            self.put(
-                                *slot,
+                            self.put_binding(
+                                binding,
                                 &crate::expression_source(&value)
                                     .map_err(|message| fail(self.function, message))?,
                             ),
@@ -1611,8 +1831,8 @@ impl<'a> Emitter<'a> {
         let mut stores = Vec::new();
         for &binding in &pattern.bindings {
             let name = self.fresh("pattern");
-            if let Some(slot) = self.bindings.get(&binding) {
-                stores.push(self.put(*slot, &name));
+            if self.bindings.contains_key(&binding) {
+                stores.push(self.put_binding(binding, &name));
             }
             names.insert(binding, name);
         }
@@ -2050,10 +2270,12 @@ impl<'a> Emitter<'a> {
         let AddressRoot::Local(binding) = descriptor.root else {
             return Err(reject("projected loads need a checked owned local root"));
         };
-        let slot = &self.slots[*self
+        let root_slot = &self.slots[*self
             .bindings
             .get(&binding)
             .ok_or_else(|| reject("projected owner has no owning cell"))?];
+        let part = self.aggregate_field(descriptor);
+        let (slot, skip) = part.map_or((root_slot, 0), |field| (&self.slots[field.slot], 1));
         let mut ty = crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases)
             .map_err(|message| fail(self.function, message))?;
         // This reference exists only during the immediate leaf read. It is
@@ -2064,7 +2286,7 @@ impl<'a> Emitter<'a> {
             Self::slot_ref(slot, mutable),
             slot.full
         );
-        for (position, projection) in descriptor.projections.iter().enumerate() {
+        for (position, projection) in descriptor.projections.iter().enumerate().skip(skip) {
             match projection {
                 AddressProjection::Field(field) => {
                     let declaration = self.planning.declarations.field(*field);
@@ -2322,6 +2544,37 @@ impl<'a> Emitter<'a> {
         self.reborrow_to_slot(slot, place, mutable, pinned)
     }
 
+    fn aggregate_borrow(
+        &mut self,
+        id: PlaceId,
+        mutable: bool,
+        pinned: bool,
+    ) -> Result<String, Error> {
+        let descriptor = &self.function.graph.places[id.0];
+        let AddressRoot::Local(binding) = descriptor.root else {
+            return Err(fail(self.function, "field borrow lost its owning binding"));
+        };
+        crate::generator::async_owner::validate_mutability(&self.function.graph, binding, mutable)
+            .map_err(|message| fail(self.function, message))?;
+        let (place, target) = self.owned_projection_address(id, mutable)?;
+        if pinned {
+            return Ok(place);
+        }
+        let input = self.fresh("field-borrow-input");
+        let helper = self.fresh("field-borrow");
+        let input_ty = Type::PinnedReference {
+            mutable,
+            target: Box::new(target.clone()),
+        };
+        let output_ty = Type::Reference {
+            mutable,
+            target: Box::new(target),
+        };
+        self.projections.push(format!("(#fn {helper} (: {input} {}) {} (#return (#unsafe (#ptr-borrow{} {input} (#ref-ptr {input})))))",
+            crate::type_source(&input_ty), crate::type_source(&output_ty), if mutable { "-mut" } else { "" }));
+        Ok(format!("(#call {helper} (: {input} {place}))"))
+    }
+
     fn owned_array_borrow(&mut self, id: PlaceId, mutable: bool) -> Result<String, Error> {
         let descriptor = &self.function.graph.places[id.0];
         let AddressRoot::Local(binding) = descriptor.root else {
@@ -2377,6 +2630,16 @@ impl<'a> Emitter<'a> {
             return self.slice_borrow(&operation, &inputs);
         }
         let descriptor = &self.function.graph.places[borrow.place.0];
+        if self.aggregate_field(descriptor).is_some() {
+            return self.aggregate_borrow(borrow.place, borrow.mutable, false);
+        }
+        if matches!(descriptor.root, AddressRoot::Local(binding) if self.aggregates.contains_key(&binding))
+        {
+            return Err(fail(
+                self.function,
+                "whole aggregate borrowing requires contiguous owning storage",
+            ));
+        }
         if self.owned_indices.contains_key(&borrow.place)
             || self.static_owned_projection(descriptor)
         {
@@ -2447,6 +2710,17 @@ impl<'a> Emitter<'a> {
                 return Err(fail(
                     self.function,
                     "pinning a local requires a pinned async frame",
+                ));
+            }
+            if self.aggregate_field(descriptor).is_some() {
+                let value = self.aggregate_borrow(place, mutable, pinned)?;
+                return Ok(self.put(dst, &value));
+            }
+            if matches!(descriptor.root, AddressRoot::Local(binding) if self.aggregates.contains_key(&binding))
+            {
+                return Err(fail(
+                    self.function,
+                    "whole aggregate borrowing requires contiguous owning storage",
                 ));
             }
             if self.owned_indices.contains_key(&place) || self.static_owned_projection(descriptor) {
@@ -2598,9 +2872,10 @@ impl<'a> Emitter<'a> {
         ))
     }
 
-    /// Verify the representation, not source ownership: a partial write can
-    /// restore a source leaf, but cannot construct a Full owning cell from
-    /// Empty. Source borrowing/linearity must still pass ordinary validation.
+    /// Verify representation, not ownership. A split owner has independent
+    /// field tags; reconstructing it requires every field, while restoring one
+    /// field must not require unrelated fields to be Full. Unsplit owners keep
+    /// their existing whole-cell proof. Source validation remains mandatory.
     fn check_owned_cells(&self) -> Result<(), Error> {
         let graph = &self.function.graph;
         let whole_owner_borrow =
@@ -2628,29 +2903,63 @@ impl<'a> Emitter<'a> {
                 predecessors[next.0].push(block);
             }
         }
-        let initial = (0..graph.bindings.len())
+        let mut field_slots = self
+            .aggregates
+            .values()
+            .flat_map(|aggregate| {
+                aggregate
+                    .fields
+                    .iter()
+                    .map(|field| field.slot)
+                    .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
+            })
+            .collect::<Vec<_>>();
+        field_slots.sort_unstable();
+        let fields = field_slots
+            .iter()
+            .enumerate()
+            .map(|(index, slot)| (*slot, graph.bindings.len() + index))
+            .collect::<HashMap<_, _>>();
+        let set_binding = |full: &mut Vec<bool>, binding: BindingId, initialized: bool| {
+            full[binding.0] = initialized;
+            if let Some(aggregate) = self.aggregates.get(&binding) {
+                for index in aggregate
+                    .fields
+                    .iter()
+                    .map(|field| field.slot)
+                    .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
+                {
+                    full[fields[&index]] = initialized;
+                }
+            }
+        };
+        let mut initial = (0..graph.bindings.len())
             .map(|index| index < graph.parameter_count)
             .collect::<Vec<_>>();
-        let top = vec![true; graph.bindings.len()];
+        initial.resize(graph.bindings.len() + field_slots.len(), false);
+        for index in 0..graph.parameter_count {
+            set_binding(&mut initial, BindingId(index), true);
+        }
+        let top = vec![true; initial.len()];
         let mut before = vec![top.clone(); graph.blocks.len()];
         let mut after = before.clone();
         let transfer = |located: &crate::generator::async_exec::LocatedAction,
                         full: &mut Vec<bool>| {
             match &located.action {
-                Action::Bind { binding, .. } => full[binding.0] = true,
+                Action::Bind { binding, .. } => set_binding(full, *binding, true),
                 Action::Preview(pattern) | Action::Commit(pattern) => {
                     for binding in &pattern.bindings {
-                        full[binding.0] = true;
+                        set_binding(full, *binding, true);
                     }
                 }
                 Action::ScopeEnter(bindings) | Action::ScopeExit(bindings) => {
                     for binding in bindings {
-                        full[binding.0] = false;
+                        set_binding(full, *binding, false);
                     }
                 }
                 Action::EndPreview(pattern) => {
                     for binding in &pattern.bindings {
-                        full[binding.0] = false;
+                        set_binding(full, *binding, false);
                     }
                 }
                 Action::Store { place, .. }
@@ -2660,8 +2969,8 @@ impl<'a> Emitter<'a> {
                     if let AddressRoot::Local(binding) = descriptor.root {
                         if descriptor.projections.is_empty() {
                             match &located.action {
-                                Action::Store { .. } => full[binding.0] = true,
-                                Action::Release { .. } => full[binding.0] = false,
+                                Action::Store { .. } => set_binding(full, binding, true),
+                                Action::Release { .. } => set_binding(full, binding, false),
                                 Action::Load {
                                     kind: LoadKind::Read,
                                     ..
@@ -2676,10 +2985,32 @@ impl<'a> Emitter<'a> {
                                         lending,
                                         Some(crate::generator::async_lend::Access::Lend(_))
                                     ) {
-                                        full[binding.0] = false;
+                                        set_binding(full, binding, false);
                                     }
                                 }
                                 _ => {}
+                            }
+                        } else if descriptor.projections.len() == 1 {
+                            if let Some(field) = self.aggregate_field(descriptor) {
+                                match &located.action {
+                                    Action::Store { .. } => full[fields[&field.slot]] = true,
+                                    Action::Release { .. } => full[fields[&field.slot]] = false,
+                                    Action::Load {
+                                        kind: LoadKind::Read,
+                                        ..
+                                    } if !self.types.can_repeat(&descriptor.ty)
+                                        && !matches!(
+                                            located.source.and_then(|source| self
+                                                .lending
+                                                .as_ref()?
+                                                .access(source)),
+                                            Some(crate::generator::async_lend::Access::Lend(_))
+                                        ) =>
+                                    {
+                                        full[fields[&field.slot]] = false
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
                     }
@@ -2723,17 +3054,47 @@ impl<'a> Emitter<'a> {
                     | Action::Borrow { place, .. } => Some(&graph.places[place.0]),
                     _ => None,
                 };
-                if let Some(PlaceDescriptor {
-                    root: AddressRoot::Local(binding),
-                    projections,
-                    ..
-                }) = descriptor
+                if let Some(
+                    descriptor @ PlaceDescriptor {
+                        root: AddressRoot::Local(binding),
+                        projections,
+                        ..
+                    },
+                ) = descriptor
                 {
                     if (!projections.is_empty() || matches!(located.action, Action::Borrow { .. }))
                         && !full[binding.0]
                     {
                         return Err(Error {
-                            message: "projected access requires a definitely Full owning cell; partial reconstruction needs leaf-aware storage".into(),
+                            message: "projected access requires a definitely Full owning cell"
+                                .into(),
+                            span: located.span.unwrap_or(self.function.source.function.span),
+                        });
+                    }
+                    let reads = matches!(
+                        located.action,
+                        Action::Load { .. } | Action::Release { .. } | Action::Borrow { .. }
+                    );
+                    let projection = !projections.is_empty()
+                        && (!matches!(located.action, Action::Place { .. } | Action::Store { .. })
+                            || projections.len() > 1);
+                    let initialized = if let Some(field) = self.aggregate_field(descriptor) {
+                        (!reads && !projection) || full[fields[&field.slot]]
+                    } else if reads {
+                        self.aggregates.get(binding).is_none_or(|aggregate| {
+                            aggregate
+                                .fields
+                                .iter()
+                                .map(|field| field.slot)
+                                .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
+                                .all(|slot| full[fields[&slot]])
+                        })
+                    } else {
+                        true
+                    };
+                    if !initialized {
+                        return Err(Error {
+                            message: "projected access or reconstruction requires initialized field storage".into(),
                             span: located.span.unwrap_or(self.function.source.function.span),
                         });
                     }
@@ -3050,6 +3411,28 @@ impl<'a> Emitter<'a> {
                             format!("(#call {} (: {} {read}))", slot.lend, slot.lend_argument);
                         return Ok(self.put_value(*dst, &reborrow));
                     }
+                    if descriptor.projections.len() == 1 {
+                        if let Some(field) = self.aggregate_field(descriptor) {
+                            let index = field.slot;
+                            let read = match kind {
+                                LoadKind::Read => self.read(index, !self.slots[index].copy),
+                                LoadKind::Clone => {
+                                    let slot = &self.slots[index];
+                                    let ty = crate::type_source(&slot.ty);
+                                    let input = self.fresh("aggregate-clone-input");
+                                    let helper = self.fresh("aggregate-clone");
+                                    let reference = format!(
+                                        "(#pin-get-payload {} {} 0)",
+                                        Self::slot_ref(slot, false),
+                                        slot.full
+                                    );
+                                    self.projections.push(format!("(#fn {helper} (: {input} (#pin-ref {ty})) {ty} (#return (#clone (#deref {input}))))"));
+                                    format!("(#call {helper} (: {input} {reference}))")
+                                }
+                            };
+                            return Ok(self.put_value(*dst, &read));
+                        }
+                    }
                     let read = self.owned_projection_read(*place)?;
                     let read = if *kind == LoadKind::Clone {
                         self.clone_read(&descriptor.ty, &read)
@@ -3061,6 +3444,10 @@ impl<'a> Emitter<'a> {
                 let Some(slot) = self.bindings.get(&binding) else {
                     return Ok(self.put_value(*dst, "()"));
                 };
+                if self.aggregates.contains_key(&binding) && *kind == LoadKind::Read {
+                    let transfer = !self.types.can_repeat(&graph.bindings[binding.0].ty);
+                    return Ok(self.put_value(*dst, &self.read_binding(binding, transfer)));
+                }
                 if self.slots[*slot].raw {
                     if self.leases.get(*dst).is_some() {
                         return Ok(String::new());
@@ -3165,10 +3552,7 @@ impl<'a> Emitter<'a> {
                     })
                     .collect::<Vec<_>>();
                 guards.sort_by_key(|(place, _)| *place);
-                let store = self.bindings.get(binding).map_or_else(
-                    || self.value(*value, true),
-                    |slot| self.put(*slot, &self.value(*value, true)),
-                );
+                let store = self.put_binding(*binding, &self.value(*value, true));
                 Ok(format!(
                     "{}\n{store}",
                     guards
@@ -3213,6 +3597,11 @@ impl<'a> Emitter<'a> {
                     ));
                 };
                 if !descriptor.projections.is_empty() {
+                    if descriptor.projections.len() == 1 {
+                        if let Some(field) = self.aggregate_field(descriptor) {
+                            return Ok(self.put(field.slot, &self.value(*value, true)));
+                        }
+                    }
                     let (target, ty) = self.owned_projection_place(*place, true)?;
                     let value = self.value(*value, true);
                     return Ok(if ty == Type::Unit {
@@ -3223,10 +3612,7 @@ impl<'a> Emitter<'a> {
                         format!("(#unsafe (#pin-write (#pin-borrow-mut {target}) {value}))")
                     });
                 }
-                Ok(self.bindings.get(&binding).map_or_else(
-                    || self.value(*value, true),
-                    |slot| self.put(*slot, &self.value(*value, true)),
-                ))
+                Ok(self.put_binding(binding, &self.value(*value, true)))
             }
             Action::Release { place, kind } => {
                 let descriptor = &graph.places[place.0];
@@ -3236,6 +3622,27 @@ impl<'a> Emitter<'a> {
                     ));
                 };
                 if !descriptor.projections.is_empty() {
+                    if descriptor.projections.len() == 1 {
+                        if let Some(field) = self.aggregate_field(descriptor) {
+                            let slot = &self.slots[field.slot];
+                            if slot.copy && self.types.contains_reference(&slot.ty) {
+                                return Ok(format!(
+                                    "(#call {} (: slot {}))",
+                                    slot.clear,
+                                    Self::slot_ref(slot, true)
+                                ));
+                            }
+                            return Ok(format!(
+                                "(#{} {})",
+                                if *kind == ReleaseKind::Drop {
+                                    "drop"
+                                } else {
+                                    "forget"
+                                },
+                                self.read(field.slot, true)
+                            ));
+                        }
+                    }
                     return Err(error(
                         "partial releases need leaf-aware initialization storage",
                     ));
@@ -3247,10 +3654,7 @@ impl<'a> Emitter<'a> {
                     // Explicit release must actually empty the binding cell.
                     return Ok(self.clear_binding(binding));
                 }
-                let value = self
-                    .bindings
-                    .get(&binding)
-                    .map_or_else(|| "()".into(), |slot| self.read(*slot, true));
+                let value = self.read_binding(binding, true);
                 Ok(format!(
                     "(#{} {value})",
                     match kind {
@@ -3678,11 +4082,27 @@ impl<'a> Emitter<'a> {
         .iter()
         .flat_map(|plan| &plan.cancel_live)
         .filter_map(|cell| match cell {
-            Cell::Binding(binding) => self.bindings.get(binding),
-            Cell::Value(value) => self.values.get(value),
-            Cell::Scope(scope) => self.scopes.get(scope),
+            Cell::Binding(binding) => Some(self.aggregates.get(binding).map_or_else(
+                || {
+                    self.bindings
+                        .get(binding)
+                        .copied()
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                },
+                |aggregate| {
+                    aggregate
+                        .fields
+                        .iter()
+                        .map(|field| field.slot)
+                        .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
+                        .collect()
+                },
+            )),
+            Cell::Value(value) => self.values.get(value).map(|slot| vec![*slot]),
+            Cell::Scope(scope) => self.scopes.get(scope).map(|slot| vec![*slot]),
         })
-        .copied()
+        .flatten()
         .collect()
     }
 
@@ -3705,7 +4125,30 @@ impl<'a> Emitter<'a> {
             .enumerate()
             .filter(|(index, slot)| slot.linear && occupied.contains(index))
         {
-            let name = if let Some((binding, _)) =
+            let aggregate_field = self.aggregates.iter().find_map(|(binding, aggregate)| {
+                aggregate
+                    .fields
+                    .iter()
+                    .find(|field| field.slot == index)
+                    .map(|field| {
+                        format!(
+                            "{}.{}",
+                            self.function.graph.bindings[binding.0].name, field.name
+                        )
+                    })
+                    .or_else(|| {
+                        aggregate
+                            .shell
+                            .as_ref()
+                            .filter(|(slot, _)| *slot == index)
+                            .map(|_| {
+                                format!("{}.shell", self.function.graph.bindings[binding.0].name)
+                            })
+                    })
+            });
+            let name = if let Some(field) = aggregate_field {
+                field
+            } else if let Some((binding, _)) =
                 self.bindings.iter().find(|(_, actual)| **actual == index)
             {
                 self.function.graph.bindings[binding.0].name.clone()
@@ -4323,12 +4766,44 @@ impl<'a> Emitter<'a> {
             captured_cells.insert(capture_index, cell);
             captured_pointers.insert(binding, pointer);
         }
+        let mut initial_parts = HashMap::new();
+        let mut aggregate_parameters = self
+            .aggregates
+            .iter()
+            .filter(|(binding, _)| binding.0 < start_parameters.len())
+            .collect::<Vec<_>>();
+        aggregate_parameters.sort_by_key(|(binding, _)| binding.0);
+        for (binding, aggregate) in aggregate_parameters {
+            let parameter = &start_parameters[binding.0];
+            let names = aggregate
+                .fields
+                .iter()
+                .map(|_| self.fresh("aggregate-parameter"))
+                .collect::<Vec<_>>();
+            factory_captures.push(format!(
+                "(#let ({} {}) {} {})",
+                aggregate.constructor,
+                names.join(" "),
+                crate::type_source(&parameter.ty),
+                parameter.name
+            ));
+            for (field, name) in aggregate.fields.iter().zip(names) {
+                initial_parts.insert(field.slot, name);
+            }
+            if let Some((slot, alive)) = &aggregate.shell {
+                initial_parts.insert(*slot, format!("({alive})"));
+            }
+        }
         for (index, slot) in self.slots.iter().enumerate() {
             let parameter = self.bindings.iter().find_map(|(binding, actual)| {
-                (*actual == index && binding.0 < start_parameters.len())
-                    .then(|| &start_parameters[binding.0])
+                (*actual == index
+                    && binding.0 < start_parameters.len()
+                    && !self.aggregates.contains_key(binding))
+                .then(|| &start_parameters[binding.0])
             });
-            let value = if let Some(cell) = captured_cells.get(&index) {
+            let value = if let Some(part) = initial_parts.get(&index) {
+                format!("({} {part})", slot.full)
+            } else if let Some(cell) = captured_cells.get(&index) {
                 cell.clone()
             } else {
                 parameter.map_or_else(
@@ -7262,6 +7737,47 @@ mod tests {
             .expect("an uninitialized physical cell cannot supply a projection");
         assert!(
             error.message.contains("definitely Full"),
+            "{}",
+            error.message
+        );
+        let source = &planning.program.source_files[error.span.source_id as usize].source;
+        assert!(source[error.span.start..error.span.end].contains("owner"));
+    }
+
+    #[test]
+    fn field_storage_rejects_reconstruction_when_restoration_is_removed() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let-mut owner Pair (#struct-literal Pair
+            (: left (#struct-literal Resource (: value seed))
+             : right (#struct-literal Resource (: value 2u64)))))
+          (#let moved Resource (#get owner left))
+          (#let delta #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#forget moved)
+          (#set-field owner left (#struct-literal Resource (: value delta)))
+          (#forget owner) (#return seed))";
+        let declarations = format!(
+            "(#struct Resource (: value #u64)) (#linear Resource)
+          (#struct Pair (: left Resource : right Resource)) {RUN}"
+        );
+        let mut planning = prepare_function(function, &declarations);
+        assert!(generate(&planning).is_ok());
+        let graph = &mut planning.functions[0].graph;
+        let mut removed = 0;
+        for block in &mut graph.blocks {
+            block.actions.retain(|located| {
+                let remove = matches!(located.action, Action::Store { place, .. }
+                    if matches!(graph.places[place.0].root, AddressRoot::Local(_))
+                        && !graph.places[place.0].projections.is_empty());
+                removed += usize::from(remove);
+                !remove
+            });
+        }
+        assert_eq!(removed, 1);
+        let error = generate(&planning)
+            .err()
+            .expect("a missing leaf cannot be reconstructed");
+        assert!(
+            error.message.contains("initialized field storage"),
             "{}",
             error.message
         );
