@@ -1412,12 +1412,55 @@ pub(crate) fn check_call_arguments_cached(
         .collect::<Vec<_>>();
     let origins = cache.get_or_init(|| flow.loan_origins(body));
     let active = flow.definitely_active_bindings_before(body);
+    let predecessors = OnceCell::new();
     // Capture operand values at their reads, not after later operands have
     // reassigned their bindings. Share these immutable snapshots across all
     // uses and path alternatives in this function.
     let mut value_snapshots = HashMap::new();
     for (value, read) in &symbol_events {
         let held = origins.value_before(body, flow, *read, *value);
+        let ambiguous = held.iter().enumerate().any(|(index, origin)| {
+            origin.mutable
+                && !origin.storage.is_empty()
+                && held[index + 1..].iter().any(|other| {
+                    other.mutable && origin.referent_place().overlaps(&other.referent_place())
+                })
+        });
+        if ambiguous {
+            if let NodeKind::Symbol {
+                binding: Some(binding),
+                ..
+            } = &body.nodes[value.0].kind
+            {
+                if let Some(paths) = origins.incoming_binding_paths(
+                    body,
+                    flow,
+                    predecessors.get_or_init(|| {
+                        let mut predecessors = vec![Vec::new(); flow.nodes.len()];
+                        for (index, node) in flow.nodes.iter().enumerate() {
+                            for successor in &node.successors {
+                                predecessors[successor.0].push(FlowNodeId(index));
+                            }
+                        }
+                        predecessors
+                    }),
+                    *read,
+                    *binding,
+                    &held,
+                ) {
+                    let mut alternatives = Vec::new();
+                    for path in paths {
+                        alternatives.extend(
+                            origin_alternatives(path, body.nodes[value.0].span)?
+                                .unwrap_or_else(|| vec![Vec::new()]),
+                        );
+                    }
+                    value_snapshots
+                        .insert(*value, bounded(alternatives, body.nodes[value.0].span)?);
+                    continue;
+                }
+            }
+        }
         if let Some(alternatives) = origin_alternatives(&held, body.nodes[value.0].span)? {
             value_snapshots.insert(*value, alternatives);
         }
@@ -3894,6 +3937,52 @@ mod tests {
         assert_eq!(&source[second.start..second.end], "(#borrow value)");
         let first = error.3[0].0;
         assert_eq!(&source[first.start..first.end], "#borrow-mut");
+    }
+
+    #[test]
+    fn caller_loop_preserves_initial_and_resumed_exclusive_aggregate_slots() {
+        let source = "
+          (#enum LeftSlot ((LeftEmpty) (LeftFull (#ref-mut #u64))))
+          (#enum RightSlot ((RightEmpty) (RightFull (#ref-mut #u64))))
+          (#struct Frame (: left LeftSlot : right RightSlot))
+          (#fn shift (: frame Frame) Frame
+            (#let left LeftSlot (#get frame left))
+            (#let right RightSlot (#get frame right))
+            (#forget frame)
+            (#return (#match left
+              (#case (LeftFull view) (#block (#forget right)
+                (#struct-literal Frame (: left LeftEmpty : right (RightFull view)))))
+              (#case LeftEmpty (#match right
+                (#case (RightFull view)
+                  (#struct-literal Frame (: left LeftEmpty : right (RightFull view))))
+                (#case RightEmpty
+                  (#struct-literal Frame (: left LeftEmpty : right RightEmpty))))))))
+          (#fn run (: count #u64) #u64
+            (#let-mut owner #u64 40u64)
+            (#let-mut frame Frame (#struct-literal Frame
+              (: left (LeftFull (#borrow-mut owner)) : right RightEmpty)))
+            (#for-range (turn #u64) 0u64 count
+              (#let next Frame (#call shift (: frame frame)))
+              (#set frame next))
+            (#forget frame)
+            (#set owner 42u64)
+            (#return owner))
+          (#fn main () #u64 (#return (#call run (: count 3u64))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::CheckedProgram::validate(&program).unwrap_or_else(|error| panic!("{error}"));
+        let invalid = source.replace(
+            "(#forget frame)\n            (#set owner 42u64)",
+            "(#set owner 99u64) (#forget frame)\n            (#set owner 42u64)",
+        );
+        assert_ne!(invalid, source);
+        let program = crate::parse_program(&invalid).unwrap();
+        let (message, code, span, _) = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .expect("the looping frame still holds an exclusive external loan");
+        assert_eq!(code, crate::DiagnosticCode::Borrow, "{message}");
+        let span = span.unwrap();
+        assert_eq!(&invalid[span.start..span.end], "#set", "{message}");
+        assert_eq!(span.start, invalid.find("#set owner 99u64").unwrap());
     }
 
     #[test]

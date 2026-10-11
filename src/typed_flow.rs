@@ -1105,6 +1105,130 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
+    /// Preserve alternatives at the nearest CFG join when an aggregate's
+    /// binding has not been modified between that join and its value read.
+    /// Each predecessor is still a may-state: loans within it coexist.
+    pub(crate) fn incoming_binding_paths<'a>(
+        &'a self,
+        body: &Body,
+        flow: &FlowGraph,
+        predecessors: &[Vec<FlowNodeId>],
+        event: FlowNodeId,
+        binding: BindingId,
+        held: &[LoanOrigin],
+    ) -> Option<Vec<&'a [LoanOrigin]>> {
+        let mut current = event;
+        let mut visited = HashSet::new();
+        while visited.insert(current) {
+            let incoming = predecessors[current.0]
+                .iter()
+                .filter(|id| self.after[id.0].is_some())
+                .copied()
+                .collect::<Vec<_>>();
+            if incoming.len() > 1 {
+                let paths = incoming
+                    .iter()
+                    .map(|id| self.after(*id, binding))
+                    .collect::<Vec<_>>();
+                let mut union = Vec::new();
+                for path in &paths {
+                    merge_loan_origins(&mut union, path);
+                }
+                // No origin can be removed or invented by this precision
+                // query. Pointee expansion or edge refinement differences
+                // fall back to the original conservative snapshot.
+                return (union.len() == held.len()
+                    && union.iter().all(|origin| held.contains(origin)))
+                .then_some(paths);
+            }
+            let &[previous] = incoming.as_slice() else {
+                return None;
+            };
+            let transparent = match &flow.nodes[previous.0].action {
+                FlowAction::Read { .. }
+                | FlowAction::Borrow { .. }
+                | FlowAction::BorrowScopeEnd { .. }
+                | FlowAction::Branch(_)
+                | FlowAction::LoopHead
+                | FlowAction::Continue => true,
+                FlowAction::Bind {
+                    binding: target, ..
+                } => *target != binding,
+                FlowAction::Clone { value, .. } => matches!(
+                    body.nodes[value.0].ty,
+                    Some(
+                        Type::Bool
+                            | Type::Char
+                            | Type::U8
+                            | Type::U16
+                            | Type::U32
+                            | Type::U64
+                            | Type::U128
+                            | Type::Usize
+                            | Type::I8
+                            | Type::I16
+                            | Type::I32
+                            | Type::I64
+                            | Type::I128
+                            | Type::Isize
+                            | Type::F32
+                            | Type::F64
+                    )
+                ),
+                FlowAction::ScopeExit(bindings) => !bindings.contains(&binding),
+                FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
+                    NodeKind::Literal(_) | NodeKind::Symbol { .. } => true,
+                    NodeKind::Form {
+                        head, callee: None, ..
+                    } => {
+                        matches!(
+                            head.as_str(),
+                            "literal"
+                                | "as"
+                                | "<"
+                                | "<="
+                                | ">"
+                                | ">="
+                                | "=="
+                                | "!="
+                                | "+"
+                                | "-"
+                                | "*"
+                                | "/"
+                                | "%"
+                        ) || head.split_once('.').is_some_and(|(ty, _)| {
+                            matches!(
+                                ty,
+                                "u8" | "u16"
+                                    | "u32"
+                                    | "u64"
+                                    | "u128"
+                                    | "usize"
+                                    | "i8"
+                                    | "i16"
+                                    | "i32"
+                                    | "i64"
+                                    | "i128"
+                                    | "isize"
+                                    | "f32"
+                                    | "f64"
+                                    | "bool"
+                                    | "char"
+                            )
+                        })
+                    }
+                    _ => false,
+                },
+                _ => false,
+            };
+            if !transparent || self.before(previous, binding) != self.after(previous, binding) {
+                return None;
+            }
+            current = previous;
+        }
+        None
+    }
+
     /// Union binding origins in source-event order, visiting shared immutable
     /// binding snapshots only once. This is a may-summary for representation
     /// planning, not a replacement for point-specific access/escape proofs.
@@ -15126,6 +15250,139 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn incoming_loan_paths_preserve_coexistence_and_stop_at_effects() {
+        let program = crate::parse_program(
+            "(#fn observe () #u64 (#return 0u64))
+             (#fn work (: view (#ref-mut #u64)) #u64
+               (#let marker #u64 (#call observe (:)))
+               (#return (#deref view)))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["work"];
+        let original_flow = &declarations.flows["work"];
+        let mut origins = original_flow.loan_origins(body);
+        let binding = BindingId(0);
+        let mut left = origins.before(original_flow.entry, binding)[0].clone();
+        left.storage = vec![Segment::Tuple(0)];
+        let mut right = left.clone();
+        right.storage = vec![Segment::Tuple(1)];
+        let held = vec![left.clone(), right.clone()];
+        let read = body.nodes.iter().position(|node|
+            matches!(node.kind, NodeKind::Symbol { binding: Some(found), .. } if found == binding)
+        ).unwrap();
+        let call = body
+            .nodes
+            .iter()
+            .position(|node| {
+                matches!(
+                    node.kind,
+                    NodeKind::Form {
+                        callee: Some(_),
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let node = |action, successors| FlowNode {
+            action,
+            successors,
+            span: None,
+        };
+        let mut flow = FlowGraph {
+            variant_pruned_edges: HashMap::new(),
+            entry: FlowNodeId(0),
+            exit: FlowNodeId(4),
+            nodes: vec![
+                node(FlowAction::Entry, vec![FlowNodeId(1), FlowNodeId(2)]),
+                node(FlowAction::Entry, vec![FlowNodeId(3)]),
+                node(FlowAction::Entry, vec![FlowNodeId(3)]),
+                node(FlowAction::LoopHead, vec![FlowNodeId(4)]),
+                node(
+                    FlowAction::Read {
+                        value: NodeId(read),
+                        place: Place::root(PlaceRoot::Local(binding)),
+                        place_base: false,
+                    },
+                    vec![],
+                ),
+            ],
+        };
+        let predecessors = vec![
+            vec![],
+            vec![FlowNodeId(0)],
+            vec![FlowNodeId(0)],
+            vec![FlowNodeId(1), FlowNodeId(2)],
+            vec![FlowNodeId(3)],
+        ];
+        let state = |loans: Vec<LoanOrigin>| {
+            let mut state = empty_loan_state(body.bindings.len());
+            state[binding.0] = loans;
+            Some(state)
+        };
+        origins.before = vec![None; 5];
+        origins.after = vec![None; 5];
+        origins.after[1] = state(vec![left.clone()]);
+        origins.after[2] = state(vec![right.clone()]);
+        origins.before[3] = state(held.clone());
+        origins.after[3] = state(held.clone());
+        origins.before[4] = state(held.clone());
+        let paths = origins
+            .incoming_binding_paths(body, &flow, &predecessors, FlowNodeId(4), binding, &held)
+            .unwrap();
+        assert_eq!(paths, vec![&[left.clone()][..], &[right.clone()][..]]);
+        // Coexisting loans on one predecessor are never separated, even if
+        // another predecessor supplies only one of them.
+        origins.after[1] = state(held.clone());
+        let paths = origins
+            .incoming_binding_paths(body, &flow, &predecessors, FlowNodeId(4), binding, &held)
+            .unwrap();
+        assert_eq!(paths[0], held);
+        // Every original fact must be accounted for; mismatched expansion or
+        // an intervening write cannot authorize dropping a loan.
+        assert!(origins
+            .incoming_binding_paths(
+                body,
+                &flow,
+                &predecessors,
+                FlowNodeId(4),
+                binding,
+                &[left.clone()]
+            )
+            .is_none());
+        for action in [
+            FlowAction::Evaluate(NodeId(call)),
+            FlowAction::Assign {
+                place: Place::root(PlaceRoot::Local(binding)),
+                value: NodeId(read),
+            },
+            FlowAction::Write {
+                place: Place::root(PlaceRoot::Local(binding)),
+                value: NodeId(read),
+            },
+            FlowAction::Bind {
+                binding,
+                value: NodeId(read),
+            },
+            FlowAction::Clone {
+                place: Place::root(PlaceRoot::Local(binding)),
+                value: NodeId(read),
+            },
+            FlowAction::ScopeExit(vec![binding]),
+        ] {
+            flow.nodes[3].action = action;
+            assert!(origins
+                .incoming_binding_paths(body, &flow, &predecessors, FlowNodeId(4), binding, &held)
+                .is_none());
+        }
+        flow.nodes[3].action = FlowAction::LoopHead;
+        origins.after[3] = state(vec![left]);
+        assert!(origins
+            .incoming_binding_paths(body, &flow, &predecessors, FlowNodeId(4), binding, &held)
+            .is_none());
+    }
 
     fn entry_pin_fixture(count: usize) -> crate::Program {
         let mut source =

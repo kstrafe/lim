@@ -8886,7 +8886,7 @@ fn async_scoped_blocks_keep_nested_pattern_captures() {
     let exclusive = referenced
         .replace("(#tuple #u16 (#ref #u64))", "(#tuple #u16 (#ref-mut #u64))")
         .replace("(#borrow owner)", "(#borrow-mut owner)");
-    build_and_run(&exclusive, 47);
+    build_and_run_graph(&exclusive, 47);
     let scratch = support::Scratch::new("async-block-pattern-errors");
     let error_for = |source: &str| {
         lim::compile_source_to_assembly(
@@ -9066,7 +9066,36 @@ fn async_awaited_aggregate_can_be_destructured_directly() {
     let exclusive = referenced
         .replace("(#tuple #u16 (#ref #u64))", "(#tuple #u16 (#ref-mut #u64))")
         .replace("(#borrow owner)", "(#borrow-mut owner)");
-    build_and_run(&exclusive, 42);
+    build_and_run_graph(&exclusive, 42);
+    let released = exclusive.replace(
+        "(#case (work-ready value) (#block (#return value)))",
+        "(#case (work-ready value) (#block (#set owner 99u64) (#return value)))",
+    );
+    assert_ne!(released, exclusive);
+    build_and_run_graph(&released, 42);
+    let retained = exclusive.replace(
+        "(#block (#set task next) ())",
+        "(#block (#set owner 99u64) (#set task next) ())",
+    );
+    assert_ne!(retained, exclusive);
+    let error = graph_compile_error(&retained, "graph-exclusive-pending-loan");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error
+        .span
+        .expect("Pending exclusive loan has a source span");
+    assert_eq!(&retained[span.start..span.end], "#set", "{error:?}");
+    assert_eq!(span.start, retained.find("#set owner 99u64").unwrap());
+    let overlapping_waker = exclusive.replace("(#borrow waker)", "(#borrow owner)");
+    assert_ne!(overlapping_waker, exclusive);
+    let error = graph_compile_error(&overlapping_waker, "graph-exclusive-overlapping-waker");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    assert!(error.message.contains("overlapping borrows"), "{error:?}");
+    let span = error.span.expect("overlapping waker has a source span");
+    assert_eq!(
+        &overlapping_waker[span.start..span.end],
+        "(#borrow owner)",
+        "{error:?}"
+    );
     let invalid = referenced.replace(
         "(#block (#set task next) ())",
         "(#block (#set owner 99u64) (#set task next) ())",
@@ -9241,7 +9270,7 @@ fn async_nested_local_destructuring_retains_all_declared_bindings() {
         .replace("(#borrow owner)", "(#borrow-mut owner)");
     // Keep the poller's waker shared; only the destructured data field is exclusive.
     let exclusive = exclusive.replace("(waker (#ref-mut #u64))", "(waker (#ref #u64))");
-    build_and_run(&exclusive, 42);
+    build_and_run_graph(&exclusive, 42);
     let definitions = referenced.split_once("(#fn main").unwrap().0;
     let cancelled = format!(
         "{definitions}
@@ -9340,6 +9369,10 @@ fn graph_nested_destructuring_preserves_projection_types_and_retained_loans() {
         )
         .replace("9u16 11u16", "9u16 (#borrow owner)");
     build_and_run_graph(&referenced, 42);
+    let exclusive = referenced
+        .replace("(#tuple #u16 (#ref #u64))", "(#tuple #u16 (#ref-mut #u64))")
+        .replace("(#borrow owner)", "(#borrow-mut owner)");
+    build_and_run_graph(&exclusive, 42);
     // A single projected field may retain either external storage location.
     // Its source type and selected value must survive both suspension points.
     for (choice, expected) in [(true, 42), (false, 62)] {

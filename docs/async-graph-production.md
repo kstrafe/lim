@@ -739,30 +739,64 @@ Forgetting the Pending frame retires its shared loan and permits subsequent
 referent mutation. Negative cases preserve the original retained-loan `#set`
 span and immutable pattern binding's assignment-target span.
 
-This evidence does not cover the unresolved live exclusive-reference aggregate
-case. The existing legacy regression remains positive: destructuring a nested
-exclusive reference must eventually work on graph too, not become an expected
-rejection. Default migration also still requires resolving the remaining public
+At that audit, this evidence did not cover the live exclusive-reference aggregate
+case. The incoming-path refinement described below subsequently closes three
+nested destructuring variants on graph without changing their positive meaning.
+Default migration still requires resolving the remaining public
 interface differences and auditing the other control-flow failures.
 
 ### Exclusive destructuring: the caller-loop join
 
-`nested_exclusive_pattern_storage_survives_consecutive_polls` lowers the same
+`nested_exclusive_pattern_storage_survives_loop_and_consecutive_polls` lowers the same
 nested tuple/struct pattern with an external `#ref-mut #u64`. Three consecutive
 straight-line polls return 42 as independently checked native ordinary code.
 Forgetting the first Pending frame permits referent mutation; mutating it while
 retaining that frame rejects with Borrow at the original assignment's `#set`.
 
-The caller loop from `async_destructure.lim` still rejects this exclusive
-variant. Instrumenting the conflicting origins showed the *same* original
+The initial caller-loop probe rejected this exclusive variant from
+`async_destructure.lim`. Instrumenting the conflicting origins showed the *same* original
 borrow, referent and source span under two different storage paths: the initial
 aggregate cell and its destructured reference cell. The caller's loop join
 unions these possible locations, and argument checking treats them as
 simultaneously retained exclusive handles. Straight-line calls do not introduce
-that union. Thus the boundary failure is not evidence that the generated moves
-physically duplicate this handle; preserving loan-path correlation through the
-caller loop remains necessary. Neither origin is discarded by weakening
-ordinary overlap checks, and the valid looping program remains unresolved.
+that union. Thus the boundary failure was not evidence that the generated moves
+physically duplicate this handle. The incoming-path refinement below resolves
+this particular caller loop without discarding an origin or weakening overlap
+checks. More general recurring correlations remain incomplete.
+
+### Preserve incoming loan alternatives at unchanged binding reads
+
+Ordinary call checking now keeps the nearest CFG join's predecessor snapshots
+as alternatives when an aggregate read has overlapping exclusive may-origins.
+The binding must remain unchanged from the join to its read. Unknown calls,
+assignments, writes, relevant binding/scope changes and nonprimitive clone hooks
+stop the query. Primitive scalar clones and arithmetic used by range loops are
+transparent; they are not user callbacks. The predecessor union must exactly
+match the existing snapshot's origins, or the checker falls back conservatively.
+No point-specific provenance snapshot is replaced, and no async name, frame
+layout, program-counter convention or pin rule enters this ordinary query.
+
+Each predecessor remains a conservative may-state. Its coexisting loans are
+never separated, and cross-argument combinations still use the existing overlap
+checks and path-complexity limits. The predecessor index is built lazily once
+per body, only when a potentially ambiguous aggregate read requires it.
+Unit probes verify coexistence, missing-fact fallback, changed snapshots,
+unknown calls, writes, scope changes and exclusive/named clone barriers.
+
+The original exclusive variants of scoped nested patterns, awaited aggregate
+destructuring and local destructuring now run explicitly on graph. The native
+loop and consecutive-poll regression also verifies cancellation loan retirement.
+A separate ordinary, nongenerated `Frame`/`shift` caller loop validates the same
+initial-to-resumed reference-slot transfer. Retaining its frame still rejects
+referent mutation. Public graph tests also reject referent mutation while
+Pending and an overlapping shared waker argument at their original source
+spans, while permitting mutation after Ready.
+
+This is not a general disjunctive loan solver. For example, a nongenerated loop
+that repeatedly moves its exclusive loan *back and forth* between two slots
+still has both locations in its backedge may-state; this query does not split
+that predecessor. More deeply recurring correlations and live parent/child
+exclusive holders remain work toward complete control-flow coverage.
 
 ## Reuse shared source-loan snapshots during representation planning
 

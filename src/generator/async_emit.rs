@@ -4221,10 +4221,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_exclusive_pattern_storage_survives_consecutive_polls() {
-        // Keep calls straight-line: the caller-loop join still loses the
-        // distinction between the initial aggregate and destructured slot.
-        // Do not make that unresolved positive case an expected rejection.
+    fn nested_exclusive_pattern_storage_survives_loop_and_consecutive_polls() {
         let source = include_str!("../../examples/async_destructure.lim")
             .replace("(#tuple #u16 #u16)", "(#tuple #u16 (#ref-mut #u64))")
             .replace("(#as right #u64)", "(#deref right)")
@@ -4233,6 +4230,18 @@ mod tests {
                 "(#let-mut owner #u64 11u64) (#let waker #u64",
             )
             .replace("9u16 11u16", "9u16 (#borrow-mut owner)");
+        let loop_syntax = crate::prepare_program_syntax(
+            &source,
+            std::path::Path::new("."),
+            None,
+            &crate::CompileConfig::default(),
+            None,
+        )
+        .unwrap();
+        runtime_planned(
+            crate::generator::async_prepare::prepare(&loop_syntax).unwrap(),
+            42,
+        );
         let source = format!(
             "{}
           (#fn main () #u64
