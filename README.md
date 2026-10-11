@@ -84,8 +84,8 @@ fully inspectable even when its unused functions are omitted from the binary.
 Run `nix develop --command bash scripts/native-sweep.sh` to compile and run
 every example against `examples/outcomes.txt`. Each entry declares an exact
 exit code, intentional signal, or compile-only module, plus stdout/stderr
-fixtures. During async route migration, `graph-exit` additionally selects
-`--cfg async-lowering=graph` for the example; ordinary `exit` uses the default.
+fixtures. `graph-exit` selects `--cfg async-lowering=graph` for explicit
+graph-route coverage; graph lowering is also the default.
 `-` means empty output. Missing entries, unexpected signals, wrong output,
 compiler/linker failures, and timeouts fail the suite. Exit codes above 128
 are not treated as signals. New examples must declare their expected outcome.

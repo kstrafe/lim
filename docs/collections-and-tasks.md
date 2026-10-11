@@ -268,15 +268,15 @@ No local stack reference is silently captured: generated enums and functions
 undergo the existing borrow checks. Self-referential movable task frames are
 not added, and no pinning guarantee is provided.
 
-An arbitrary async function will need its body lowered into a concrete state
-machine with an explicit poll context carrying a local waker. Each `#await`
-must preserve live locals and loans in that state; poll returns Pending only
-after the awaited operation has registered the wake. Ready returns its value,
-and cancellation consumes the suspended state and its resources. A first
-version should reject borrows that cross suspension if they would make the
-frame self-referential; supporting those later requires immovable frame
-storage and a corresponding borrow-checker rule. The current `@#async` and
-`@#local-waker` do not perform this lowering.
+`@#async-fn` and `@#async-fn-pinned` lower the original function body through
+the production graph planner and emitter into a concrete state machine with an
+explicit poll context carrying a local waker. Suspension preserves the live
+locals and checked loans in the frame; cancellation consumes the suspended
+state through its explicit cleanup interface. Movable frames reject internal
+references that remain live across Pending; use pinned frame storage when
+references into the frame must survive suspension. The staged `@#async`
+generator described above remains explicit state composition and does not
+lower an arbitrary function body.
 
 For explicit state composition that already needs a wake context, use
 `@#async-wake` with the same stage descriptors as `@#async` and one additional
@@ -298,7 +298,7 @@ token before polling and consult its ready bit after Pending; see
 bare `@#async-wake` expansion does not perform registration itself. See
 `examples/async_wake_pipeline.lim` for the adapter-only cycle.
 
-## Compiler-lowered async functions (sequential subset)
+## Compiler-lowered async functions
 
 `@#async-fn` is a built-in inspectable code generator. It reads a `#fn` form
 whose result type is the eventual value, then emits an ordinary linear frame
@@ -391,25 +391,22 @@ binding unless it is nested in a supported value expression such as the right
 hand side of `#set`; nested awaits require an explicit result type. For example,
 `(#set total (#await #u64 Child Pending Ready child-poll task))` suspends before
 assigning the result to the mutable local, whose value is retained in the frame.
-An `#if`, `#match`, or `#block` that contains no nested `#await` may
-run between stages. Awaited branches and loop bodies have explicit supported
-shapes rather than general CFG lowering: `#while` can suspend once in its body
-per iteration, or use a direct boolean `#await` as its condition. `#for`
-conditions can also suspend, including alongside supported awaited initializer,
-body, and step phases. For both loop forms, a short-circuit
+An `#if`, `#match`, or `#block` may contain suspension. Awaited branches and
+loop bodies are lowered from the checked control-flow graph, including
+`#while` and `#for` conditions, initializers, bodies, and steps. For both loop
+forms, a short-circuit
 `#bool.&&`/`#bool.||` condition may put an await on its right-hand side; the
 child is polled only when that branch is selected. An awaited condition is
-polled before each body decision, and Ready(false) skips the body. These loop
-forms still have shape-specific transfer restrictions; they are not yet
-lowered from a general typed CFG.
+polled before each body decision, and Ready(false) skips the body. Loop
+transfers follow the source control-flow and cleanup rules.
 Value-producing awaited `#loop` expressions can exit through conditional or
 match branches without a final direct `#break`. Result storage uses explicitly
 declared binding and function types, concrete constructors, casts, and builtin
 operation contracts; comparisons return `#bool`, not their operand type. The
 ordinary checker still validates all break payloads and their ownership.
 `examples/async_loop_results.lim` passes a linear struct produced by a function
-call out of a suspended loop and consumes it explicitly. This does not remove
-the remaining general control-flow lowering restrictions.
+call out of a suspended loop and consumes it explicitly. Branches, loop exits,
+and their payload ownership are checked against the original function body.
 Conditional await continuations may likewise change result type: a branch can
 await a `#u64` and then yield a `#bool`, reference, or concrete linear aggregate.
 Its generated Ready payload uses the branch's declared expression contract,
@@ -429,7 +426,7 @@ not again when a Pending task is polled. A `#while` condition can await the
 task needed by its outer boolean await; both dependencies run anew for each
 condition evaluation. See `examples/async_condition_dependencies.lim` for
 three condition evaluations, an early continue, and a suspending body. These
-extensions do not complete general typed control-flow lowering.
+effects run at their corresponding source evaluation points in the graph plan.
 Sequential suspension points have no fixed language-level count limit.
 A movable `@#async-fn` cannot retain references into its own frame across
 Pending. Poll-local borrows are allowed when checked physical storage proves
