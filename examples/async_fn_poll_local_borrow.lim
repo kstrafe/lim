@@ -1,0 +1,44 @@
+; References ending before an await do not require a stationary future.
+(#struct Counter (: value #u64))
+(#linear Counter)
+(#fn increment (: target (#ref-mut #u64)) ()
+  (#deref-set target (#u64.+.wrap (#deref target) 1u64))
+  (#return ()))
+(#enum Step (Start Resume))
+(#linear Step)
+(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
+(#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+  (#return
+    (#match task
+      (#case Start
+        (StepPending Resume))
+      (#case Resume
+        (StepReady 0u64)))))
+(@
+  #async-fn
+  (: protocol WorkAwait : waker #u64 : function
+  (#fn work () #u64
+    (#let-mut counter Counter (#struct-literal Counter (: value 40u64)))
+    (#let view (#ref-mut Counter) (#borrow-mut counter))
+    (#call increment (: target (#borrow-mut (#get view value))))
+    (#call increment (: target (#borrow-mut (#get view value))))
+    (#forget view)
+    (#let answer #u64 (#borrow counter (#get counter value)))
+    (#forget counter)
+    (#let extra #u64 (#await StepAwait Start))
+    (#return (#u64.+.wrap answer extra)))))
+(#fn main () #u64
+  (#let waker #u64 0u64)
+  (#let first Work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
+  (#let-else (work-pending task) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+  (#forget waker)
+  (#return
+    (#match second
+      (#case (work-ready answer)
+        answer)
+      (#case (work-pending unexpected)
+        (#block
+          (#forget unexpected)
+          (#unreachable))))))

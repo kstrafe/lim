@@ -633,3 +633,42 @@ their safety gates.
 
 Verification passed all 1,335 library tests (one ignored), all 213 async
 integration tests, formatting, and whitespace checks.
+
+### Retired local references in movable polls
+
+Thin references stored in locals can now be used across multiple synchronous
+operations in a movable poll. Their selected pointers use the existing
+frame-anchor representation, but movement is authorized only when every
+reachable Pending boundary proves all internal reference cells and dependent
+owners physically Empty. Missing physical facts fail closed. An internal
+reference retained across an await still requires a pinned async frame, with
+the diagnostic pointing to its source address formation where available.
+
+This includes sequential calls through stored exclusive references, reborrows
+of struct fields, shared references, and references selecting different local
+targets. Explicit release, scope exit, or proved dead exclusive-handle
+retirement must clear their storage before returning Pending. Both original
+source witnesses and all generated ordinary functions still undergo full
+ownership validation; pointer erasure is not permission to alias or escape.
+
+Regression coverage includes aliases retained after releasing the original,
+references live in just one suspension branch, reference-bearing aggregate
+holders, and missing boundary-fact rejection. Cold and warm generated-code
+tests compile and execute the inspectable artifact as standalone Lim. The
+existing loop-mutation regression now uses graph lowering for its scalar and
+struct-reference variants. Scoped local borrows also use this boundary proof:
+ending the scope before suspension permits movement, but retaining the scope
+across suspension still requires a pinned frame. The retained fat-slice variant
+and other default-switch requirements remain open. Legacy lowering is still
+the default.
+
+`examples/async_fn_poll_local_borrow.lim` demonstrates stored mutable field
+reborrows and a scoped shared read, releases both before suspension, then moves
+and resumes the pending task. Its native result is 42 with both lowering routes;
+the graph cache/standalone regression also covers this exact example.
+
+Final verification passed 1,337 library tests (one ignored), all 301 selected
+async integration tests, formatting, and whitespace checks. The selected
+integration suites cover general async behavior, immediate/poll-local borrows,
+graph production, selected-reference rejection, dependent cancellation,
+reference guards, self-borrow cleanup, and self-borrows.

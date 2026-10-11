@@ -297,9 +297,6 @@ impl<'a> Emitter<'a> {
                 };
                 let slot = emitter.add_slot(format!("scope.{}", scope.0), ty);
                 if !pinned && matches!(function.graph.places[place.0].root, AddressRoot::Local(_)) {
-                    if !emitter.pinned {
-                        return Err(fail(function, "local borrows require a pinned async frame"));
-                    }
                     let anchor = crate::generator::async_self_borrow::direct_place(
                         &function.graph,
                         body,
@@ -461,6 +458,7 @@ impl<'a> Emitter<'a> {
             emitter.retirement.as_ref(),
             emitter.lending.as_ref(),
         );
+        emitter.validate_movable_reference_boundaries()?;
         let places = emitter
             .slots
             .iter()
@@ -477,6 +475,97 @@ impl<'a> Emitter<'a> {
         emitter.projections.append(&mut recipes.declarations);
         emitter.array_anchors = recipes;
         Ok(emitter)
+    }
+
+    fn validate_movable_reference_boundaries(&self) -> Result<(), Error> {
+        use crate::generator::async_cells::Cell;
+        use crate::typed_body::PlaceRoot;
+        if self.pinned {
+            return Ok(());
+        }
+        let internal = |slot: &Slot| {
+            !slot.dependencies.is_empty()
+                || slot.anchor.as_ref().is_some_and(|anchors| {
+                    anchors
+                        .iter()
+                        .any(|anchor| matches!(anchor.root, PlaceRoot::Local(_)))
+                })
+        };
+        let mut cells = self
+            .bindings
+            .iter()
+            .map(|(binding, index)| (Cell::Binding(*binding), *index))
+            .chain(
+                self.values
+                    .iter()
+                    .map(|(value, index)| (Cell::Value(*value), *index)),
+            )
+            .chain(
+                self.scopes
+                    .iter()
+                    .map(|(scope, index)| (Cell::Scope(*scope), *index)),
+            )
+            .filter(|(_, index)| internal(&self.slots[*index]))
+            .collect::<Vec<_>>();
+        cells.sort_by_key(|(_, index)| *index);
+        if cells.is_empty() {
+            return Ok(());
+        }
+        let reachable = self.function.graph.reachable();
+        for (block, descriptor) in self.function.graph.blocks.iter().enumerate() {
+            if !reachable.contains(&BlockId(block))
+                || !matches!(descriptor.terminator, Terminator::Await { .. })
+            {
+                continue;
+            }
+            let plan = self.reference_cells.as_ref().ok_or_else(|| {
+                fail(
+                    self.function,
+                    "movable internal references require physical suspension-cell facts",
+                )
+            })?;
+            let Some(empty) = plan.pending_empty.get(&BlockId(block)) else {
+                return Err(fail(self.function,
+                    "movable internal references require facts for every reachable Pending boundary"));
+            };
+            if let Some((cell, index)) = cells.iter().find(|(cell, _)| !empty.contains(cell)) {
+                let span = match cell {
+                    Cell::Binding(binding) => self.function.graph.bindings[binding.0].span,
+                    Cell::Value(value) => self.function.graph.values[value.0].span,
+                    Cell::Scope(scope) => self.body.nodes[scope.0].span,
+                };
+                // Prefer the actual formation of an internal address to the
+                // enclosing declaration when source origins identify it.
+                let formation = self.slots[*index].anchor.as_ref().and_then(|anchors| {
+                    self.function
+                        .graph
+                        .blocks
+                        .iter()
+                        .flat_map(|block| &block.actions)
+                        .find_map(|action| match action.action {
+                            Action::Borrow { place, .. } => {
+                                crate::generator::async_self_borrow::direct_place(
+                                    &self.function.graph,
+                                    self.body,
+                                    place,
+                                )
+                                .ok()
+                                .filter(|place| anchors.contains(place))
+                                .and(action.span)
+                            }
+                            _ => None,
+                        })
+                });
+                return Err(Error {
+                    message: "local references surviving suspension require a pinned async frame"
+                        .into(),
+                    span: formation
+                        .or(span)
+                        .unwrap_or(self.function.source.function.span),
+                });
+            }
+        }
+        Ok(())
     }
 
     fn fresh(&self, role: &str) -> String {
@@ -2074,13 +2163,16 @@ impl<'a> Emitter<'a> {
         pinned: bool,
     ) -> Result<String, Error> {
         if matches!(descriptor.root, AddressRoot::Local(_)) {
+            // A movable poll is stationary while executing. Its raw internal
+            // handles were certified Empty on every Pending boundary in new;
+            // this does not make a source pin movable or grant borrow access.
             let owner = crate::generator::async_owner::Borrow::new(
                 &self.function.graph,
                 descriptor,
                 &self.planning.declarations,
                 mutable,
                 pinned,
-                self.pinned,
+                self.pinned || (!pinned && self.slots[dst].raw),
             )
             .map_err(|message| fail(self.function, message))?;
             let slot = self.bindings.get(&owner.binding).ok_or_else(|| {
@@ -6723,6 +6815,107 @@ mod tests {
     }
 
     #[test]
+    fn movable_polls_keep_explicitly_retired_local_handles_within_the_poll() {
+        let main = format!(
+            "(#struct Counter (: value #u64))
+          (#fn touch (: target (#ref-mut #u64)) ()
+            (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return ()))
+          {RUN}"
+        );
+        for body in [
+            "(#let-mut total #u64 seed)
+              (#let view (#ref-mut #u64) (#borrow-mut total))
+              (#call touch (: target view)) (#call touch (: target view))
+              (#forget view)
+              (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+              (#return (#u64.+.wrap total child))",
+            "(#let-mut counter Counter (#struct-literal Counter (: value seed)))
+              (#let container (#ref-mut Counter) (#borrow-mut counter))
+              (#call touch (: target (#borrow-mut (#get container value))))
+              (#call touch (: target (#borrow-mut (#get container value))))
+              (#forget container)
+              (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+              (#let answer #u64 (#get counter value)) (#forget counter)
+              (#return (#u64.+.wrap answer child))",
+            "(#let total #u64 seed)
+              (#let view (#ref #u64) (#borrow total))
+              (#let answer #u64 (#deref view)) (#forget view)
+              (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#return (#u64.+.wrap answer child))",
+            "(#let total #u64 seed)
+              (#let answer #u64 (#borrow total (#u64.+.wrap total 2u64)))
+              (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+              (#return (#u64.+.wrap answer child))",
+        ] {
+            runtime(body, &main, 42);
+        }
+    }
+
+    #[test]
+    fn movable_local_references_require_complete_physical_boundary_proofs() {
+        let body = "(#let owner #u64 seed)
+          (#let view (#ref #u64) (#borrow owner))
+          (#let answer #u64 (#deref view)) (#forget view)
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#return (#u64.+.wrap answer extra))";
+        let planning = prepare(body, RUN);
+        let function = &planning.functions[0];
+        let mut emitter = Emitter::new(&planning, function).unwrap();
+        emitter.reference_cells = None;
+        assert!(emitter
+            .validate_movable_reference_boundaries()
+            .unwrap_err()
+            .message
+            .contains("physical suspension-cell facts"));
+        let mut emitter = Emitter::new(&planning, function).unwrap();
+        emitter
+            .reference_cells
+            .as_mut()
+            .unwrap()
+            .pending_empty
+            .clear();
+        assert!(emitter
+            .validate_movable_reference_boundaries()
+            .unwrap_err()
+            .message
+            .contains("every reachable Pending boundary"));
+
+        for body in [
+            "(#let owner #u64 seed)
+              (#let view (#ref #u64) (#borrow owner))
+              (#let alias (#ref #u64) view) (#forget view)
+              (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#let answer #u64 (#deref alias)) (#forget alias)
+              (#return (#u64.+.wrap answer extra))",
+            "(#let owner #u64 seed)
+              (#let view (#ref #u64) (#borrow owner))
+              (#if (#u64.== seed 40u64) (#forget view)
+                (#block
+                  (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+                  (#assert (#u64.== (#deref view) seed)) (#forget view) ()))
+              (#return seed)",
+            "(#let owner #u64 seed)
+              (#let holder Holder (#struct-literal Holder (: view (#borrow owner))))
+              (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#let answer #u64 (#deref (#get holder view))) (#forget holder)
+              (#return (#u64.+.wrap answer extra))",
+        ] {
+            let planning = prepare(
+                body,
+                &format!("(#struct Holder (: view (#ref #u64))) {RUN}"),
+            );
+            let error = generate(&planning)
+                .err()
+                .expect("a retained local loan cannot move with the frame");
+            assert_eq!(
+                error.message,
+                "local references surviving suspension require a pinned async frame"
+            );
+            assert_ne!(error.span, planning.functions[0].source.function.span);
+        }
+    }
+
+    #[test]
     fn movable_index_metadata_does_not_authorize_user_self_references() {
         let planning = prepare(
             "(#let items (#array #u64 2) (#array-of (#array #u64 2) seed 0u64))
@@ -6755,7 +6948,7 @@ mod tests {
         let error = generate(&planning).err().unwrap();
         assert_eq!(
             error.message,
-            "local borrows require stable frame-owner storage, not a handle projection"
+            "local references surviving suspension require a pinned async frame"
         );
         let source = &planning.program.source_files[error.span.source_id as usize].source;
         assert_eq!(

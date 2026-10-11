@@ -1,9 +1,11 @@
-//! Representation planning for references into a stationary async frame.
+//! Representation planning for references into async frame storage.
 //!
 //! Ordinary source loan analysis remains the authority for access and escape
 //! checks. This module identifies thin selected handles that can be stored as
 //! raw pointers and materialized for an individual poll operation. Boundary
-//! references retain separate lifetime-bearing captures.
+//! references retain separate lifetime-bearing captures. Movable frames may
+//! use these handles within a poll only; the emitter must prove all internal
+//! handles and dependent owners Empty before returning Pending.
 use std::collections::{HashMap, HashSet};
 
 use crate::generator::async_exec::{Action, AddressRoot, Graph, ValueId};
@@ -127,15 +129,14 @@ impl Plan {
         declarations: &Declarations,
         stationary: bool,
     ) -> Result<Self, Error> {
-        if !stationary
-            || !graph
-                .blocks
-                .iter()
-                .flat_map(|block| &block.actions)
-                .any(|action| {
-                    matches!(action.action, Action::Borrow { place, pinned: false, .. }
+        if !graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .any(|action| {
+                matches!(action.action, Action::Borrow { place, pinned: false, .. }
                 if matches!(graph.places[place.0].root, AddressRoot::Local(_)))
-                })
+            })
         {
             return Ok(Self::default());
         }
@@ -197,6 +198,23 @@ impl Plan {
             } = action.action
             {
                 if matches!(graph.places[place.0].root, AddressRoot::Local(_)) {
+                    if !stationary {
+                        let AddressRoot::Local(binding) = graph.places[place.0].root else {
+                            unreachable!()
+                        };
+                        if matches!(
+                            crate::typed_ir::resolve_type(
+                                &graph.bindings[binding.0].ty,
+                                &declarations.aliases
+                            ),
+                            Ok(Type::Reference { .. } | Type::PinnedReference { .. })
+                        ) {
+                            // An existing handle is not an owned frame referent.
+                            // Its real pointee identity must come from source
+                            // loan origins, not the direct-place fallback.
+                            continue;
+                        }
+                    }
                     plan.values
                         .entry(value)
                         .or_insert(vec![at(direct_place(graph, body, place), action.span)?]);

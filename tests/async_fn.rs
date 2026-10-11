@@ -10143,7 +10143,12 @@ fn async_loop_body_restores_values_mutated_through_borrowed_places() {
               (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
         "#
         );
-        build_and_run(&source, 42);
+        if ty == "(#array #u64 1)" {
+            // Retained fat-slice representation is a separate graph gate.
+            build_and_run(&source, 42);
+        } else {
+            build_and_run_graph(&source, 42);
+        }
     }
 }
 

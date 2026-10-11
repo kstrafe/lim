@@ -1,4 +1,4 @@
-//! Operation-local references do not need movable-frame reference storage.
+//! Operation-local and retired poll-local references in movable async frames.
 mod support;
 
 use std::{fs, process::Command, time::Duration};
@@ -14,6 +14,10 @@ fn run(source: &str) {
 }
 
 fn run_output(source: &str, expected_stdout: &[u8]) {
+    run_with_role(source, expected_stdout, "immediate-owner-project")
+}
+
+fn run_with_role(source: &str, expected_stdout: &[u8], role: &str) {
     let scratch = support::Scratch::new("async-graph-immediate");
     let path = scratch.path().join("input.lim");
     let cache = scratch.path().join("cache");
@@ -50,11 +54,15 @@ fn run_output(source: &str, expected_stdout: &[u8]) {
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
             .find(|text| text.contains("(#fn work-poll "))
             .unwrap();
-        assert!(artifact.contains("immediate-owner-project"));
+        assert!(artifact.contains(role));
         let invocation = lim::parse(source)
             .unwrap()
             .into_iter()
-            .find(|node| source[node.span.start..node.span.end].starts_with("(@#async-fn"))
+            .find(|node| {
+                matches!(&node.expr, lim::Expr::List(items)
+                if matches!(items.first(), Some(lim::Expr::At))
+                && matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "#async-fn"))
+            })
             .unwrap();
         let standalone = format!(
             "{}\n{artifact}\n{}",
@@ -84,6 +92,108 @@ fn run_output(source: &str, expected_stdout: &[u8]) {
             assert!(stderr.is_empty());
         }
         previous = Some(assembly);
+    }
+}
+
+#[test]
+fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
+    for body in [
+        "(#let-mut counter Counter (#struct-literal Counter (: value 40u64)))
+          (#let container (#ref-mut Counter) (#borrow-mut counter))
+          (#call touch (: target (#borrow-mut (#get container value))))
+          (#call touch (: target (#borrow-mut (#get container value))))
+          (#forget container)
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#let answer #u64 (#get counter value)) (#forget counter) (#return answer)",
+        "(#let left #u64 42u64) (#let right #u64 42u64)
+          (#let view (#ref #u64) (#if choose (#borrow left) (#borrow right)))
+          (#let answer #u64 (#deref view)) (#forget view)
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#return answer)",
+        "(#let owner #u64 40u64)
+          (#let answer #u64 (#borrow owner (#u64.+.wrap owner 2u64)))
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#return answer)",
+    ] {
+        for choose in [false, true] {
+            let source = format!(
+                "(#struct Counter (: value #u64))
+                (#fn touch (: target (#ref-mut #u64)) ()
+                  (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return ()))
+                (#enum Child (Start Resume)) (#linear Child)
+                (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+                (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+                  (#return (#match task (#case Start (ChildPending Resume))
+                    (#case Resume (ChildReady 0u64)))))
+                (@#async-fn (: protocol WorkAwait : waker #u64
+                  : function (#fn work (: choose #bool) #u64 {body})))
+                (#fn main () #u64
+                  (#let waker #u64 0u64)
+                  (#let first Work-poll-result (#call work-poll
+                    (: task (#call work (: choose {choose})) : waker (#borrow waker))))
+                  (#let-else (work-pending task) Work-poll-result first (#unreachable))
+                  (#return (#match (#call work-poll (: task task : waker (#borrow waker)))
+                    (#case (work-ready answer) answer)
+                    (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
+            );
+            run_with_role(&source, &[], "owner-project");
+        }
+    }
+    run_with_role(
+        include_str!("../examples/async_fn_poll_local_borrow.lim"),
+        &[],
+        "owner-project",
+    );
+}
+
+#[test]
+fn poll_local_pointer_storage_does_not_authorize_source_aliasing() {
+    for body in [
+        "(#let-mut owner #u64 40u64)
+          (#let view (#ref #u64) (#borrow owner))
+          (#set owner 42u64) (#return (#deref view))",
+        "(#let-mut owner #u64 40u64)
+          (#let view (#ref-mut #u64) (#borrow-mut owner))
+          (#let alias (#ref #u64) (#borrow owner))
+          (#let answer #u64 (#deref view)) (#forget alias) (#forget view)
+          (#return answer)",
+    ] {
+        let source = format!(
+            "(@#async-fn (: protocol WorkAwait : waker #u64
+              : function (#fn work () #u64 {body})))"
+        );
+        let scratch = support::Scratch::new("async-poll-local-alias");
+        let cache = scratch.path().join("cache");
+        let error = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("input.lim"),
+            &config(),
+            &cache,
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        let span = error
+            .span
+            .expect("aliasing must identify the source access");
+        assert_eq!(
+            &source[span.start..span.end],
+            if body.contains("#set") {
+                "#set"
+            } else {
+                "#borrow"
+            }
+        );
+        let needle = if body.contains("#set") {
+            "#set owner 42u64"
+        } else {
+            "#borrow owner))\n          (#let answer"
+        };
+        assert_eq!(span.start, source.find(needle).unwrap(), "{error:?}");
+        assert!(
+            !cache.exists(),
+            "invalid source must not publish generated code"
+        );
     }
 }
 

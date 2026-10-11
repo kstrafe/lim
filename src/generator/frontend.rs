@@ -1893,13 +1893,13 @@ mod async_migration_tests {
               (#let view (#ref #u64) (#borrow (#get owner 0)))
               (#return (#u64.+.wrap (#deref view)
                 (#await Child ChildPending ChildReady child-poll (Start 2u64))))",
-                "local borrows require stable frame-owner storage",
+                "local references surviving suspension require a pinned async frame",
             ),
             (
                 "(#let owner #u64 seed)
                  (#return (#borrow owner
                    (#await Child ChildPending ChildReady child-poll (Start 0u64))))",
-                "local borrows require a pinned async frame",
+                "local references surviving suspension require a pinned async frame",
             ),
         ] {
             let text = source(body);
