@@ -4239,8 +4239,41 @@ fn async_conditional_branch_value_expressions_can_suspend() {
         (#return (#u64.+.wrap
           (#u64.+.wrap if-value if-immediate-value)
           (#u64.+.wrap match-value match-immediate-value))))";
-    let generated = build_and_run(source, 88);
-    assert!(generated.contains("-expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 88);
+    assert_single_poll(&generated, "work-poll");
+    assert_single_poll(&generated, "work-match-poll");
+}
+
+fn check_graph_conditional_capture(source: &str) {
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
+    assert_frame_has_program_counter(&generated, "Work-task");
+
+    // The original immediate child alone cannot establish retention across
+    // Pending. Force a suspension and consume its returned task on the retry.
+    let suspended = source
+        .replace("(#enum Child ((Waiting #u64)))", "(#enum Child ((Waiting #u64) (Resuming #u64)))")
+        .replace("(#case (Waiting value) (ChildReady value))", "(#case (Waiting value) (ChildPending (Resuming value)))\n          (#case (Resuming value) (ChildReady value))")
+        .replace("(#case (work-pending pending) (#block (#forget pending) 0u64))", "(#case (work-pending pending)\n              (#match (#call work-poll (: task pending : waker (#borrow waker)))\n                (#case (work-ready resumed) resumed)\n                (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))");
+    assert_ne!(suspended, source);
+    build_and_run_graph(&suspended, 42);
+    let unselected = suspended.replace("(#if true", "(#if false");
+    assert_eq!(unselected.matches("ChildPoll\n        (#return").count(), 1);
+    let unselected = unselected.replace(
+        "ChildPoll\n        (#return",
+        "ChildPoll\n        (#assert false)\n        (#return",
+    );
+    build_and_run_graph(&unselected, 0);
+
+    // Graph capture storage must not erase the original explicit type check.
+    let invalid = source.replace("40u64", "40u32");
+    assert_ne!(invalid, source);
+    let error = graph_compile_error(&invalid, "graph-conditional-capture-type");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
+    let span = error
+        .span
+        .expect("explicit capture type mismatch has a span");
+    assert_eq!(&invalid[span.start..span.end], "40u32", "{error:?}");
 }
 
 #[test]
@@ -4268,8 +4301,7 @@ fn async_conditional_value_await_captures_typed_function_parameters() {
             (#case (work-pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return value))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("offset #u64"), "{generated}");
+    check_graph_conditional_capture(source);
 }
 
 #[test]
@@ -4298,8 +4330,7 @@ fn async_conditional_value_await_captures_typed_local_bindings() {
             (#case (work-pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return value))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("offset #u64"), "{generated}");
+    check_graph_conditional_capture(source);
 }
 
 #[test]

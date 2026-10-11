@@ -123,6 +123,13 @@ Native regressions cover side-effecting factories, immediate children,
 suspending children, and an awaiting body. Classic `#for` conditions remain
 per-iteration computations.
 
+Conditional expression capture regressions use graph lowering explicitly,
+without requiring legacy private field or helper names. Both typed parameters
+and typed locals survive a Pending return and retry; an unselected branch does
+not poll its child. Immediate completion and original explicit-type mismatch
+spans are checked too. Nested call operands containing conditional and match
+expressions run through their public poll interfaces.
+
 Source-time delayed initialization stays at the original graph Bind. Factories
 install only parameters; repeated Pending retries poll the existing child.
 Static pinned owner projections and supported checked selected addresses use
