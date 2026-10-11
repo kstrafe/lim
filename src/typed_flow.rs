@@ -1105,6 +1105,32 @@ impl FlowReleases {
 }
 
 impl FlowLoanOrigins {
+    /// Union binding origins in source-event order, visiting shared immutable
+    /// binding snapshots only once. This is a may-summary for representation
+    /// planning, not a replacement for point-specific access/escape proofs.
+    pub(crate) fn binding_origin_union(&self, binding_count: usize) -> Vec<Vec<LoanOrigin>> {
+        let mut result = vec![Vec::new(); binding_count];
+        let mut visited = HashSet::new();
+        for (before, after) in self.before.iter().zip(&self.after) {
+            for state in [before, after].into_iter().flatten() {
+                // Every snapshot remains alive throughout this query. Arc
+                // identity therefore cannot be recycled; writes use COW.
+                if !visited.insert(std::sync::Arc::as_ptr(&state.bindings.0)) {
+                    continue;
+                }
+                assert_eq!(state.bindings.len(), binding_count);
+                for (binding, held) in state.bindings.iter().enumerate() {
+                    for origin in held {
+                        if !result[binding].contains(origin) {
+                            result[binding].push(origin.clone());
+                        }
+                    }
+                }
+            }
+        }
+        result
+    }
+
     /// Resolve the address before a borrow conversion changes capabilities.
     /// A reference-valued field crosses a pointer boundary, not an inline
     /// physical field of the pointer's containing wrapper.

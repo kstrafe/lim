@@ -148,27 +148,20 @@ impl Plan {
             )
         };
         let mut plan = Self::default();
+        let binding_origins = {
+            let _timing = crate::timing::detail("generator.async.binding_origin_union");
+            origins.binding_origin_union(graph.bindings.len())
+        };
         for (index, binding) in graph.bindings.iter().enumerate() {
-            let mut all = Vec::new();
-            for event in 0..flow.nodes.len() {
-                for origin in origins
-                    .before(FlowNodeId(event), BindingId(index))
-                    .iter()
-                    .chain(origins.after(FlowNodeId(event), BindingId(index)))
-                {
-                    if !all.contains(origin) {
-                        all.push(origin.clone());
-                    }
-                }
-            }
+            let all = &binding_origins[index];
             if !thin(&binding.ty) {
-                let owners = internal_owners(&all);
+                let owners = internal_owners(all);
                 if !owners.is_empty() {
                     plan.dependent_bindings.insert(BindingId(index), owners);
                 }
                 continue;
             }
-            if let Some(place) = at(anchor(&all), binding.span)? {
+            if let Some(place) = at(anchor(all), binding.span)? {
                 plan.bindings.insert(BindingId(index), place);
             }
         }
@@ -420,6 +413,116 @@ fn internal_owners(origins: &[LoanOrigin]) -> Vec<BindingId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn snapshot_scan(
+        origins: &crate::typed_flow::FlowLoanOrigins,
+        flow: &FlowGraph,
+        count: usize,
+    ) -> Vec<Vec<LoanOrigin>> {
+        (0..count)
+            .map(|binding| {
+                let mut all = Vec::new();
+                for event in 0..flow.nodes.len() {
+                    for origin in origins
+                        .before(FlowNodeId(event), BindingId(binding))
+                        .iter()
+                        .chain(origins.after(FlowNodeId(event), BindingId(binding)))
+                    {
+                        if !all.contains(origin) {
+                            all.push(origin.clone());
+                        }
+                    }
+                }
+                all
+            })
+            .collect()
+    }
+
+    #[test]
+    fn shared_snapshot_union_matches_all_point_specific_origins() {
+        for source in [
+            "(#fn work () #u64 (#return 42u64))",
+            "(#struct Holder (: view (#ref #u64)))
+             (#fn work (: choose #bool : external (#ref #u64)) #u64
+               (#let left #u64 40u64) (#let right #u64 42u64)
+               (#let view (#ref #u64) (#if choose (#borrow left) external))
+               (#for-range (iteration #u64) 0u64 3u64
+                 (#let loop-view (#ref #u64) (#if choose (#borrow right) external))
+                 (#assert (#u64.>= (#deref loop-view) 0u64))
+                 (#forget loop-view))
+               (#let holder Holder (#struct-literal Holder (: view view)))
+               (#return (#deref (#get holder view))))",
+            "(#fn work (: choose #bool) #u64
+               (#let-mut left #u64 40u64) (#let-mut right #u64 42u64)
+               (#let-mut view (#ref-mut #u64) (#if choose (#borrow-mut left) (#borrow-mut right)))
+               (#deref-set view 41u64)
+               (#forget view)
+               (#return (#if choose left right)))",
+        ] {
+            let program = crate::parse_program(source).unwrap();
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+            let body = &declarations.bodies["work"];
+            let flow = &declarations.flows["work"];
+            let origins = flow.loan_origins(body);
+            let expected = snapshot_scan(&origins, flow, body.bindings.len());
+            assert_eq!(origins.binding_origin_union(body.bindings.len()), expected);
+            // The summary query is immutable: later point queries and repeated
+            // collection keep exactly the same source-ordered loan facts.
+            assert_eq!(snapshot_scan(&origins, flow, body.bindings.len()), expected);
+            assert_eq!(origins.binding_origin_union(body.bindings.len()), expected);
+        }
+    }
+
+    #[test]
+    #[ignore = "manual representation-planning microbenchmark"]
+    fn benchmark_shared_binding_snapshot_union() {
+        use std::{hint::black_box, time::Instant};
+        let mut source = String::from("(#fn work () #u64");
+        for index in 0..32 {
+            source.push_str(&format!(
+                " (#let owner-{index} #u64 {index}u64) (#let view-{index} (#ref #u64) (#borrow owner-{index}))"
+            ));
+        }
+        for _ in 0..128 {
+            source.push_str(" (#assert (#u64.>= (#deref view-0) 0u64))");
+        }
+        source.push_str(" (#return (#deref view-31)))");
+        let program = crate::parse_program(&source).unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = &declarations.flows["work"];
+        let origins = flow.loan_origins(body);
+        let expected = snapshot_scan(&origins, flow, body.bindings.len());
+        assert_eq!(origins.binding_origin_union(body.bindings.len()), expected);
+        let mut before = Vec::new();
+        let mut after = Vec::new();
+        for sample in 0..11 {
+            let mut measure = |batched: bool| {
+                let start = Instant::now();
+                for _ in 0..20 {
+                    let actual = if batched {
+                        origins.binding_origin_union(body.bindings.len())
+                    } else {
+                        snapshot_scan(&origins, flow, body.bindings.len())
+                    };
+                    assert_eq!(actual, expected);
+                    black_box(actual);
+                }
+                if batched {
+                    after.push(start.elapsed().as_micros());
+                } else {
+                    before.push(start.elapsed().as_micros());
+                }
+            };
+            // Alternate order so warm caches do not always favor one path.
+            measure(sample % 2 == 0);
+            measure(sample % 2 != 0);
+        }
+        before.sort_unstable();
+        after.sort_unstable();
+        eprintln!("binding-origin union: {} bindings, {} events; 20 unions median: before={}us after={}us", body.bindings.len(), flow.nodes.len(), before[5], after[5]);
+    }
 
     fn plan(source: &str) -> Result<Plan, String> {
         let program = crate::parse_program(source).unwrap();

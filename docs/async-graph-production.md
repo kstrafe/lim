@@ -763,3 +763,38 @@ that union. Thus the boundary failure is not evidence that the generated moves
 physically duplicate this handle; preserving loan-path correlation through the
 caller loop remains necessary. Neither origin is discarded by weakening
 ordinary overlap checks, and the valid looping program remains unresolved.
+
+## Reuse shared source-loan snapshots during representation planning
+
+The self-borrow planner previously scanned all before/after flow events once
+per binding, including unchanged snapshots shared by the ordinary solver.
+`FlowLoanOrigins::binding_origin_union` now collects all binding unions in one
+source-ordered pass and visits each shared immutable binding snapshot once.
+Snapshot identities stay live throughout the query; copy-on-write gives a new
+identity when binding contents change. This skips repeated collection, not a
+source solve, access check, lifetime check or emitted-program validation.
+`--timings` exposes the collection as `generator.async.binding_origin_union`.
+
+Equality tests compare the complete ordered origins against the old per-point
+scan for empty-reference bodies, branch-selected local/external references,
+loop-local bindings, aggregate-held references and exclusive references.
+Repeated collection must also leave every point-specific query unchanged.
+
+The ignored manual test `benchmark_shared_binding_snapshot_union` measures
+only collection after source resolution and loan solving. On its 64-binding,
+967-event workload, 11 debug-build samples of 20 collections had medians of
+75,651 microseconds before and 6,946 after: 90.8% less collection time.
+Every measured result is compared with the same ordered baseline facts.
+
+A release whole-compiler comparison used `async_fn_poll_local_borrow.lim`,
+explicit graph lowering, a fresh source/cache directory per sample, two
+warmups and 20 samples per compiler. Copy/setup/teardown were outside the timer.
+Median compilation was 134.60 ms before versus 132.67 ms after (1.4% lower).
+Ranges overlap: 132.10–142.44 ms before, 129.50–144.42 ms after. Both produced
+identical 35,850-byte executables. This small difference is not a demonstrated
+general whole-compiler speedup; the collection is only part of compilation,
+and warm generator-cache hits already skip this emitter path.
+
+Verification passed all 1,340 library tests (three manual benchmarks ignored),
+the manual collection benchmark, 13 immediate-borrow graph integration tests,
+the ten-program nested graph regression, formatting and whitespace checks.
