@@ -1688,3 +1688,36 @@ library tests pass (five manual benchmarks ignored). Further optimization of
 consumption solves and contiguous partial storage remain separate work.
 The 232-test async suite, five native example tests and all-target build check
 also pass with the shared-snapshot production path.
+
+## Avoid solving vacuous call-entry queries
+
+Call-entry read checking now returns immediately when its supplied read list is
+empty. Consumed-entry inference and checking likewise return when every supplied
+requirement has no places and is explicitly known. Unknown inputs are never
+treated as vacuous, even when their place list is empty. These queries check only
+the supplied call requirements; original ownership, direct body accesses,
+initialization and exit-contract analyses still run independently.
+
+The regression `empty_call_requirements_skip_solves_but_unknown_inputs_do_not`
+uses timing events to verify that empty queries do not solve provenance or
+referent consumption. Unknown requirements still produce the original errors
+and source spans and record a consumption solve.
+
+The first unrestricted comparison showed substantial variation, including in
+unchanged parsing stages. A second comparison warmed both release binaries and
+ran nine alternating old/new pairs per fixture with `taskset -c 8`, with no test
+suite running concurrently. Internal `--check --timings` medians were:
+
+| Fixture | Contract pass before / after | Total check before / after |
+| --- | --- | --- |
+| `async_nested_partial_struct.lim` | 33.254 / 24.038 ms (27.7% less) | 88.593 / 80.592 ms (9.0% less) |
+| `async_while_let_dependencies.lim` | 29.639 / 22.307 ms (24.7% less) | 77.482 / 63.610 ms (17.9% less) |
+| `match_linear_guard.lim` | 1.040 / 1.164 ms | 3.455 / 5.367 ms |
+
+The small guard fixture did not improve in either comparison; this change is
+not a demonstrated general guard-program speedup. The larger async fixtures
+benefit from eliminating unused queries, with about 30–35% less referent
+consumption time. Further guarded-solver work and contiguous aggregate storage
+remain unfinished. All 1,355 library tests (five manual benchmarks ignored) and
+232 async integration tests pass.
+All five native example tests and the all-target build check also pass.

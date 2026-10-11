@@ -7475,6 +7475,11 @@ impl FlowGraph {
         reads: &[ReferentRead],
         entry_consumed: &[Place],
     ) -> Result<(), ReleaseConflict> {
+        // This query checks only the supplied reads. Direct body reads and
+        // exit-state validation are independent enforcing checks.
+        if reads.is_empty() {
+            return Ok(());
+        }
         let moves = self.referent_consumptions_with_restorations(
             body,
             types,
@@ -7543,6 +7548,14 @@ impl FlowGraph {
         restorations: &[(FlowNodeId, Vec<Place>)],
         requirements: &[(FlowNodeId, Vec<Place>, bool)],
     ) -> Result<Vec<Place>, ReleaseConflict> {
+        // Empty known requirements cannot contribute an inherited contract.
+        // Unknown inputs must still be checked, even with no named places.
+        if requirements
+            .iter()
+            .all(|(_, places, unknown)| places.is_empty() && !unknown)
+        {
+            return Ok(Vec::new());
+        }
         let moves =
             self.referent_consumptions_with_restorations(body, types, calls, restorations, &[]);
         let mut inherited = Vec::new();
@@ -7597,6 +7610,12 @@ impl FlowGraph {
         requirements: &[(FlowNodeId, Vec<Place>, bool)],
         entry_consumed: &[Place],
     ) -> Result<(), ReleaseConflict> {
+        if requirements
+            .iter()
+            .all(|(_, places, unknown)| places.is_empty() && !unknown)
+        {
+            return Ok(());
+        }
         let moves = self.referent_consumptions_with_restorations(
             body,
             types,
@@ -15449,6 +15468,66 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_call_requirements_skip_solves_but_unknown_inputs_do_not() {
+        let program = crate::parse_program(
+            "(#struct Resource (: value #u64)) (#linear Resource)
+             (#fn work (: input (#ref-mut Resource)) ()
+               (#forget (#deref input)) (#return ()))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = &declarations.flows["work"];
+        let types = LinearTypes::from_program(&program);
+        let event = FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Release { .. }))
+                .unwrap(),
+        );
+        let session = crate::timing::TimingSession::start();
+        for requirements in [Vec::new(), vec![(event, Vec::new(), false)]] {
+            assert!(flow
+                .infer_referent_call_consumed_entry(body, &types, &[], &[], &requirements)
+                .unwrap()
+                .is_empty());
+            flow.check_referent_call_consumed_entry_from_entry(
+                body,
+                &types,
+                &[],
+                &[],
+                &requirements,
+                &[],
+            )
+            .unwrap();
+        }
+        flow.check_referent_call_entry_reads_from_entry(body, &types, &[], &[], &[], &[])
+            .unwrap();
+        assert!(session
+            .finish()
+            .iter()
+            .all(|event| event.stage != "semantic.provenance"
+                && event.stage != "semantic.referent_consumptions"));
+
+        let session = crate::timing::TimingSession::start();
+        let unknown = [(event, Vec::new(), true)];
+        let error = flow
+            .infer_referent_call_consumed_entry(body, &types, &[], &[], &unknown)
+            .unwrap_err();
+        assert!(error.message.contains("cannot infer"));
+        assert_eq!(error.span, flow.nodes[event.0].span);
+        let error = flow
+            .check_referent_call_consumed_entry_from_entry(body, &types, &[], &[], &unknown, &[])
+            .unwrap_err();
+        assert!(error.message.contains("definitely consumed"));
+        assert_eq!(error.span, flow.nodes[event.0].span);
+        assert!(session
+            .finish()
+            .iter()
+            .any(|event| event.stage == "semantic.referent_consumptions"));
+    }
 
     #[test]
     fn referent_contract_helpers_reuse_same_graph_origins_without_changing_facts() {
