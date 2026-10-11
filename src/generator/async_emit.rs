@@ -302,11 +302,12 @@ impl<'a> Emitter<'a> {
                 emitter.scopes.insert(scope, slot);
             }
         }
-        // Checked selections and their descendants are actual addresses, not
-        // recipes to evaluate again after effects or a suspension.
+        // Effectful checked selections and their descendants are actual
+        // addresses. Only literal, provably in-bounds owned array paths can
+        // be re-formed after moving a frame without replaying a selection.
         let mut selected = HashSet::new();
         for (index, descriptor) in function.graph.places.iter().enumerate() {
-            if !descriptor.checks().is_empty()
+            if (!descriptor.checks().is_empty() && !emitter.static_owned_projection(descriptor))
                 || descriptor
                     .parent
                     .is_some_and(|parent| selected.contains(&parent))
@@ -1533,6 +1534,82 @@ impl<'a> Emitter<'a> {
         ))
     }
 
+    fn literal_index(&self, index: ValueId) -> Option<usize> {
+        fn literal(body: &Body, source: crate::typed_body::NodeId) -> Option<usize> {
+            use crate::typed_body::NodeKind;
+            match &body.nodes.get(source.0)?.kind {
+                NodeKind::Literal(Expr::Integer(value)) => usize::try_from(*value).ok(),
+                NodeKind::Literal(Expr::UnsignedInteger(value)) => usize::try_from(*value).ok(),
+                NodeKind::Form { head, children, .. } if head == "literal" => {
+                    literal(body, *children.last()?)
+                }
+                _ => None,
+            }
+        }
+        literal(self.body, self.function.graph.values.get(index.0)?.source?)
+    }
+
+    /// A fixed in-bounds owned path has no observable selection effects and
+    /// cannot select different storage after a frame move. Its index is emitted
+    /// as checked literal metadata, never reloaded from a retired value cell.
+    /// Dynamic indices, handles and payload-tag checks still need snapshots.
+    fn static_owned_projection(&self, descriptor: &PlaceDescriptor) -> bool {
+        if self.pinned
+            || !descriptor
+                .projections
+                .iter()
+                .any(|projection| matches!(projection, AddressProjection::Index(_)))
+        {
+            return false;
+        }
+        let AddressRoot::Local(binding) = descriptor.root else {
+            return false;
+        };
+        let resolve =
+            |ty: &Type| crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases).ok();
+        let Some(mut ty) = resolve(&self.function.graph.bindings[binding.0].ty) else {
+            return false;
+        };
+        for projection in &descriptor.projections {
+            let next = match projection {
+                AddressProjection::Field(field) => {
+                    let declaration = self.planning.declarations.field(*field);
+                    if self.planning.declarations.field_id(&ty, &declaration.name) != Some(*field) {
+                        return false;
+                    }
+                    declaration.ty.clone()
+                }
+                AddressProjection::Tuple(index) => {
+                    let Type::Tuple(fields) = ty else {
+                        return false;
+                    };
+                    let Some(field) = fields.get(*index) else {
+                        return false;
+                    };
+                    field.clone()
+                }
+                AddressProjection::Index(index) => {
+                    let Type::Array(element, length) = ty else {
+                        return false;
+                    };
+                    let Some(index) = self.literal_index(*index) else {
+                        return false;
+                    };
+                    if index >= length {
+                        return false;
+                    }
+                    *element
+                }
+                _ => return false,
+            };
+            let Some(next) = resolve(&next) else {
+                return false;
+            };
+            ty = next;
+        }
+        ty == descriptor.ty
+    }
+
     fn owned_projection_address(
         &self,
         descriptor: &PlaceDescriptor,
@@ -1581,6 +1658,23 @@ impl<'a> Emitter<'a> {
                         .cloned()
                         .ok_or_else(|| reject("projected tuple index is out of bounds"))?;
                     place = format!("(#get {place} {index})");
+                }
+                AddressProjection::Index(index) if self.static_owned_projection(descriptor) => {
+                    let index = self
+                        .literal_index(*index)
+                        .ok_or_else(|| reject("static index disappeared"))?;
+                    let Type::Array(element, length) = ty else {
+                        return Err(reject("static array projection lost its checked type"));
+                    };
+                    if index >= length {
+                        return Err(reject("static array projection is out of bounds"));
+                    }
+                    ty = crate::typed_ir::resolve_type(
+                        &element,
+                        &self.planning.declarations.aliases,
+                    )
+                    .map_err(|message| fail(self.function, message))?;
+                    place = format!("(#index {place} {index}usize)");
                 }
                 _ => {
                     return Err(reject(
@@ -2240,13 +2334,15 @@ impl<'a> Emitter<'a> {
                 if self.addresses.contains_key(dst) {
                     return self.select_address(*dst, descriptor);
                 }
-                let simple_owned = matches!(descriptor.root, AddressRoot::Local(_))
-                    && descriptor.projections.iter().all(|projection| {
-                        matches!(
-                            projection,
-                            AddressProjection::Field(_) | AddressProjection::Tuple(_)
-                        )
-                    });
+                let static_owned = self.static_owned_projection(descriptor);
+                let simple_owned = static_owned
+                    || (matches!(descriptor.root, AddressRoot::Local(_))
+                        && descriptor.projections.iter().all(|projection| {
+                            matches!(
+                                projection,
+                                AddressProjection::Field(_) | AddressProjection::Tuple(_)
+                            )
+                        }));
                 let simple_handle = matches!(descriptor.root, AddressRoot::Value(_))
                     && matches!(
                         descriptor.projections.first(),
@@ -2261,7 +2357,7 @@ impl<'a> Emitter<'a> {
                 let computed_value = matches!(descriptor.root, AddressRoot::Value(_))
                     && descriptor.projections.is_empty();
                 if (!simple_owned && !simple_handle && !computed_value)
-                    || !descriptor.checks().is_empty()
+                    || (!descriptor.checks().is_empty() && !static_owned)
                 {
                     return Err(error(
                         "projected addresses need checked storage and immediate place checks",

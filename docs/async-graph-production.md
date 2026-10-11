@@ -186,6 +186,18 @@ type at use sites; they are not silently converted to pinned references.
 
 ### Frame-local borrows across suspension
 
+Movable graph frames support reads and Copy, reference-free writes through
+owned array paths with literal indices proved in bounds from checked array
+types. Struct/tuple prefixes and array aliases retain their checked layout.
+The emitter projects the current frame at the operation, using literal metadata
+instead of retaining a physical address or reloading a retired index cell.
+This includes a `#set-index` whose RHS suspends. Dynamic indices, payload-tag
+checks and handle roots still use selected-address snapshots; this optimization
+does not authorize moving an object with live user-visible self-references.
+Native regressions cover Pending/resume reads through struct/tuple prefixes and
+an aliased `#u128` array store. General dynamic owned selection on movable
+frames remains a graph-default migration gap.
+
 For synchronous calls on movable frames, shared `#borrow-slice` of a Copy
 local array (including static struct/tuple fields) projects the original storage
 through an ordinary checked helper. Whole-array and ranged slices retain the

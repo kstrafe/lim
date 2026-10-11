@@ -4,6 +4,10 @@ mod support;
 use std::{process::Command, time::Duration};
 
 fn run(body: &str, label: &str) {
+    run_storage(body, label, true);
+}
+
+fn run_storage(body: &str, label: &str, pinned: bool) {
     let source = format!(
         r#"
         (#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
@@ -13,6 +17,7 @@ fn run(body: &str, label: &str) {
             (#case (Start value) (ChildPending (Resume value)))
             (#case (Resume value) (ChildReady value)))))
         (#struct Owner (: values (#array #u64 2)))
+        (#type WideRow (#array #u128 2))
         (@#async-fn-pinned (: protocol work-await : waker #u64
           : function (#fn work (: seed #u64) #u64 {body})))
         (#fn main () #u64
@@ -27,6 +32,15 @@ fn run(body: &str, label: &str) {
           (#forget task) (#return answer))
         "#
     );
+    let source = if pinned {
+        source
+    } else {
+        source
+            .replace("@#async-fn-pinned", "@#async-fn")
+            .replace("(#let-mut task Work-frame", "(#let task Work-task")
+            .replace("(#pin-borrow-mut task)", "task")
+            .replace("(#forget task) (#return answer)", "(#return answer)")
+    };
     let scratch = support::Scratch::new(label);
     let syntax = crate::prepare_program_syntax(
         &source,
@@ -81,5 +95,41 @@ fn mutable_selected_array_view_survives_pending() {
           (#let answer #u64 (#deref view)) (#drop view) (#forget owner)
           (#return (#u64.+.wrap answer child))",
         "selected-mutable-array-view",
+    );
+}
+
+#[test]
+fn movable_static_array_store_preserves_aliased_wide_layout_across_pending() {
+    run_storage(
+        "(#let-mut values WideRow (#array-of WideRow 0u128 3u128))
+          (#set-index values 1usize
+            (#as (#await Child ChildPending ChildReady child-poll (Start seed)) #u128))
+          (#return (#as (#index values 1usize) #u64))",
+        "movable-static-wide-array-store",
+        false,
+    );
+}
+
+#[test]
+fn movable_static_struct_array_read_uses_the_resumed_frame() {
+    run_storage(
+        "(#let owner Owner (#struct-literal Owner (: values (#array-of (#array #u64 2) 0u64 seed))))
+          (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#let answer #u64 (#index (#get owner values) 1usize))
+          (#forget owner) (#return (#u64.+.wrap answer child))",
+        "movable-static-struct-array-read", false,
+    );
+}
+
+#[test]
+fn movable_static_tuple_array_read_uses_the_resumed_frame() {
+    run_storage(
+        "(#let values (#tuple (#array #u64 2))
+            (#tuple (#tuple (#array #u64 2)) (#array-of (#array #u64 2) 0u64 seed)))
+          (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#let answer #u64 (#index (#get values 0) 1usize))
+          (#forget values) (#return (#u64.+.wrap answer child))",
+        "movable-static-tuple-array-read",
+        false,
     );
 }
