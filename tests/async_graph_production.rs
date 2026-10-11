@@ -61,6 +61,10 @@ fn checked_artifact(source: &str, label: &str) -> (support::Scratch, String, Str
 }
 
 fn run(source: &str, label: &str) -> String {
+    run_expected(source, label, 42)
+}
+
+fn run_expected(source: &str, label: &str, expected: i32) -> String {
     let (scratch, artifact, standalone) = checked_artifact(source, label);
     let ordinary = lim::parse_program(&standalone).unwrap();
     let assembly = lim::generate_assembly(&ordinary).unwrap();
@@ -75,9 +79,27 @@ fn run(source: &str, label: &str) -> String {
     .unwrap();
     let (status, stdout, stderr) =
         support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
-    assert_eq!(status.code(), Some(42), "{stderr:?}");
+    assert_eq!(status.code(), Some(expected), "{stderr:?}");
     assert!(stdout.is_empty() && stderr.is_empty());
     artifact
+}
+
+#[test]
+fn public_cancellation_examples_use_cleanup_slots_not_legacy_state_variants() {
+    for (source, label, expected) in [
+        (
+            include_str!("../examples/async_fn_cancel_dispatch.lim"),
+            "async-cancel-slots",
+            42,
+        ),
+        (
+            include_str!("../examples/async_fn_pinned.lim"),
+            "async-pinned-cleanup-slots",
+            41,
+        ),
+    ] {
+        run_expected(source, label, expected);
+    }
 }
 
 #[test]

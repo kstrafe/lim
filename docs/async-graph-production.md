@@ -196,8 +196,8 @@ Cold/warm native tests and independent ordinary artifacts cover
 field arguments. An aliasing variant still fails with an original-source borrow
 diagnostic. The heap-owner example now preserves nested reference-slot
 provenance and passes native and standalone generated-source regressions.
-A root-example check audit passes 36/42 examples with no timeouts; the
-remaining six legacy frame/cancellation interface failures still prevent the
+A root-example check audit passes 38/42 examples with no timeouts; the
+remaining four legacy frame/cancellation interface failures still prevent the
 default-route switch.
 
 ## Compilation measurements
@@ -293,3 +293,23 @@ storage. This also excludes impossible incoming self-reference states when
 initializing a local in an earlier dispatcher case. The local self-reference
 example now passes repeated polling and native cold/warm regressions without
 adding explicit reference drops to its source.
+
+### Cancellation example migration
+
+`async_fn_cancel_dispatch.lim` now configures handlers for `token` and `await-0`
+and cancels the record returned by `work-poll-cleanup`, both at construction and
+after Pending. `async_fn_pinned.lim` similarly drains `Work-frame-cleanup` rather
+than matching a legacy frame-state enum. Their native outcomes remain 42 and 41.
+Public-API regressions independently check their emitted ordinary declarations
+and exercise cold/warm generation before executing them.
+
+The native outcome manifest marks migrated examples as `graph-exit`, selecting
+graph configuration for both native execution and the staged contract audit.
+This is migration bookkeeping, not a second runtime API: the default route is
+still legacy, and the selectors must be removed when the default switch lands.
+
+The printing example additionally needs place-preserving `#borrow-slice`
+lowering: removing its legacy cancellation patterns reveals a generated borrow
+of an accessor temporary, rejected by the ordinary variable-rooted-place rule.
+Its prints and slice borrowing must be preserved when migrating that example;
+the remaining work is not solely renaming cancellation types.

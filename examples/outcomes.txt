@@ -1,6 +1,7 @@
 # kind expected source stdout-fixture stderr-fixture
 # Paths are relative to examples for source, repository root for fixtures.
 # A dash means empty output. Signals use Linux signal numbers (4 = SIGILL).
+# graph-exit selects --cfg async-lowering=graph during the route migration.
 exit 42 aarch64_scalar.lim - -
 exit 42 aarch64_ownership.lim - -
 exit 42 aarch64_syscall.lim examples/aarch64_syscall.stdout -
@@ -42,13 +43,13 @@ exit 42 timer_reactor_many.lim - -
 exit 42 aio_owned.lim - -
 exit 42 async_fn.lim tests/fixtures/async_fn.stdout -
 exit 42 async_heap_reference.lim - -
-exit 42 async_fn_cancel_dispatch.lim - -
+graph-exit 42 async_fn_cancel_dispatch.lim - -
 exit 42 async_for_computed_step.lim - -
 exit 42 async_for_effect_step.lim - -
 exit 42 async_early_continue.lim - -
 exit 42 async_for_unit_step.lim - -
 exit 42 async_while_let_body.lim - -
-exit 41 async_fn_pinned.lim - -
+graph-exit 41 async_fn_pinned.lim - -
 exit 58 async_fn_self_reference.lim - -
 exit 42 async_fn_enum_self_reference.lim - -
 exit 42 async_fn_local_self_reference.lim - -

@@ -20852,13 +20852,21 @@ mod typed_ownership_tests {
                 let mut count = 0;
                 for row in include_str!("../examples/outcomes.txt").lines() {
                     let fields = row.split_whitespace().collect::<Vec<_>>();
-                    if fields.len() != 5 || !matches!(fields[0], "exit" | "signal" | "module") {
+                    if fields.len() != 5
+                        || !matches!(fields[0], "exit" | "graph-exit" | "signal" | "module")
+                    {
                         continue;
                     }
                     let name = fields[2];
                     let path = root.join("examples").join(name);
                     let source = std::fs::read_to_string(&path).unwrap();
-                    let program = crate::parse_program_from_path(&source, &path).unwrap();
+                    let mut config = crate::CompileConfig::default();
+                    if fields[0] == "graph-exit" {
+                        config.set("async-lowering", "graph");
+                    }
+                    let program =
+                        crate::parse_program_from_path_with_config(&source, &path, &config)
+                            .unwrap();
                     crate::check_types(&program).unwrap();
                     let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
                     let types = crate::linearcheck::LinearTypes::from_program(&program);

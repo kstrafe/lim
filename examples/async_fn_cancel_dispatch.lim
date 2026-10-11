@@ -1,3 +1,4 @@
+;; Source-slot cancellation; compile with --cfg async-lowering=graph.
 (#enum Child ((Waiting #u64)))
 (#linear Child)
 (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
@@ -9,22 +10,12 @@
 (#linear Token)
 (#fn destroy-token ((task Token)) () (#forget task) (#return ()))
 
-(#fn cancel-start ((task Token)) ()
-  (#call destroy-token (: task task))
-  (#return ()))
-
-(#fn cancel-await ((task (#tuple Token Child))) ()
-  (#let (#tuple token child) (#tuple Token Child) task)
-  (#call destroy-token (: task token))
-  (#call child-cancel (: task child))
-  (#return ()))
-
 (@#async-fn
   ( : protocol WorkAwait
    : waker #u64
    : cancel (cancel-work
-     ((work-task-start cancel-start)
-      (work-task-await-0 cancel-await)))
+     ((token destroy-token)
+      (await-0 child-cancel)))
    : function
    (#fn work ((token Token)) #u64
      (#let child-result #u64
@@ -35,12 +26,13 @@
 (#fn main () #u64
   (#let waker #u64 0u64)
   ; Cancel a task before its first poll.
-  (#call cancel-work (: task (#call work (: token (TokenValue 1u64)))))
+  (#call cancel-work (: task (#call work-poll-cleanup
+    (: task (#call work (: token (TokenValue 1u64)))))))
   ; Cancel another task after its child has returned Pending.
   (#let task Work-task (#call work (: token (TokenValue 2u64))))
   (#let outcome Work-poll-result
     (#call work-poll (: task task : waker (#borrow waker))))
   (#let-else (work-pending pending) Work-poll-result outcome (#unreachable))
-  (#call cancel-work (: task pending))
+  (#call cancel-work (: task (#call work-poll-cleanup (: task pending))))
   (#forget waker)
   (#return 42u64))

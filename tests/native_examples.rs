@@ -44,7 +44,7 @@ fn run(
 
 fn outcome_matches(kind: &str, expected: &str, status: ExitStatus) -> bool {
     match kind {
-        "exit" => expected
+        "exit" | "graph-exit" => expected
             .parse::<i32>()
             .ok()
             .is_some_and(|code| status.code() == Some(code)),
@@ -100,7 +100,10 @@ fn every_native_example_has_its_declared_outcome() {
             let fields = line.split_whitespace().collect::<Vec<_>>();
             assert_eq!(fields.len(), 5, "invalid expectation: {line}");
             assert!(
-                matches!(fields[0], "exit" | "signal" | "module" | "error"),
+                matches!(
+                    fields[0],
+                    "exit" | "graph-exit" | "signal" | "module" | "error"
+                ),
                 "invalid expectation: {line}"
             );
             assert!(
@@ -122,6 +125,9 @@ fn every_native_example_has_its_declared_outcome() {
         let output = scratch.0.join(format!("program-{index}"));
         let mut compiler = Command::new(env!("CARGO_BIN_EXE_lim"));
         compiler.stdin(Stdio::null());
+        if *kind == "graph-exit" {
+            compiler.arg("--cfg").arg("async-lowering=graph");
+        }
         if matches!(*kind, "module" | "error") {
             compiler
                 .arg("--emit-asm")
