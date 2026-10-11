@@ -44,6 +44,27 @@ fn dependent_child_is_destroyed_before_exporting_its_owner() {
 }
 
 #[test]
+fn suspended_for_step_cancels_child_before_its_body_owner() {
+    let original = "(#let owner Owner (#struct-literal Owner (: amount 40u64)))
+          (#let answer #u64 (#await Child Pending Ready child-poll
+            (Holding (#borrow owner) 0u64)))
+          (#forget owner) (#return answer)";
+    let program = source().replace(
+        original,
+        "(#let-mut total #u64 0u64)
+          (#for (#let-mut iteration #u64 0u64) (#u64.< iteration 1u64)
+            (#block
+              (#let answer #u64 (#await Child Pending Ready child-poll
+                (Holding (#borrow owner) 0u64)))
+              (#set total answer) (#forget owner) (#set iteration 1u64))
+            (#let owner Owner (#struct-literal Owner (: amount 40u64))))
+          (#return total)",
+    );
+    assert_ne!(program, source());
+    run(&program, "async-for-step-dependent-cancellation");
+}
+
+#[test]
 fn exclusive_dependent_mutates_owner_before_owner_destruction() {
     let program = source()
         .replace("(#let owner Owner", "(#let-mut owner Owner")

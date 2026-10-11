@@ -14509,16 +14509,33 @@ impl Builder<'_> {
                 let decision = self.push(FlowAction::Branch(*condition), span, vec![]);
                 let condition_entry = self.expression(*condition, decision, targets, None)?;
                 let mut loop_targets = targets.to_vec();
-                let step_entry = self.instruction(step, condition_entry, targets, None)?;
+                let body_bindings = direct_scope_bindings(self.body, body);
+                let after_step = if body_bindings.is_empty() {
+                    condition_entry
+                } else {
+                    self.push(
+                        FlowAction::ScopeExit(body_bindings.clone()),
+                        None,
+                        vec![condition_entry],
+                    )
+                };
+                self.active_scopes.push(body_bindings.clone());
+                let step_entry = self.instruction(step, after_step, targets, None)?;
+                let break_cleanup = if body_bindings.is_empty() {
+                    after_loop
+                } else {
+                    self.push(FlowAction::ScopeExit(body_bindings), None, vec![after_loop])
+                };
                 loop_targets.push(Target {
                     name: label.map(str::to_owned),
-                    break_to: after_loop,
+                    break_to: break_cleanup,
                     continue_to: Some(step_entry),
                     break_result: None,
                     scope_depth: self.active_scopes.len(),
                     borrow_scope_depth: self.active_borrow_scopes.len(),
                 });
-                let body_entry = self.scoped_instructions(body, step_entry, &loop_targets)?;
+                let body_entry = self.instructions(body, step_entry, &loop_targets)?;
+                self.active_scopes.pop();
                 self.nodes[decision.0].successors = vec![body_entry, after_loop];
                 let entry = self.instruction(init, condition_entry, targets, None);
                 self.active_scopes.pop();

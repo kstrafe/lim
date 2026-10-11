@@ -80,6 +80,16 @@ fn effect_step_borrows_a_local_only_after_its_awaited_argument() {
     run(include_str!("../examples/async_for_effect_step.lim"));
 }
 
+#[test]
+fn computed_step_retains_body_binding_through_awaits_and_continue() {
+    let source = include_str!("../examples/async_for_computed_step.lim");
+    run(source);
+    run(&source.replace(
+        "(#let body-ran #bool true)",
+        "(#let body-ran #bool true) (#continue)",
+    ));
+}
+
 const PAIR_SOURCE: &str = "(#struct Pair (: left #u64 : right #u64))
   (#fn touch (: left (#ref-mut #u64) : right (#ref-mut #u64)) ()
     (#deref-set left 20u64) (#deref-set right 22u64) (#return ()))

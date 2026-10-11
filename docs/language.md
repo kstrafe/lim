@@ -2385,8 +2385,12 @@ Inside `@#async-fn`, a unit-returning await can be the step itself:
 
 The step starts after the body and after `#continue`, but is skipped by
 `#break` and a false condition. A Pending step resumes before the next
-condition check. The condition may itself await. The explicit `()` result
-type makes this an effect-only step; no user-maintained dummy binding is
+condition check. Direct body declarations remain in scope through the step,
+including across a Pending step. That iteration's scope ends after the step,
+or on a break/return; it does not extend through the next condition. Linear
+body values still require explicit consumption, and references cannot escape
+their referents' iteration scope. The condition may itself await. The explicit
+`()` result type makes this an effect-only step; no user-maintained dummy binding is
 required. Generated code contains an ordinary unit assignment, and still
 undergoes normal type, ownership, and borrow checking.
 See `examples/async_for_unit_step.lim` for a runnable Pending/Ready example

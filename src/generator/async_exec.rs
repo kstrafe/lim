@@ -1001,22 +1001,35 @@ impl Builder<'_> {
                 no: Self::edge(exit),
             };
         }
-        // Match ordinary flow: the step is lowered outside this loop's
-        // transfer-target context; body continue enters the step, not header.
-        if let Some(end) = self.instruction(step, step_start, None)? {
-            self.goto(end, header);
-        }
+        // Body declarations are visible to the step. Retain that lexical
+        // scope until the step finishes, including across its awaits.
+        let init_depth = self.scopes.len();
+        let body_bindings = self.direct_bindings(body)?;
+        self.enter(body_start, body_bindings);
+        let body_depth = self.scopes.len();
+        let break_cleanup = self.block(Vec::new());
         self.targets.push(Target {
             name: label.map(str::to_owned),
-            break_to: exit,
+            break_to: break_cleanup,
             break_result: None,
             continue_to: Some(step_start),
             scope_depth: self.scopes.len(),
         });
-        if let Some(end) = self.scoped(body, body_start)? {
+        if let Some(end) = self.instructions(body, body_start)? {
+            self.cleanup(end, body_depth);
             self.goto(end, step_start);
         }
         self.targets.pop();
+        self.scopes.truncate(body_depth);
+        // The step remains outside this loop's transfer-target context, as
+        // in ordinary flow; it can still transfer to an enclosing loop.
+        if let Some(end) = self.instruction(step, step_start, None)? {
+            self.cleanup(end, init_depth);
+            self.goto(end, header);
+        }
+        self.cleanup(break_cleanup, init_depth);
+        self.goto(break_cleanup, exit);
+        self.scopes.truncate(init_depth);
         self.cleanup(exit, depth);
         self.scopes.truncate(depth);
         Ok(Some(exit))

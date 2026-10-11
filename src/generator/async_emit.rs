@@ -2955,7 +2955,7 @@ impl<'a> Emitter<'a> {
                     },
                     _ => None,
                 };
-                let touches_owner = owner.is_some_and(|binding| {
+                let owning_binding = |binding: BindingId| {
                     !matches!(
                         graph.bindings[binding.0].ty,
                         Type::Reference { .. } | Type::PinnedReference { .. } | Type::PinOwned(_)
@@ -2963,7 +2963,10 @@ impl<'a> Emitter<'a> {
                         .bindings
                         .get(&binding)
                         .is_some_and(|slot| !self.slots[*slot].copy)
-                });
+                };
+                let touches_owner = owner.is_some_and(owning_binding)
+                    || matches!(&action.action, Action::ScopeExit(bindings)
+                        if bindings.iter().copied().any(owning_binding));
                 // Publish checked state facts immediately before owner access.
                 // Earlier facts may have been invalidated by an unsafe call.
                 if let Some(plan) = self
