@@ -105,10 +105,16 @@ local array (including static struct/tuple fields) projects the original storage
 through an ordinary checked helper. Whole-array and ranged slices retain the
 native layout and reference-element provenance. Range bounds use the already
 evaluated graph operands; the generator does not replay their source expressions.
+When a slice has one resolved synchronous call consumer in the same effect-free
+block window, the generator materializes it only at that call. Neither the slice
+nor its otherwise unused Copy array snapshot receives a resumable frame cell.
+This avoids requiring Empty tag knowledge to move or resume the frame after an
+unrelated syscall. Slice locals, control-edge transfers, multiple consumers and
+intervening effects do not receive this certificate; ordinary borrow checking
+still checks escapes, loan conflicts and any result retaining the input.
 This is not across-suspension slice support: pinned, dynamically selected and
 non-Copy array storage still require a nonmoving storage lease and fail closed.
-Pending-return slice-cell provenance remains a migration gate for the printing
-example. No unsafe fat-reference reconstruction is used by this projection.
+No unsafe fat-reference reconstruction is used by this projection.
 
 On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
 thin reference locals into stationary frame owners, including checked static
@@ -323,9 +329,19 @@ graph configuration for both native execution and the staged contract audit.
 This is migration bookkeeping, not a second runtime API: the default route is
 still legacy, and the selectors must be removed when the default switch lands.
 
-The printing example additionally needs Pending-return slice-cell provenance.
-Operation-local Copy array slices now project ordinary storage instead of
-borrowing accessor temporaries, but the resumed caller still cannot prove
-retired slice cells Empty. Its prints and slice borrowing must be preserved
-when migrating that example; the remaining work is not solely renaming
-cancellation types.
+The printing example now uses graph lowering with the same IO and cancellation
+behavior. Its synchronous Copy array slices project ordinary storage and do not
+inhabit the future frame. Printing between Pending and resume therefore needs
+no remembered slice-cell tags; unknown syscall effects still invalidate tag
+facts conservatively. Cold/warm and standalone native regressions compare the
+full stdout fixture and exit code 42. Retained slices across suspension remain
+a separate storage/provenance gate.
+
+The public cache audit now uses this migrated graph example. All three user
+generator invocations are expanded once across preparation, compilation and
+source publication. A warm hit reuses graph text, but the semantic-pass counter
+is still two on both cold and warm runs: original ownership witnesses and
+ordinary emitted code. Reusing more checked source facts remains a performance
+goal, not an optimization claimed by the slice-storage change. Corrupt graph
+text is rejected without emission or repair; legacy capture-cache regeneration
+is not the graph cache's policy.

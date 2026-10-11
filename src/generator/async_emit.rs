@@ -246,7 +246,7 @@ impl<'a> Emitter<'a> {
         for (index, value) in function.graph.values.iter().enumerate() {
             if matches!(value.ty, Type::Unit | Type::Never)
                 || emitter.leases.get(ValueId(index)).is_some()
-                || emitter.immediate.get(ValueId(index)).is_some()
+                || emitter.immediate.skips_storage(ValueId(index))
             {
                 continue;
             }
@@ -884,7 +884,7 @@ impl<'a> Emitter<'a> {
     fn clear_values(&mut self, values: &[ValueId]) -> String {
         let slots = values
             .iter()
-            .filter(|value| self.immediate.get(**value).is_none())
+            .filter(|value| !self.immediate.skips_storage(**value))
             .map(|value| self.values[value])
             .collect::<Vec<_>>();
         self.clear_handle_slots(&slots)
@@ -1601,6 +1601,23 @@ impl<'a> Emitter<'a> {
             .immediate
             .get(value)
             .expect("certified immediate borrow");
+        if let Some(operation) = borrow.slice.clone() {
+            let mut inputs = HashMap::new();
+            for operand in operation
+                .operands
+                .iter()
+                .filter(|operand| operand.position != [1])
+            {
+                inputs.insert(
+                    operand.value,
+                    crate::parse(&self.value(operand.value, true))
+                        .map_err(|error| fail(self.function, error.to_string()))?
+                        .remove(0)
+                        .expr,
+                );
+            }
+            return self.slice_borrow(&operation, &inputs);
+        }
         let descriptor = &self.function.graph.places[borrow.place.0];
         // The certificate limits this borrow to one synchronous operation:
         // the frame cannot move while that call is executing. No reference
@@ -1955,7 +1972,13 @@ impl<'a> Emitter<'a> {
             span: located.span.unwrap_or(self.function.source.function.span),
         };
         match &located.action {
+            Action::Load { dst, .. } if self.immediate.elides_load(*dst) => Ok(String::new()),
             Action::Compute { dst, operation } => {
+                if self.immediate.get(*dst).is_some() {
+                    // Materialize the certified slice only at its synchronous
+                    // consumer. It has no physical frame cell to initialize.
+                    return Ok(String::new());
+                }
                 let mut inputs = HashMap::new();
                 let ids = match operation {
                     Compute::Checked(operation) => operation

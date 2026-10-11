@@ -12102,7 +12102,8 @@ mod tests {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/async_fn.lim");
         let source = fs::read_to_string(&path).unwrap();
         let cache = directory.join("cache");
-        let config = CompileConfig::default();
+        let mut config = CompileConfig::default();
+        config.set("async-lowering", "graph");
         let compile = || {
             compile_source_with_generated_sources(
                 &source,
@@ -12120,37 +12121,42 @@ mod tests {
         typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 2));
         typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
         let (warm, warm_report) = with_cache_report(compile);
-        typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 1));
+        // Graph preparation still checks the original ownership witness on a
+        // warm artifact hit, followed by the emitted ordinary program. Keep
+        // this cost visible until checked source facts can be reused safely.
+        typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 2));
         assert_eq!(cold, warm);
         // The example invokes three user generators. Probe parsing, final
         // parsing and artifact writing must share those three expansions.
         assert_eq!(cold_report.matches("\"kind\":\"syntax\"").count(), 3);
         assert_eq!(warm_report.matches("\"kind\":\"syntax\"").count(), 3);
         assert!(!warm_report.contains("\"missing-entry\""));
-        assert!(warm_report.contains("\"kind\":\"async-captures\""));
-        let prepared = prepare_program_syntax(
+        assert!(warm_report.contains("\"kind\":\"source\""));
+        assert!(warm_report.contains("lim-inspectable-async-graph-v3"));
+        let artifact = fs::read_dir(generator::generated_source_directory(&cache))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                fs::read_to_string(path)
+                    .unwrap()
+                    .contains("(#fn work-poll ")
+            })
+            .unwrap();
+        let original = fs::read(&artifact).unwrap();
+        fs::write(&artifact, b"; damaged graph cache\n").unwrap();
+        let error = compile_source_with_generated_sources(
             &source,
-            path.parent().unwrap(),
-            Some(&path),
+            &path,
             &config,
-            Some(&cache),
+            &cache,
+            TargetDescription::X86_64_SYSTEM_V,
+            None,
+            &directory,
         )
-        .unwrap();
-        let key = format!(
-            "lim-async-captures-v1\nimplementation={}\n{}",
-            env!("LIM_BUILD_FINGERPRINT"),
-            prepared.dependency_context
-        );
-        let capture_path = generator::cache_path(&cache, &key);
-        fs::write(&capture_path, b"damaged cache").unwrap();
-        typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
-        assert_eq!(compile(), cold);
-        typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 2));
-        // Even a checksummed but structurally invalid entry must be ignored.
-        generator::write_cached_expansion(&cache, &key, &[Expr::Symbol("invalid".into())]);
-        typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
-        assert_eq!(compile(), cold);
-        typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 2));
+        .unwrap_err();
+        assert!(error.message.contains("cache"), "{}", error.message);
+        assert_eq!(fs::read(&artifact).unwrap(), b"; damaged graph cache\n");
+        fs::write(&artifact, original).unwrap();
         let changed_config = {
             let mut config = config.clone();
             config.set("feature", "changed");

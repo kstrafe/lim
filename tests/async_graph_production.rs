@@ -47,7 +47,11 @@ fn checked_artifact(source: &str, label: &str) -> (support::Scratch, String, Str
     let invocation = lim::parse(source)
         .unwrap()
         .into_iter()
-        .find(|node| source[node.span.start..node.span.end].starts_with("(@#async-fn"))
+        .find(|node| {
+            source[node.span.start..node.span.end]
+                .strip_prefix("(@")
+                .is_some_and(|rest| rest.trim_start().starts_with("#async-fn"))
+        })
         .unwrap();
     let standalone = format!(
         "{}\n{artifact}\n{}",
@@ -65,9 +69,26 @@ fn run(source: &str, label: &str) -> String {
 }
 
 fn run_expected(source: &str, label: &str, expected: i32) -> String {
+    run_expected_output(source, label, expected, &[])
+}
+
+fn run_expected_output(source: &str, label: &str, expected: i32, expected_stdout: &[u8]) -> String {
     let (scratch, artifact, standalone) = checked_artifact(source, label);
     let ordinary = lim::parse_program(&standalone).unwrap();
-    let assembly = lim::generate_assembly(&ordinary).unwrap();
+    let assembly = lim::generate_assembly(&ordinary).unwrap_or_else(|error| {
+        let line = error
+            .split(':')
+            .next()
+            .and_then(|line| line.parse::<usize>().ok())
+            .unwrap_or(1);
+        let excerpt = standalone
+            .lines()
+            .skip(line.saturating_sub(3))
+            .take(6)
+            .collect::<Vec<_>>()
+            .join("\n");
+        panic!("{error}\n{excerpt}")
+    });
     let binary = scratch.path().join("program");
     lim::link_native_binary(
         &assembly,
@@ -80,8 +101,28 @@ fn run_expected(source: &str, label: &str, expected: i32) -> String {
     let (status, stdout, stderr) =
         support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
     assert_eq!(status.code(), Some(expected), "{stderr:?}");
-    assert!(stdout.is_empty() && stderr.is_empty());
+    assert_eq!(stdout, expected_stdout);
+    assert!(stderr.is_empty());
     artifact
+}
+
+#[test]
+fn printing_between_pending_and_resume_needs_no_stored_slice_cells() {
+    let source = include_str!("../examples/async_fn.lim").replace(
+        "\"../library/",
+        &format!("\"{}/library/", env!("CARGO_MANIFEST_DIR")),
+    );
+    let artifact = run_expected_output(
+        &source,
+        "async-printing-pending",
+        42,
+        include_bytes!("fixtures/async_fn.stdout"),
+    );
+    assert!(artifact.contains("immediate-owner-project-slice"));
+    assert!(
+        !artifact.contains("(#slice #char)"),
+        "synchronous slices must not inhabit the future frame"
+    );
 }
 
 #[test]

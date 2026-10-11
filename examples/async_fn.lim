@@ -48,7 +48,9 @@
 (#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
 (@
   #async-fn
-  (: protocol WorkAwait : waker LocalWaker : function (#fn work ((offset #u64)) #u64
+  (: protocol WorkAwait : waker LocalWaker
+   : cancel (cancel-work ((step cancel-step) (await-0 cancel-step)))
+   : function (#fn work ((offset #u64)) #u64
     (#let started-text (#array #char 14) "work: started\n")
     (#call print-text (: text (#borrow-slice started-text)))
     (#let step Step (Waiting 1u64))
@@ -63,18 +65,8 @@
     (#case (Waiting remaining)
       (#forget remaining)))
   (#return ()))
-(#fn cancel-work ((task Work-task)) ()
-  (#match task
-    (#case (work-task-start offset)
-      (#forget offset))
-    (#case (work-task-await-0 total offset child)
-      (#block
-        (#forget total)
-        (#forget offset)
-        (#call cancel-step (: task child)))))
-  (#return ()))
 (#fn main () #u64
-  (#call cancel-work (: task (#call work (: offset 99u64))))
+  (#call cancel-work (: task (#call work-poll-cleanup (: task (#call work (: offset 99u64))))))
   (#let
     executor
     Executor

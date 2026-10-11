@@ -5,7 +5,7 @@
 //! call in the same block may consume a borrow, with no intervening effects or
 //! control edges. Thus its owning frame is stationary for that operation even
 //! when the frame may move between polls.
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::async_exec::{
     Action, AddressProjection, AddressRoot, BlockId, Compute, Graph, PlaceId, ValueId,
@@ -14,10 +14,12 @@ use super::async_exec::{
 pub(crate) struct Borrow {
     pub place: PlaceId,
     pub mutable: bool,
+    pub slice: Option<super::async_exec::Operation>,
 }
 
 pub(crate) struct Plan {
     borrows: HashMap<ValueId, Borrow>,
+    elided_loads: HashSet<ValueId>,
 }
 
 impl Plan {
@@ -59,15 +61,48 @@ impl Plan {
         let mut candidates = HashMap::<ValueId, (BlockId, usize, usize, Borrow)>::new();
         for block in graph.reachable() {
             for (index, located) in graph.blocks[block.0].actions.iter().enumerate() {
-                let Action::Borrow {
-                    dst: Some(dst),
-                    place,
-                    mutable,
-                    pinned: false,
-                    scope: None,
-                } = located.action
-                else {
-                    continue;
+                let (dst, place, mutable, slice) = match &located.action {
+                    Action::Borrow {
+                        dst: Some(dst),
+                        place,
+                        mutable,
+                        pinned: false,
+                        scope: None,
+                    } => (*dst, *place, *mutable, None),
+                    Action::Compute {
+                        dst,
+                        operation: Compute::Checked(operation),
+                    } if operation.head == "borrow-slice" => {
+                        let Some(operand) = operation
+                            .operands
+                            .iter()
+                            .find(|operand| operand.position == [1])
+                        else {
+                            continue;
+                        };
+                        // This operand denotes storage, not a snapshot to
+                        // return or pass elsewhere. Elide only a load used
+                        // exclusively by this slice formation.
+                        if escapes[operand.value.0]
+                            || users[operand.value.0].as_slice() != [(block, index)]
+                        {
+                            continue;
+                        }
+                        let Some(place) =
+                            graph.blocks[block.0].actions[..index]
+                                .iter()
+                                .find_map(|action| match action.action {
+                                    Action::Load { dst, place, .. } if dst == operand.value => {
+                                        Some(place)
+                                    }
+                                    _ => None,
+                                })
+                        else {
+                            continue;
+                        };
+                        (*dst, place, false, Some(operation.clone()))
+                    }
+                    _ => continue,
                 };
                 if !pure_place(place) || escapes[dst.0] {
                     continue;
@@ -95,14 +130,26 @@ impl Plan {
                 {
                     continue;
                 }
-                candidates.insert(dst, (block, index, *consumer, Borrow { place, mutable }));
+                candidates.insert(
+                    dst,
+                    (
+                        block,
+                        index,
+                        *consumer,
+                        Borrow {
+                            place,
+                            mutable,
+                            slice,
+                        },
+                    ),
+                );
             }
         }
         // Other borrows may be delayed together only if they feed the same
         // call. The ordinary checker, not this proof, checks disjointness.
         let mut borrows = HashMap::new();
-        for (&value, &(block, index, consumer, _)) in &candidates {
-            let valid = graph.blocks[block.0].actions[index + 1..consumer]
+        for (&value, (block, index, consumer, _)) in &candidates {
+            let valid = graph.blocks[block.0].actions[index + 1..*consumer]
                 .iter()
                 .all(|located| match &located.action {
                     Action::Place { dst, .. } => pure_place(*dst),
@@ -110,7 +157,7 @@ impl Plan {
                         dst: Some(other), ..
                     } => candidates
                         .get(other)
-                        .is_some_and(|(b, _, c, _)| *b == block && *c == consumer),
+                        .is_some_and(|(b, _, c, _)| b == block && c == consumer),
                     Action::Compute {
                         operation:
                             Compute::Atom {
@@ -130,6 +177,7 @@ impl Plan {
                     Borrow {
                         place: candidate.place,
                         mutable: candidate.mutable,
+                        slice: candidate.slice.clone(),
                     },
                 );
             }
@@ -157,11 +205,34 @@ impl Plan {
                 borrows.remove(&value);
             }
         }
-        Ok(Self { borrows })
+        let elided_loads = borrows
+            .values()
+            .filter_map(|borrow| {
+                borrow
+                    .slice
+                    .as_ref()?
+                    .operands
+                    .iter()
+                    .find(|operand| operand.position == [1])
+                    .map(|operand| operand.value)
+            })
+            .collect();
+        Ok(Self {
+            borrows,
+            elided_loads,
+        })
     }
 
     pub(crate) fn get(&self, value: ValueId) -> Option<&Borrow> {
         self.borrows.get(&value)
+    }
+
+    pub(crate) fn skips_storage(&self, value: ValueId) -> bool {
+        self.borrows.contains_key(&value) || self.elided_loads.contains(&value)
+    }
+
+    pub(crate) fn elides_load(&self, value: ValueId) -> bool {
+        self.elided_loads.contains(&value)
     }
 }
 
@@ -180,6 +251,8 @@ mod tests {
           (#fn touch-before (: target (#ref-mut #u64) : value #u64) ()
             (#deref-set target value) (#return ()))
           (#fn effect () #u64 (#return 1u64))
+          (#fn inspect (: items (#slice #u64)) #u64
+            (#return (#deref (#slice-idx items 0usize))))
           (#struct Pair (: left #u64 : right #u64))
           (#fn touch-two (: left (#ref-mut #u64) : right (#ref-mut #u64)) ()
             (#deref-set left 20u64) (#deref-set right 22u64) (#return ()))
@@ -232,5 +305,24 @@ mod tests {
           (#call touch-two (: left (#borrow-mut (#get pair left)) : right (#borrow-mut (#get pair right))))
           (#return (#u64.+.wrap (#get pair left) (#get pair right)))");
         assert_eq!(Plan::new(&graph).unwrap().borrows.len(), 2);
+    }
+
+    #[test]
+    fn slices_are_immediate_only_with_a_single_effect_free_call_window() {
+        let prefix = "(#let values (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))";
+        let direct = graph(&format!(
+            "{prefix}
+          (#return (#call inspect (: items (#borrow-slice values 0usize 2usize))))"
+        ));
+        let plan = Plan::new(&direct).unwrap();
+        assert_eq!(plan.borrows.len(), 1);
+        assert!(plan.borrows.values().all(|borrow| borrow.slice.is_some()));
+        for body in [
+            "(#let items (#slice #u64) (#borrow-slice values)) (#return (#call inspect (: items items)))",
+            "(#return (#call inspect (: items (#if true (#borrow-slice values) (#borrow-slice values)))))",
+        ] {
+            let graph = graph(&format!("{prefix} {body}"));
+            assert!(Plan::new(&graph).unwrap().borrows.is_empty(), "{body}");
+        }
     }
 }

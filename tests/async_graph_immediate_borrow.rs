@@ -10,6 +10,10 @@ fn config() -> lim::CompileConfig {
 }
 
 fn run(source: &str) {
+    run_output(source, &[])
+}
+
+fn run_output(source: &str, expected_stdout: &[u8]) {
     let scratch = support::Scratch::new("async-graph-immediate");
     let path = scratch.path().join("input.lim");
     let cache = scratch.path().join("cache");
@@ -76,7 +80,8 @@ fn run(source: &str) {
             let (status, stdout, stderr) =
                 support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
             assert_eq!(status.code(), Some(42), "{stderr:?}");
-            assert!(stdout.is_empty() && stderr.is_empty());
+            assert_eq!(stdout, expected_stdout);
+            assert!(stderr.is_empty());
         }
         previous = Some(assembly);
     }
@@ -106,6 +111,35 @@ fn shared_array_slice_and_range_borrow_actual_local_storage() {
             "(#borrow-slice values 1usize 3usize)",
             "(#borrow-slice values)",
         ));
+}
+
+#[test]
+fn operation_local_slice_bounds_are_evaluated_once_before_the_consumer() {
+    run_output(
+        r#"
+      (#fn bound (: value #usize) #usize
+        (#let byte #u8 120u8)
+        (#let pointer #usize (#ptr-address (#ref-ptr (#borrow byte))))
+        (#assert (#i64.== (#unsafe (#linux-syscall #i64 1usize (1usize pointer 1usize))) 1i64))
+        (#return value))
+      (#fn sum (: items (#slice #u64)) #u64
+        (#return (#u64.+.wrap (#deref (#slice-idx items 0usize))
+          (#deref (#slice-idx items 1usize)))))
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : function (#fn work () #u64
+          (#let values (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))
+          (#let answer #u64 (#call sum (: items (#borrow-slice values
+            (#call bound (: value 0usize))
+            (#call bound (: value 2usize))))))
+          (#return answer))))
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#return (#match (#call work-poll (: task (#call work ()) : waker (#borrow waker)))
+          (#case (work-ready answer) answer)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#,
+        b"xx",
+    );
 }
 
 #[test]

@@ -20542,7 +20542,12 @@ mod typed_ownership_tests {
         ] {
             let path = root.join("examples").join(format!("{name}.lim"));
             let source = std::fs::read_to_string(&path).unwrap();
-            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let mut config = crate::CompileConfig::default();
+            if name == "async_fn" {
+                config.set("async-lowering", "graph");
+            }
+            let program =
+                crate::parse_program_from_path_with_config(&source, &path, &config).unwrap();
             crate::check_types(&program).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
             for contents in [false, true] {
