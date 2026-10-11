@@ -3,6 +3,61 @@ mod support;
 use std::{process::Command, time::Duration};
 
 #[test]
+fn large_argument_diverging_match_and_if_arms_emit_traps() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let source = r#"
+      (#enum Choice (First Second))
+      (#fn read (: values (#array #u64 10)) #u64
+        (#let result #u64 (#index values 9usize))
+        (#forget values) (#return result))
+      (#fn main () #u64
+        (#let choice Choice First)
+        (#let first #u64 (#call read (: values
+          (#match choice
+            (#case First (#array-repeat 42u64))
+            (#case Second (#unreachable))))))
+        (#let second #u64 (#call read (: values
+          (#if #true (#array-repeat 1u64) (#unreachable)))))
+        (#return (#u64.+.wrap first second)))
+    "#;
+    for (source, expected) in [
+        (source.to_owned(), Some(43)),
+        (
+            source.replace("choice Choice First", "choice Choice Second"),
+            None,
+        ),
+        (source.replace("#if #true", "#if #false"), None),
+    ] {
+        let scratch = support::Scratch::new("large-argument-divergence");
+        let assembly = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_or_else(|error| panic!("{}", lim::render_diagnostic(&error, &source, "main.lim")));
+        let binary = scratch.path().join("program");
+        lim::link_native_binary(
+            &assembly,
+            &binary,
+            &[],
+            &[],
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+        let (status, stdout, stderr) =
+            support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
+        assert_eq!(status.code(), expected, "{stderr:?}");
+        if expected.is_none() {
+            assert_eq!(status.signal(), Some(4), "{status:?}");
+        }
+        assert!(stdout.is_empty() && stderr.is_empty());
+    }
+}
+
+#[test]
 fn large_enum_reference_reads_writes_and_matches_use_storage() {
     for pinned in [false, true] {
         let (reference, borrow, read, write) = if pinned {

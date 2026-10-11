@@ -15543,6 +15543,13 @@ impl FunctionContext<'_> {
         ty: &Type,
         slots: &[usize],
     ) -> Result<(), String> {
+        // A diverging branch produces no aggregate words. Match/if arms may
+        // still have a large expected type, just as in the indirect-return
+        // and register destinations; emit the trap rather than a constructor.
+        if matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unreachable"))
+        {
+            return self.expression(value);
+        }
         if let Expr::Labeled { label, expression } = value {
             let previous = self.pending_loop_label.replace(label.clone());
             let result = self.store_value_to_slots(expression, ty, slots);
