@@ -1065,6 +1065,36 @@ Verification passed all 229 async integration tests, 1,353 library tests
 (three manual benchmarks ignored), the targeted graph shadowing regressions,
 the structural span matrix, formatting and whitespace checks.
 
+### Public loop-poll interface regression migration
+
+Seven loop regressions now select graph lowering explicitly and assert the
+public single `work-poll` dispatcher rather than private `-wait`, `-outputs`,
+`body-frame` or `body-poll.dispatch` spellings. Their Lim source programs and
+native expected results remain unchanged.
+
+Coverage includes a range-loop body await, suspension in a non-binding body
+statement followed by continue/break, a general for-loop initializer whose
+local spelling can be reused after the loop, an unbounded loop with terminal
+match-arm transfers, an await inside a nonterminating loop that must actually
+return Pending, and three distinct suspension points in one iteration. The
+linear-state regression still executes reconstruction of a consumed `State`,
+retains a separate linear `Token` through the loop, explicitly consumes both
+at completion, and returns 3. Its separate Pending task is explicitly forgotten
+as in the original test; this is not a destructor/cancellation-order proof.
+
+These migrations remove tests' dependence on legacy staging interfaces without
+changing borrow permissions, runtime semantics or the default lowering route.
+They are part of the graph-default gate, not completion of the broader goal.
+
+All 229 async integration tests passed with the unchanged default. A fresh
+temporary graph-default audit then passed 194 and failed 35 in 93.35 seconds,
+compared with 184 passing and 45 failing at the preceding audit. Legacy was
+restored afterward. Remaining failures include private staging assertions,
+source diagnostic/phase expectations, and the recurring 20-second aggregate
+capture compilation timeout. The timeout is not treated as permission to
+weaken the test or raise its limit; isolated analysis-cost measurement remains
+necessary. Formatting and whitespace checks also passed.
+
 ### Earlier audit
 
 A temporary graph default followed by `cargo test --test async_fn --quiet`

@@ -6953,12 +6953,8 @@ fn async_function_returns_linear_state_after_a_loop() {
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 3);
-    assert!(generated.contains("-outputs"), "{generated}");
-    assert!(
-        generated.contains("(state State) (token Token)"),
-        "{generated}"
-    );
+    let generated = build_and_run_graph(source, 3);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -6989,8 +6985,8 @@ fn async_function_resumes_child_await_inside_a_for_range_loop() {
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("-wait"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -7023,8 +7019,8 @@ fn async_for_range_suspends_in_a_non_binding_body_statement() {
             (#case (work-pending unexpected) (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("body-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -11755,8 +11751,8 @@ fn async_function_resumes_child_await_inside_for_with_local_initializer() {
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("-wait"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -11824,8 +11820,8 @@ fn async_function_resumes_child_await_inside_loop_until_terminal_break() {
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("-wait"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -11852,8 +11848,8 @@ fn async_function_does_not_hoist_awaits_out_of_loop_forms() {
             (#case (work-ready value) value)))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("work-task-await-0"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -11901,8 +11897,8 @@ fn async_loop_body_supports_more_than_two_suspensions() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("body-poll.dispatch"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
