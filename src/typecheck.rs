@@ -10826,9 +10826,9 @@ mod typed_ownership_tests {
         crate::parse_program_from_path_with_config(&source, &path, &config).unwrap()
     }
 
-    // These staged solver comparisons deliberately examine the legacy state
-    // representation. Keep its old fixture explicit while public examples
-    // migrate; the native manifest and graph regressions check current code.
+    // Two remaining staged comparisons examine the legacy state representation.
+    // Keep that fixture explicit until their solver invariants have independent
+    // coverage; public self-reference regressions already use the graph route.
     fn legacy_reference_program(root: &std::path::Path, name: &str) -> crate::Program {
         let path = if name == "async_fn_self_reference" {
             root.join("tests/fixtures/legacy_async_self_reference.lim")
@@ -17212,49 +17212,61 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_async_poll_store_contracts_separate_ready_from_pending() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        for (example, poll, result_type, ready_name, pending_name) in [
-            (
-                "async_fn_local_self_reference",
-                "local-self-ref-poll",
-                "Local-self-ref-poll-result",
-                "local-self-ref-ready",
-                "local-self-ref-pending",
-            ),
-            (
-                "async_fn_self_reference",
-                "read-after-await-poll",
-                "Read-after-await-poll-result",
-                "read-after-await-ready",
-                "read-after-await-pending",
-            ),
-            (
-                "async_fn_enum_self_reference",
-                "read-after-await-poll",
-                "Read-after-await-poll-result",
-                "read-after-await-ready",
-                "read-after-await-pending",
-            ),
-        ] {
-            let program = legacy_reference_program(root, example);
+    fn staged_pinned_poll_store_contracts_separate_ready_from_pending() {
+        // Keep this solver contract independent of generated frame layouts.
+        // Both direct and helper-mediated writes must distinguish terminal
+        // clearing from a suspended frame retaining its external referent.
+        for through_call in [false, true] {
+            let clear = "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Empty)))))";
+            let retain =
+                "(#unsafe (#pin-write target (#struct-literal Frame (: slot (Full value)))))";
+            let (clear_action, retain_action) = if through_call {
+                (
+                    "(#call clear (: target target))".to_owned(),
+                    "(#call retain (: target target : value value))".to_owned(),
+                )
+            } else {
+                (clear.to_owned(), retain.to_owned())
+            };
+            let source = format!(
+                "(#enum Slot ((Empty) (Full (#ref #u64))))
+                (#struct Frame (: slot Slot))
+                (#enum Outcome ((Ready) (Pending)))
+                (#fn clear (: target (#pin-ref-mut Frame)) ()
+                  {clear} (#return ()))
+                (#fn retain (: target (#pin-ref-mut Frame) : value (#ref #u64)) ()
+                  {retain} (#return ()))
+                (#fn poll (: target (#pin-ref-mut Frame) : value (#ref #u64)
+                  : ready #bool) Outcome
+                  (#return (#if ready
+                    (#block {clear_action} (Ready))
+                    (#block {retain_action} (Pending)))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
             crate::check_types(&program).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
-            let body = &declarations.bodies[poll];
-            let groups = &body.call_store_variants[&declarations.function_id(poll).unwrap()];
-            let ty = crate::Type::Named(result_type.into());
-            let ready = &groups[&declarations.variant_id(&ty, ready_name).unwrap()];
-            let pending = &groups[&declarations.variant_id(&ty, pending_name).unwrap()];
-            assert!(!ready.is_empty(), "{example}");
+            let body = &declarations.bodies["poll"];
+            let groups = &body.call_store_variants[&declarations.function_id("poll").unwrap()];
+            let ty = crate::Type::Named("Outcome".into());
+            let ready = &groups[&declarations.variant_id(&ty, "Ready").unwrap()];
+            let pending = &groups[&declarations.variant_id(&ty, "Pending").unwrap()];
+            assert_eq!(ready.len(), 1, "through_call={through_call}: {ready:?}");
+            assert_eq!(pending.len(), 1, "through_call={through_call}: {pending:?}");
+            for store in ready.iter().chain(pending) {
+                assert!(store.destination.pinned && store.destination.mutable);
+                assert_eq!(store.destination.parameter, 0);
+            }
             assert!(
                 ready
                     .iter()
                     .all(|store| store.definitely_written && store.sources.is_empty()),
-                "{example}: {ready:?}"
+                "through_call={through_call}: {ready:?}"
             );
             assert!(
-                pending.iter().any(|store| !store.sources.is_empty()),
-                "{example}: {pending:?}"
+                pending.iter().all(|store| store.definitely_written
+                    && !store.sources.is_empty()
+                    && store.sources.iter().all(|source| source.parameter == 1)),
+                "through_call={through_call}: {pending:?}"
             );
         }
     }
@@ -23408,50 +23420,37 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_async_contents_contracts_preserve_pinned_frame_referents() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        for (name, poll) in [
-            ("async_fn_local_self_reference", "local-self-ref-poll"),
-            ("async_fn_self_reference", "read-after-await-poll"),
-            ("async_fn_enum_self_reference", "read-after-await-poll"),
+    fn staged_pinned_contents_schemas_require_actual_incoming_loans() {
+        for field_type in [
+            "(#ref Referent)",
+            "(#tuple (#ref Referent) (#ref Referent))",
         ] {
-            let program = legacy_reference_program(root, name);
+            let selected = if field_type.starts_with("(#tuple") {
+                "(#get (#get state view) 0)"
+            } else {
+                "(#get state view)"
+            };
+            let source = format!(
+                "(#struct Referent (: number #u64))
+                (#struct Frame (: view {field_type}))
+                (#fn inspect (: task (#pin-ref Frame)) #u64
+                  (#let state Frame (#unsafe (#pin-read task)))
+                  (#let answer #u64 (#get {selected} number))
+                  (#forget state) (#return answer))"
+            );
+            let program = crate::parse_program(&source).unwrap();
             crate::check_types(&program).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
             if let Err(error) = declarations.staged_contents_referent_entry_contracts(&types) {
-                panic!("{name}: {error:?}");
+                panic!("{field_type}: {error:?}");
             }
             assert!(declarations
                 .bodies
                 .values()
                 .all(|body| body.staged_parameter_contents));
-            // Indirect slot schemas are conditional on a real incoming loan.
-            // Preparing the contents-aware gate cannot make a missing task
-            // input physical again merely because its type has reference slots.
-            let body = declarations.bodies.get_mut(poll).unwrap();
-            assert!(!body.parameter_referent_loan_slots[0].is_empty());
-            body.parameter_loan_slots[0].clear();
-            let error = declarations
-                .staged_referent_entry_contracts(&types)
-                .unwrap_err();
-            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
-                panic!("unexpected error for {name}: {error:?}");
-            };
-            assert_eq!(function, poll, "{name}: {conflict:?}");
-            assert!(
-                conflict.message.contains("unresolved target"),
-                "{name}: {conflict:?}"
-            );
-            let span = conflict.span.unwrap();
-            let generated = &program.source_files[span.source_id as usize].source;
-            assert!(
-                generated[span.start..span.end].starts_with("(#pin-write lim.async.ready-state"),
-                "{name}: {}",
-                &generated[span.start..span.end]
-            );
-            let body = &declarations.bodies[poll];
-            let flow = &declarations.flows[poll];
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
             let state = crate::typed_body::BindingId(
                 body.bindings
                     .iter()
@@ -23463,14 +23462,58 @@ mod typed_ownership_tests {
                 .iter()
                 .position(|node| {
                     matches!(node.action,
-                crate::typed_flow::FlowAction::Bind { binding, .. } if binding == state)
+                        crate::typed_flow::FlowAction::Bind { binding, .. } if binding == state
+                    )
                 })
                 .unwrap();
+            let origins = flow.loan_origins(body);
+            let held = origins.after(crate::typed_flow::FlowNodeId(event), state);
+            assert_eq!(
+                held.len(),
+                if field_type.starts_with("(#tuple") {
+                    2
+                } else {
+                    1
+                }
+            );
+            for origin in held {
+                assert!(!origin.lifetime_only);
+                assert!(!origin.storage.is_empty());
+                assert!(origin.parameter_storage.as_ref().is_some_and(
+                    |path| path.first() == Some(&crate::typed_place::Segment::Dereference)
+                ));
+            }
+            // Indirect slot schemas are conditional on a real incoming loan.
+            // Preparing the contents-aware gate cannot make a missing task
+            // input physical again merely because its type has reference slots.
+            let body = declarations.bodies.get_mut("inspect").unwrap();
+            assert!(!body.parameter_referent_loan_slots[0].is_empty());
+            body.parameter_loan_slots[0].clear();
+            let error = declarations
+                .staged_referent_entry_contracts(&types)
+                .unwrap_err();
+            let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
+                panic!("unexpected error for {field_type}: {error:?}");
+            };
+            assert_eq!(function, "inspect", "{field_type}: {conflict:?}");
+            assert!(
+                conflict.message.contains("missing slot provenance"),
+                "{field_type}: {conflict:?}"
+            );
+            let span = conflict.span.unwrap();
+            let generated = &program.source_files[span.source_id as usize].source;
+            assert_eq!(
+                &generated[span.start..span.end],
+                "(#let state Frame (#unsafe (#pin-read task)))",
+                "{field_type}"
+            );
+            let body = &declarations.bodies["inspect"];
+            let flow = &declarations.flows["inspect"];
             assert!(
                 flow.loan_origins(body)
                     .after(crate::typed_flow::FlowNodeId(event), state)
                     .is_empty(),
-                "{name}: indirect schemas must not fabricate loaded loans"
+                "{field_type}: indirect schemas must not fabricate loaded loans"
             );
         }
     }

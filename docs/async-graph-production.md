@@ -509,3 +509,21 @@ At this checkpoint, all 1,333 library tests, 213 async integration tests, and
 three-phase condition/body/step regressions now explicitly exercise graph
 lowering instead of relying on legacy private helper names. These checks do
 not complete the default switch, legacy removal, or source-fact remapping.
+
+### Layout-independent pinned-storage solver tests
+
+Two staged solver probes no longer require the legacy generator's private
+state representation. Ordinary pinned frames now exercise direct and
+helper-mediated writes: Ready definitely clears the retained reference, while
+Pending definitely stores the external parameter's reference. The assertions
+check the destination's pin/exclusivity and the stored parameter identity.
+
+A separate ordinary frame probe loads direct and tuple-nested reference fields.
+It verifies their real incoming provenance, then removes that incoming loan
+without removing the indirect field schema. The contents contract rejects the
+load with a source-spanned missing-provenance error, and the origin solver does
+not fabricate loaded references. Public graph self-reference regressions remain
+separate: their generated thin-pointer representation is not expected to have
+the legacy frame's physical reference slots. Two legacy-layout solver probes
+remain; removing these layout dependencies is progress toward legacy removal,
+not the default switch.
