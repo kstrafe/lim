@@ -765,14 +765,17 @@ replacement tests distinguish the new reference source from the entry source
 while preserving the parameter handle. Clearing and missing table facts do not
 resurrect schema loans. Symbolic array input slots match concrete selections
 conservatively, retaining their entry facts alongside possible new sources.
-The replacement/load case remains a staged regression fixture: the legacy
-production checker rejects the projected read after replacement. Pinned field
-writes now address the container field, not its stored
-reference's pointee. The typed staged solver releases old local field loans and
-retains new ones, but the legacy checker still rejects local reference RHSs for
-projected pinned-field stores. Production return summaries, initialized/moved
-storage, restoration, conditional parameter clearing, and exact symbolic-array
-overwrites remain integration work; this contents table proves none of those.
+At this historical checkpoint the replacement/load case was a staged regression
+fixture: the then-production checker rejected the projected read after
+replacement. Pinned field writes addressed the container field, not its stored
+reference's pointee. The typed staged solver released old local field loans and
+retained new ones, but the then-production checker still rejected local
+reference RHSs for projected pinned-field stores. Production return summaries,
+initialized/moved storage, restoration, conditional parameter clearing, and
+exact symbolic-array overwrites were still integration work; the isolated
+contents table did not prove those properties. These are migration observations,
+not current restrictions; see the production ownership boundary above and the
+[current async audit](async-goal-audit.md) for remaining storage limitations.
 An opt-in interprocedural pass now recomputes return and store contracts with
 this contents solver in callee-before-caller order. Only direct callee tables
 are supplied during inference, including return-variant store tables, then
@@ -793,10 +796,11 @@ reads leave contents intact. Regression checks retain the handle, transferred
 and restored sources, and exact consumption spans; the native
 `parameter_pin_restore.lim` example explicitly consumes, forgets, and restores
 parameter storage and exits 42. Empty facts still do not establish ownership
-initialization, and ambiguous destinations are not strongly cleared. The legacy
-checker still rejects restoration while a moved reference-bearing value is
-live; general consumption, conditional restoration, and production promotion
-remain open.
+initialization, and ambiguous destinations are not strongly cleared. At this
+checkpoint the then-production checker rejected restoration while a moved
+reference-bearing value was live; general consumption, conditional restoration,
+and production promotion remained open. Subsequent production integration is
+documented above; this paragraph preserves the earlier solver's proof boundary.
 Ordinary destruction is now reflected in the staged parameter-contents table.
 Linear `#forget`/`#drop` operands are classified during lowering, and destruction
 resolves the container address through dereferences and field/array projections,
