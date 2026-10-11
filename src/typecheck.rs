@@ -7884,8 +7884,10 @@ fn list_expression(
                         (owner_type.clone(), mutable.contains(name), false)
                     }
                     Expr::List(place)
-                        if (place.len() == 3
-                            && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index"))
+                        if (place.len() == 2
+                            && matches!(place.first(), Some(Expr::Symbol(name)) if name == "deref"))
+                            || (place.len() == 3
+                                && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index"))
                             || (place.len() == 4
                                 && matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")) =>
                     {
@@ -7943,8 +7945,10 @@ fn list_expression(
                     }
                 }
                 Expr::List(place)
-                    if (matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index")
-                        && place.len() == 3)
+                    if (place.len() == 2
+                        && matches!(place.first(), Some(Expr::Symbol(name)) if name == "deref"))
+                        || (matches!(place.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index")
+                            && place.len() == 3)
                         || (matches!(place.first(), Some(Expr::Symbol(name)) if name == "get-payload")
                             && place.len() == 4) =>
                 {

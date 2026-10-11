@@ -9805,6 +9805,17 @@ impl FunctionContext<'_> {
         let Some(Expr::Symbol(head)) = place.first() else {
             return Err("borrow projection requires a checked operator".into());
         };
+        if head == "deref" && place.len() == 2 {
+            if !matches!(
+                self.expression_type(&place[1]),
+                Some(Type::Reference { .. } | Type::PinnedReference { .. })
+            ) {
+                return Err("dereference reborrow requires a checked reference".into());
+            }
+            // Reborrow the same referent, preserving its tagged address and
+            // direction. Do not load or move the referenced value.
+            return self.expression(&place[1]);
+        }
         if !matches!(head.as_str(), "get" | "index" | "get-payload") || place.len() < 3 {
             return Err("borrow requires a variable-rooted projection".into());
         }

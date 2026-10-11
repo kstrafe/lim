@@ -1853,6 +1853,12 @@ half must itself be consumed (for example, passed to a function or explicitly
 `#forget`-ted). Mutable slices can be returned when their inferred provenance
 comes from a function argument; a view of a local array cannot escape.
 
+`(#borrow (#deref reference))` and `(#borrow-mut (#deref reference))`
+explicitly reborrow the existing referent without loading or moving it.
+Exclusive reborrowing requires an exclusive parent. A pinned parent produces
+a pinned reborrow; this syntax cannot remove the pin guarantee. Scoped borrow
+forms accept the same dereferenced places.
+
 Pinning a mutable slice **holder** does not pin its backing elements. An
 exclusive reference to that holder, including `(#pin-ref-mut (#slice-mut T))`,
 can reborrow a range through `(#slice-mut-range (#deref holder) start end)`

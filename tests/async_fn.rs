@@ -10455,6 +10455,25 @@ fn graph_external_mutable_slice_indices_preserve_lending_and_pending() {
 }
 
 #[test]
+fn dereference_reborrows_keep_exclusivity_and_pin_kind() {
+    let source = r#"(#fn main () #u64
+      (#let-mut value #u64 41u64)
+      (#let parent (#ref-mut #u64) (#borrow-mut value))
+      (#let shared (#ref #u64) (#borrow (#deref parent)))
+      (#assert (#u64.== (#deref shared) 41u64)) (#forget shared)
+      (#let child (#ref-mut #u64) (#borrow-mut (#deref parent)))
+      (#deref-set child 42u64) (#forget child) (#forget parent) (#return value))"#;
+    build_and_run_graph(source, 42);
+    let error = graph_compile_error(
+        "(#fn bad (: view (#ref #u64)) (#ref-mut #u64) (#return (#borrow-mut (#deref view))))",
+        "shared-dereference-reborrow",
+    );
+    assert!(error.message.contains("immutable"), "{error:?}");
+    let error = graph_compile_error("(#fn bad (: view (#pin-ref-mut #u64)) (#ref-mut #u64) (#return (#borrow-mut (#deref view))))", "pinned-dereference-reborrow");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
+}
+
+#[test]
 fn async_for_void_await_step_respects_continue_break_and_false_condition() {
     let source = r#"
       (#enum ConditionTask ((Check #bool)))
