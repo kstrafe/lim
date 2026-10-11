@@ -11594,55 +11594,11 @@ pub(crate) fn generated_source_with_environment(
     .and_then(|source| with_protocol_source(invocation, source))
 }
 
-/// Publish only declaration metadata here; body checking remains authoritative.
-/// This lets callers refer to a protocol before its async function is lowered.
-pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
-    let parts = list(invocation, "async invocation")?;
-    let names = list(
-        parts.get(2).ok_or("async invocation requires names")?,
-        "async names",
-    )?;
-    if !matches!(names.len(), 5 | 6 | 7) {
-        return Err("invalid async function interface metadata".into());
-    }
-    let function = list(
-        parts.get(4).ok_or("async invocation requires a function")?,
-        "async function",
-    )?;
-    let start = symbol(
-        function.get(1).ok_or("async function requires a name")?,
-        "function name",
-    )?;
-    let protocol = names
-        .get(5)
-        .cloned()
-        .unwrap_or_else(|| Expr::Symbol(format!("{start}-await")));
-    let result = function
-        .get(3)
-        .ok_or("async function requires a result type")?
-        .clone();
-    let pinned = matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn-pinned");
-    let child = if pinned {
-        Expr::List(vec![Expr::Symbol("#pin-ref-mut".into()), names[0].clone()])
-    } else {
-        names[0].clone()
-    };
-    Ok(Expr::List(vec![
-        Expr::Symbol("#syntax".into()),
-        protocol,
-        Expr::List(vec![
-            result,
-            child,
-            names[2].clone(),
-            names[3].clone(),
-            names[4].clone(),
-        ]),
-    ]))
-}
-
 fn with_protocol_source(invocation: &Expr, mut source: String) -> Result<String, String> {
     source.push('\n');
-    source.push_str(&expression_source(&protocol_declaration(invocation)?)?);
+    source.push_str(&expression_source(
+        &super::async_interfaces::protocol_declaration(invocation)?,
+    )?);
     Ok(source)
 }
 

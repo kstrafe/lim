@@ -534,7 +534,7 @@ fn graph_generated_owned_program(
             let normalized = normalize_builtin_generator_invocation(&invocation.expr)?;
             output.source.push_str(&format!(
                 "\n{}\n",
-                expression_source(&async_fn::protocol_declaration(&normalized)?)?
+                expression_source(&super::async_interfaces::protocol_declaration(&normalized)?)?
             ));
             output.source = generator::format_generated_source(&output.source)?;
             // Match the shared cache's inspectable provenance annotation before
@@ -874,14 +874,15 @@ pub(crate) fn prepare_program_syntax(
                         "generator error: ",
                     )
                 })?;
-            let declaration = async_fn::protocol_declaration(&invocation).map_err(|message| {
-                attach_span_to_source_error_kind(
-                    message,
-                    expression.span,
-                    &source_files,
-                    "generator error: ",
-                )
-            })?;
+            let declaration =
+                super::async_interfaces::protocol_declaration(&invocation).map_err(|message| {
+                    attach_span_to_source_error_kind(
+                        message,
+                        expression.span,
+                        &source_files,
+                        "generator error: ",
+                    )
+                })?;
             with_protocols.push(SpannedExpr {
                 expr: declaration,
                 span: expression.span,

@@ -8,6 +8,126 @@ use crate::{CallingConvention, EnumVariant, Expr, Function, Item, Parameter, Pro
 
 pub(crate) use crate::generation_interfaces::{DeferredLayout, LayoutKind};
 
+/// Publish only declaration metadata here; body checking remains authoritative.
+/// Protocols can be referenced before the corresponding body is lowered, and
+/// do not depend on either graph emission or legacy syntactic lowering.
+pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
+    fn list<'a>(expr: &'a Expr, context: &str) -> Result<&'a [Expr], String> {
+        match expr {
+            Expr::List(items) => Ok(items),
+            _ => Err(format!("@#async-fn {context} must be a list")),
+        }
+    }
+    let parts = list(invocation, "async invocation")?;
+    let names = list(
+        parts.get(2).ok_or("async invocation requires names")?,
+        "async names",
+    )?;
+    if !matches!(names.len(), 5 | 6 | 7) {
+        return Err("invalid async function interface metadata".into());
+    }
+    let function = list(
+        parts.get(4).ok_or("async invocation requires a function")?,
+        "async function",
+    )?;
+    let start = match function.get(1).ok_or("async function requires a name")? {
+        Expr::Symbol(name) if !name.starts_with('#') && !name.starts_with('@') => name,
+        _ => return Err("@#async-fn function name must be a plain symbol".into()),
+    };
+    let protocol = names
+        .get(5)
+        .cloned()
+        .unwrap_or_else(|| Expr::Symbol(format!("{start}-await")));
+    let result = function
+        .get(3)
+        .ok_or("async function requires a result type")?
+        .clone();
+    let pinned = matches!(parts.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn-pinned");
+    let child = if pinned {
+        Expr::List(vec![Expr::Symbol("#pin-ref-mut".into()), names[0].clone()])
+    } else {
+        names[0].clone()
+    };
+    Ok(Expr::List(vec![
+        Expr::Symbol("#syntax".into()),
+        protocol,
+        Expr::List(vec![
+            result,
+            child,
+            names[2].clone(),
+            names[3].clone(),
+            names[4].clone(),
+        ]),
+    ]))
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+
+    fn expression(source: &str) -> Expr {
+        crate::parse(source).unwrap().remove(0).expr
+    }
+
+    #[test]
+    fn protocols_preserve_declared_types_and_borrow_only_pinned_frames() {
+        for pinned in [false, true] {
+            for (suffix, protocol) in [
+                ("", "work-await"),
+                (" WorkAwait", "WorkAwait"),
+                (" WorkAwait ((owner read-owner))", "WorkAwait"),
+            ] {
+                let kind = if pinned {
+                    "#async-fn-pinned"
+                } else {
+                    "#async-fn"
+                };
+                let frame = if pinned { "Work-frame" } else { "Work-task" };
+                let invocation = expression(&format!(
+                    "(@ {kind} ({frame} WorkPoll work-pending work-ready work-poll{suffix})
+                      Waker (#fn work ((owner Owner)) Result (#return (#unreachable))))"
+                ));
+                let task = if pinned {
+                    format!("(#pin-ref-mut {frame})")
+                } else {
+                    frame.into()
+                };
+                let expected = expression(&format!(
+                    "(#syntax {protocol} (Result {task} work-pending work-ready work-poll))"
+                ));
+                assert_eq!(protocol_declaration(&invocation).unwrap(), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn malformed_protocol_metadata_is_rejected_without_lowering_a_body() {
+        for (source, message) in [
+            ("bad", "async invocation must be a list"),
+            ("(@ #async-fn)", "async invocation requires names"),
+            (
+                "(@ #async-fn ())",
+                "invalid async function interface metadata",
+            ),
+            (
+                "(@ #async-fn (Work-task WorkPoll pending ready poll) Waker)",
+                "async invocation requires a function",
+            ),
+            (
+                "(@ #async-fn (Work-task WorkPoll pending ready poll) Waker (#fn #u64 () #u64))",
+                "function name must be a plain symbol",
+            ),
+            (
+                "(@ #async-fn (Work-task WorkPoll pending ready poll) Waker (#fn work ()))",
+                "async function requires a result type",
+            ),
+        ] {
+            let error = protocol_declaration(&expression(source)).unwrap_err();
+            assert!(error.contains(message), "{error}");
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Provenance {
     Ordinary,
