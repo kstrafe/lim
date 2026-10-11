@@ -6786,6 +6786,11 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
         (#return result))"#
     );
     build_and_run_partial_storage(&pinned, 44);
+    let cloned = source.replace(
+        "(#forget pair)",
+        "(#let duplicate Pair (#clone pair)) (#forget duplicate) (#forget pair)",
+    );
+    build_and_run_partial_storage(&cloned, 44);
     for (source, needle, replacement, expected) in [
         (
             source,
@@ -6798,12 +6803,6 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
             "(#let delta #u64",
             "(#let overlap (#ref-mut Resource) (#borrow-mut (#get pair right))) (#drop overlap) (#let delta #u64",
             "borrow",
-        ),
-        (
-            source,
-            "(#forget pair)",
-            "(#let duplicate Pair (#clone pair)) (#forget duplicate) (#forget pair)",
-            "contiguous owning storage",
         ),
     ] {
         let invalid = source.replace(needle, replacement);
@@ -6842,6 +6841,9 @@ fn async_rebuilds_nested_partially_moved_structs() {
           (#set-field owner inner (#struct-literal Pair
             (: left (#struct-literal Resource (: value (#u64.+.wrap old delta)))
              : right sibling)))
+          (#let cloned-inner Pair (#clone (#get owner inner)))
+          (#assert (#u64.== (#get (#get cloned-inner left) value) 22u64))
+          (#forget cloned-inner)
           (#let result #u64 (#u64.+.wrap
             (#get (#get (#get owner inner) left) value)
             (#get (#get (#get owner inner) right) value)))
@@ -6929,7 +6931,8 @@ fn async_rebuilds_nested_partially_moved_structs() {
         .replace(": left (#struct-literal Resource (: value 20u64))", ": left (#struct-literal Box (: resource (#struct-literal Resource (: value 20u64))))")
         .replace("(#let moved Resource (#get (#get owner inner) left))", "(#let moved Resource (#get (#get (#get owner inner) left) resource))")
         .replace(": left (#struct-literal Resource (: value (#u64.+.wrap old delta)))", ": left (#struct-literal Box (: resource (#struct-literal Resource (: value (#u64.+.wrap old delta)))))")
-        .replace("(#get (#get (#get owner inner) left) value)", "(#get (#get (#get (#get owner inner) left) resource) value)");
+        .replace("(#get (#get (#get owner inner) left) value)", "(#get (#get (#get (#get owner inner) left) resource) value)")
+        .replace("(#get (#get cloned-inner left) value)", "(#get (#get (#get cloned-inner left) resource) value)");
     assert_ne!(deep, source);
     build_and_run_partial_storage(&deep, 44);
 
@@ -7125,6 +7128,152 @@ fn async_clones_indexed_computed_reference_owners() {
         span.start >= write && span.end <= write + "(#set owner 99u64)".len(),
         "{error:?}"
     );
+}
+
+#[test]
+fn async_clones_rebuilt_whole_aggregates_without_relocating_borrowed_fields() {
+    let source = r#"
+      (#struct Resource (: value #u64))
+      (#linear Resource)
+      (#fn Resource-clone (: original Resource) Resource
+        (#let value #u64 (#u64.+.wrap (#get original value) 100u64))
+        (#forget original)
+        (#return (#struct-literal Resource (: value value))))
+      (#struct Pair (: left Resource : right Resource : reference (#ref #u64)))
+      (#linear Pair)
+      (#fn Pair-clone (: original Pair) Pair
+        (#let (Pair left right reference) Pair original)
+        (#let value #u64 (#u64.+.wrap (#get left value) 1u64))
+        (#forget left)
+        (#return (#struct-literal Pair
+          (: left (#struct-literal Resource (: value value)) : right right : reference reference))))
+      (#enum Step (Start Resume))
+      (#linear Step)
+      (#enum StepPoll ((Pending Step) (Ready ())))
+      (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+        (#return (#match task (#case Start (Pending Resume)) (#case Resume (Ready ())))))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64 : function
+        (#fn work (: owner (#ref #u64)) Pair
+          (#let-mut pair Pair (#struct-literal Pair
+            (: left (#struct-literal Resource (: value 0u64))
+             : right (#struct-literal Resource (: value 1u64)) : reference owner)))
+          (#let view (#ref Resource) (#borrow (#get pair right)))
+          (#let moved Resource (#get pair left))
+          (#let ready () (#await () Step Pending Ready step-poll Start))
+          (#set-field pair left (#struct-literal Resource (: value 2u64)))
+          (#forget moved)
+          (#let duplicate Pair (#clone pair))
+          (#assert (#u64.== (#get view value) 1u64))
+          (#assert (#u64.== (#get (#get pair left) value) 2u64))
+          (#drop view) (#forget pair) (#return duplicate))))
+      (#fn main () #u64
+        (#let-mut owner #u64 42u64) (#let waker #u64 0u64)
+        (#let-mut frame Work-frame (#call work (: owner (#borrow owner))))
+        (#let first Work-poll-result (#call work-poll
+          (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let result #u64 (#match second
+          (#case (work-ready duplicate) (#block
+            (#let answer #u64 (#u64.+.wrap
+              (#deref (#get duplicate reference))
+              (#u64.+.wrap (#get (#get duplicate left) value) (#get (#get duplicate right) value))))
+            (#forget duplicate) answer))
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame) (#return result))
+    "#;
+    build_and_run_partial_storage(source, 46);
+    let hook = format!(
+        "(#fn Pair-clone{}",
+        source
+            .split_once("(#fn Pair-clone")
+            .unwrap()
+            .1
+            .split_once("(#enum Step")
+            .unwrap()
+            .0
+    );
+    let structural = source.replace(&hook, "");
+    assert!(!structural.contains("(#fn Pair-clone"));
+    build_and_run_partial_storage(&structural, 45);
+
+    let reference_leaf = source
+        .replace("(#struct Pair (: left Resource : right Resource : reference (#ref #u64)))",
+            "(#struct Holder (: reference (#ref #u64) : value #u64))
+             (#linear Holder)
+             (#fn Holder-clone (: original Holder) Holder
+               (#let reference (#ref #u64) (#get original reference))
+               (#let value #u64 (#u64.+.wrap (#get original value) 200u64))
+               (#forget original)
+               (#return (#struct-literal Holder (: reference reference : value value))))
+             (#struct Pair (: left Resource : right Holder))")
+        .replace("(Pair left right reference)", "(Pair left right)")
+        .replace(": right right : reference reference", ": right right")
+        .replace(": right (#struct-literal Resource (: value 1u64)) : reference owner",
+            ": right (#struct-literal Holder (: reference owner : value 1u64))")
+        .replace("(#let view (#ref Resource) (#borrow (#get pair right)))", "")
+        .replace("(#assert (#u64.== (#get view value) 1u64))", "")
+        .replace("(#drop view) ", "")
+        .replace("(#deref (#get duplicate reference))", "(#deref (#get (#get duplicate right) reference))")
+        .replace("(#case (work-ready duplicate) (#block",
+            "(#case (work-ready duplicate) (#block (#forget frame)")
+        .replace("(#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))",
+            "(#case (work-pending unexpected) (#block (#forget unexpected) (#forget frame) (#unreachable)))")
+        .replace("(#forget frame) (#return result)", "(#return result)");
+    assert!(reference_leaf.contains(": right Holder"));
+    let generated = build_and_run_partial_storage(&reference_leaf, 46);
+    let movable = format!(
+        "{} (#fn main () #u64
+          (#let-mut owner #u64 42u64) (#let waker #u64 0u64)
+          (#let first Work-poll-result (#call work-poll
+            (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+          (#let second Work-poll-result (#call work-poll
+            (: task pending : waker (#borrow waker))))
+          (#return (#match second
+            (#case (work-ready duplicate) (#block
+              (#let result #u64 (#u64.+.wrap
+                (#deref (#get (#get duplicate right) reference))
+                (#u64.+.wrap (#get (#get duplicate left) value) (#get (#get duplicate right) value))))
+              (#forget duplicate) result))
+            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))",
+        reference_leaf.split_once("(#fn main").unwrap().0
+            .replace("@#async-fn-pinned", "@#async-fn")
+    );
+    build_and_run_partial_storage(&movable, 46);
+    let invalid = reference_leaf.replace(
+        "(#block (#forget frame)\n",
+        "(#block (#forget frame) (#set owner 99u64)\n",
+    );
+    assert!(invalid.contains("(#set owner 99u64)"));
+    let error = graph_compile_error(&invalid, "rebuilt-clone-retains-reference-leaf");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let write = invalid.find("(#set owner 99u64)").unwrap();
+    let span = error
+        .span
+        .expect("returned aggregate clone keeps caller span");
+    assert!(
+        span.start >= write && span.end <= write + "(#set owner 99u64)".len(),
+        "{error:?}"
+    );
+    let invocation = lim::parse(&invalid).unwrap().into_iter().find(|node|
+        matches!(&node.expr, lim::Expr::List(items) if matches!(items.first(), Some(lim::Expr::At))))
+        .unwrap();
+    let ordinary = format!(
+        "{}\n{generated}\n{}",
+        &invalid[..invocation.span.start],
+        &invalid[invocation.span.end..]
+    );
+    assert!(lim::check_types(&lim::parse_program(&ordinary).unwrap())
+        .unwrap_err()
+        .contains("borrow"));
+
+    let premature = source.replace(
+        "(#let ready () (#await",
+        "(#let premature Pair (#clone pair)) (#forget premature) (#let ready () (#await",
+    );
+    let error = graph_compile_error(&premature, "rebuilt-clone-rejects-uninitialized-owner");
+    assert_eq!(error.code, lim::DiagnosticCode::Linear, "{error:?}");
 }
 
 #[test]

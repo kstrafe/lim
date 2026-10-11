@@ -136,6 +136,7 @@ struct Emitter<'a> {
     reference_cells: Option<crate::generator::async_cells::Plan>,
     cleanup_occupied_cache: OnceCell<HashSet<usize>>,
     projections: Vec<String>,
+    cell_snapshots: HashMap<usize, (String, String)>,
     array_anchors: crate::generator::async_array_anchor::Recipes,
     slice_anchors: crate::generator::async_slice_anchor::Recipes,
     addresses: HashMap<PlaceId, usize>,
@@ -270,6 +271,7 @@ impl<'a> Emitter<'a> {
             reference_cells: None,
             cleanup_occupied_cache: OnceCell::new(),
             projections: Vec::new(),
+            cell_snapshots: HashMap::new(),
             array_anchors: Default::default(),
             slice_anchors: Default::default(),
             addresses: HashMap::new(),
@@ -1535,6 +1537,104 @@ impl<'a> Emitter<'a> {
             .fields
             .iter()
             .find(|field| Self::projection_starts_with(&descriptor.projections, &field.path))
+    }
+
+    /// Clone is a by-value snapshot, not a borrow of a reconstructed owner.
+    /// Copy each storage cell without invoking its payload's clone hook, then
+    /// perform exactly one ordinary clone dispatch on the assembled value.
+    /// Original cells (and live references into them) remain stationary/Full.
+    fn clone_aggregate(
+        &mut self,
+        binding: BindingId,
+        path: &[crate::typed_ir::FieldId],
+    ) -> Result<String, Error> {
+        let aggregate = &self.aggregates[&binding];
+        let shape = aggregate
+            .shape(path)
+            .ok_or_else(|| fail(self.function, "aggregate clone lost its checked shape"))?
+            .clone();
+        let fields = aggregate
+            .fields
+            .iter()
+            .map(|field| (field.path.clone(), field.slot))
+            .collect::<HashMap<_, _>>();
+        let snapshot = self.snapshot_aggregate(&shape, path, &fields)?;
+        let temporary = self.fresh("aggregate-clone-source");
+        let result = self.fresh("aggregate-clone-result");
+        let ty = crate::type_source(&shape.ty);
+        Ok(format!(
+            "(#block (#let {temporary} {ty} {snapshot})\n\
+             (#let {result} {ty} (#clone {temporary}))\n\
+             (#forget {temporary}) {result})"
+        ))
+    }
+
+    fn snapshot_aggregate(
+        &mut self,
+        shape: &crate::generator::async_aggregate::Shape,
+        path: &[crate::typed_ir::FieldId],
+        fields: &HashMap<Vec<crate::typed_ir::FieldId>, usize>,
+    ) -> Result<String, Error> {
+        let mut values = Vec::new();
+        for field in &shape.fields {
+            let mut child = path.to_vec();
+            child.push(field.id);
+            let value = if let Some(nested) = &field.nested {
+                self.snapshot_aggregate(nested, &child, fields)?
+            } else {
+                let index = *fields.get(&child).ok_or_else(|| {
+                    fail(self.function, "aggregate clone lost its checked field cell")
+                })?;
+                self.snapshot_cell(index)?
+            };
+            values.push(format!("({} {value})", field.name));
+        }
+        Ok(format!(
+            "(#struct-literal {} ({}))",
+            shape.constructor,
+            values.join(" ")
+        ))
+    }
+
+    fn snapshot_cell(&mut self, index: usize) -> Result<String, Error> {
+        if self.slots[index].copy || self.slots[index].raw {
+            return Ok(self.read(index, false));
+        }
+        if !self.cell_snapshots.contains_key(&index) {
+            // Clone the enum cell, not the payload. An explicit identity
+            // hook reserves dispatch against user hooks on generated cells.
+            let clone = format!("{}-clone", self.slots[index].name);
+            if !self.reserved.borrow_mut().insert(clone.clone()) {
+                return Err(fail(
+                    self.function,
+                    format!("aggregate snapshot clone conflicts with '{clone}'"),
+                ));
+            }
+            let argument = self.fresh("cell-clone-input");
+            let input = self.fresh("cell-snapshot-input");
+            let snapshot = self.fresh("cell-snapshot-storage");
+            let value = self.fresh("cell-snapshot-value");
+            let helper = self.fresh("cell-snapshot");
+            let slot = &self.slots[index];
+            let ty = &slot.name;
+            self.projections.push(format!(
+                "(#fn {clone} (: {argument} {ty}) {ty} (#return {argument}))\n\
+                 (#fn {helper} (: {input} (#pin-ref {ty})) {}\n\
+                 (#let {snapshot} {ty} (#clone (#deref {input})))\n\
+                 (#return (#match {snapshot}\n\
+                 (#case {} (#unreachable))\n\
+                 (#case ({} {value}) {value}))))",
+                crate::type_source(&slot.storage),
+                slot.empty,
+                slot.full
+            ));
+            self.cell_snapshots.insert(index, (helper, input));
+        }
+        let (helper, input) = &self.cell_snapshots[&index];
+        Ok(format!(
+            "(#call {helper} (: {input} {}))",
+            Self::slot_ref(&self.slots[index], false)
+        ))
     }
 
     fn aggregate_exact_field(&self, descriptor: &PlaceDescriptor) -> Option<&AggregateField> {
@@ -3754,9 +3854,8 @@ impl<'a> Emitter<'a> {
                 if !descriptor.projections.is_empty() {
                     if let Some((aggregate, path)) = self.aggregate_subtree(descriptor) {
                         if *kind == LoadKind::Clone {
-                            return Err(error(
-                                "whole aggregate cloning requires contiguous owning storage",
-                            ));
+                            let read = self.clone_aggregate(binding, &path)?;
+                            return Ok(self.put_value(*dst, &read));
                         }
                         if matches!(
                             located
@@ -3824,9 +3923,8 @@ impl<'a> Emitter<'a> {
                 };
                 if self.aggregates.contains_key(&binding) {
                     if *kind == LoadKind::Clone {
-                        return Err(error(
-                            "whole aggregate cloning requires contiguous owning storage",
-                        ));
+                        let read = self.clone_aggregate(binding, &[])?;
+                        return Ok(self.put_value(*dst, &read));
                     }
                     let transfer = !self.types.can_repeat(&graph.bindings[binding.0].ty);
                     return Ok(self.put_value(*dst, &self.read_binding(binding, transfer)));
@@ -8368,35 +8466,44 @@ mod tests {
           (#let delta #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#forget moved)
           (#set-field owner left (#struct-literal Resource (: value delta)))
+          (#let duplicate Pair (#clone owner)) (#forget duplicate)
           (#forget owner) (#return seed))";
         let declarations = format!(
             "(#struct Resource (: value #u64)) (#linear Resource)
           (#struct Pair (: left Resource : right Resource)) {RUN}"
         );
-        let mut planning = prepare_function(function, &declarations);
-        assert!(generate(&planning).is_ok());
-        let graph = &mut planning.functions[0].graph;
-        let mut removed = 0;
-        for block in &mut graph.blocks {
-            block.actions.retain(|located| {
-                let remove = matches!(located.action, Action::Store { place, .. }
+        for function in [
+            function.to_owned(),
+            function.replace(
+                "(#let duplicate Pair (#clone owner)) (#forget duplicate)",
+                "",
+            ),
+        ] {
+            let mut planning = prepare_function(&function, &declarations);
+            assert!(generate(&planning).is_ok());
+            let graph = &mut planning.functions[0].graph;
+            let mut removed = 0;
+            for block in &mut graph.blocks {
+                block.actions.retain(|located| {
+                    let remove = matches!(located.action, Action::Store { place, .. }
                     if matches!(graph.places[place.0].root, AddressRoot::Local(_))
                         && !graph.places[place.0].projections.is_empty());
-                removed += usize::from(remove);
-                !remove
-            });
+                    removed += usize::from(remove);
+                    !remove
+                });
+            }
+            assert_eq!(removed, 1);
+            let error = generate(&planning)
+                .err()
+                .expect("a missing leaf cannot be reconstructed");
+            assert!(
+                error.message.contains("initialized field storage"),
+                "{}",
+                error.message
+            );
+            let source = &planning.program.source_files[error.span.source_id as usize].source;
+            assert!(source[error.span.start..error.span.end].contains("owner"));
         }
-        assert_eq!(removed, 1);
-        let error = generate(&planning)
-            .err()
-            .expect("a missing leaf cannot be reconstructed");
-        assert!(
-            error.message.contains("initialized field storage"),
-            "{}",
-            error.message
-        );
-        let source = &planning.program.source_files[error.span.source_id as usize].source;
-        assert!(source[error.span.start..error.span.end].contains("owner"));
     }
 
     #[test]
@@ -8412,36 +8519,45 @@ mod tests {
           (#let sibling Resource (#get (#get owner inner) right))
           (#set-field owner inner (#struct-literal Pair
             (: left (#struct-literal Resource (: value delta)) : right sibling)))
+          (#let duplicate Pair (#clone (#get owner inner))) (#forget duplicate)
           (#forget owner) (#return seed))";
         let declarations = format!(
             "(#struct Resource (: value #u64)) (#linear Resource)
              (#struct Pair (: left Resource : right Resource))
              (#struct Outer (: inner Pair)) {RUN}"
         );
-        let mut planning = prepare_function(function, &declarations);
-        assert!(generate(&planning).is_ok());
-        let graph = &mut planning.functions[0].graph;
-        let mut removed = 0;
-        for block in &mut graph.blocks {
-            block.actions.retain(|located| {
-                let remove = matches!(located.action, Action::Store { place, .. }
+        for function in [
+            function.to_owned(),
+            function.replace(
+                "(#let duplicate Pair (#clone (#get owner inner))) (#forget duplicate)",
+                "",
+            ),
+        ] {
+            let mut planning = prepare_function(&function, &declarations);
+            assert!(generate(&planning).is_ok());
+            let graph = &mut planning.functions[0].graph;
+            let mut removed = 0;
+            for block in &mut graph.blocks {
+                block.actions.retain(|located| {
+                    let remove = matches!(located.action, Action::Store { place, .. }
                     if matches!(graph.places[place.0].root, AddressRoot::Local(_))
                         && !graph.places[place.0].projections.is_empty());
-                removed += usize::from(remove);
-                !remove
-            });
+                    removed += usize::from(remove);
+                    !remove
+                });
+            }
+            assert_eq!(removed, 1);
+            let error = generate(&planning)
+                .err()
+                .expect("an incomplete subtree cannot be reconstructed");
+            assert!(
+                error.message.contains("initialized field storage"),
+                "{}",
+                error.message
+            );
+            let source = &planning.program.source_files[error.span.source_id as usize].source;
+            assert!(source[error.span.start..error.span.end].contains("owner"));
         }
-        assert_eq!(removed, 1);
-        let error = generate(&planning)
-            .err()
-            .expect("an incomplete subtree cannot be reconstructed");
-        assert!(
-            error.message.contains("initialized field storage"),
-            "{}",
-            error.message
-        );
-        let source = &planning.program.source_files[error.span.source_id as usize].source;
-        assert!(source[error.span.start..error.span.end].contains("owner"));
     }
 
     #[test]

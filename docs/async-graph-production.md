@@ -1911,3 +1911,51 @@ completion of guarded-analysis performance work is claimed.
 Verification passes 1,361 library tests, all 233 async integration tests,
 three UI diagnostic tests, five native example tests and all-target checking.
 The ignored membership benchmark passes separately in release mode.
+
+## Whole-value clones of decomposed aggregate storage
+
+Whole aggregate and nested-subtree clones no longer require contiguous original
+storage. Clone hooks take their source by value: cloning can snapshot the existing
+field cells and assemble that value without relocating the original fields.
+This is not a borrow of a reconstructed original and grants no whole-owner
+reference into the unrelated cells.
+
+Copy/shared-reference fields use their ordinary typed reads. Owning fields
+snapshot their tagged enum cell through a shared pinned-reference helper, then
+extract the copied Full payload. An explicitly generated identity clone hook
+for the private cell prevents accidental payload clone-hook dispatch or user
+overrides of that cell's snapshot operation. Helpers are reused per field cell.
+The assembled value undergoes one ordinary clone dispatch on the requested
+aggregate/subtree, and its temporary source is explicitly forgotten. Original
+cells and nominal shell obligations remain Full; existing sibling references
+keep their actual addresses. Payload hooks are not automatically invoked unless
+the requested aggregate's own hook explicitly calls them.
+
+Helpers, rather than inline owning reads from a movable frame, preserve the
+ordinary requirement to access pinned storage through references. Source clone
+permissions and initialized-field checks are unchanged. Removing a restoration
+still fails the emitter's Full-field proof before cloning. Explicitly pinned
+source referents retain their ordinary clone restrictions; this change does not
+override them.
+
+Native cold/warm and independently compiled generated-code regressions cover
+default and custom aggregate hooks, observable unused payload hooks, a live
+sibling reference, reference-bearing owning field cells, movable tasks, nested
+and three-level subtree reconstruction, and caller mutation after Ready and
+after forgetting the original frame. The latter is also rejected by standalone
+ordinary generated code. `examples/async_partial_clone.lim` demonstrates the
+move/await/restore/whole-clone sequence and returns 45.
+
+Whole aggregate borrows still require a genuine contiguous-storage representation.
+Deeper scalar borrows within independently stored fields exposed a separate
+address-formation issue; that remains tracked explicitly, not hidden by weakening
+either validation boundary.
+
+Verification for this increment: all 234 async integration tests pass, as do
+230 selected async unit tests (four historical audits remain ignored) and
+`cargo check --all-targets`. Missing-restoration proof tests run both with and
+without a whole/subtree clone, preserving reconstruction-only coverage. The
+former whole-clone rejection fixture now runs as a native success case; invalid
+repeated moves and overlapping borrows remain rejection tests.
+The full library suite also passes (1,361 tests, seven ignored), together with
+all five native-example tests, including the new manifest entry returning 45.

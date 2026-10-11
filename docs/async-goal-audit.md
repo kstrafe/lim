@@ -13,15 +13,24 @@ Field-aware storage now supports partial moves and restoration of nested
 structs, stationary sibling borrows and explicit cancellation obligations.
 Owning clones preserve references for named/reused owners and computed
 temporaries, including checked field/tuple paths and runtime-indexed arrays.
+Whole-value clones of decomposed aggregates now snapshot their field cells
+without relocating live sibling referents, preserving ordinary clone-hook
+dispatch and actual reference origins.
 Cold/warm and independently compiled ordinary generated-code regressions cover
 these paths. See the later implementation and verification records in
 [Graph async production route](async-graph-production.md).
 
-The follow-up goal is still active. Whole aggregate borrows/clones cannot yet
+The follow-up goal is still active. Whole aggregate borrows cannot yet
 be taken over decomposed independent field cells, which are not a contiguous
 instance of the original type. Preserving pointer identity and real loan origins
 while supporting that access remains required; casting unrelated cells or
 weakening validation is not an acceptable substitute.
+
+Deep scalar borrows within independently stored aggregate leaves also remain
+open. Their checked projection must lower to a reference, rather than a value,
+without introducing a conflicting whole-cell loan. This is tracked separately
+as ASYNC-DEEP-FIELD-BORROW; supported sibling/whole-leaf borrows do not prove
+that deeper field, tuple and index paths are complete.
 
 Guarded/lending analysis has incremental measured improvements, not a completed
 performance audit. Provenance reuse, vacuous-query elimination, use indexing and
