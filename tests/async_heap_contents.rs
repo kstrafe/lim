@@ -138,26 +138,25 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
         )
         .replace(
             ": waker #u64 : function",
-            ": waker #u64 : cancel (work-cancel\n      ((work-task-start cancel-start)\n       (work-task-await-0 cancel-await-before-owner)\n       (work-task-await-1 cancel-await-after-owner)))\n    : function",
+            ": waker #u64 : cancel (work-cancel\n      ((owner destroy-counted)\n       (await-0 cancel-step)\n       (await-1 cancel-step)))\n    : function",
         );
+    let prefix = prefix
+        .replace("(#let owner (#pin-own Holder) (#call make (: pointer pointer : source source : counts counts)))",
+            "(#let owner CountedOwner (#call make-counted (: pointer pointer : source source : counts counts)))")
+        .replace("(#call get (: owner (#borrow owner)))", "(#call get-counted (: owner (#borrow owner)))")
+        .replace("(#call destroy (: owner owner : counts counts))", "(#call destroy-counted (: counted owner))");
     let source = format!(
         r#"{prefix}
-      (#fn cancel-start
-        ((task (#tuple (#ptr-mut Holder) (#ref #u64) (#ptr-mut #u64)))) ()
-        (#let (#tuple pointer source counts)
-          (#tuple (#ptr-mut Holder) (#ref #u64) (#ptr-mut #u64)) task)
-        (#forget pointer) (#forget source) (#forget counts) (#return ()))
-      (#fn cancel-await-before-owner
-        ((task (#tuple (#ptr-mut Holder) (#ref #u64) (#ptr-mut #u64) Step))) ()
-        (#let (#tuple pointer source counts child)
-          (#tuple (#ptr-mut Holder) (#ref #u64) (#ptr-mut #u64) Step) task)
-        (#forget pointer) (#forget source) (#forget counts) (#forget child) (#return ()))
-      (#fn cancel-await-after-owner
-        ((task (#tuple (#ptr-mut #u64) (#pin-own Holder) Step))) ()
-        (#let (#tuple counts owner child)
-          (#tuple (#ptr-mut #u64) (#pin-own Holder) Step) task)
-        (#call destroy (: owner owner : counts counts))
-        (#forget child) (#return ()))
+      (#struct CountedOwner (: owner (#pin-own Holder) : counts (#ptr-mut #u64)))
+      (#fn make-counted (: pointer (#ptr-mut Holder) : source (#ref #u64) : counts (#ptr-mut #u64)) CountedOwner
+        (#return (#struct-literal CountedOwner
+          (: owner (#call make (: pointer pointer : source source : counts counts)) : counts counts))))
+      (#fn get-counted (: owner (#ref CountedOwner)) (#ref #u64)
+        (#return (#call get (: owner (#borrow (#get owner owner))))))
+      (#fn destroy-counted (: counted CountedOwner) ()
+        (#let (CountedOwner owner counts) CountedOwner counted)
+        (#call destroy (: owner owner : counts counts)) (#return ()))
+      (#fn cancel-step (: child Step) () (#forget child) (#return ()))
       (#fn main () #u64
         (#let-mut source #u64 42u64)
         (#let counts (#ptr-mut #u64) (#unsafe (#linux-syscall (#ptr-mut #u64) 9usize
@@ -170,7 +169,7 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
         (#let-else (work-pending pending-before-owner) Work-poll-result first (#unreachable))
         (#assert (#u64.== (#unsafe (#ptr-read counts)) 0u64))
         (#assert (#u64.== (#unsafe (#ptr-read (#ptr-offset counts 1usize))) 0u64))
-        (#call work-cancel (: task pending-before-owner))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task pending-before-owner))))
 
         (#let frame-after-owner Work-task
           (#call work (: pointer pointer : source (#borrow source) : counts counts)))
@@ -189,7 +188,7 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
         (#let-else (work-pending pending-owner-again) Work-poll-result repeated (#unreachable))
         (#assert (#u64.== (#unsafe (#ptr-read counts)) 1u64))
         (#assert (#u64.== (#unsafe (#ptr-read (#ptr-offset counts 1usize))) 0u64))
-        (#call work-cancel (: task pending-owner-again))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task pending-owner-again))))
         (#assert (#u64.== (#unsafe (#ptr-read counts)) 1u64))
         (#assert (#u64.== (#unsafe (#ptr-read (#ptr-offset counts 1usize))) 1u64))
         (#set source 99u64)
@@ -215,8 +214,8 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
     assert!(stdout.is_empty() && stderr.is_empty());
 
     let pending_mutation = source.replace(
-        "        (#call work-cancel (: task pending-owner-again))",
-        "        (#set source 99u64)\n        (#call work-cancel (: task pending-owner-again))",
+        "        (#call work-cancel (: task (#call work-poll-cleanup (: task pending-owner-again))))",
+        "        (#set source 99u64)\n        (#call work-cancel (: task (#call work-poll-cleanup (: task pending-owner-again))))",
     );
     assert_ne!(
         pending_mutation, source,

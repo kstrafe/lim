@@ -662,10 +662,10 @@ fn preserves_failure_pattern_after_async_suspension() {
                   (#return (#call Output-err (: error error)))))
               (#return (#call Output-ok (: value (#u64.== number 42u64)))))))
           (#fn main () #u64 (#let waker #u64 0u64)
-            (#let first convert-poll-result (#call convert-poll (: task (#call convert (: value {constructor}))
+            (#let first Convert-poll-result (#call convert-poll (: task (#call convert (: value {constructor}))
               : waker (#borrow waker))))
-            (#let-else (convert-pending waiting) convert-poll-result first (#unreachable))
-            (#let second convert-poll-result (#call convert-poll (: task waiting : waker (#borrow waker))))
+            (#let-else (convert-pending waiting) Convert-poll-result first (#unreachable))
+            (#let second Convert-poll-result (#call convert-poll (: task waiting : waker (#borrow waker))))
             (#return (#match second
               (#case (convert-pending task) (#block (#forget task) 0u64))
               (#case (convert-ready result) (#match result

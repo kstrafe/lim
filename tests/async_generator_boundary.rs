@@ -324,6 +324,27 @@ fn mutable_self_reference_artifact_uses_ordinary_loan_identities_and_local_pins(
         .replace("    (#return (#u64.+.wrap (#deref view) result))",
             "    (#unsafe (#pin-write view 41u64))\n    (#return (#u64.+.wrap (#deref view) result))")
         .replace("(#pin-borrow-mut frame)", "(#pin frame)");
+    // Changing the reference kind must not silently make its owner mutable.
+    // Validate the original source before asking for ordinary generated code.
+    let rejected = support::Scratch::new("async-generator-immutable-pin");
+    let error = lim::compile_source_to_assembly(
+        &source,
+        &rejected.path().join("input.lim"),
+        &lim::CompileConfig::default(),
+        &rejected.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .expect_err("exclusive self-reference requires an explicitly mutable owner");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    assert!(error.message.contains("immutable reference"), "{error:?}");
+    let span = error
+        .span
+        .expect("immutable pinned projection has a source span");
+    assert!(
+        source[span.start..span.end].contains("#pin-borrow-mut"),
+        "{error:?}"
+    );
+    let source = source.replace("(#let owner LocalOwner", "(#let-mut owner LocalOwner");
     let (scratch, standalone) = generated_standalone(
         &source,
         "(@#async-fn-pinned",
