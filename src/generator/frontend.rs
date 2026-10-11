@@ -450,6 +450,28 @@ enum AsyncRoute {
 
 const DEFAULT_ASYNC_ROUTE: AsyncRoute = AsyncRoute::Legacy;
 
+fn validate_syntax_bundle_declarations(
+    items: &[Item],
+    declaration_spans: &HashMap<String, Span>,
+    bundles: &syntax_bundle::Bundles,
+    source_files: &[SourceFile],
+) -> Result<(), SourceError> {
+    for item in items {
+        for name in item_declared_names(item) {
+            if let Some(definition) = bundles.definitions.get(&name) {
+                return Err(SourceError::new(
+                    format!("declaration '{name}' conflicts with a syntax bundle"),
+                    DiagnosticCode::Parse,
+                )
+                .at(*declaration_spans.get(&name).unwrap_or(&definition.span))
+                .with_label(definition.span, "syntax bundle defined here")
+                .attach(source_files));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn graph_generated_program(
     prepared: &PreparedProgramSyntax,
     cache_directory: Option<&Path>,
@@ -554,6 +576,12 @@ fn graph_generated_owned_program(
     }
     let mut program =
         typecheck::OwnedProgram::new(super::async_emit::program(&planning, &generated)?);
+    validate_syntax_bundle_declarations(
+        &program.program().items,
+        &program.program().declaration_spans,
+        &prepared.bundles,
+        &program.program().source_files,
+    )?;
     // Planning is not an ownership proof. Validate both the original witnesses
     // and the emitted ordinary code before accepting or publishing graph output.
     let summaries = cache_directory
@@ -1319,19 +1347,12 @@ pub(crate) fn parse_prepared_program_items(
             items.push(item);
         }
     }
-    for item in &items {
-        for name in item_declared_names(item) {
-            if let Some(definition) = prepared.bundles.definitions.get(&name) {
-                return Err(SourceError::new(
-                    format!("declaration '{name}' conflicts with a syntax bundle"),
-                    DiagnosticCode::Parse,
-                )
-                .at(*declaration_spans.get(&name).unwrap_or(&definition.span))
-                .with_label(definition.span, "syntax bundle defined here")
-                .attach(&source_files));
-            }
-        }
-    }
+    validate_syntax_bundle_declarations(
+        &items,
+        &declaration_spans,
+        &prepared.bundles,
+        &source_files,
+    )?;
     rename_shadowed_locals(
         &mut items,
         &statement_spans,
@@ -1856,6 +1877,62 @@ mod async_migration_tests {
         let prepared = syntax(&text, Some(&scratch.0));
         assert!(expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).is_err());
         assert!(!generator::generated_source_directory(&scratch.0).exists());
+    }
+
+    #[test]
+    fn graph_frame_protocol_collisions_reject_fresh_and_cached_output() {
+        let scratch = Scratch::new();
+        let text = source("(#return seed)").replace(": protocol WorkAwait", ": protocol Work-task");
+        let prepared = syntax(&text, Some(&scratch.0));
+        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("declaration 'Work-task' conflicts with a syntax bundle"));
+        assert!(error.diagnostic().span.is_some());
+        assert!(!generator::generated_source_directory(&scratch.0).exists());
+
+        // Model an artifact accepted by the former graph path: its syntax,
+        // key and digest are valid, but its public frame shadows the protocol.
+        let mut planning = super::super::async_prepare::prepare(&prepared).unwrap();
+        planning.public_cleanup = true;
+        let invocation = prepared
+            .expressions
+            .iter()
+            .find(|node| is_async_invocation(node))
+            .unwrap();
+        let key = graph_source_key(&graph_source_key_context(&prepared), invocation).unwrap();
+        let origin = vec![graph_source_origin(&prepared, invocation.span)];
+        let mut output =
+            super::super::async_emit::generate_function(&planning, &planning.functions[0]).unwrap();
+        let normalized = normalize_builtin_generator_invocation(&invocation.expr).unwrap();
+        output.source.push_str(&format!(
+            "\n{}\n",
+            expression_source(
+                &super::super::async_interfaces::protocol_declaration(&normalized).unwrap(),
+            )
+            .unwrap()
+        ));
+        generator::cached_generated_source_with_origins(&scratch.0, &key, &origin, || {
+            Ok(output.source.clone())
+        })
+        .unwrap();
+        let artifact = fs::read_dir(generator::generated_source_directory(&scratch.0))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        let before = fs::read_to_string(&artifact).unwrap();
+        let emissions = super::super::async_emit::EMISSION_COUNT.with(|count| count.get());
+        let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("declaration 'Work-task' conflicts with a syntax bundle"));
+        assert_eq!(
+            super::super::async_emit::EMISSION_COUNT.with(|count| count.get()),
+            emissions
+        );
+        assert_eq!(fs::read_to_string(&artifact).unwrap(), before);
     }
 
     #[test]

@@ -1306,3 +1306,31 @@ graph-default audit passed 215 and failed 14 in 39.53 seconds, compared with
 failures include obsolete unsupported-nested-await expectations, ordinary
 source diagnostic differences and still-unmigrated helper-interface tests;
 they are not evidence that the full safety/default-removal goal is complete.
+
+## Source contracts and protocol/frame collision parity
+
+The nested-await regression now runs the valid nested protocol-typed program
+on graph and checks that an incompatible explicit result type identifies the
+later `#u32`, rather than requiring legacy's unsupported-nesting error.
+Loop body and step contract diagnostics likewise retain the exact offending
+type span. A binding expecting `#u32` from a `#u64` child is checked by the
+ordinary source checker at the full original await expression, rather than a
+legacy-only keyword error. Protocol declaration errors use the complete graph
+compilation pipeline, not an assumption about which phase rejects them.
+
+That migration exposed a real missing check: graph accepted `Work-task` as
+both the protocol bundle and generated public frame type. Graph and ordinary
+expansion now share the declaration-versus-syntax-bundle validator. It runs
+on the emitted program before semantic validation or fresh cache publication,
+including when output came from cache. The new regression rejects fresh
+output without creating a generated cache directory, then seeds a correctly
+keyed/digested artifact accepted by the former path and verifies rejection
+without regeneration or changing its contents.
+
+Verification passed 1,355 library tests (three manual benchmarks ignored),
+the focused fresh/cache collision test, and all 229 async integration tests
+in 29.40 seconds. A fresh temporary graph-default audit passed 219 and failed
+10 in 38.27 seconds, versus 215/14 before this change. Legacy was restored
+after the audit and the ordinary compiler rebuilt. The remaining interface,
+diagnostic and unsupported-legacy expectations still need migration before
+the default switch and legacy removal.

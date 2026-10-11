@@ -273,7 +273,6 @@ fn async_protocols_cross_internal_and_external_imports() {
 
 #[test]
 fn async_protocols_keep_unknown_name_and_result_mismatch_spans() {
-    let scratch = support::Scratch::new("async-protocol-errors");
     for (source, message, offending) in [
         (
             "(@#async-fn (: protocol WorkAwait : waker #u64 : function
@@ -288,18 +287,11 @@ fn async_protocols_keep_unknown_name_and_result_mismatch_spans() {
             (#fn parent () #u64
               (#let value #u32 (#await ChildAwait (#call child (:))))
               (#return (#as value #u64)))))",
-            "result type does not match",
-            "#await",
+            "let 'value' has type U64, expected U32",
+            "(#await ChildAwait (#call child (:)))",
         ),
     ] {
-        let error = lim::compile_source_to_assembly(
-            source,
-            &scratch.path().join("main.lim"),
-            &lim::CompileConfig::default(),
-            &scratch.path().join("cache"),
-            lim::TargetDescription::X86_64_SYSTEM_V,
-        )
-        .unwrap_err();
+        let error = graph_compile_error(source, "async-protocol-errors");
         assert!(error.message.contains(message), "{error:?}");
         let span = error.span.expect("protocol errors retain a source span");
         assert_eq!(&source[span.start..span.end], offending, "{error:?}");
@@ -324,8 +316,9 @@ fn async_protocols_reject_invalid_declarations_and_name_collisions() {
         ("(@#async-fn (: protocol Work-task : waker #u64 : function (#fn work () #u64 (#return 42u64))))",
             "conflicts with a syntax bundle"),
     ] {
-        let error = lim::parse_program(source).unwrap_err();
-        assert!(error.contains(message), "{error}");
+        let error = graph_compile_error(source, "async-protocol-declaration-conflicts");
+        assert!(error.message.contains(message), "{error:?}");
+        assert!(error.span.is_some(), "protocol conflicts need a source span: {error:?}");
     }
 }
 
@@ -773,7 +766,7 @@ fn graph_compile_error(source: &str, label: &str) -> lim::Diagnostic {
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
     .err()
-    .expect("the checked graph source must be rejected")
+    .unwrap_or_else(|| panic!("the checked graph source must be rejected:\n{source}"))
 }
 
 fn build_and_run_route(source: &str, expected: i32, graph: bool) -> String {
@@ -1170,7 +1163,7 @@ fn async_function_early_return_from_synchronous_loop_produces_ready() {
 }
 
 #[test]
-fn async_lowering_errors_highlight_the_later_nested_await() {
+fn async_nested_awaits_use_protocol_types_and_highlight_the_later_mismatch() {
     let source = "(#enum Step ((Waiting #u64)))
       (#linear Step)
       (#enum StepPoll ((StepPending Step) (StepReady #u64)))
@@ -1184,29 +1177,34 @@ fn async_lowering_errors_highlight_the_later_nested_await() {
             (#await Step StepPending StepReady step-poll
               (Waiting (#await Step StepPending StepReady step-poll (Waiting 2u64)))))
           (#return second))))";
-    let scratch = support::Scratch::new("async-await-span");
-    let input = scratch.path().join("source.lim");
-    let diagnostic = lim::compile_source_to_assembly(
-        source,
-        &input,
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
+    let runnable = format!(
+        "{source}
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#return (#match
+          (#call work-poll (: task (#call work (:)) : waker (#borrow waker)))
+          (#case (work-ready result) result)
+          (#case (work-pending pending) (#block (#forget pending) (#unreachable))))))"
+    );
+    let generated = build_and_run_graph(&runnable, 2);
+    assert_single_poll(&generated, "work-poll");
+    let invalid = source.replace("(Waiting (#await Step", "(Waiting (#await #u32 Step");
+    assert_ne!(invalid, source);
+    let diagnostic = graph_compile_error(&invalid, "async-nested-await-contract-span");
+    assert_eq!(diagnostic.code, lim::DiagnosticCode::Type, "{diagnostic:?}");
     assert!(
         diagnostic
             .message
-            .contains("nested #await requires an explicit result type"),
+            .contains("#await result type does not match its Ready payload"),
         "{diagnostic:?}"
     );
     let span = diagnostic
         .span
         .expect("nested await error has a source span");
-    let await_tokens = source.match_indices("#await").collect::<Vec<_>>();
+    let await_tokens = invalid.match_indices("#await").collect::<Vec<_>>();
     assert_eq!(await_tokens.len(), 3);
-    assert_eq!(span.start, await_tokens[2].0);
-    assert_eq!(&source[span.start..span.end], "#await");
+    assert_eq!(span.start, await_tokens[2].0 + "#await ".len());
+    assert_eq!(&invalid[span.start..span.end], "#u32");
 }
 
 #[test]
@@ -5343,7 +5341,9 @@ fn async_while_condition_keeps_global_names_out_of_frame_captures() {
         error.message.contains("unknown variable or enum variant"),
         "{error:?}"
     );
-    let span = error.span.expect("unresolved names must retain their source span");
+    let span = error
+        .span
+        .expect("unresolved names must retain their source span");
     assert_eq!(&invalid_source[span.start..span.end], "missing_global");
 }
 
@@ -11517,21 +11517,12 @@ fn explicit_await_contracts_are_checked_before_loop_lowering() {
         "(#set iteration (#u64.+.wrap iteration 1u64))",
         "(#set iteration (#await #u32 Step StepPending StepReady step-poll (Start (#u64.+.wrap iteration 1u64))))",
     );
-    let scratch = support::Scratch::new("async-explicit-result-contracts");
-    let result = lim::compile_source_to_assembly(
-        &invalid,
-        &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    );
+    let error = graph_compile_error(&invalid, "async-explicit-result-contracts");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
     assert!(
-        result.is_err(),
-        "lowering must not erase a contradictory explicit await result type"
-    );
-    let error = result.unwrap_err();
-    assert!(
-        error.message.contains("result type") && error.message.contains("iteration"),
+        error
+            .message
+            .contains("#await result type does not match its Ready payload"),
         "{error:?}"
     );
     let span = error
@@ -11539,10 +11530,10 @@ fn explicit_await_contracts_are_checked_before_loop_lowering() {
         .expect("an explicit await contract error has its own source span");
     assert_eq!(
         span.start,
-        invalid.find("#await #u32").unwrap(),
+        invalid.find("#await #u32").unwrap() + "#await ".len(),
         "{error:?}"
     );
-    assert_eq!(&invalid[span.start..span.end], "#await", "{error:?}");
+    assert_eq!(&invalid[span.start..span.end], "#u32", "{error:?}");
     let with_condition = format!("(#struct TestTask ((decision #bool)))
       (#enum TestPoll ((TestPending TestTask) (TestReady #bool)))
       (#fn test-poll ((task TestTask) (waker (#ref #u64))) TestPoll
@@ -11551,30 +11542,26 @@ fn explicit_await_contracts_are_checked_before_loop_lowering() {
         "(#await #bool TestTask TestPending TestReady test-poll (#struct-literal TestTask (: decision (#u64.< iteration limit))))"));
     let body_error =
         with_condition.replace("(#await Step StepPending", "(#await #u32 Step StepPending");
-    let error = lim::compile_source_to_assembly(
-        &body_error,
-        &scratch.path().join("body.lim"),
-        &lim::CompileConfig::default(),
-        &scratch.path().join("body-cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .unwrap_err();
+    let error = graph_compile_error(&body_error, "async-explicit-body-result-contracts");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
     assert!(
-        error.message.contains("result type") && error.message.contains("value"),
+        error
+            .message
+            .contains("#await result type does not match its Ready payload"),
         "{error:?}"
     );
     let span = error.span.unwrap();
     assert_eq!(
         span.start,
-        body_error.find("#await #u32").unwrap(),
+        body_error.find("#await #u32").unwrap() + "#await ".len(),
         "{error:?}"
     );
-    assert_eq!(&body_error[span.start..span.end], "#await");
+    assert_eq!(&body_error[span.start..span.end], "#u32");
     let aliased = format!("(#type Index #u64)\n{}", source
         .replace("(z (#tuple #u64 #u64))", "(z (#tuple Index #u64))")
         .replace("(#set iteration (#u64.+.wrap iteration 1u64))", "(#set iteration (#await #u64 Step StepPending StepReady step-poll (Start (#u64.+.wrap iteration 1u64))))")
         .replace("0u64 4u64", "0u64 8u64"));
-    build_and_run(&aliased, 42);
+    build_and_run_graph(&aliased, 42);
 }
 
 #[test]
