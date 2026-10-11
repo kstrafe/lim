@@ -52,7 +52,13 @@ initializes the owner before installing its shared internal reference.
 
 ## Original-source async control flow
 
-`async_cfg.rs` builds a graph before nested-task rewriting. Nodes borrow exact
+`async_cfg.rs` is now a test-only source-contract oracle. The following records
+its role during migration; production lowers checked bodies with `async_exec.rs`
+and emits frames with `async_emit.rs`, not the deleted legacy rewriter. See
+[the production async notes](async-graph-production.md) for current storage
+support and remaining limitations.
+
+The oracle builds a graph before nested-task rewriting. Nodes borrow exact
 `SpannedExpr` source children rather than cloning or reparsing function bodies.
 Local bindings have graph-local IDs and declaration contracts; pattern types
 come from explicit tuple/array/struct/enum layouts. Unknown contracts remain
@@ -77,10 +83,11 @@ tracks bindings and computed operand temporaries separately. In-scope storage
 candidates at suspension also retain unread locals: data-use liveness is not
 permission to discard a linear value on cancellation.
 
-This graph does **not yet emit frames** or calculate suspended ownership/loan
-state. The legacy lowering still emits inspectable ordinary Lim declarations;
-the normal typed checkers validate those generated functions. General graph
-emission and delayed initialization of stable frame-owned storage remain open.
+This test-only graph does not emit frames or calculate suspended ownership/loan
+state. During migration, legacy lowering supplied those declarations. Today
+the production graph emitter owns frame, poll and cancellation emission,
+including delayed initialization of stationary owners. Normal typed checkers
+validate the generated ordinary Lim functions.
 
 ### Suspension storage facts
 
@@ -153,7 +160,8 @@ lifetime from its pointee's address. Source models can query these facts only
 after ordinary validation. They cannot authorize whole-value loads of
 Conditional storage, duplicate transferred children, or move stationary owners.
 General source-graph identity mapping, executable frame/poll/cancel emission,
-and Empty/Full initialization of late pinned owners remain open.
+and Empty/Full initialization of late pinned owners were open at this storage
+planning milestone; the production graph implementation now supplies them.
 
 Ordinary value-loop checking records break payload types separately from the
 Never type of a control transfer. Statement-loop bodies introduce an inner
@@ -166,8 +174,8 @@ cannot replace them with unrelated return tails.
 
 ### Pre-layout interfaces and executable planning
 
-The generator's `async_prepare.rs` builds a planning context without asking the
-legacy async rewriter to accept a particular body shape. Imports, cfg selection, user
+The generator's `async_prepare.rs` builds a planning context directly from the
+original body; there is no legacy async rewriter. Imports, cfg selection, user
 generators and non-async builtin declarations are expanded first.
 `async_interfaces.rs` then reserves async names and supplies explicit start,
 poll and cancellation signatures. Frame layouts remain deferred: there are no
@@ -208,12 +216,13 @@ Graph validation checks edge arity/types, checked-node correlation and definite
 operand/storage availability using a fixed point, not arena numbering. It does
 not prove initialized owner contents, moves, escapes or loan lifetimes. This is
 the input boundary for the general emitter, not a replacement for the mandatory
-original and generated ordinary ownership proofs. General frame/poll/cancel
-emission, suspended preview storage and late pinned-slot initialization remain
-open; the legacy emitter still handles executable compilation.
+original and generated ordinary ownership proofs. `async_emit.rs` consumes this
+checked graph for executable frame/poll/cancel emission, suspended previews and
+late pinned-slot initialization. The legacy emitter has been deleted.
 An exclusive-reference handle captured for address formation must not become
-an implicit clone or move of its holder. The emitter still needs a nonowning
-address-snapshot/checked-ownership mode at that boundary.
+an implicit clone or move of its holder. Nonowning address snapshots preserve
+checked ownership at that boundary; retaining an address does not grant borrow
+permission or waive the stationary-storage requirement.
 
 ## Production ownership boundary
 
