@@ -11072,7 +11072,7 @@ fn graph_child_cancellation_retains_a_shared_slice_descriptor() {
       (#fn cancel-child (: task ChildTask) ()
         (#match task
           (#case (Start initial)
-            (#forget initial))
+            (#assert (#u64.== (#deref (#slice-idx (#deref initial) 0usize)) 42u64)))
           (#case (Resume final)
             (#assert (#u64.== (#deref (#slice-idx (#deref final) 0usize)) 42u64))))
         (#return ()))
@@ -11109,6 +11109,23 @@ fn graph_child_cancellation_retains_a_shared_slice_descriptor() {
                 .unwrap(),
         "the child's descriptor must not be cleared before its destructor"
     );
+    // Exercise the opposite retained constructor too. Both destructor arms
+    // read the descriptor; neither is rewritten into a dummy cleanup arm.
+    let retained_start = source
+        .replace(
+            "(ChildPending (Resume initial))",
+            "(ChildPending (Start initial))",
+        )
+        .replace(
+            "(#block (#forget final) (ChildReady ()))",
+            "(ChildPending (Start final))",
+        )
+        .replace(
+            "(Start (#borrow container))",
+            "(Resume (#borrow container))",
+        );
+    assert_ne!(retained_start, source);
+    build_and_run_graph(&retained_start, 42);
 }
 
 #[test]

@@ -323,13 +323,16 @@ and preserves nested referent provenance. Different bindings and arbitrary
 pointer expressions remain lifetime-only; no keyword or async-specific
 borrow permission was added.
 
-The descriptor regression still exposes an unfinished control-flow gate if
-its destructor reads the descriptor in both Start and Resume arms. When the
-poll can retain only Resume, call-contract mapping rejects the dormant Start
-read as an unresolved input rather than proving it inactive. This is a valid
-program needing nested stored-variant/retained-content correlation, not an
-expected source rejection. Resolve this before switching the default route;
-the working regression reads only the resumed arm.
+The descriptor destructor now reads through its borrowed header in both Start
+and Resume arms. Native regressions cover polls retaining either constructor.
+Call-result refinement preserves a guaranteed physical constructor write even
+when substitution of alternate incoming loan sources is incomplete. This
+proves the dormant arm inactive without pretending those missing loan sources
+were supplied. Reference-contents replacement stays conservative; tag certainty
+has a separate flag propagated through store summaries, joins, and thread
+capture mapping. A non-async unit regression verifies that split, and another
+checks that ambiguous destinations do not acquire strong tag facts. Semantic
+cache records include the new flag and use a versioned format boundary.
 
 Movable local-slice projections, mixed selections involving pinned-reference
 parameters, and effectful index windows remain unfinished. These are still

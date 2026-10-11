@@ -649,6 +649,9 @@ pub(crate) struct LoanStore {
     pub destination: LoanOrigin,
     pub incoming: Vec<LoanOrigin>,
     pub definitely_written: bool,
+    /// Physical constructor certainty only; this must not authorize replacing
+    /// stored loans when their incoming provenance is incomplete.
+    pub variants_definitely_written: bool,
     pub variants: HashMap<Vec<Segment>, VariantId>,
 }
 
@@ -1515,6 +1518,7 @@ impl FlowLoanOrigins {
                 destination,
                 incoming: incoming.clone(),
                 definitely_written,
+                variants_definitely_written: definitely_written,
                 variants: HashMap::new(),
             })
             .collect()
@@ -2970,7 +2974,8 @@ impl FlowGraph {
                                 for store in origins.stores_before(body, self, event) {
                                     let target = store.destination.referent_place();
                                     state.retain(|known, _| !target.overlaps(known));
-                                    if store.definitely_written && !has_dynamic_projection(&target)
+                                    if store.variants_definitely_written
+                                        && !has_dynamic_projection(&target)
                                     {
                                         let incoming = store
                                             .variants
@@ -4030,6 +4035,7 @@ impl FlowGraph {
                 destination: destination.clone(),
                 sources: Vec::new(),
                 definitely_written: false,
+                variants_definitely_written: false,
                 variants: HashMap::new(),
             })
             .collect::<Contents>();
@@ -4042,6 +4048,10 @@ impl FlowGraph {
                 changed |= count != held.variants.len();
                 if held.definitely_written && !incoming.definitely_written {
                     held.definitely_written = false;
+                    changed = true;
+                }
+                if held.variants_definitely_written && !incoming.variants_definitely_written {
+                    held.variants_definitely_written = false;
                     changed = true;
                 }
                 for source in &incoming.sources {
@@ -4082,8 +4092,9 @@ impl FlowGraph {
                                     .map(|path| (path.to_vec(), *variant))
                             })
                             .collect::<HashMap<_, _>>();
-                        if store.definitely_written {
+                        if store.variants_definitely_written {
                             held.variants = selected_variants;
+                            held.variants_definitely_written = true;
                         } else {
                             held.variants.retain(|path, variant| {
                                 selected_variants.get(path) == Some(variant)
@@ -4127,7 +4138,7 @@ impl FlowGraph {
                                 segments: path.clone(),
                             })
                         });
-                        if store.definitely_written {
+                        if store.variants_definitely_written {
                             for (path, variant) in &store.variants {
                                 let mut selected = relative.to_vec();
                                 selected.extend_from_slice(path);
@@ -11315,7 +11326,7 @@ fn apply_return_loan_summary(
 fn apply_store_variant_facts(state: &mut HashMap<Place, VariantId>, store: &LoanStore) {
     let destination = store.destination.referent_place();
     state.retain(|place, _| !destination.overlaps(place));
-    if !store.definitely_written || store.destination.lifetime_only {
+    if !store.variants_definitely_written || store.destination.lifetime_only {
         return;
     }
     for (path, variant) in &store.variants {
@@ -11375,16 +11386,19 @@ fn joined_call_variant_stores(
         if let Some(common) = &mut result {
             for held in common.iter_mut() {
                 let mut definitely_written = false;
+                let mut variants_definitely_written = false;
                 for incoming in &stores {
                     if incoming.destination.referent_place() == held.destination.referent_place() {
                         definitely_written |= incoming.definitely_written;
+                        variants_definitely_written |= incoming.variants_definitely_written;
                         merge_loan_origins(&mut held.incoming, &incoming.incoming);
                         held.variants
                             .retain(|path, variant| incoming.variants.get(path) == Some(variant));
                     }
                 }
                 held.definitely_written &= definitely_written;
-                if !held.definitely_written {
+                held.variants_definitely_written &= variants_definitely_written;
+                if !held.variants_definitely_written {
                     held.variants.clear();
                 }
             }
@@ -11393,6 +11407,7 @@ fn joined_call_variant_stores(
                     held.destination.referent_place() == incoming.destination.referent_place()
                 }) {
                     incoming.definitely_written = false;
+                    incoming.variants_definitely_written = false;
                     common.push(incoming);
                 }
             }
@@ -11644,13 +11659,18 @@ fn substitute_call_stores(
             .into_iter()
             .filter(|origin| origin.storage.is_empty())
             .collect::<Vec<_>>();
-        let definitely_written =
-            store.definitely_written && complete && one_concrete_store_destination(&destinations);
+        let concrete_destination = one_concrete_store_destination(&destinations);
+        let definitely_written = store.definitely_written && complete && concrete_destination;
+        // A checked unconditional constructor write does not depend on every
+        // alternate incoming loan source being present at this invocation.
+        // Keep loan replacement conservative, but preserve the actual tag.
+        let variants_definitely_written = store.variants_definitely_written && concrete_destination;
         for destination in destinations {
             result.push(LoanStore {
                 destination,
                 incoming: incoming.clone(),
                 definitely_written,
+                variants_definitely_written,
                 variants: store.variants.clone(),
             });
         }
@@ -15322,6 +15342,90 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn definite_constructor_tags_do_not_require_complete_loan_substitution() {
+        let program = crate::parse_program(
+            "(#enum Choice ((A (#ref #u64)) (B (#ref #u64))))
+             (#fn advance (: target (#ref-mut Choice)) ()
+               (#let replacement Choice (#match (#deref target)
+                 (#case (A initial) (B initial))
+                 (#case (B final) (B final))))
+               (#deref-set target replacement) (#return ()))
+             (#fn work (: source (#ref #u64)) ()
+               (#let-mut target Choice (A source))
+               (#call advance (: target (#borrow-mut target)))
+               (#forget target) (#return ()))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = &declarations.flows["work"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        let target = BindingId(
+            body.bindings
+                .iter()
+                .position(|binding| binding.name == "target")
+                .unwrap(),
+        );
+        let stores = (0..flow.nodes.len())
+            .flat_map(|event| origins.stores_before(body, flow, FlowNodeId(event)))
+            .filter(|store| store.destination.place.root == PlaceRoot::Local(target))
+            .collect::<Vec<_>>();
+        let store = stores
+            .iter()
+            .find(|store| {
+                store
+                    .variants
+                    .get(&Vec::new())
+                    .is_some_and(|variant| variant.index == 1)
+            })
+            .unwrap();
+        assert!(
+            !store.definitely_written,
+            "missing inactive input must not grant complete loan replacement"
+        );
+        assert!(store.variants_definitely_written);
+        let mut tags = HashMap::new();
+        apply_store_variant_facts(&mut tags, store);
+        assert_eq!(
+            tags[&Place::root(PlaceRoot::Local(target))],
+            store.variants[&Vec::new()]
+        );
+    }
+
+    #[test]
+    fn definite_constructor_tags_require_a_single_actual_destination() {
+        let program = crate::parse_program(
+            "(#enum Choice ((A (#ref #u64)) (B (#ref #u64))))
+             (#fn advance (: target (#ref-mut Choice)) ()
+               (#let replacement Choice (#match (#deref target)
+                 (#case (A initial) (B initial))
+                 (#case (B final) (B final))))
+               (#deref-set target replacement) (#return ()))
+             (#fn work (: source (#ref #u64) : choose #bool) ()
+               (#let-mut left Choice (A source)) (#let-mut right Choice (A source))
+               (#let selected (#ref-mut Choice) (#if choose (#borrow-mut left) (#borrow-mut right)))
+               (#call advance (: target selected))
+               (#forget selected) (#forget left) (#forget right) (#return ()))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = &declarations.flows["work"];
+        let origins = flow.staged_parameter_store_loan_origins(body);
+        let stores = (0..flow.nodes.len())
+            .flat_map(|event| origins.stores_before(body, flow, FlowNodeId(event)))
+            .collect::<Vec<_>>();
+        assert_eq!(stores.len(), 2, "the call can select either owner");
+        for store in &stores {
+            assert!(!store.definitely_written);
+            assert!(!store.variants_definitely_written);
+            let mut tags = HashMap::new();
+            apply_store_variant_facts(&mut tags, store);
+            assert!(tags.is_empty(), "a may-write must not refine either object");
+        }
+    }
 
     #[test]
     fn incoming_loan_paths_preserve_coexistence_and_stop_at_effects() {
