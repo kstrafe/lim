@@ -6945,6 +6945,189 @@ fn async_rebuilds_nested_partially_moved_structs() {
 }
 
 #[test]
+fn async_clones_indexed_computed_reference_owners() {
+    let source = r#"
+      (#struct Holder (: reference (#ref #u64) : offset #u64))
+      (#linear Holder)
+      (#fn make-array (: owner (#ref #u64)) (#array Holder 2)
+        (#return (#array-of (#array Holder 2)
+          (#struct-literal Holder (: reference owner : offset 0u64))
+          (#struct-literal Holder (: reference owner : offset 1u64)))))
+      (#fn index-value (: calls (#ptr-mut #usize) : result #usize) #usize
+        (#unsafe (#ptr-write calls (#usize.+.wrap (#ptr-read calls) 1usize)))
+        (#return result))
+      (#enum Step (Start Resume))
+      (#linear Step)
+      (#enum StepPoll ((Pending Step) (Ready ())))
+      (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+        (#return (#match task
+          (#case Start (Pending Resume)) (#case Resume (Ready ())))))
+      (@#async-fn (: protocol WorkAwait : waker #u64 : function
+        (#fn work (: owner (#ref #u64) : index #usize : calls (#ptr-mut #usize)) #u64
+          (#let holder Holder (#clone (#index (#call make-array (: owner owner))
+            (#call index-value (: calls calls : result index)))))
+          (#let ready () (#await () Step Pending Ready step-poll Start))
+          (#let result #u64 (#u64.+.wrap
+            (#deref (#get holder reference)) (#get holder offset)))
+          (#forget holder) (#return result))))
+      (#fn main () #u64
+        (#let-mut owner #u64 42u64) (#let-mut index #usize 1usize)
+        (#let-mut calls #usize 0usize) (#let waker #u64 0u64)
+        (#let first Work-poll-result (#call work-poll
+          (: task (#call work (: owner (#borrow owner) : index index
+            : calls (#unsafe (#addr-of-mut calls)))) : waker (#borrow waker))))
+        (#assert (#usize.== calls 1usize))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#set index 0usize)
+        (#let second Work-poll-result (#call work-poll
+          (: task pending : waker (#borrow waker))))
+        (#assert (#usize.== calls 1usize))
+        (#return (#match second
+          (#case (work-ready result) result)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#;
+    build_and_run_partial_storage(source, 43);
+    let pinned = format!(
+        "{} (#fn main () #u64
+          (#let owner #u64 42u64) (#let-mut calls #usize 0usize)
+          (#let waker #u64 0u64)
+          (#let-mut frame Work-frame (#call work
+            (: owner (#borrow owner) : index 1usize
+              : calls (#unsafe (#addr-of-mut calls)))))
+          (#let first Work-poll-result (#call work-poll
+            (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+          (#assert (#usize.== calls 1usize))
+          (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+          (#let second Work-poll-result (#call work-poll
+            (: task pending : waker (#borrow waker))))
+          (#assert (#usize.== calls 1usize))
+          (#let result #u64 (#match second
+            (#case (work-ready ready) ready)
+            (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+          (#forget frame) (#return result))",
+        source
+            .split_once("(#fn main")
+            .unwrap()
+            .0
+            .replace("@#async-fn", "@#async-fn-pinned")
+    );
+    build_and_run_partial_storage(&pinned, 43);
+    let index_await = source
+        .replace(
+            "(@#async-fn",
+            "(#enum IndexTask ((IndexStart #usize) (IndexResume #usize)))
+             (#linear IndexTask)
+             (#enum IndexPoll ((IndexPending IndexTask) (IndexReady #usize)))
+             (#fn index-poll (: task IndexTask : waker (#ref #u64)) IndexPoll
+               (#return (#match task
+                 (#case (IndexStart start) (IndexPending (IndexResume start)))
+                 (#case (IndexResume resumed) (IndexReady resumed)))))
+             (@#async-fn",
+        )
+        .replace(
+            "(#call index-value (: calls calls : result index))",
+            "(#await #usize IndexTask IndexPending IndexReady index-poll
+              (IndexStart (#call index-value (: calls calls : result index))))",
+        )
+        .replace(
+            "(#return (#match second",
+            "(#let-else (work-pending again) Work-poll-result second (#unreachable))
+             (#let third Work-poll-result (#call work-poll
+               (: task again : waker (#borrow waker))))
+             (#assert (#usize.== calls 1usize))
+             (#return (#match third",
+        );
+    assert!(index_await.contains("(#await #usize IndexTask"));
+    build_and_run_partial_storage(&index_await, 43);
+    let old_factory = format!(
+        "(#fn make-array{}",
+        source
+            .split_once("(#fn make-array")
+            .unwrap()
+            .1
+            .split_once("(#fn index-value")
+            .unwrap()
+            .0
+    );
+    let matrix = index_await
+        .replace(&old_factory,
+            "(#fn make-array (: owner (#ref #u64)) (#array (#array Holder 2) 2)
+               (#return (#array-of (#array (#array Holder 2) 2)
+                 (#array-of (#array Holder 2)
+                   (#struct-literal Holder (: reference owner : offset 0u64))
+                   (#struct-literal Holder (: reference owner : offset 1u64)))
+                 (#array-of (#array Holder 2)
+                   (#struct-literal Holder (: reference owner : offset 2u64))
+                   (#struct-literal Holder (: reference owner : offset 3u64))))))\n")
+        .replace("(#call make-array (: owner owner))",
+            "(#index (#call make-array (: owner owner)) (#call index-value (: calls calls : result index)))")
+        .replace("(IndexStart (#call index-value (: calls calls : result index)))",
+            "(IndexStart (#call index-value (: calls calls : result 0usize)))")
+        .replace("(#usize.== calls 1usize)", "(#usize.== calls 2usize)");
+    assert!(matrix.contains("(#array (#array Holder 2) 2)"));
+    build_and_run_partial_storage(&matrix, 44);
+    let invalid_outer = matrix
+        .replace(
+            "(#let-mut index #usize 1usize)",
+            "(#let-mut index #usize 2usize)",
+        )
+        .replace(
+            "(#return result))\n      (#enum Step",
+            "(#if (#unsafe (#usize.== (#ptr-read calls) 2usize))
+               (#block (#unsafe (#linux-syscall () 60u64 (87u64))) (#unreachable)) ())
+             (#return result))\n      (#enum Step",
+        );
+    assert!(invalid_outer.contains("(#linux-syscall () 60u64 (87u64))"));
+    // If the first bounds check is deferred until after the second index
+    // starts, the second callback exits 87 instead of trapping with SIGILL.
+    build_and_run_route_status(&invalid_outer, None, true);
+    let returned = source
+        .replace(
+            "(#fn work (: owner (#ref #u64) : index #usize : calls (#ptr-mut #usize)) #u64",
+            "(#fn work (: owner (#ref #u64) : index #usize : calls (#ptr-mut #usize)) Holder",
+        )
+        .replace(
+            "(#let result #u64 (#u64.+.wrap\n            (#deref (#get holder reference)) (#get holder offset)))\n          (#forget holder) (#return result)",
+            "(#return holder)",
+        )
+        .replace(
+            "(#case (work-ready result) result)",
+            "(#case (work-ready result) (#block
+              (#let data #u64 (#u64.+.wrap
+                (#deref (#get result reference)) (#get result offset)))
+              (#forget result) data))",
+        );
+    assert!(returned.contains("(#return holder)"));
+    build_and_run_partial_storage(&returned, 43);
+    let returned_invalid = returned.replace(
+        "(#return (#match second",
+        "(#set owner 99u64) (#return (#match second",
+    );
+    let error = graph_compile_error(&returned_invalid, "returned-index-clone-retains-owner");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let write = returned_invalid.find("(#set owner 99u64)").unwrap();
+    let span = error
+        .span
+        .expect("returned array clone keeps its source span");
+    assert!(
+        span.start >= write && span.end <= write + "(#set owner 99u64)".len(),
+        "{error:?}"
+    );
+    let invalid = index_await.replace(
+        "(#set index 0usize)",
+        "(#set owner 99u64) (#set index 0usize)",
+    );
+    let error = graph_compile_error(&invalid, "computed-index-clone-retains-owner");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let write = invalid.find("(#set owner 99u64)").unwrap();
+    let span = error.span.expect("array owner loan keeps its source span");
+    assert!(
+        span.start >= write && span.end <= write + "(#set owner 99u64)".len(),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn async_clones_computed_reference_bearing_owners() {
     let source = r#"
       (#struct Holder (: reference (#ref #u64)))

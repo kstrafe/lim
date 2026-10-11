@@ -452,24 +452,22 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let descriptor = &function.graph.places[index];
-            if !emitter.pinned {
-                if let Some(indices) = emitter.owned_array_indices(descriptor) {
-                    let recipe = indices
-                        .into_iter()
-                        .map(|(projection, value, bound)| {
-                            let slot = emitter
-                                .add_slot(format!("index.{index}.{projection}"), Type::Usize);
-                            OwnedIndex {
-                                projection,
-                                value,
-                                bound,
-                                slot,
-                            }
-                        })
-                        .collect();
-                    emitter.owned_indices.insert(place, recipe);
-                    continue;
-                }
+            if let Some(indices) = emitter.owned_array_indices(descriptor) {
+                let recipe = indices
+                    .into_iter()
+                    .map(|(projection, value, bound)| {
+                        let slot =
+                            emitter.add_slot(format!("index.{index}.{projection}"), Type::Usize);
+                        OwnedIndex {
+                            projection,
+                            value,
+                            bound,
+                            slot,
+                        }
+                    })
+                    .collect();
+                emitter.owned_indices.insert(place, recipe);
+                continue;
             }
             let selection_error = |message: &str| Error {
                 message: message.into(),
@@ -2360,16 +2358,17 @@ impl<'a> Emitter<'a> {
         literal(self.body, self.function.graph.values.get(index.0)?.source?)
     }
 
-    /// Fixed-layout, owned paths with reference-free leaves can be relocated
-    /// using numeric indices. This certifies an address, not permission to
-    /// copy its contents: owned_projection_place separately admits Copy loads
-    /// and stores. Borrows can therefore address linear aggregate elements.
+    /// Fixed-layout owned paths can retain numeric index snapshots instead of
+    /// addresses. Local reads/stores still require reference-free leaves here;
+    /// computed clones use typed shared helpers to retain actual loan origins.
+    /// This certifies selection, not permission to copy or move its contents.
     /// Handles and variant tags still require selected capabilities.
     fn owned_array_indices(
         &self,
         descriptor: &PlaceDescriptor,
     ) -> Option<Vec<(usize, ValueId, usize)>> {
-        if self.pinned
+        let computed = self.computed_owned_projection(descriptor);
+        if (self.pinned && !computed)
             || !descriptor
                 .projections
                 .iter()
@@ -2377,12 +2376,14 @@ impl<'a> Emitter<'a> {
         {
             return None;
         }
-        let AddressRoot::Local(binding) = descriptor.root else {
-            return None;
-        };
         let resolve =
             |ty: &Type| crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases).ok();
-        let Some(mut ty) = resolve(&self.function.graph.bindings[binding.0].ty) else {
+        let root_ty = match descriptor.root {
+            AddressRoot::Local(binding) => &self.function.graph.bindings[binding.0].ty,
+            AddressRoot::Value(value) if computed => &self.function.graph.values[value.0].ty,
+            _ => return None,
+        };
+        let Some(mut ty) = resolve(root_ty) else {
             return None;
         };
         let mut indices = Vec::new();
@@ -2421,7 +2422,7 @@ impl<'a> Emitter<'a> {
             };
             ty = next;
         }
-        if ty == descriptor.ty && !self.types.contains_reference(&ty) {
+        if ty == descriptor.ty && (computed || !self.types.contains_reference(&ty)) {
             Some(indices)
         } else {
             None
@@ -3331,7 +3332,9 @@ impl<'a> Emitter<'a> {
             && descriptor.projections.iter().all(|step| {
                 matches!(
                     step,
-                    AddressProjection::Field(_) | AddressProjection::Tuple(_)
+                    AddressProjection::Field(_)
+                        | AddressProjection::Tuple(_)
+                        | AddressProjection::Index(_)
                 )
             })
             && matches!(
@@ -3339,7 +3342,7 @@ impl<'a> Emitter<'a> {
                     &self.function.graph.values[value.0].ty,
                     &self.planning.declarations.aliases,
                 ),
-                Ok(Type::Named(_) | Type::Tuple(_))
+                Ok(Type::Named(_) | Type::Tuple(_) | Type::Array(_, _))
             )
             && self
                 .values
@@ -3365,7 +3368,41 @@ impl<'a> Emitter<'a> {
         let argument = self.fresh("clone-owner-input");
         let helper = self.fresh("clone-owner-projection");
         let mut projected = format!("(#deref {argument})");
-        for step in &descriptor.projections {
+        let mut signature = vec![format!("({argument} (#pin-ref {owner_ty}))")];
+        let mut indices = Vec::new();
+        for (position, step) in descriptor.projections.iter().enumerate() {
+            if let AddressProjection::Index(index) = step {
+                let Type::Array(element, _) = ty else {
+                    return Err(fail(
+                        self.function,
+                        "computed clone lost its checked array type",
+                    ));
+                };
+                let parameter = self.fresh("clone-index");
+                signature.push(format!("({parameter} #usize)"));
+                let saved = self
+                    .owned_indices
+                    .get(&place)
+                    .and_then(|indices| indices.iter().find(|saved| saved.projection == position));
+                let value = if let Some(saved) = saved {
+                    self.read(saved.slot, false)
+                } else {
+                    format!(
+                        "{}usize",
+                        self.literal_index(*index).ok_or_else(|| {
+                            fail(
+                                self.function,
+                                "computed clone lost its checked index snapshot",
+                            )
+                        })?
+                    )
+                };
+                indices.push(format!("({parameter} {value})"));
+                projected = format!("(#index {projected} {parameter})");
+                ty = crate::typed_ir::resolve_type(&element, &self.planning.declarations.aliases)
+                    .map_err(|message| fail(self.function, message))?;
+                continue;
+            }
             let field = match step {
                 AddressProjection::Field(id) => {
                     let declaration = self.planning.declarations.field(*id);
@@ -3412,7 +3449,8 @@ impl<'a> Emitter<'a> {
         }
         let ty = crate::type_source(&ty);
         self.projections.push(format!(
-            "(#fn {helper} (: {argument} (#pin-ref {owner_ty})) {ty}\n  (#return (#clone {projected})))"
+            "(#fn {helper} ({}) {ty}\n  (#return (#clone {projected})))",
+            signature.join(" ")
         ));
         let slot = &self.slots[self.values[&value]];
         let reference = format!(
@@ -3430,9 +3468,15 @@ impl<'a> Emitter<'a> {
             String::new()
         };
         let cloned = self.fresh("cloned-projection");
-        Ok(self.put_value(dst, &format!(
-            "(#block (#let {cloned} {ty} (#call {helper} (: {argument} {reference})))\n  {retire}\n  {cloned})"
-        )))
+        let mut arguments = vec![format!("({argument} {reference})")];
+        arguments.extend(indices);
+        Ok(self.put_value(
+            dst,
+            &format!(
+                "(#block (#let {cloned} {ty} (#call {helper} ({})))\n  {retire}\n  {cloned})",
+                arguments.join(" ")
+            ),
+        ))
     }
 
     fn action(

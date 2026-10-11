@@ -1827,7 +1827,7 @@ when the cloned reference-bearing owner is returned to the caller. The Pending
 rejection retains the original mutation span. `examples/async_clone_projection.lim`
 is included in the native outcome manifest with exit code 42.
 
-This extension covers fixed field/tuple paths, not dynamic array selection or
+This extension initially covered fixed field/tuple paths, not dynamic array selection or
 whole borrows/clones of decomposed noncontiguous aggregate storage. Erased
 storage itself is used only for thin references, not owning aggregate values;
 the defensive raw-slot clone rejection should not be read as evidence that
@@ -1836,3 +1836,38 @@ and owning-pin clones still fail ordinary source checking.
 Verification passes all 230 selected async unit tests (four manual benchmarks
 ignored), 232 async integration tests, the expanded clone-return regression,
 five native example tests and all-target checking.
+
+## Clone runtime-indexed computed owning temporaries
+
+Computed array owners now use the same typed shared projection helpers for
+indexed clones. A checked array path stores numeric index snapshots rather
+than interior pointers. Each source index expression runs once; inherited
+prefix selections keep their earlier snapshots and bounds checks. This works
+for movable tasks and pinned frames, including an await inside a later index.
+The helper performs ordinary typed `#index` and `#clone` operations, preserving
+the cloned element's reference origins without moving the original element.
+Ordinary helper indexing still performs its own bounds checks on the saved
+indices. Original source checking and emitted-program checking remain mandatory.
+
+Native regressions cover nested reference-bearing arrays, effectful indices,
+an awaited inner index, pinned frames, and changing the caller's original index
+after Pending. An invalid outer index must trap before the inner callback can
+run. Cold and warm artifacts also compile and execute as standalone ordinary
+Lim. Returned owning clones retain their caller loans after Ready, and invalid
+caller mutation retains the original diagnostic span. The new
+`examples/async_clone_index.lim` selects element one and returns 43.
+
+The nested-array regression also exposed a general native backend omission:
+stack-slot aggregate destinations did not accept `#unreachable` arms. They now
+emit traps, as the register and indirect-return destinations already did.
+Separate synchronous large-array call regressions execute both valid branches
+and verify that either unreachable branch traps.
+
+These changes do not permit cloning exclusive references, moving projected
+linear elements without a transfer representation, or borrowing/cloning a
+whole noncontiguous decomposed struct. Contiguous partial storage remains open.
+
+Verification passes 233 async integration tests, 230 selected async unit tests
+(four manual benchmarks ignored), the expanded indexed-clone return regression,
+both large-reference backend tests, five native example tests and all-target
+checking.
