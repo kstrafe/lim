@@ -265,6 +265,11 @@ Both holders retain their source loans while Pending. Selected address cells
 use a separate retirement plan; checked Empty assertions republish their exit
 invariant before extracting a completed movable frame, even when intervening
 calls have invalidated the ordinary checker's earlier stored tag facts.
+Static struct/tuple/array suffixes preserve element layout during reconstruction.
+A dormant constant out-of-bounds nested array projection is excluded from
+candidate probing, while actually selecting it still traps at the original
+bounds check. Native tests exercise both candidate orders, padded struct and
+aliased tuple elements, and index mutation before suspension.
 
 Mutable slices of local frame arrays, nested runtime slice coordinates,
 mixed external slice/non-slice selections without an internal anchor, and

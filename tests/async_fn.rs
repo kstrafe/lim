@@ -777,6 +777,10 @@ fn graph_compile_error(source: &str, label: &str) -> lim::Diagnostic {
 }
 
 fn build_and_run_route(source: &str, expected: i32, graph: bool) -> String {
+    build_and_run_route_status(source, Some(expected), graph)
+}
+
+fn build_and_run_route_status(source: &str, expected: Option<i32>, graph: bool) -> String {
     let scratch = support::Scratch::new("async-fn");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -811,10 +815,19 @@ fn build_and_run_route(source: &str, expected: i32, graph: bool) -> String {
         support::run(&mut Command::new(binary), Duration::from_secs(5), 1024).unwrap();
     assert_eq!(
         status.code(),
-        Some(expected),
+        expected,
         "{status:?}: {}\ngenerated source:\n{generated}",
         String::from_utf8_lossy(&stderr),
     );
+    #[cfg(unix)]
+    if expected.is_none() {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(
+            status.signal(),
+            Some(4),
+            "bounds failures must trap with SIGILL"
+        );
+    }
     generated
 }
 
@@ -9389,6 +9402,40 @@ fn graph_nested_destructuring_preserves_projection_types_and_retained_loans() {
             )
     );
     build_and_run_graph(&nested_struct, 42);
+    let row_literal =
+        "(#struct-literal Row (: padding 0u128 : cells (#array-of (#array #u64 2) 41u64 17u64)))";
+    let dynamic_struct = nested_struct
+        .replace("(#array Row 1)", "(#array Row 2)")
+        .replace(row_literal, &format!("{row_literal} {row_literal}"))
+        .replace(
+            "(#let row (#ref-mut Row)",
+            "(#let-mut index #usize 1usize) (#let row (#ref-mut Row)",
+        )
+        .replace(
+            "(#slice-mut-idx items 0usize)",
+            "(#slice-mut-idx items index)",
+        )
+        .replace(
+            "(#await () ChildTask",
+            "(#set index 0usize) (#await () ChildTask",
+        )
+        .replace("(#index values 0usize)", "(#index values 1usize)");
+    build_and_run_graph(&dynamic_struct, 42);
+    let tuple = dynamic_struct
+        .replace(
+            "(#struct Row (: padding #u128 : cells (#array #u64 2)))",
+            "(#type Row (#tuple #u128 (#array #u64 2)))",
+        )
+        .replace(
+            row_literal,
+            "(#tuple Row 0u128 (#array-of (#array #u64 2) 41u64 17u64))",
+        )
+        .replace("(#get row cells)", "(#get row 1)")
+        .replace(
+            "(#get (#index values 1usize) cells)",
+            "(#get (#index values 1usize) 1)",
+        );
+    build_and_run_graph(&tuple, 42);
     let between = source
         .replace(
             "    (#let (Values (#tuple left right) bias) Values values)\n",
@@ -10600,6 +10647,57 @@ fn graph_slice_element_reference_selects_external_holders_across_branches() {
         let span = error.span.unwrap();
         assert_eq!(&conflicting[span.start..span.end], "#set-index");
     }
+}
+
+#[test]
+fn graph_slice_nested_array_selection_does_not_probe_a_dormant_invalid_branch() {
+    let source = external_mutable_slice_source()
+        .replace("(#forget view)", "")
+        .replace(
+            "(#let answer #u64 (#deref (#slice-mut-idx items 0usize)))",
+            "(#let answer #u64 (#deref view)) (#forget view)",
+        )
+        .replace(": items (#slice-mut #u64)", ": items (#slice-mut (#array #u64 2)) : choose #bool")
+        .replace(
+            "(#slice-mut-idx items 0usize)",
+            "(#if choose (#borrow-mut (#index row 0usize)) (#borrow-mut (#index row 2usize)))",
+        )
+        .replace("(#let view (#ref-mut #u64)", "(#let row (#ref-mut (#array #u64 2)) (#slice-mut-idx items 0usize)) (#let view (#ref-mut #u64)")
+        .replace("(#forget view)", "(#forget view) (#forget row)")
+        .replace("(#array #u64 1)", "(#array (#array #u64 2) 1)")
+        .replace(
+            "(#array-of (#array (#array #u64 2) 1) 41u64)",
+            "(#array-of (#array (#array #u64 2) 1) (#array-of (#array #u64 2) 41u64 17u64))",
+        )
+        .replace(": items (#slice-mut-of (#borrow-mut values))", ": items (#slice-mut-of (#borrow-mut values)) : choose true")
+        .replace("(#index values 0usize)", "(#index (#index values 0usize) 0usize)");
+    build_and_run_graph(&source, 42);
+    let invalid_first = source
+        .replace("(#index row 0usize)", "(#index row swap)")
+        .replace("(#index row 2usize)", "(#index row 0usize)")
+        .replace("(#index row swap)", "(#index row 2usize)")
+        .replace(": choose true", ": choose false");
+    build_and_run_graph(&invalid_first, 42);
+    let nested_struct = format!(
+        "(#struct Row (: padding #u128 : cells (#array #u64 2)))\n{}",
+        invalid_first
+            .replace("(#slice-mut (#array #u64 2))", "(#slice-mut Row)")
+            .replace("(#ref-mut (#array #u64 2))", "(#ref-mut Row)")
+            .replace("(#array (#array #u64 2) 1)", "(#array Row 1)")
+            .replace("(#array-of (#array #u64 2) 41u64 17u64)",
+                "(#struct-literal Row (: padding 0u128 : cells (#array-of (#array #u64 2) 41u64 17u64)))")
+            .replace("(#index row ", "(#index (#get row cells) ")
+            .replace("(#index (#index values 0usize) 0usize)",
+                "(#index (#get (#index values 0usize) cells) 0usize)")
+    );
+    build_and_run_graph(&nested_struct, 42);
+    // Skipping an impossible reconstruction candidate does not authorize the
+    // original selection: the selected invalid source branch still traps.
+    build_and_run_route_status(
+        &invalid_first.replace(": choose false", ": choose true"),
+        None,
+        true,
+    );
 }
 
 #[test]

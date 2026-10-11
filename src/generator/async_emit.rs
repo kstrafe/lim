@@ -797,15 +797,6 @@ impl<'a> Emitter<'a> {
     /// It cannot supply a selected address, so never probe that payload when
     /// materializing a reference formed by another branch.
     fn anchor_in_bounds(&self, place: &crate::typed_place::Place) -> bool {
-        if crate::generator::async_slice_anchor::parameter(
-            place,
-            &self.function.graph,
-            &self.planning.declarations,
-        )
-        .is_some()
-        {
-            return true;
-        }
         use crate::typed_place::Segment;
         let (binding, external) = match place.root {
             crate::typed_body::PlaceRoot::Local(binding) => (binding, false),
@@ -817,13 +808,21 @@ impl<'a> Emitter<'a> {
                 .expect("anchor types were resolved before emission")
         };
         let mut ty = resolve(&self.function.graph.bindings[binding.0].ty);
+        let mut skip = 0;
         if external {
-            let Type::Reference { target, .. } = ty else {
-                unreachable!("external captures are checked thin reference parameters");
+            ty = match ty {
+                Type::Reference { target, .. } => resolve(&target),
+                Type::Slice(target) | Type::MutableSlice(target) => {
+                    // Runtime slice bounds are checked by the slice recipe.
+                    // Its static suffix still has ordinary aggregate bounds;
+                    // never sample an impossible dormant array projection.
+                    skip = 1;
+                    resolve(&target)
+                }
+                _ => unreachable!("external captures have checked reference types"),
             };
-            ty = resolve(&target);
         }
-        for segment in &place.segments {
+        for segment in place.segments.iter().skip(skip) {
             ty = match (segment, ty) {
                 (Segment::Field(id), _) => resolve(&self.planning.declarations.field(*id).ty),
                 (Segment::Tuple(index), Type::Tuple(fields)) => resolve(&fields[*index]),
