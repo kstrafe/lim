@@ -2185,3 +2185,39 @@ whole-check improvement. Both source changes and the prototype-only differential
 test were removed, and the production release binary was rebuilt. Reduced
 allocation alone is not evidence of improved compilation time; this result does
 not close the guarded-analysis performance item.
+
+## Rejected divergence-only graph-copy experiment
+
+A subsequent prototype borrowed the immutable flow graph until a divergent
+callee actually removed a continuation, then made a private copy. Requested
+storage snapshots still took ownership, and all provenance/ownership facts were
+solved independently. Differential tests covered normal, divergent and mixed
+callees, already-cleared edges, original graph isolation and every binding's
+before/after loan origins. All 1,368 library tests passed (seven ignored), along
+with 103 selected integration tests spanning cancellation, generated-code
+boundaries, immediate borrows, frame restoration, graph production, self-borrows,
+adversarial cases, UI errors and native examples. All-target checking passed.
+Six fixtures emitted identical assembly and four representative diagnostics
+were identical.
+
+Twenty-one alternating warm release pairs on CPU 8, after three warmups per
+binary and without concurrent builds/tests, measured total-check medians:
+
+| Fixture | Baseline (ms) | Prototype (ms) |
+| --- | ---: | ---: |
+| Nested partial struct | 62.383 | 62.265 |
+| While-let dependencies | 57.083 | 56.502 |
+| Local self-reference | 55.432 | 55.212 |
+| Partial borrow | 94.880 | 96.309 |
+| Small linear guard | 1.032 | 1.025 |
+| Suspended reference guard | 257.388 | 257.263 |
+
+Repeating the last two larger cases with 31 pairs after four warmups yielded
+96.912 / 96.575 ms for partial borrowing and 256.967 / 258.957 ms for the
+suspended guard. The guard ranges overlapped: 251.850–262.734 /
+252.969–273.572 ms. Its contract-stage median changed from 127.787 to 123.260 ms,
+but the first run had changed from 121.859 to 127.977 ms. These mixed results
+do not establish a useful whole-check improvement. The prototype and its test
+were removed. Flow-graph copying has not been demonstrated to be the dominant
+cost; further work needs a current symbolized profile, not an assumption based
+on older profiles or allocation counts.
