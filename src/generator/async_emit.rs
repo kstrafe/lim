@@ -5615,6 +5615,114 @@ mod tests {
         (#return (#unreachable)))";
 
     #[test]
+    fn reused_computed_reference_owner_remains_available_after_cloning() {
+        let function = "(#fn work (: owner (#ref #u64)) #u64
+          (#let duplicate Holder (#clone (#call make-holder (: reference owner))))
+          (#let original Holder (#call make-holder (: reference owner)))
+          (#let delta #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#let result #u64 (#u64.+.wrap (#deref (#get duplicate reference))
+            (#u64.+.wrap (#deref (#get original reference)) delta)))
+          (#forget duplicate) (#forget original) (#return result))";
+        let main = "(#struct Holder (: reference (#ref #u64))) (#linear Holder)
+          (#fn make-holder (: reference (#ref #u64)) Holder
+            (#return (#struct-literal Holder (: reference reference))))
+          (#fn main () #u64
+            (#let-mut owner #u64 21u64) (#let waker #u64 0u64)
+            (#let first Work-poll-result (#call work-poll
+              (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+            (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+            (#let second Work-poll-result (#call work-poll
+              (: task pending : waker (#borrow waker))))
+            (#return (#match second
+              (#case (work-ready result) result)
+              (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+        fn reuse_constructor(planning: &mut Planning) {
+            // Model reuse of the first pure constructor's computed value.
+            // This fixture has no allocation, IO or observable clone hook;
+            // do not apply this transformation to arbitrary user calls.
+            let callee = planning.declarations.function_id("make-holder").unwrap();
+            let body_name = planning.functions[0].model.body_name.clone();
+            let graph = &mut planning.functions[0].graph;
+            let calls = graph
+                .blocks
+                .iter()
+                .enumerate()
+                .flat_map(|(block, body)| {
+                    body.actions
+                        .iter()
+                        .enumerate()
+                        .filter_map(move |(action, located)| match &located.action {
+                            Action::Compute {
+                                dst,
+                                operation: Compute::Checked(operation),
+                            } if operation.callee == Some(callee) => Some((block, action, *dst)),
+                            _ => None,
+                        })
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(calls.len(), 2);
+            let original = calls[0].2;
+            assert!(graph
+                .blocks
+                .iter()
+                .flat_map(|block| &block.actions)
+                .any(|located| {
+                    matches!(located.action, Action::Load { place, kind: LoadKind::Clone, .. }
+                    if graph.places[place.0].root == AddressRoot::Value(original))
+                }));
+            let (block, action, dst) = calls[1];
+            graph.blocks[block].actions[action].action = Action::Compute {
+                dst,
+                operation: Compute::Identity(original),
+            };
+            graph.validate().unwrap();
+            graph
+                .validate_against(&planning.declarations.bodies[&body_name])
+                .unwrap();
+        }
+        let mut planning = prepare_function(function, main);
+        reuse_constructor(&mut planning);
+        let generated = runtime_planned(planning, 42);
+        assert_eq!(
+            generated[0]
+                .source
+                .split_whitespace()
+                .filter(|token| *token == "make-holder")
+                .count(),
+            1
+        );
+        let standalone =
+            crate::parse_program(&format!("{CONTEXT}\n{}\n{main}", generated[0].source)).unwrap();
+        let checked = crate::CheckedProgram::validate(&standalone)
+            .expect("reused computed owners check without async witnesses");
+        crate::codegen::generate_checked_executable_assembly(
+            &checked,
+            crate::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap();
+
+        let invalid = main.replace(
+            "(#let second Work-poll-result",
+            "(#set owner 99u64) (#let second Work-poll-result",
+        );
+        let mut planning = prepare_function(function, &invalid);
+        reuse_constructor(&mut planning);
+        let generated = generate(&planning).unwrap();
+        let program = program(&planning, &generated).unwrap();
+        let (message, code, span, _) = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .expect("both owners retain their caller loan");
+        assert_eq!(code, crate::DiagnosticCode::Borrow, "{message}");
+        let span = span.expect("caller mutation has an original span");
+        let source = &program.source_files[span.source_id as usize].source;
+        let write = source.find("(#set owner 99u64)").unwrap();
+        assert!(
+            span.start >= write && span.end <= write + "(#set owner 99u64)".len(),
+            "{span:?}: {source}"
+        );
+    }
+
+    #[test]
     fn cleanup_is_uniform_and_does_not_reserve_a_private_state_api() {
         for kind in ["#async-fn", "#async-fn-pinned"] {
             let planning = prepare_generator(

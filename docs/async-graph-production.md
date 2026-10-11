@@ -1721,3 +1721,20 @@ consumption time. Further guarded-solver work and contiguous aggregate storage
 remain unfinished. All 1,355 library tests (five manual benchmarks ignored) and
 232 async integration tests pass.
 All five native example tests and the all-target build check also pass.
+
+## Reused computed owners retain their storage after cloning
+
+The computed-owner regression now exercises a computed reference-bearing value
+that is cloned and subsequently reused, rather than only a named local owner.
+The test graph reuses one pure constructor result through an identity action;
+this is a controlled test transformation, not general common-subexpression
+elimination of user calls. The generated program calls the constructor once,
+retains its owning cell after cloning, suspends, then reads both owners and
+returns 42 in a native execution.
+
+The emitted declarations also parse, type-check and generate assembly as
+ordinary Lim without async validation witnesses. A caller mutation between
+polls is rejected at the original mutation's source span. These checks cover
+the computed clone's retained-source branch; they do not remove the separate
+restriction on clones requiring erased internal-reference storage or contiguous
+whole-aggregate storage.
