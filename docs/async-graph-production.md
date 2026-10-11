@@ -73,18 +73,41 @@ to source-slot handlers. The old private graph `work-poll-cancel` storage record
 remains available for staged regression compatibility; its fields are not the
 public cleanup interface.
 
-Post-terminal parameter access is still a migration gate. A regression now
-demonstrates replacement of a reference-free Copy parameter in the **same**
-pinned frame after Ready and after public cleanup. Its ordinary helper checks
-the terminal counter and empty dependent cells, reads and consumes the previous
-tagged cell, and explicitly writes the replacement. Merely overwriting a Full
-cell is not a valid initialization contract. An unguarded helper called while
-Pending is rejected by ordinary borrow checking, which underlines the receiver
-and labels the callee's write through the retained internal loan. Cold/warm
-generated artifacts run independently as ordinary Lim and preserve the original
-self-reference example's result of 58. These tests do not expose a public
-source-named accessor API or make private cell names stable; that API and the
-example's migration remain unfinished.
+## Post-terminal parameter access
+
+Pinned graph functions can explicitly request access to reference-free Copy
+parameters after Ready or public cleanup:
+
+```lim
+(@#async-fn-pinned (: protocol WorkAwait : waker #u64
+  : access (: amount amount-access)
+  : function (#fn work (: amount #u64) #u64 (#return amount))))
+```
+
+This emits ordinary `amount-access-read` and `amount-access-replace` functions.
+Read takes `(: task (#pin-ref Work-frame))` and returns `#u64`. Replace takes
+`(: task (#pin-ref-mut Work-frame) : value #u64)` and returns `()`. Accessor
+names are literal inputs, so external imports prefix them exactly once. No
+access functions are emitted unless requested. Unit parameters and aliases
+are supported; duplicate requests, unknown parameters, declaration collisions,
+owning data and reference-bearing data are rejected before publication.
+
+Both functions assert a terminal counter and Empty reference/owning cells.
+Replacement reads and explicitly consumes the previous tagged cell before
+writing its replacement; merely overwriting a Full cell is not a valid
+initialization contract. Cleanup clears parameter cells too, so read requires
+a Full cell, installed by replacement when necessary. Neither operation
+restarts the future or moves its pinned frame. Access before the terminal
+state traps even when the frame contains no internal reference.
+
+Cold/warm generated artifacts run independently as ordinary Lim. A native
+self-reference regression replaces the parameter in the **same** pinned frame
+after Ready and after public cleanup, retaining the original result of 58.
+An unguarded helper called while Pending is rejected by ordinary borrow
+checking, which underlines its receiver and labels its offending write. There
+is no ownership exemption for accessors and private cell names remain unstable.
+The existing direct-field example's migration and graph-default selection are
+still separate gates.
 
 ## Current support and gates
 

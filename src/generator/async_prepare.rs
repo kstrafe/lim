@@ -113,6 +113,15 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
             &program,
         )
     })?;
+    interfaces
+        .graph_parameter_interfaces(&program)
+        .map_err(|error| {
+            let mut error_source = SourceError::new(error.message, DiagnosticCode::Type);
+            if let Some(span) = error.span {
+                error_source = error_source.at(span);
+            }
+            attach(error_source, &program)
+        })?;
     let mut selected = HashSet::new();
     let mut models = Vec::with_capacity(invocations.len());
     for invocation in &invocations {

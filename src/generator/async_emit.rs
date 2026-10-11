@@ -3292,6 +3292,98 @@ impl<'a> Emitter<'a> {
         Ok(source)
     }
 
+    /// The public names describe source parameters; private cell identities
+    /// appear only inside these independently checked ordinary functions.
+    fn parameter_access(&self) -> Result<String, Error> {
+        let start = self
+            .planning
+            .interfaces
+            .function(&self.function.model.source_name)
+            .ok_or_else(|| fail(self.function, "async start interface disappeared"))?;
+        let mut definitions = Vec::new();
+        for (requested, name) in &self.function.source.frame_access {
+            let (index, parameter) = start
+                .parameters
+                .iter()
+                .enumerate()
+                .find(|(_, parameter)| parameter.name == *requested)
+                .ok_or_else(|| {
+                    fail(
+                        self.function,
+                        format!("unknown async access parameter '{requested}'"),
+                    )
+                })?;
+            let slot_index = self.bindings.get(&BindingId(index)).copied();
+            if !self.pinned
+                || !self.types.can_repeat(&parameter.ty)
+                || self.types.contains_reference(&parameter.ty)
+            {
+                return Err(fail(
+                    self.function,
+                    "async parameter access requires reference-free Copy data in a pinned frame",
+                ));
+            }
+            let mut guards = vec!["(#assert (#u32.== (#get task pc) 4294967295u32))".to_owned()];
+            for (other_index, other) in self.slots.iter().enumerate() {
+                if Some(other_index) != slot_index
+                    && (other.linear || self.types.contains_reference(&other.ty))
+                {
+                    guards.push(format!(
+                        "(#assert (#variant-is {} {}))",
+                        Self::slot_ref(other, false),
+                        other.empty
+                    ));
+                }
+            }
+            let guards = guards.join("\n");
+            let ty = crate::type_source(&parameter.ty);
+            if crate::typed_ir::resolve_type(&parameter.ty, &self.planning.declarations.aliases)
+                .map_err(|message| fail(self.function, message))?
+                == Type::Unit
+            {
+                definitions.push(format!(
+                    "(#fn {name}-replace (: task (#pin-ref-mut {}) : value {ty}) ()
+                    {guards} (#forget value) (#return ()))
+                    (#fn {name}-read (: task (#pin-ref {})) {ty} {guards} (#return ()))",
+                    self.frame, self.frame
+                ));
+                continue;
+            }
+            let slot = &self.slots[slot_index.ok_or_else(|| {
+                fail(self.function, "async access parameter has no physical cell")
+            })?];
+            if slot.raw {
+                return Err(fail(
+                    self.function,
+                    "async access parameter unexpectedly uses reference storage",
+                ));
+            }
+            let previous = self.fresh("previous-parameter-cell");
+            let occupied = self.fresh("previous-parameter-value");
+            let target = Self::slot_ref(slot, true);
+            definitions.push(format!(
+                "(#fn {name}-replace (: task (#pin-ref-mut {}) : value {ty}) ()
+                {guards}
+                (#let {previous} {} (#unsafe (#pin-read {target})))
+                (#match {previous} (#case {} ()) (#case ({} {occupied}) (#forget {occupied})))
+                (#unsafe (#pin-write {target} ({} value)))
+                (#return ()))
+                (#fn {name}-read (: task (#pin-ref {})) {ty}
+                {guards}
+                (#return (#deref (#pin-get-payload {} {} 0))))",
+                self.frame,
+                slot.name,
+                slot.empty,
+                slot.full,
+                slot.full,
+                self.frame,
+                Self::slot_ref(slot, false),
+                slot.full
+            ));
+        }
+        Ok(definitions.join("\n"))
+    }
+
     fn emit(mut self) -> Result<Generated, Error> {
         self.check_owned_cells()?;
         let graph: &Graph = &self.function.graph;
@@ -3560,8 +3652,9 @@ impl<'a> Emitter<'a> {
         );
         let projections = self.projections.join("\n");
         let cleanup = self.cleanup_interface(&receiver)?;
+        let access = self.parameter_access()?;
         let source = crate::generator::format_generated_source(&format!(
-            "{source}\n{cancel}\n{cleanup}\n{projections}"
+            "{source}\n{cancel}\n{cleanup}\n{projections}\n{access}"
         ))
         .map_err(|message| fail(self.function, message))?;
         Ok(Generated {

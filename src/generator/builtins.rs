@@ -27,7 +27,7 @@ pub(crate) fn named_builtin_keys(kind: &str) -> Option<&'static [&'static str]> 
             "destroy",
         ],
         "#vec-sort" => &["element", "vector", "comparator"],
-        "#async-fn" | "#async-fn-pinned" => &["protocol", "waker", "function", "cancel"],
+        "#async-fn" | "#async-fn-pinned" => &["protocol", "waker", "function", "cancel", "access"],
         _ => return None,
     })
 }
@@ -112,6 +112,28 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
             })
             .collect::<Vec<_>>();
         names.push(protocol);
+        if let Some(access) = values.remove("access") {
+            if kind != "#async-fn-pinned" {
+                return Err("async parameter access requires @#async-fn-pinned".into());
+            }
+            let entries = expect_list(&access, "async access parameters")?;
+            let mut seen = HashSet::new();
+            for entry in entries {
+                let pair = expect_list(entry, "async access (parameter accessor-name)")?;
+                if pair.len() != 2 {
+                    return Err("async access requires (parameter accessor-name) pairs".into());
+                }
+                let name = expect_symbol(pair.first(), "async access parameter")?;
+                let accessor = expect_symbol(pair.get(1), "async access name")?;
+                if accessor.starts_with('#') || accessor.starts_with('@') || accessor == "$" {
+                    return Err("async access names must be user-defined identifiers".into());
+                }
+                if !seen.insert(name) {
+                    return Err(format!("async access repeats parameter '{name}'"));
+                }
+            }
+            names.push(access);
+        }
         normalized.push(Expr::List(names));
         normalized.push(
             values

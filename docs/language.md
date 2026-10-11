@@ -1017,6 +1017,15 @@ in the same inspectable, hash-cached generated file as the function's code.
 This shorthand supplies types explicitly; it adds neither type inference nor
 implicit pinning, allocation or cancellation.
 
+On the graph route, pinned functions can request post-terminal access to
+reference-free Copy parameters with `: access (: amount amount-access)`.
+This emits `amount-access-read` and `amount-access-replace` ordinary functions
+with pinned frame receivers; the latter also takes a named `value` argument.
+They assert completion/cancellation and cleared loans before accessing the
+same stationary storage. They do not restart the future, infer lifetimes, or
+allow moving its frame. Without an access request no accessor bodies are
+generated. See [parameter access](async-graph-production.md#post-terminal-parameter-access).
+
 An opt-in graph route is selected with `--cfg async-lowering=graph`. It uses the
 same await protocol names, independently checked ordinary generated code, and
 a source-named cleanup record instead of the legacy per-state cancellation

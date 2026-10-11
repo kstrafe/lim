@@ -30,6 +30,8 @@ pub(crate) struct Source {
     pub waker: Type,
     pub pinned_frame: Option<String>,
     pub generated_poll: Option<String>,
+    /// Explicit literal source parameter names requesting post-terminal access.
+    pub frame_access: Vec<(String, String)>,
 }
 
 impl Source {
@@ -81,6 +83,29 @@ impl Source {
             waker,
             pinned_frame,
             generated_poll,
+            frame_access: match parts.get(2) {
+                Some(Expr::List(names)) => match names.get(6) {
+                    Some(Expr::List(access)) => access
+                        .iter()
+                        .map(|entry| match entry {
+                            Expr::List(pair) => match pair.as_slice() {
+                                [Expr::Symbol(parameter), Expr::Symbol(name)] => {
+                                    Ok((parameter.clone(), name.clone()))
+                                }
+                                _ => Err("async access requires (parameter accessor-name) pairs"
+                                    .to_owned()),
+                            },
+                            _ => {
+                                Err("async access requires (parameter accessor-name) pairs"
+                                    .to_owned())
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                    None => Vec::new(),
+                    _ => return Err("async access parameters must be a list".into()),
+                },
+                _ => Vec::new(),
+            },
         }))
     }
 }
@@ -1370,6 +1395,7 @@ mod tests {
                 waker: Type::U64,
                 pinned_frame: None,
                 generated_poll: None,
+                frame_access: Vec::new(),
             }],
         );
         let error = crate::CheckedProgram::validate_with_span(&base)

@@ -17,6 +17,7 @@ pub(crate) enum Provenance {
     GraphCleanup,
     CancelDispatcher,
     GraphDestroy,
+    GraphParameterAccess,
 }
 
 #[derive(Clone, Debug)]
@@ -42,6 +43,7 @@ pub(crate) struct Registry {
     pub generated_names: HashMap<String, Span>,
     aliases: HashMap<String, Type>,
     reserved: HashMap<String, Option<Span>>,
+    parameter_access: Vec<(Function, Vec<(String, String)>, Span)>,
 }
 
 fn signature(function: &Function) -> Function {
@@ -58,6 +60,76 @@ fn signature(function: &Function) -> Function {
 }
 
 impl Registry {
+    /// Register only explicitly requested access. The signatures are planning
+    /// declarations; ordinary emitted bodies must prove their own safety.
+    pub(crate) fn graph_parameter_interfaces(&mut self, program: &Program) -> Result<(), Error> {
+        let mut types = None;
+        for (source, access, span) in std::mem::take(&mut self.parameter_access) {
+            let fail = |message| Error {
+                message,
+                span: Some(span),
+            };
+            let types =
+                types.get_or_insert_with(|| crate::linearcheck::LinearTypes::from_program(program));
+            for (parameter, accessor) in access {
+                let parameter = source
+                    .parameters
+                    .iter()
+                    .find(|candidate| candidate.name == parameter)
+                    .ok_or_else(|| {
+                        fail(format!(
+                            "async access names unknown parameter '{parameter}'"
+                        ))
+                    })?;
+                if !types.can_repeat(&parameter.ty) || types.contains_reference(&parameter.ty) {
+                    return Err(fail(format!(
+                        "async access parameter '{}' must be reference-free Copy data",
+                        parameter.name
+                    )));
+                }
+                for (suffix, mutable, result) in [
+                    ("read", false, parameter.ty.clone()),
+                    ("replace", true, Type::Unit),
+                ] {
+                    let name = format!("{accessor}-{suffix}");
+                    if self.reserved.contains_key(&name) {
+                        return Err(fail(format!(
+                            "async generated name '{name}' conflicts with an existing declaration"
+                        )));
+                    }
+                    self.reserved.insert(name.clone(), Some(span));
+                    self.generated_names.insert(name.clone(), span);
+                    let mut declaration = source.clone();
+                    declaration.name = name.clone();
+                    declaration.parameters = vec![Parameter {
+                        name: "task".into(),
+                        ty: Type::PinnedReference {
+                            mutable,
+                            target: Box::new(source.return_type.clone()),
+                        },
+                        mutable: false,
+                    }];
+                    if mutable {
+                        declaration.parameters.push(Parameter {
+                            name: "value".into(),
+                            ty: parameter.ty.clone(),
+                            mutable: false,
+                        });
+                    }
+                    declaration.return_type = result;
+                    self.functions.insert(
+                        name,
+                        FunctionInterface {
+                            declaration,
+                            span: Some(span),
+                            provenance: Provenance::GraphParameterAccess,
+                        },
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
     /// The graph route has a source-named cleanup record, independent of the
     /// legacy per-state enum and the emitter's private PC/cell representation.
     pub(crate) fn graph_cleanup_interfaces(&mut self) -> Result<(), Error> {
@@ -302,11 +374,35 @@ impl Registry {
         let Some(Expr::List(names)) = parts.get(2) else {
             return Err(fail("async interface requires generated names".into()));
         };
-        if !matches!(names.len(), 5 | 6) {
+        if !matches!(names.len(), 5 | 6 | 7) {
             return Err(fail(
                 "async names must be (Frame Poll Pending Ready poll)".into(),
             ));
         }
+        let access = match names.get(6) {
+            Some(Expr::List(entries)) if pinned => entries
+                .iter()
+                .map(|entry| match entry {
+                    Expr::List(pair) => match pair.as_slice() {
+                        [Expr::Symbol(parameter), Expr::Symbol(name)] => {
+                            Ok((parameter.clone(), name.clone()))
+                        }
+                        _ => Err(fail(
+                            "async access requires (parameter accessor-name) pairs".into(),
+                        )),
+                    },
+                    _ => Err(fail(
+                        "async access requires (parameter accessor-name) pairs".into(),
+                    )),
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            None => Vec::new(),
+            _ => {
+                return Err(fail(
+                    "async parameter access requires a pinned frame and a literal list".into(),
+                ))
+            }
+        };
         let names = names
             .iter()
             .take(5)
@@ -355,6 +451,7 @@ impl Registry {
             external: false,
             calling_convention: CallingConvention::Lim,
         }];
+        let access_source = (!access.is_empty()).then(|| declarations[0].clone());
         let task = if pinned {
             Type::PinnedReference {
                 mutable: true,
@@ -457,6 +554,9 @@ impl Registry {
             }
         }
         // Commit only after checking the complete interface, including derived names.
+        if let Some(source) = access_source {
+            self.parameter_access.push((source, access, span));
+        }
         for name in reserved {
             self.reserved.insert(name.clone(), Some(span));
             self.generated_names.insert(name, span);

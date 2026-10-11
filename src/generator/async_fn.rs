@@ -11602,7 +11602,7 @@ pub(crate) fn protocol_declaration(invocation: &Expr) -> Result<Expr, String> {
         parts.get(2).ok_or("async invocation requires names")?,
         "async names",
     )?;
-    if !matches!(names.len(), 5 | 6) {
+    if !matches!(names.len(), 5 | 6 | 7) {
         return Err("invalid async function interface metadata".into());
     }
     let function = list(
@@ -11776,6 +11776,9 @@ fn generated_source_with_capture_selection(
         .map(parse_async_cancel_config)
         .transpose()?;
     let names = list(&invocation[2], "generated names")?;
+    if names.len() == 7 {
+        return Err("async parameter access requires async-lowering=graph".into());
+    }
     if !matches!(names.len(), 5 | 6) {
         return Err("invalid async function interface metadata".into());
     }
