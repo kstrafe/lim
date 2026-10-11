@@ -50,6 +50,7 @@ struct Slot {
     dependencies: Vec<BindingId>,
     copy: bool,
     linear: bool,
+    borrowed_slice_snapshot: bool,
 }
 
 struct OwnedIndex {
@@ -266,6 +267,8 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let slot = emitter.add_slot(format!("value.{index}"), value.ty.clone());
+            emitter.slots[slot].borrowed_slice_snapshot = matches!(value.ty, Type::MutableSlice(_))
+                && emitter.leases.snapshot(ValueId(index)).is_some();
             emitter.slots[slot].dependencies = self_borrows
                 .dependent_values
                 .get(&ValueId(index))
@@ -618,6 +621,7 @@ impl<'a> Emitter<'a> {
             lend_argument: self.fresh("lend-input"),
             copy: self.types.can_repeat(&ty),
             linear: self.types.is_linear(&ty),
+            borrowed_slice_snapshot: false,
             storage: ty.clone(),
             raw: false,
             anchor: None,
@@ -1279,10 +1283,13 @@ impl<'a> Emitter<'a> {
             let reference = self.fresh("retired-cell");
             let previous = self.fresh("retired-storage");
             let slot = &self.slots[index];
-            if !slot.linear {
+            if !slot.linear || slot.borrowed_slice_snapshot {
                 // Non-owning handles have no destruction obligation. Discard
                 // storage in place rather than transferring a reference into
                 // a temporary that would need its pointee's nested provenance.
+                // A certified slice snapshot is a reborrow, not the source
+                // binding's linear owner. Retiring its descriptor must not
+                // require that the original slice was moved or consumed.
                 clears.push(format!("(#block (#let {reference} (#pin-ref-mut {}) {})\n(#unsafe (#forget (#pin-read {reference})))\n(#unsafe (#pin-write {reference} ({})))\n(#drop {reference}) ())", slot.name, Self::slot_ref(slot, true), slot.empty));
                 continue;
             }
@@ -2657,6 +2664,55 @@ impl<'a> Emitter<'a> {
                         let text = self.slice_borrow(operation, &inputs)?;
                         return Ok(self.put_value(*dst, &text));
                     }
+                    if matches!(operation.head.as_str(), "slice-mut-range" | "slice-mut-len") {
+                        // The builtin reborrows an exclusive handle place,
+                        // not a computed temporary. Name the already evaluated
+                        // snapshot in an ordinary function parameter so its
+                        // return-loan contract preserves the actual referent.
+                        let helper = self.fresh("slice-range");
+                        let argument = self.fresh("slice-range-input");
+                        let start = self.fresh("slice-range-start");
+                        let end = self.fresh("slice-range-end");
+                        let base = operation
+                            .operands
+                            .iter()
+                            .find(|operand| operand.position == [1])
+                            .ok_or_else(|| error("slice operation lost its checked holder"))?
+                            .value;
+                        let slot = &self.slots[*self.values.get(&base).ok_or_else(|| {
+                            error("slice operation requires a retained checked holder")
+                        })?];
+                        let holder = format!(
+                            "(#pin-get-payload-mut {} {} 0)",
+                            Self::slot_ref(slot, true),
+                            slot.full
+                        );
+                        let ty = crate::type_source(&slot.ty);
+                        if operation.head == "slice-mut-len" {
+                            self.projections.push(format!("(#fn {helper} (: {argument} (#pin-ref-mut {ty})) #usize (#return (#slice-mut-len (#deref {argument}))))"));
+                            return Ok(self.put_value(
+                                *dst,
+                                &format!("(#call {helper} (: {argument} {holder}))"),
+                            ));
+                        }
+                        self.projections.push(format!("(#fn {helper} (: {argument} (#pin-ref-mut {ty}) : {start} #usize : {end} #usize) {ty} (#return (#slice-mut-range (#deref {argument}) {start} {end})))"));
+                        let operand = |position| -> Result<String, Error> {
+                            let value = operation
+                                .operands
+                                .iter()
+                                .find(|operand| operand.position == [position])
+                                .ok_or_else(|| error("slice range lost a checked operand"))?
+                                .value;
+                            crate::expression_source(&inputs[&value])
+                                .map_err(|_| error("slice range operand did not serialize"))
+                        };
+                        let text = format!(
+                            "(#call {helper} (: {argument} {holder} : {start} {} : {end} {}))",
+                            operand(2)?,
+                            operand(3)?
+                        );
+                        return Ok(self.put_value(*dst, &text));
+                    }
                 }
                 let rendered = self
                     .render
@@ -3537,6 +3593,10 @@ impl<'a> Emitter<'a> {
             order.push(dependent.remove(next));
         }
         let mut output = Vec::new();
+        let mut emptied = order.clone();
+        emptied.extend(self.reference_slots());
+        emptied.sort_unstable();
+        emptied.dedup();
         for index in order {
             let slot = &self.slots[index];
             let name = &names[&index];
@@ -3588,6 +3648,17 @@ impl<'a> Emitter<'a> {
                 slot.full
             ));
         }
+        // Later cleanup calls can invalidate earlier stored-variant facts.
+        // Independently check and publish the complete cleared state before
+        // any field extraction or returned cleanup aggregate is assembled.
+        output.extend(emptied.into_iter().map(|index| {
+            let slot = &self.slots[index];
+            format!(
+                "(#assert (#variant-is {} {}))",
+                Self::slot_ref(slot, false),
+                slot.empty
+            )
+        }));
         Ok(output.join("\n"))
     }
 
@@ -3641,7 +3712,14 @@ impl<'a> Emitter<'a> {
             fields.push(format!("({field} {cell})"));
             let local = self.fresh("cleanup-slot");
             let payload = self.fresh("cleanup-payload");
-            transfers.push(format!("(#let {local} {cell} (#match (#get state {}) (#case {} ({empty})) (#case ({} {payload}) ({full} {payload}))))", slot.field, slot.empty, slot.full));
+            if self.pinned && !slot.dependencies.is_empty() {
+                // These values were canceled in place before extraction. Do
+                // not advertise a fictitious Full return path retaining their
+                // old loans alongside their lenders in the cleanup result.
+                transfers.push(format!("(#assert (#variant-is (#borrow (#get state {})) {}))\n(#let {local} {cell} ({empty}))", slot.field, slot.empty));
+            } else {
+                transfers.push(format!("(#let {local} {cell} (#match (#get state {}) (#case {} ({empty})) (#case ({} {payload}) ({full} {payload}))))", slot.field, slot.empty, slot.full));
+            }
             captures.push(format!("({field} {local})"));
             public.push((
                 field,

@@ -293,8 +293,21 @@ and runtime-indexed external targets, plus whole pinned reborrows before and
 after Pending. Source-owner mutation, overlapping input borrows, pin-kind
 downgrades and locally sourced escaping frames remain rejected.
 
-Mutable slices of local frame arrays,
-mixed selections involving pinned-reference parameters, and
+Pinned parents can retain mutable slices of local frame arrays across Pending
+when the slice has an explicit cancellation handler. A child borrowing a
+subslice retains both the backing array and its lending slice as dependencies.
+Cancellation consumes the movable child before calling the lender's handler,
+then extracts the remaining owners. Native tests verify that the child can
+write its borrowed element during cancellation and that the lender observes
+that write while the array remains alive; normal child completion is tested
+as well. Conflicting parent access with a live child remains a source error.
+Length and range operations read retained slice snapshots through pinned
+holder parameters rather than moving exclusive handles into temporary values.
+Only source-certified reborrow snapshots may be discarded at retirement;
+the original slice binding remains linear. Cleanup results explicitly mark
+already-canceled dependent cells Empty rather than exporting fictitious loans.
+
+Movable local-slice projections, mixed selections involving pinned-reference parameters, and
 effectful index windows remain unfinished. These are still default-switch gates.
 
 On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive

@@ -10961,6 +10961,105 @@ fn graph_whole_pinned_reborrows_preserve_kind_before_and_after_pending() {
 }
 
 #[test]
+fn graph_pinned_parent_retains_a_local_mutable_slice_across_pending() {
+    let runtime = external_mutable_slice_source()
+        .split_once("(@#async-fn")
+        .unwrap()
+        .0;
+    let source = format!(
+        r#"{runtime}
+      (#fn cancel-container (: view (#slice-mut #u64)) () (#forget view) (#return ()))
+      (#fn cancel-child (: task ChildTask) () (#forget task) (#return ()))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+        : cancel (cancel-frame ((container cancel-container) (await-0 cancel-child)))
+        : function (#fn work () #u64
+          (#let-mut counter (#array #u64 1) (#array-of (#array #u64 1) 41u64))
+          (#let container (#slice-mut #u64) (#slice-mut-of (#borrow-mut counter)))
+          (#let view (#ref-mut #u64) (#slice-mut-idx container 0usize))
+          (#deref-set view (#u64.+.wrap (#deref view) 1u64)) (#forget view)
+          (#await () ChildTask ChildPending ChildReady child-poll Start)
+          (#let answer #u64 (#deref (#slice-mut-idx container 0usize)))
+          (#forget container) (#forget counter) (#return answer))))
+      (#fn main () #u64
+        (#let-mut frame Work-frame (#call work ())) (#let waker #u64 0u64)
+        (#let first Work-poll-result
+          (#call work-poll (: task (#pin frame) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame) (#return answer))"#
+    );
+    build_and_run_graph(&source, 42);
+}
+
+#[test]
+fn graph_parent_cancels_a_slice_borrowing_child_before_its_lender() {
+    let source = r#"
+      (#enum ChildTask ((Start (#slice-mut #u64)) (Resume (#slice-mut #u64))))
+      (#linear ChildTask)
+      (#enum ChildPoll ((ChildPending ChildTask) (ChildReady ())))
+      (#fn child-poll (: task ChildTask : waker (#ref #u64)) ChildPoll
+        (#return (#match task
+          (#case (Start initial) (ChildPending (Resume initial)))
+          (#case (Resume final)
+            (#block
+              (#let element (#ref-mut #u64) (#slice-mut-idx final 0usize))
+              (#deref-set element (#u64.+.wrap (#deref element) 1u64))
+              (#forget element)
+              (#forget final) (ChildReady ()))))))
+      (#fn cancel-child (: task ChildTask) ()
+        (#match task
+          (#case (Start initial)
+            (#block (#deref-set (#slice-mut-idx initial 0usize) 42u64) (#forget initial)))
+          (#case (Resume final)
+            (#block (#deref-set (#slice-mut-idx final 0usize) 42u64) (#forget final))))
+        (#return ()))
+      (#fn cancel-container (: view (#slice-mut #u64)) ()
+        (#assert (#u64.== (#deref (#slice-mut-idx view 0usize)) 42u64))
+        (#forget view) (#return ()))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+        : cancel (cancel-frame ((container cancel-container) (await-0 cancel-child)))
+        : function (#fn work () #u64
+          (#let-mut counter (#array #u64 1) (#array-of (#array #u64 1) 41u64))
+          (#let container (#slice-mut #u64) (#slice-mut-of (#borrow-mut counter)))
+          (#await () ChildTask ChildPending ChildReady child-poll
+            (Start (#slice-mut-range container 0usize (#slice-mut-len container))))
+          (#let answer #u64 (#deref (#slice-mut-idx container 0usize)))
+          (#forget container) (#forget counter) (#return answer))))
+      (#fn main () #u64
+        (#let-mut frame Work-frame (#call work ())) (#let waker #u64 0u64)
+        (#let first Work-poll-result
+          (#call work-poll (: task (#pin frame) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))
+        (#call cancel-frame (: task cleanup))
+        (#forget frame) (#return 42u64))"#;
+    build_and_run_graph(source, 42);
+    // The same child must also release its loan on normal completion before
+    // its parent reads and consumes the original lending slice.
+    let resumed = source.replace(
+        "(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))\n        (#call cancel-frame (: task cleanup))\n        (#forget frame) (#return 42u64))",
+        "(#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame) (#return answer))",
+    );
+    assert_ne!(resumed, source);
+    build_and_run_graph(&resumed, 42);
+    let overlapping = source.replace(
+        "(#await () ChildTask ChildPending ChildReady child-poll\n            (Start (#slice-mut-range container 0usize (#slice-mut-len container))))",
+        "(#let child ChildTask (Start (#slice-mut-range container 0usize (#slice-mut-len container))))
+          (#deref-set (#slice-mut-idx container 0usize) 0u64)
+          (#await () ChildTask ChildPending ChildReady child-poll child)",
+    );
+    assert_ne!(overlapping, source);
+    let error = graph_compile_error(&overlapping, "parent-access-with-live-slice-child");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    assert!(error.span.is_some(), "{error:?}");
+}
+
+#[test]
 fn dereference_reborrows_keep_exclusivity_and_pin_kind() {
     let source = r#"(#fn main () #u64
       (#let-mut value #u64 41u64)

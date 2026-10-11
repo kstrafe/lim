@@ -485,6 +485,14 @@ fn internal_owners(origins: &[LoanOrigin]) -> Vec<BindingId> {
                 owners.push(binding);
             }
         }
+        // A derived loan also depends on its lending handle. Keeping only the
+        // backing storage orders both siblings before the array, but permits
+        // the lender's cleanup to access that array while its child is live.
+        if let Some(binding) = origin.borrowed_from {
+            if !owners.contains(&binding) {
+                owners.push(binding);
+            }
+        }
     }
     owners.sort_by_key(|binding| binding.0);
     owners
@@ -493,6 +501,33 @@ fn internal_owners(origins: &[LoanOrigin]) -> Vec<BindingId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slice_child_dependencies_include_the_lender_and_backing_array() {
+        let program = crate::parse_program(
+            "(#fn work () ()
+              (#let-mut backing (#array #u64 1) (#array-of (#array #u64 1) 41u64))
+              (#let lender (#slice-mut #u64) (#slice-mut-of (#borrow-mut backing)))
+              (#let child (#slice-mut #u64) (#slice-mut-range lender 0usize 1usize))
+              (#forget child) (#forget lender) (#forget backing) (#return ()))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["work"];
+        let origins = declarations.flows["work"].loan_origins(body);
+        let union = origins.binding_origin_union(body.bindings.len());
+        let binding = |name| {
+            BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == name)
+                    .unwrap(),
+            )
+        };
+        let mut expected = vec![binding("backing"), binding("lender")];
+        expected.sort_by_key(|binding| binding.0);
+        assert_eq!(internal_owners(&union[binding("child").0]), expected);
+    }
 
     fn snapshot_scan(
         origins: &crate::typed_flow::FlowLoanOrigins,
