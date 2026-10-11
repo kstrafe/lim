@@ -2296,12 +2296,8 @@ fn async_function_suspends_inside_mutable_assignment_rhs() {
             (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(
-        generated.contains("(#set total lim.async.nested-await-0)"),
-        "{generated}"
-    );
-    assert!(generated.contains("(#let-mut total #u64"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2330,8 +2326,8 @@ fn async_loop_expression_can_be_suspended_as_a_nested_value() {
         (#let-else (work-ready result) Work-poll-result second (#unreachable))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2362,8 +2358,8 @@ fn async_while_expression_can_be_suspended_as_a_nested_value() {
         (#let-else (work-ready result) Work-poll-result second (#unreachable))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2401,8 +2397,8 @@ fn async_loop_expression_can_be_suspended_in_a_selected_branch() {
         (#let immediate #u64 (#call run (: choose false : waker (#borrow waker))))
         (#forget waker)
         (#return (#u64.+.wrap awaited immediate)))";
-    let generated = build_and_run(source, 84);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 84);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2439,8 +2435,8 @@ fn async_suspension_inside_nested_value_block_preserves_block_scope() {
         (#let result #u64 (#call run (: waker (#borrow waker))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 41);
-    assert!(generated.contains("#call identity"), "{generated}");
+    let generated = build_and_run_graph(source, 41);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2456,7 +2452,7 @@ fn async_value_loop_results_use_declared_expression_types() {
             "(#break (#call identity (: value awaited)))",
         );
     assert_ne!(called, source);
-    build_and_run(&called, 42);
+    build_and_run_graph(&called, 42);
 
     let comparison = source
         .replace(
@@ -2466,7 +2462,7 @@ fn async_value_loop_results_use_declared_expression_types() {
         .replace("(#break 42u64)", "(#break (#u64.== awaited 41u64))")
         .replace("(#break awaited)", "(#break (#u64.< awaited 42u64))")
         .replace("(#u64.== final 41u64)", "(#u64.== final 42u64)");
-    build_and_run(&comparison, 42);
+    build_and_run_graph(&comparison, 42);
 
     for (declarations, consumer, first, second) in [
         (
@@ -2499,18 +2495,18 @@ fn async_value_loop_results_use_declared_expression_types() {
             .replace("(#call identity (: value", "(#call identity (: token")
             .replace("(#break 42u64)", &format!("(#break {first})"))
             .replace("(#break awaited)", &format!("(#break {second})")));
-        build_and_run(&constructed, 42);
+        build_and_run_graph(&constructed, 42);
     }
     let blocked = called.replace(
         "(#break (#call identity (: value 42u64)))",
         "(#break (#block (#let local #u64 42u64) (#call identity (: value local))))",
     );
-    build_and_run(&blocked, 42);
+    build_and_run_graph(&blocked, 42);
     let conditional = called.replace(
         "(#break (#call identity (: value 42u64)))",
         "(#break (#if choose (#call identity (: value 42u64)) 0u64))",
     );
-    build_and_run(&conditional, 42);
+    build_and_run_graph(&conditional, 42);
 
     let invalid = format!(
         "(#fn wrong-type () #u32 (#return 42u32))\n{}",
@@ -2520,7 +2516,11 @@ fn async_value_loop_results_use_declared_expression_types() {
     let error = lim::compile_source_to_assembly(
         &invalid,
         &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
+        &{
+            let mut config = lim::CompileConfig::default();
+            config.set("async-lowering", "graph");
+            config
+        },
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
@@ -2528,7 +2528,7 @@ fn async_value_loop_results_use_declared_expression_types() {
     .expect("different declared break-result types must be rejected");
     assert_eq!(error.code, lim::DiagnosticCode::Type);
     assert!(error.span.is_some(), "{error:?}");
-    build_and_run(include_str!("../examples/async_loop_results.lim"), 42);
+    build_and_run_graph(include_str!("../examples/async_loop_results.lim"), 42);
 }
 
 #[test]
@@ -2565,52 +2565,56 @@ fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
         (#let result #u64 (#call run (: waker (#borrow waker))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 41);
-    assert!(generated.contains("loop-result-state"), "{generated}");
+    let generated = build_and_run_graph(source, 41);
+    assert_single_poll(&generated, "work-poll");
 
     let early_break = source.replace(
         "(#break awaited)",
         "(#if (#u64.== awaited 41u64) (#break 42u64) ())\n                (#break awaited)",
     );
     assert_ne!(early_break, source);
-    build_and_run(&early_break, 42);
+    build_and_run_graph(&early_break, 42);
     let fallthrough = early_break.replace("(#u64.== awaited 41u64)", "(#u64.== awaited 0u64)");
-    build_and_run(&fallthrough, 41);
+    build_and_run_graph(&fallthrough, 41);
     let branch_only = source.replace(
         "(#break awaited)",
         "(#if (#u64.== awaited 41u64) (#break 42u64) (#break awaited))",
     );
-    build_and_run(&branch_only, 42);
+    build_and_run_graph(&branch_only, 42);
     let branch_fallthrough =
         branch_only.replace("(#u64.== awaited 41u64)", "(#u64.== awaited 0u64)");
-    build_and_run(&branch_fallthrough, 41);
+    build_and_run_graph(&branch_fallthrough, 41);
     let branch_match = branch_only.replace(
         "(#if (#u64.== awaited 41u64) (#break 42u64) (#break awaited))",
         "(#match (#u64.== awaited 41u64) (#case true (#break 42u64)) (#case false (#break awaited)))",
     );
-    build_and_run(&branch_match, 42);
+    build_and_run_graph(&branch_match, 42);
     let nested_branch = branch_only.replace(
         "(#if (#u64.== awaited 41u64)",
         "(#let inner #u32 (#loop (#break 7u32)))\n                (#assert (#u32.== inner 7u32))\n                (#if (#u64.== awaited 41u64)",
     );
-    build_and_run(&nested_branch, 42);
+    build_and_run_graph(&nested_branch, 42);
     let outer_value = branch_only
         .replace("(#fn work () #u64", "(#fn work ((fallback #u64)) #u64")
         .replace("(#call work ())", "(#call work (: fallback 42u64))")
         .replace("(#break 42u64)", "(#break fallback)");
     assert_ne!(outer_value, branch_only);
-    build_and_run(&outer_value, 42);
+    build_and_run_graph(&outer_value, 42);
     let nested_loop = early_break.replace(
         "(#if (#u64.== awaited 41u64)",
         "(#let nested #u64 (#loop (#break 7u64)))\n                (#assert (#u64.== nested 7u64))\n                (#if (#u64.== awaited 41u64)",
     );
-    build_and_run(&nested_loop, 42);
+    build_and_run_graph(&nested_loop, 42);
     let invalid = early_break.replace("(#break 42u64)", "(#break 42u32)");
     let scratch = support::Scratch::new("async-value-loop-break-type");
     let error = lim::compile_source_to_assembly(
         &invalid,
         &scratch.path().join("main.lim"),
-        &lim::CompileConfig::default(),
+        &{
+            let mut config = lim::CompileConfig::default();
+            config.set("async-lowering", "graph");
+            config
+        },
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
@@ -2627,7 +2631,7 @@ fn async_value_loop_expression_can_be_suspended_in_a_call_argument() {
         error.span.is_some(),
         "break type mismatch needs a source span"
     );
-    build_and_run(include_str!("../examples/async_loop_breaks.lim"), 42);
+    build_and_run_graph(include_str!("../examples/async_loop_breaks.lim"), 42);
 }
 
 #[test]
@@ -2670,18 +2674,18 @@ fn async_value_loop_break_moves_linear_payload_across_pending() {
         (#let result #u64 (#call run (: waker (#borrow waker))))
         (#forget waker)
         (#return result))";
-    build_and_run(source, 41);
+    build_and_run_graph(source, 41);
     let early_break = source.replace(
         "(#break token)",
         "(#if (#u64.== (#get token value) 41u64) (#break token) ())\n                (#break token)",
     );
     assert_ne!(early_break, source);
-    build_and_run(&early_break, 41);
+    build_and_run_graph(&early_break, 41);
     let branch_only = source.replace(
         "(#break token)",
         "(#if (#u64.== (#get token value) 41u64) (#break token) (#break token))",
     );
-    build_and_run(&branch_only, 41);
+    build_and_run_graph(&branch_only, 41);
 }
 
 #[test]
@@ -2713,8 +2717,8 @@ fn async_value_loop_statement_can_discard_a_copy_break_result() {
               (#block (#forget pending-again) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("loop-result-state"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -4419,7 +4423,9 @@ fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
             (#if (#u64.== value 0u64)
               (ChildPending (Waiting 1u64))
               (ChildReady value))))))
-      (@#async-fn (: protocol work-await : waker #u64 : function
+      (#fn cancel-child ((task Child)) () (#forget task) (#return ()))
+      (@#async-fn (: protocol work-await : waker #u64
+        : cancel (cancel-work ((await-0 cancel-child))) : function
         (#fn work ((choose #bool) (view (#ref #u64))) #u64
           (#let result #u64
             (#if choose
@@ -4434,7 +4440,7 @@ fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
             : waker (#borrow waker))))
         (#let-else (work-pending pending) Work-poll-result first (#unreachable))
         CHECK_HERE
-        (#forget pending)
+        (#call cancel-work (: task (#call work-poll-cleanup (: task pending))))
         (#set owner 42u64)
         (#let immediate Work-poll-result
           (#call work-poll (: task (#call work (: choose false : view (#borrow owner)))
@@ -4447,18 +4453,17 @@ fn async_conditional_choice_captures_and_releases_a_borrow_on_cancel() {
         (#return answer))";
 
     let rejected = source.replace("CHECK_HERE", "(#set owner 40u64)");
-    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    let error = graph_compile_error(&rejected, "async-conditional-pending-borrow");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
         "{error}"
     );
 
     let accepted = source.replace("CHECK_HERE", "");
-    let generated = build_and_run(&accepted, 83);
-    assert!(
-        generated.contains("(view (#ref #u64))"),
-        "the frame must retain the live external borrow: {generated}"
-    );
+    let generated = build_and_run_graph(&accepted, 83);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -4582,13 +4587,15 @@ fn async_function_retains_external_borrows_across_pending() {
         (#forget waker)
         (#return (#u64.+.wrap owner result)))";
     let accepted = source.replace("MUTATE_WHILE_PENDING", "");
-    build_and_run(&accepted, 77);
+    build_and_run_graph(&accepted, 77);
 
     let rejected = source.replace(
         "MUTATE_WHILE_PENDING",
         "(#set owner (#u64.+.wrap owner 1u64))",
     );
-    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    let error = graph_compile_error(&rejected, "async-shared-external-pending-mutation");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("mutate") || error.contains("loan"),
         "{error}"
@@ -4598,7 +4605,9 @@ fn async_function_retains_external_borrows_across_pending() {
         "(#fn main () #u64",
         "(#fn escape () Read-after-await-task\n          (#let owner #u64 3u64)\n          (#return (#call read-after-await (: view (#borrow owner)))))\n      (#fn main () #u64",
     );
-    let error = lim::check_types(&lim::parse_program(&escaping).unwrap()).unwrap_err();
+    let error = graph_compile_error(&escaping, "async-shared-external-escape");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("local") || error.contains("outlive") || error.contains("borrow"),
         "{error}"
@@ -4640,10 +4649,12 @@ fn async_function_retains_mutable_external_borrows_across_pending() {
         (#set owner 39u64)
         (#return (#u64.+.wrap result owner)))";
     let accepted = source.replace("READ_WHILE_PENDING", "");
-    build_and_run(&accepted, 77);
+    build_and_run_graph(&accepted, 77);
 
     let rejected = source.replace("READ_WHILE_PENDING", "(#let snapshot #u64 owner)");
-    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    let error = graph_compile_error(&rejected, "async-exclusive-external-pending-read");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
         "{error}"
@@ -4690,14 +4701,18 @@ fn pinned_async_frame_retains_an_external_pinned_borrow_across_pending() {
         "        (#let second Read-after-await-poll-result",
         "        (#set owner 99u64)\n        (#let second Read-after-await-poll-result",
     );
-    let error =
-        lim::check_types(&lim::parse_program(&mutation_while_pending).unwrap()).unwrap_err();
+    let error = graph_compile_error(
+        &mutation_while_pending,
+        "async-pinned-external-pending-mutation",
+    );
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("pinned") || error.contains("access"),
         "a suspended pinned frame must keep its external owner borrowed: {error}"
     );
 
-    let generated = build_and_run(source, 41);
+    let generated = build_and_run_graph(source, 41);
     assert!(generated.contains("(#pin-ref #u64)"), "{generated}");
 }
 
@@ -4710,7 +4725,9 @@ fn cancelling_a_pending_async_frame_releases_its_external_mutable_borrow() {
       (#fn step-poll ((task Step) (waker (#ref Waker))) StepPoll
         (#return (#match task
           (#case (Waiting count) (StepPending (Waiting count))))))
-      (@#async-fn (: protocol work-await : waker Waker : function
+      (#fn cancel-step ((task Step)) () (#forget task) (#return ()))
+      (@#async-fn (: protocol work-await : waker Waker
+        : cancel (cancel-work ((await-0 cancel-step))) : function
         (#fn work ((view (#ref-mut #u64))) #u64
           (#let result #u64
             (#await Step StepPending StepReady step-poll (Waiting 0u64)))
@@ -4723,14 +4740,16 @@ fn cancelling_a_pending_async_frame_releases_its_external_mutable_borrow() {
             : waker (#borrow waker))))
         (#let-else (work-pending pending) Work-poll-result first (#unreachable))
         WHILE_PENDING
-        (#forget pending)
+        (#call cancel-work (: task (#call work-poll-cleanup (: task pending))))
         (#set owner 42u64)
         (#return owner))";
     let accepted = source.replace("WHILE_PENDING", "");
-    lim::check_types(&lim::parse_program(&accepted).unwrap()).unwrap();
+    build_and_run_graph(&accepted, 42);
 
     let rejected = source.replace("WHILE_PENDING", "(#set owner 40u64)");
-    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    let error = graph_compile_error(&rejected, "async-cancel-exclusive-borrow");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
         "{error}"
@@ -4740,9 +4759,11 @@ fn cancelling_a_pending_async_frame_releases_its_external_mutable_borrow() {
         .replace("#ref-mut", "#ref")
         .replace("#borrow-mut owner", "#borrow owner");
     let accepted = shared.replace("WHILE_PENDING", "");
-    lim::check_types(&lim::parse_program(&accepted).unwrap()).unwrap();
+    build_and_run_graph(&accepted, 42);
     let rejected = shared.replace("WHILE_PENDING", "(#set owner 40u64)");
-    let error = lim::check_types(&lim::parse_program(&rejected).unwrap()).unwrap_err();
+    let error = graph_compile_error(&rejected, "async-cancel-shared-borrow");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access"),
         "{error}"
@@ -4832,15 +4853,12 @@ fn async_function_lowers_await_in_terminal_binding_block() {
             (#case (work-pending task) (#block (#forget task) (#unreachable)))))
         (#forget waker)
         (#return value))";
-    let generated = build_and_run(source, 17);
-    assert!(generated.contains(".choice-"), "{generated}");
-    let frame_declaration = generated
-        .lines()
-        .find(|line| line.contains("(#enum Work-task "))
-        .expect("generated async frame");
+    let generated = build_and_run_graph(source, 17);
+    assert_single_poll(&generated, "work-poll");
+    // A source input consumed before poll must not become a cancellation slot.
     assert!(
-        !frame_declaration.contains("task-input"),
-        "branch-local setup must not become a suspended-frame capture: {frame_declaration}"
+        !generated.contains("Work-task-cleanup-task-input"),
+        "{generated}"
     );
 }
 
@@ -4875,8 +4893,8 @@ fn async_function_resumes_a_child_await_inside_a_while_loop() {
               (#block (#forget pending-again) (#unreachable)))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(&source, 2);
-    assert!(generated.contains("-wait"), "{generated}");
+    let generated = build_and_run_graph(&source, 2);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -4920,8 +4938,8 @@ fn async_while_body_suspends_inside_a_call_argument() {
                          42u64 0u64)))",
         env!("CARGO_MANIFEST_DIR")
     );
-    let generated = build_and_run(&source, 42);
-    assert!(generated.contains("-body-frame"), "{generated}");
+    let generated = build_and_run_graph(&source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -4965,15 +4983,15 @@ fn async_for_body_suspends_inside_a_call_argument() {
                          42u64 0u64)))",
         env!("CARGO_MANIFEST_DIR")
     );
-    let generated = build_and_run(&source, 42);
-    assert!(generated.contains("-body-frame"), "{generated}");
+    let generated = build_and_run_graph(&source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
 fn async_function_resumes_a_child_await_in_a_while_condition() {
     let source = include_str!("../examples/async_fn_while_condition.lim");
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("-wait"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
