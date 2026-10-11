@@ -2106,24 +2106,30 @@ pub fn check_source_with_generated_sources(
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
     let _stage = timing::stage("expansion");
-    let (program, capture_plans) = expand_prepared_program(&prepared)
-        .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    let (mut owned, capture_plans, graph_output) =
+        expand_prepared_owned_program(&prepared, config, "check")
+            .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
     let _stage = timing::stage("materialize_generated_sources");
-    write_prepared_generated_sources(
+    write_prepared_expanded_sources(
         &prepared,
         generated_directory,
         Some(cache_directory),
         &capture_plans,
+        graph_output.as_deref(),
     )
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
     let _stage = timing::stage("semantic_validate");
-    let summaries = semantic_cache::Session::begin(cache_directory, &program, config, "check");
-    typecheck::CheckedProgram::validate_with_span(&program).map_err(
-        |(message, code, span, labels)| analysis_diagnostic(message, code, span, labels, &program),
-    )?;
-    summaries.publish();
+    let summaries = owned
+        .needs_validation()
+        .then(|| semantic_cache::Session::begin(cache_directory, owned.program(), config, "check"));
+    owned.validate().map_err(|(message, code, span, labels)| {
+        analysis_diagnostic(message, code, span, labels, owned.program())
+    })?;
+    if let Some(summaries) = summaries {
+        summaries.publish();
+    }
     Ok(())
 }
 
@@ -2174,30 +2180,39 @@ fn compile_source_with_artifacts(
     .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
     let _stage = timing::stage("expansion");
-    let (program, capture_plans) = expand_prepared_program(&prepared)
-        .map_err(|message| generator_diagnostic(message, source_path, source))?;
+    let (mut owned, capture_plans, graph_output) =
+        expand_prepared_owned_program(&prepared, config, &format!("{target:?}"))
+            .map_err(|message| generator_diagnostic(message, source_path, source))?;
     drop(_stage);
     if let Some(directory) = generated_directory {
         let _stage = timing::stage("materialize_generated_sources");
-        write_prepared_generated_sources(
+        write_prepared_expanded_sources(
             &prepared,
             directory,
             Some(cache_directory),
             &capture_plans,
+            graph_output.as_deref(),
         )
         .map_err(|message| generator_diagnostic(message, source_path, source))?;
     }
     let _stage = timing::stage("semantic_validate");
-    let summaries =
-        semantic_cache::Session::begin(cache_directory, &program, config, &format!("{target:?}"));
-    let checked = typecheck::CheckedProgram::validate_with_span(&program).map_err(
-        |(message, code, span, labels)| analysis_diagnostic(message, code, span, labels, &program),
-    )?;
-    summaries.publish();
-    drop(summaries);
+    let summaries = owned.needs_validation().then(|| {
+        semantic_cache::Session::begin(
+            cache_directory,
+            owned.program(),
+            config,
+            &format!("{target:?}"),
+        )
+    });
+    owned.validate().map_err(|(message, code, span, labels)| {
+        analysis_diagnostic(message, code, span, labels, owned.program())
+    })?;
+    if let Some(summaries) = summaries {
+        summaries.publish();
+    }
     drop(_stage);
     if let Some(output) = output {
-        for file in &program.source_files {
+        for file in &owned.program().source_files {
             if file.path.exists() {
                 reject_source_output_collision(&file.path, output)
                     .map_err(|error| Diagnostic::new(DiagnosticCode::Link, error.to_string()))?;
@@ -2205,12 +2220,14 @@ fn compile_source_with_artifacts(
         }
     }
     let _stage = timing::stage("native_emission");
-    let assembly = if executable {
-        codegen::generate_checked_executable_assembly(&checked, target)
-    } else {
-        codegen::generate_checked_assembly(&checked, target)
-    };
-    assembly.map_err(|message| codegen_diagnostic(message, &program))
+    owned.with_checked(|checked| {
+        let assembly = if executable {
+            codegen::generate_checked_executable_assembly(checked, target)
+        } else {
+            codegen::generate_checked_assembly(checked, target)
+        };
+        assembly.map_err(|message| codegen_diagnostic(message, checked.program()))
+    })
 }
 
 fn analysis_diagnostic(

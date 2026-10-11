@@ -413,6 +413,33 @@ pub(crate) fn expand_prepared_program(
     expand_prepared_program_with_route(prepared, prepared.async_route)
 }
 
+pub(crate) fn expand_prepared_owned_program(
+    prepared: &PreparedProgramSyntax,
+    config: &CompileConfig,
+    target: &str,
+) -> Result<
+    (
+        typecheck::OwnedProgram,
+        ExpansionPlans,
+        Option<Vec<super::async_emit::Generated>>,
+    ),
+    SourceError,
+> {
+    if prepared.async_route == AsyncRoute::Graph
+        && prepared.expressions.iter().any(is_async_invocation)
+    {
+        let (program, generated) = graph_generated_owned_program(
+            prepared,
+            prepared.capture_cache_directory.as_deref(),
+            Some((config, target)),
+        )?;
+        Ok((program, ExpansionPlans::new(), Some(generated)))
+    } else {
+        let (program, plans) = expand_prepared_program(prepared)?;
+        Ok((typecheck::OwnedProgram::new(program), plans, None))
+    }
+}
+
 /// One selection for executable and inspectable output. Keep legacy production
 /// emission until graph storage and public frame interfaces cover existing users.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -427,6 +454,15 @@ fn graph_generated_program(
     prepared: &PreparedProgramSyntax,
     cache_directory: Option<&Path>,
 ) -> Result<(Program, Vec<super::async_emit::Generated>), SourceError> {
+    let (program, generated) = graph_generated_owned_program(prepared, cache_directory, None)?;
+    Ok((program.into_program(), generated))
+}
+
+fn graph_generated_owned_program(
+    prepared: &PreparedProgramSyntax,
+    cache_directory: Option<&Path>,
+    validation_context: Option<(&CompileConfig, &str)>,
+) -> Result<(typecheck::OwnedProgram, Vec<super::async_emit::Generated>), SourceError> {
     let mut planning = super::async_prepare::prepare(prepared)?;
     planning.public_cleanup = true;
     let invocations = prepared
@@ -515,11 +551,18 @@ fn graph_generated_program(
         };
         generated.push(output);
     }
-    let program = super::async_emit::program(&planning, &generated)?;
+    let mut program =
+        typecheck::OwnedProgram::new(super::async_emit::program(&planning, &generated)?);
     // Planning is not an ownership proof. Validate both the original witnesses
     // and the emitted ordinary code before accepting or publishing graph output.
-    typecheck::CheckedProgram::validate_with_span(&program).map_err(
-        |(message, code, span, labels)| {
+    let summaries = cache_directory
+        .zip(validation_context)
+        .map(|(directory, (config, target))| {
+            crate::semantic_cache::Session::begin(directory, program.program(), config, target)
+        });
+    program
+        .validate()
+        .map_err(|(message, code, span, labels)| {
             let mut error = SourceError::new(message, code);
             if let Some(span) = span {
                 error = error.at(span);
@@ -527,9 +570,11 @@ fn graph_generated_program(
             for (span, message) in labels {
                 error = error.with_label(span, message);
             }
-            error.attach(&program.source_files)
-        },
-    )?;
+            error.attach(&program.program().source_files)
+        })?;
+    if let Some(summaries) = summaries {
+        summaries.publish();
+    }
     if let Some(directory) = cache_directory {
         for (index, key, origins) in staged {
             let output = &generated[index];
@@ -1376,6 +1421,41 @@ fn write_prepared_generated_sources_with_route(
     async_plans: &ExpansionPlans,
     route: AsyncRoute,
 ) -> Result<(), SourceError> {
+    write_prepared_generated_sources_reusing_graph(
+        prepared,
+        directory,
+        cache_directory,
+        async_plans,
+        route,
+        None,
+    )
+}
+
+pub(crate) fn write_prepared_expanded_sources(
+    prepared: &PreparedProgramSyntax,
+    directory: &Path,
+    cache_directory: Option<&Path>,
+    async_plans: &ExpansionPlans,
+    graph_output: Option<&[super::async_emit::Generated]>,
+) -> Result<(), SourceError> {
+    write_prepared_generated_sources_reusing_graph(
+        prepared,
+        directory,
+        cache_directory,
+        async_plans,
+        prepared.async_route,
+        graph_output,
+    )
+}
+
+fn write_prepared_generated_sources_reusing_graph(
+    prepared: &PreparedProgramSyntax,
+    directory: &Path,
+    cache_directory: Option<&Path>,
+    async_plans: &ExpansionPlans,
+    route: AsyncRoute,
+    retained_graph_output: Option<&[super::async_emit::Generated]>,
+) -> Result<(), SourceError> {
     let expanded = &prepared.expressions;
     let dependency_context = &prepared.dependency_context;
     let worker_functions = &prepared.worker_functions;
@@ -1405,12 +1485,15 @@ fn write_prepared_generated_sources_with_route(
             )
         })
         .collect::<HashMap<_, _>>();
-    let graph_output = if route == AsyncRoute::Graph && expanded.iter().any(is_async_invocation) {
+    let graph_output = if retained_graph_output.is_none()
+        && route == AsyncRoute::Graph
+        && expanded.iter().any(is_async_invocation)
+    {
         graph_generated_program(prepared, Some(&generated_cache))?.1
     } else {
         Vec::new()
     };
-    let mut graph_output = graph_output.into_iter();
+    let mut graph_output = retained_graph_output.unwrap_or(&graph_output).iter();
     let mut written_builtin_keys = HashSet::new();
     for expression in expanded {
         if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
@@ -1444,7 +1527,7 @@ fn write_prepared_generated_sources_with_route(
                 &generated_cache,
                 &key,
                 &origins,
-                || Ok(generated.source),
+                || Ok(generated.source.clone()),
             )?;
             continue;
         }
@@ -1550,6 +1633,48 @@ mod async_migration_tests {
     impl Drop for Scratch {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn graph_owned_expansion_retains_validation_and_materializes_without_rechecking() {
+        let scratch = Scratch::new();
+        let text =
+            source("(#return (#await Child ChildPending ChildReady child-poll (Start seed)))");
+        let mut config = CompileConfig::default();
+        config.set("async-lowering", "graph");
+        let prepared =
+            prepare_program_syntax(&text, Path::new("."), None, &config, Some(&scratch.0)).unwrap();
+        for _ in 0..2 {
+            let (mut owned, plans, generated) =
+                expand_prepared_owned_program(&prepared, &config, "check").unwrap();
+            typecheck::SEMANTIC_PASSES.with(|passes| passes.set(0));
+            let timing = crate::TimingSession::start();
+            owned.validate().unwrap();
+            write_prepared_expanded_sources(
+                &prepared,
+                &scratch.0,
+                Some(&scratch.0),
+                &plans,
+                generated.as_deref(),
+            )
+            .unwrap();
+            let events = timing.finish();
+            typecheck::SEMANTIC_PASSES.with(|passes| assert_eq!(passes.get(), 0));
+            assert!(
+                !events
+                    .iter()
+                    .any(|event| event.stage == "semantic.referent_contracts"),
+                "{events:?}"
+            );
+            owned.with_checked(|checked| {
+                assert!(checked.program().generator_validation.is_some());
+                crate::codegen::generate_checked_assembly(
+                    checked,
+                    crate::TargetDescription::X86_64_SYSTEM_V,
+                )
+                .unwrap();
+            });
         }
     }
 

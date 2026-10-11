@@ -204,9 +204,35 @@ Seven-sample medians on the same host, with 128 unrelated record declarations:
 These are in-process source-to-assembly measurements, excluding executable
 encoding/linking and process startup. Each cold sample has a new cache; each
 warm sample follows an unmeasured compilation into that cache. The small
-changes do not establish a reliable end-to-end speedup. Semantic work dominates
-the larger fixture: expansion still validates the generated program and source
-witnesses, then compilation validates the same program again. Reusing that
+changes do not establish a reliable end-to-end speedup. At that checkpoint,
+semantic work dominated the larger fixture: expansion validated the generated
+program and source witnesses, then compilation validated it again. Reusing that
 checked result must preserve its association with immutable syntax and the
 fail-closed publication boundary, not trust mutable public programs or cache
 metadata.
+
+The compiler now retains that proof in a private owned syntax/declarations pair.
+Native emission borrows this exact immutable program; extracting a mutable
+public `Program` discards the proof. Compilation and checking also materialize
+the already-validated graph sources rather than expanding and validating again.
+Semantic summaries are loaded and published at the initial graph validation,
+using the caller's configuration and target. Cache publication still follows
+successful source-witness and generated-code validation, including on cache hits.
+
+Seven-sample medians after validation reuse, compared with the immediately
+preceding shared-classification implementation above:
+
+| Async functions | Cache | Before reuse | After reuse |
+| --- | --- | ---: | ---: |
+| 1 | Cold | 36.987 ms | 24.242 ms |
+| 1 | Warm | 32.098 ms | 18.908 ms |
+| 8 | Cold | 248.198 ms | 156.130 ms |
+| 8 | Warm | 209.228 ms | 117.217 ms |
+
+The eight-function fixture improves approximately 37% cold and 44% warm.
+The remaining top-level `semantic_validate` stage is a proof-presence check,
+measured below 0.001 ms; mandatory semantic checks remain inside expansion.
+Expansion still dominates (135.534 ms cold / 96.948 ms warm); referent contracts
+remain a substantial nested detail (~50 ms). Detailed events are inclusive and
+must not be summed with the enclosing stages. These results do not certify
+graph-default migration or complete reuse of source facts across all planners.

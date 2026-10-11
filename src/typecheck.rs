@@ -231,6 +231,50 @@ pub(crate) type AnalysisError = (
     Vec<(crate::Span, String)>,
 );
 
+/// Own syntax and its optional validation together. No mutable syntax accessor
+/// is exposed: extracting the program discards the proof, while emission borrows
+/// precisely the program whose declarations were checked.
+pub(crate) struct OwnedProgram {
+    program: Program,
+    declarations: Option<Declarations>,
+}
+
+impl OwnedProgram {
+    pub(crate) fn new(program: Program) -> Self {
+        Self {
+            program,
+            declarations: None,
+        }
+    }
+
+    pub(crate) fn program(&self) -> &Program {
+        &self.program
+    }
+
+    pub(crate) fn into_program(self) -> Program {
+        self.program
+    }
+
+    pub(crate) fn needs_validation(&self) -> bool {
+        self.declarations.is_none()
+    }
+
+    pub(crate) fn validate(&mut self) -> Result<(), AnalysisError> {
+        if self.declarations.is_none() {
+            self.declarations = Some(resolve_program(&self.program)?);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn with_checked<R>(mut self, emit: impl FnOnce(&CheckedProgram<'_>) -> R) -> R {
+        let declarations = self.declarations.take().expect("validated owned program");
+        emit(&CheckedProgram {
+            program: &self.program,
+            declarations,
+        })
+    }
+}
+
 impl<'a> CheckedProgram<'a> {
     pub(crate) fn validate_with_span(program: &'a Program) -> Result<Self, AnalysisError> {
         let declarations = resolve_program(program)?;
@@ -311,6 +355,26 @@ thread_local! {
 #[cfg(test)]
 mod checked_program_tests {
     use super::*;
+
+    #[test]
+    fn owned_validation_reuses_declarations_and_extraction_discards_the_proof() {
+        let mut owned =
+            OwnedProgram::new(crate::parse_program("(#fn main () #u64 (#return 42u64))").unwrap());
+        owned.validate().unwrap();
+        let declarations = owned.declarations.as_ref().unwrap() as *const Declarations;
+        owned.validate().unwrap();
+        assert_eq!(
+            declarations,
+            owned.declarations.as_ref().unwrap() as *const Declarations
+        );
+        let mut extracted = owned.into_program();
+        extracted.items = crate::parse_program("(#fn main () #u64 (#return true))")
+            .unwrap()
+            .items;
+        let mut changed = OwnedProgram::new(extracted);
+        assert!(changed.validate().is_err());
+        assert!(changed.declarations.is_none());
+    }
 
     #[test]
     fn implicit_clone_hooks_contribute_to_native_call_depths() {
