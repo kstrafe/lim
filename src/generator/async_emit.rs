@@ -854,6 +854,33 @@ impl<'a> Emitter<'a> {
             })
     }
 
+    fn clear_scope(&self, bindings: &[BindingId]) -> Result<String, Error> {
+        let mut remaining = bindings.iter().rev().copied().collect::<Vec<_>>();
+        let mut output = Vec::new();
+        while !remaining.is_empty() {
+            let next = remaining
+                .iter()
+                .position(|candidate| {
+                    !remaining.iter().any(|other| {
+                        other != candidate
+                            && self.bindings.get(other).is_some_and(|index| {
+                                let slot = &self.slots[*index];
+                                slot.dependencies.contains(candidate)
+                                    || slot.anchor.as_ref().is_some_and(|anchors| {
+                                        anchors.iter().any(|anchor| {
+                                            anchor.root
+                                                == crate::typed_body::PlaceRoot::Local(*candidate)
+                                        })
+                                    })
+                            })
+                    })
+                })
+                .ok_or_else(|| fail(self.function, "cyclic async scope-exit dependency"))?;
+            output.push(self.clear_binding(remaining.remove(next)));
+        }
+        Ok(output.join("\n"))
+    }
+
     fn clear_values(&mut self, values: &[ValueId]) -> String {
         let slots = values
             .iter()
@@ -2275,11 +2302,7 @@ impl<'a> Emitter<'a> {
                 ))
             }
             Action::ScopeEnter(_) => Ok(String::new()),
-            Action::ScopeExit(bindings) => Ok(bindings
-                .iter()
-                .map(|binding| self.clear_binding(*binding))
-                .collect::<Vec<_>>()
-                .join("\n")),
+            Action::ScopeExit(bindings) => self.clear_scope(bindings),
             Action::Borrow { dst: Some(dst), .. } if self.immediate.get(*dst).is_some() => {
                 Ok(String::new())
             }
@@ -2967,18 +2990,15 @@ impl<'a> Emitter<'a> {
                     },
                     _ => None,
                 };
-                let owning_binding = |binding: BindingId| {
+                let storage_owner = |binding: BindingId| {
                     !matches!(
                         graph.bindings[binding.0].ty,
                         Type::Reference { .. } | Type::PinnedReference { .. } | Type::PinOwned(_)
-                    ) && self
-                        .bindings
-                        .get(&binding)
-                        .is_some_and(|slot| !self.slots[*slot].copy)
+                    ) && self.bindings.contains_key(&binding)
                 };
-                let touches_owner = owner.is_some_and(owning_binding)
+                let touches_owner = owner.is_some_and(storage_owner)
                     || matches!(&action.action, Action::ScopeExit(bindings)
-                        if bindings.iter().copied().any(owning_binding));
+                        if bindings.iter().copied().any(storage_owner));
                 // Publish checked state facts immediately before owner access.
                 // Earlier facts may have been invalidated by an unsafe call.
                 if let Some(plan) = self
@@ -3383,6 +3403,49 @@ mod tests {
     }
 
     #[test]
+    fn scope_cleanup_uses_borrow_dependencies_instead_of_input_order() {
+        let planning = prepare_generator(
+            "#async-fn-pinned",
+            "(#fn work (: seed #u64) #u64
+          (#let owner #u64 seed)
+          (#let view (#ref #u64) (#borrow owner))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#return (#u64.+.wrap (#deref view) extra)))",
+            "",
+        );
+        let function = &planning.functions[0];
+        let mut emitter = Emitter::new(&planning, function).unwrap();
+        let binding = |name| {
+            BindingId(
+                function
+                    .graph
+                    .bindings
+                    .iter()
+                    .position(|binding| binding.name == name)
+                    .unwrap(),
+            )
+        };
+        let owner = binding("owner");
+        let view = binding("view");
+        let owner_slot = emitter.bindings[&owner];
+        let view_slot = emitter.bindings[&view];
+        for bindings in [[owner, view], [view, owner]] {
+            let output = emitter.clear_scope(&bindings).unwrap();
+            assert!(
+                output.find(&emitter.slots[view_slot].clear).unwrap()
+                    < output.find(&emitter.slots[owner_slot].clear).unwrap()
+            );
+        }
+        emitter.slots[owner_slot].dependencies.push(view);
+        assert!(emitter
+            .clear_scope(&[view, owner])
+            .err()
+            .unwrap()
+            .message
+            .contains("cyclic async scope-exit dependency"));
+    }
+
+    #[test]
     fn selected_external_parameter_has_a_lifetime_bearing_capture() {
         let planning = prepare_generator(
             "#async-fn-pinned",
@@ -3484,7 +3547,19 @@ mod tests {
             crate::TargetDescription::X86_64_SYSTEM_V,
         )
         .unwrap();
-        let mut child = Command::new(&binary).spawn().unwrap();
+        let launch_deadline = Instant::now() + Duration::from_secs(5);
+        let mut child = loop {
+            match Command::new(&binary).spawn() {
+                Ok(child) => break child,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::ExecutableFileBusy
+                        && Instant::now() < launch_deadline =>
+                {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) => panic!("cannot launch {}: {error}", binary.display()),
+            }
+        };
         let deadline = Instant::now() + Duration::from_secs(5);
         let status = loop {
             if let Some(status) = child.try_wait().unwrap() {

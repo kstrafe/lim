@@ -196,8 +196,9 @@ Cold/warm native tests and independent ordinary artifacts cover
 field arguments. An aliasing variant still fails with an original-source borrow
 diagnostic. The heap-owner example now preserves nested reference-slot
 provenance and passes native and standalone generated-source regressions.
-A root-example check audit passes 35/42 examples with no timeouts; the
-remaining seven failures still prevent the default-route switch.
+A root-example check audit passes 36/42 examples with no timeouts; the
+remaining six legacy frame/cancellation interface failures still prevent the
+default-route switch.
 
 ## Compilation measurements
 
@@ -277,3 +278,18 @@ nested contents therefore remain available to ordinary call-contract checking.
 Mutable access and pinned frames keep the existing guarded lowering. The
 `async_heap_reference.lim` regression checks cold and warm compilation, native
 execution, and independent ordinary checking of the emitted source.
+
+### Scope-exit reference retirement
+
+Scope exit clears reference handles before the local storage they borrow. It
+uses captured borrow dependencies and anchor identities, with reverse lexical
+order for otherwise independent bindings. A dependency cycle is rejected, not
+treated as permission to destroy borrowed storage. Linear cell clearing still
+requires the value to have been consumed; this does not add implicit destruction.
+
+Graph-proved Empty reference-cell assertions are published before accesses to
+Copy owners as well as linear owners. Copy does not permit mutation of borrowed
+storage. This also excludes impossible incoming self-reference states when
+initializing a local in an earlier dispatcher case. The local self-reference
+example now passes repeated polling and native cold/warm regressions without
+adding explicit reference drops to its source.

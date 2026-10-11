@@ -58,6 +58,15 @@ fn rejected(body: &str, label: &str, conflict: &str, occurrence: usize) {
 }
 
 #[test]
+fn scope_exit_retires_implicit_shared_handles_before_their_local_owner() {
+    run_native(
+        include_str!("../examples/async_fn_local_self_reference.lim"),
+        "async-scope-exit-local-reference",
+        42,
+    );
+}
+
+#[test]
 fn rejects_shared_then_mutable_alias_while_local_loan_is_live_across_await() {
     rejected(
         "(#let-mut owner #u64 40u64)
