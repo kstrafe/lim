@@ -8679,7 +8679,10 @@ impl FunctionContext<'_> {
                 return Ok(());
             }
         }
-        Err("large array return requires an array value or local".into())
+        // Large array dereferences and other checked aggregate expressions
+        // share the ordinary indirect destination path. In particular, do
+        // not force a pinned array payload through the value registers.
+        self.store_indirect_value_words(value, &self.return_type.clone(), 0)
     }
 
     fn return_array_value(&mut self, length: usize, value: &Expr) -> Result<(), String> {
@@ -15584,6 +15587,19 @@ impl FunctionContext<'_> {
         let words = storage_word_count(ty, &self.structs, &self.enums)?;
         if slots.len() != words {
             return Err("aggregate temporary has an inconsistent layout".into());
+        }
+        if let (Expr::String(string), Type::Array(element, length)) = (value, ty) {
+            if !matches!(element.as_ref(), Type::Char) || string.chars().count() != *length {
+                return Err("string length does not match array aggregate type".into());
+            }
+            for (slot, character) in slots.iter().zip(string.chars()) {
+                self.output.push_str(&format!(
+                    "    mov QWORD PTR [rbp-{}], {}\n",
+                    slot * 8,
+                    character as u32
+                ));
+            }
+            return Ok(());
         }
         if words > VALUE_REGISTERS.len() {
             if let Expr::List(items) = value {

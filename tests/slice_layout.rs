@@ -38,6 +38,58 @@ fn native_exit(source: &str, expected: i32, case: &str) {
 }
 
 #[test]
+fn large_array_dereference_returns_preserve_local_static_and_pinned_layout() {
+    let array = "(#array #u64 8)";
+    let values = "(#array-of (#array #u64 8) 1u64 2u64 3u64 4u64 5u64 6u64 7u64 42u64)";
+    for (case, declarations, reference, argument) in [
+        (
+            "local",
+            format!("(#let values {array} {values})"),
+            "#ref",
+            "(#borrow values)",
+        ),
+        (
+            "pinned",
+            format!("(#let values {array} {values})"),
+            "#pin-ref",
+            "(#pin-borrow values)",
+        ),
+        (
+            "static",
+            String::new(),
+            "#ref",
+            "(#unsafe (#borrow Values))",
+        ),
+    ] {
+        let source = format!(
+            "(#static Values {array} {values})
+          (#fn snapshot (: values ({reference} {array})) {array}
+            (#return (#deref values)))
+          (#fn main () #u64 {declarations}
+            (#let copied {array} (#call snapshot (: values {argument})))
+            (#assert (#u64.== (#index copied 0usize) 1u64))
+            (#return (#index copied 7usize)))"
+        );
+        native_exit(&source, 42, case);
+    }
+}
+
+#[test]
+fn large_string_array_payloads_use_aggregate_destinations() {
+    native_exit(
+        r#"
+      (#enum Message ((Text (#array #char 14))))
+      (#fn message () Message (#return (Text "abcdefghijklm*")))
+      (#fn main () #u64
+        (#return (#match (#call message ())
+          (#case (Text characters) (#as (#index characters 13usize) #u64)))))
+    "#,
+        42,
+        "large string array payload",
+    );
+}
+
+#[test]
 fn local_array_borrow_to_slice_in_helper() {
     native_exit(
         r#"
