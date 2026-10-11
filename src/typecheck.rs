@@ -22987,6 +22987,50 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn staged_stored_pointer_borrow_reads_keep_initialized_boundary() {
+        let source = "(#struct Resource (: value #u64)) (#linear Resource)
+          (#struct Holder (: view (#ref Resource)))
+          (#fn read (: holder (#ref Holder)) #u64
+            (#return (#get (#get holder view) value)))
+          (#fn inspect (: anchor (#ref Resource) : address (#ptr Resource)) #u64
+            (#let holder Holder (#struct-literal Holder
+              (: view (#unsafe (#ptr-borrow anchor address)))))
+            (#return (#call read (: holder (#borrow holder)))))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        let summaries = declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .unwrap();
+        let summary = &summaries[&declarations.function_id("inspect").unwrap()];
+        assert!(summary.unresolved_reads.is_empty());
+        assert!(
+            summary.entry_reads.is_empty(),
+            "the anchor is not the physical pointee"
+        );
+    }
+
+    #[test]
+    fn staged_stored_pointer_borrow_does_not_prove_owned_consumption() {
+        let source = "(#struct Resource (: value #u64)) (#linear Resource)
+          (#struct Holder (: view (#ref-mut Resource)))
+          (#fn consume (: holder (#ref-mut Holder)) ()
+            (#forget (#deref (#get holder view))) (#return ()))
+          (#fn inspect (: anchor (#ref-mut Resource) : address (#ptr-mut Resource)) ()
+            (#let-mut holder Holder (#struct-literal Holder
+              (: view (#unsafe (#ptr-borrow-mut anchor address)))))
+            (#call consume (: holder (#borrow-mut holder)))
+            (#forget holder) (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
+        let types = crate::linearcheck::LinearTypes::from_program(&program);
+        assert!(declarations
+            .staged_contents_referent_entry_contracts(&types)
+            .is_err());
+    }
+
+    #[test]
     fn staged_direct_mixed_pointer_borrow_reads_keep_physical_inputs() {
         let source = "(#fn inspect (: anchor (#ref #u64) : other (#ref #u64)
                     : address (#ptr #u64) : choose #bool) #u64

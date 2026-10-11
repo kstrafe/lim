@@ -5991,6 +5991,19 @@ impl FlowGraph {
                                         continue;
                                     }
                                     if origin.lifetime_only {
+                                        // A selected stored reference retains the same unsafe
+                                        // initialized-pointee promise as a direct ptr-borrow.
+                                        // Selection must find the actual origin: this neither
+                                        // invents missing nested contents nor permits consumption.
+                                        if initialized_unsafe_reads
+                                            && !effect.definitely_consumed
+                                            && !effect
+                                                .referent_projection
+                                                .contains(&Segment::Dereference)
+                                        {
+                                            unsafe_initialized = true;
+                                            selected_alternative = true;
+                                        }
                                         continue;
                                     }
                                     let mut place = origin.referent_place();
