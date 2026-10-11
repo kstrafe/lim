@@ -106,8 +106,12 @@ after Ready and after public cleanup, retaining the original result of 58.
 An unguarded helper called while Pending is rejected by ordinary borrow
 checking, which underlines its receiver and labels its offending write. There
 is no ownership exemption for accessors and private cell names remain unstable.
-The existing direct-field example's migration and graph-default selection are
-still separate gates.
+`async_fn_self_reference.lim` now uses these source-named accessors for both
+Ready and cancellation, and drains its child through public cleanup. It keeps
+the same two frames and native result of 58. An additional source-body test
+reads Copy owner data while its shared self-references are retained; this legal
+read is supported by graph lowering, unlike the old shape-specific restriction.
+Graph-default selection and legacy removal remain separate gates.
 
 ## Current support and gates
 
@@ -294,9 +298,14 @@ Cold/warm native tests and independent ordinary artifacts cover
 field arguments. An aliasing variant still fails with an original-source borrow
 diagnostic. The heap-owner example now preserves nested reference-slot
 provenance and passes native and standalone generated-source regressions.
-A root-example check audit passes 38/42 examples with no timeouts; the
-remaining four legacy frame/cancellation interface failures still prevent the
-default-route switch.
+A fresh graph-default readiness audit compiles all 422 valid example cases,
+including programs with transitively imported async invocations. This is
+source-to-assembly evidence, not a claim that every graph-mode runtime outcome
+has been checked. Run it with `cargo test --test async_graph_readiness --
+--ignored --nocapture`; the broad test uses a 32 MiB thread stack like the staged
+contract audit. Default-route runtime verification and legacy removal remain
+required. Representation-specific legacy solver tests retain an explicitly
+named temporary fixture rather than depending on the migrated public example.
 
 ## Compilation measurements
 

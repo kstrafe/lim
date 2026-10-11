@@ -7,12 +7,13 @@ use std::{fs, process::Command, time::Duration};
 #[test]
 fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     let prefix = include_str!("../examples/async_fn_self_reference.lim")
-        .split("(#fn cancel-self-ref-state")
+        .split("(#fn main")
         .next()
         .unwrap()
         .replace("read-after-await", "work")
         .replace("Read-after-await", "Work")
-        .replace("ReadAfterAwaitAwait", "WorkAwait");
+        .replace("ReadAfterAwaitAwait", "WorkAwait")
+        .replace(": access (: owner work-owner)", "");
     let source = format!("{prefix}
       (#fn main () #u64 (#let waker #u64 0u64)
         (#let-mut frame Work-frame (#call work (: owner (#struct-literal Owner
@@ -218,12 +219,13 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
 #[test]
 fn requested_parameter_access_is_public_cached_and_independently_checked() {
     let prefix = include_str!("../examples/async_fn_self_reference.lim")
-        .split("(#fn cancel-self-ref-state")
+        .split("(#fn main")
         .next()
         .unwrap()
         .replace("read-after-await", "work")
         .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait")
+        .replace(": access (: owner work-owner)", "")
         .replace(
             ": protocol WorkAwait",
             ": protocol WorkAwait : access (: owner work-owner)",

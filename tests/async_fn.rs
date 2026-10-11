@@ -1178,8 +1178,8 @@ fn pinned_async_frames_reject_stack_pins_captured_across_suspension() {
 }
 
 #[test]
-fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel() {
-    let source = include_str!("../examples/async_fn_self_reference.lim");
+fn legacy_pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel() {
+    let source = include_str!("fixtures/legacy_async_self_reference.lim");
     let generated = build_and_run(source, 58);
     assert!(
         generated.contains(

@@ -10818,6 +10818,21 @@ mod generation_planning_tests {
 mod typed_ownership_tests {
     use super::*;
 
+    // These staged solver comparisons deliberately examine the legacy state
+    // representation. Keep its old fixture explicit while public examples
+    // migrate; the native manifest and graph regressions check current code.
+    fn legacy_reference_program(root: &std::path::Path, name: &str) -> crate::Program {
+        let path = if name == "async_fn_self_reference" {
+            root.join("tests/fixtures/legacy_async_self_reference.lim")
+        } else {
+            root.join("examples").join(format!("{name}.lim"))
+        };
+        let source = std::fs::read_to_string(&path).unwrap();
+        let mut config = crate::CompileConfig::default();
+        config.set("async-lowering", "legacy");
+        crate::parse_program_from_path_with_config(&source, &path, &config).unwrap()
+    }
+
     fn typed_owner_error(source: &str) -> Option<crate::typed_flow::ReleaseConflict> {
         let program = crate::parse_program(source).unwrap();
         let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -16074,9 +16089,7 @@ mod typed_ownership_tests {
             "async_fn_self_reference",
             "async_fn_enum_self_reference",
         ] {
-            let path = root.join("examples").join(format!("{name}.lim"));
-            let source = std::fs::read_to_string(&path).unwrap();
-            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let program = legacy_reference_program(root, name);
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             declarations.staged_parameter_contents_summaries();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -17191,9 +17204,7 @@ mod typed_ownership_tests {
                 "read-after-await-pending",
             ),
         ] {
-            let path = root.join("examples").join(format!("{example}.lim"));
-            let source = std::fs::read_to_string(&path).unwrap();
-            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let program = legacy_reference_program(root, example);
             crate::check_types(&program).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
             let body = &declarations.bodies[poll];
@@ -17517,9 +17528,7 @@ mod typed_ownership_tests {
             ("async_fn_self_reference", "frame"),
             ("async_fn_enum_self_reference", "frame"),
         ] {
-            let path = root.join("examples").join(format!("{name}.lim"));
-            let source = std::fs::read_to_string(&path).unwrap();
-            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let program = legacy_reference_program(root, name);
             crate::check_types(&program).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
             let body = &declarations.bodies["main"];
@@ -17547,9 +17556,7 @@ mod typed_ownership_tests {
             "async_fn_self_reference",
             "async_fn_enum_self_reference",
         ] {
-            let path = root.join("examples").join(format!("{name}.lim"));
-            let source = std::fs::read_to_string(&path).unwrap();
-            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let program = legacy_reference_program(root, name);
             let checked = crate::CheckedProgram::validate(&program).unwrap();
             let declarations = checked.declarations();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -23375,9 +23382,7 @@ mod typed_ownership_tests {
             ("async_fn_self_reference", "read-after-await-poll"),
             ("async_fn_enum_self_reference", "read-after-await-poll"),
         ] {
-            let path = root.join("examples").join(format!("{name}.lim"));
-            let source = std::fs::read_to_string(&path).unwrap();
-            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let program = legacy_reference_program(root, name);
             crate::check_types(&program).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);
@@ -23461,9 +23466,7 @@ mod typed_ownership_tests {
                 "unresolved call inputs",
             ),
         ] {
-            let path = root.join("examples").join(format!("{name}.lim"));
-            let source = std::fs::read_to_string(&path).unwrap();
-            let program = crate::parse_program_from_path(&source, &path).unwrap();
+            let program = legacy_reference_program(root, name);
             crate::check_types(&program).unwrap();
             let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
             let types = crate::linearcheck::LinearTypes::from_program(&program);

@@ -153,6 +153,64 @@ fn public_cancellation_examples_use_cleanup_slots_not_legacy_state_variants() {
 }
 
 #[test]
+fn self_reference_example_uses_source_named_access_and_cleanup_on_the_same_frame() {
+    let source = include_str!("../examples/async_fn_self_reference.lim")
+        .replace("read-after-await", "work")
+        .replace("Read-after-await", "Work")
+        .replace("ReadAfterAwaitAwait", "WorkAwait");
+    let artifact = run_expected(&source, "async-graph-self-reference-example", 58);
+    assert!(artifact.contains("(#fn work-owner-replace "));
+    assert!(artifact.contains("(#fn work-owner-read "));
+    assert!(artifact.contains("(#struct Work-frame-cleanup"));
+    assert!(!source.contains("work-poll-cancel"));
+    assert!(!source.contains("work-frame-await-0"));
+    assert!(!source.contains("(#set-field frame owner"));
+    assert!(!source.contains("(#set-field cancelled owner"));
+}
+
+#[test]
+fn self_reference_graph_pending_handle_blocks_frame_destruction() {
+    let original = include_str!("../examples/async_fn_self_reference.lim");
+    let prefix = original
+        .split("  (#let second Read-after-await-poll-result")
+        .next()
+        .unwrap();
+    let source = format!("{prefix}
+      (#forget frame)
+      (#let second Read-after-await-poll-result
+        (#call read-after-await-poll (: task pending-frame : waker (#borrow waker))))
+      (#return (#match second (#case (read-after-await-ready value) value)
+        (#case (read-after-await-pending unexpected) (#block (#forget unexpected) (#unreachable))))))");
+    let scratch = support::Scratch::new("async-graph-self-reference-pending");
+    let error = lim::compile_source_to_assembly(
+        &source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .expect_err("the parent frame must remain alive through a live Pending handle");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.unwrap();
+    let start = source.find("(#forget frame)").unwrap();
+    assert!(
+        span.start >= start && span.end <= start + "(#forget frame)".len(),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn graph_allows_reading_copy_owner_data_while_shared_self_references_are_retained() {
+    let source = include_str!("../examples/async_fn_self_reference.lim")
+        .replace("read-after-await", "work")
+        .replace("Read-after-await", "Work")
+        .replace("ReadAfterAwaitAwait", "WorkAwait")
+        .replace("(#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result)",
+            "(#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result) (#get (#get owner payload) left))");
+    run_expected(&source, "async-graph-self-reference-owner-read", 98);
+}
+
+#[test]
 fn enum_self_reference_example_checks_and_runs_as_standalone_graph_code() {
     let source = include_str!("../examples/async_fn_enum_self_reference.lim")
         .replace("read-after-await", "work")
