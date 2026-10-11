@@ -6756,6 +6756,7 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
         (#return result))"#
     );
     build_and_run_partial_storage(&cancelled, 42);
+
     let explicit_cancel = cancelled
         .replace("(#struct Pair (: left Resource : right Resource))", "(#struct Pair (: left Resource : right Resource)) (#linear Pair)")
         .replace("Work-task-cleanup moved left right waiting", "Work-task-cleanup moved left right shell waiting")
@@ -6807,6 +6808,137 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
     ] {
         let invalid = source.replace(needle, replacement);
         let error = graph_compile_error(&invalid, "partial-storage-invalid");
+        assert!(error.message.contains(expected), "{error:?}");
+        assert!(error.span.is_some(), "{error:?}");
+    }
+}
+
+#[test]
+fn async_rebuilds_nested_partially_moved_structs() {
+    let source = r#"
+      (#struct Resource (: value #u64))
+      (#linear Resource)
+      (#struct Pair (: left Resource : right Resource))
+      (#struct Outer (: inner Pair : spare Resource))
+      (#enum Step ((Start #u64) (Resume #u64)))
+      (#linear Step)
+      (#enum StepPoll ((Pending Step) (Ready #u64)))
+      (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+        (#return (#match task
+          (#case (Start value) (Pending (Resume value)))
+          (#case (Resume value) (Ready value)))))
+      (@#async-fn (: protocol WorkAwait : waker #u64 : function
+        (#fn work () #u64
+          (#let-mut owner Outer (#struct-literal Outer
+            (: inner (#struct-literal Pair
+               (: left (#struct-literal Resource (: value 20u64))
+                : right (#struct-literal Resource (: value 22u64))))
+             : spare (#struct-literal Resource (: value 3u64)))))
+          (#let moved Resource (#get (#get owner inner) left))
+          (#let delta #u64 (#await #u64 Step Pending Ready step-poll (Start 2u64)))
+          (#let old #u64 (#get moved value))
+          (#forget moved)
+          (#let sibling Resource (#get (#get owner inner) right))
+          (#set-field owner inner (#struct-literal Pair
+            (: left (#struct-literal Resource (: value (#u64.+.wrap old delta)))
+             : right sibling)))
+          (#let result #u64 (#u64.+.wrap
+            (#get (#get (#get owner inner) left) value)
+            (#get (#get (#get owner inner) right) value)))
+          (#forget owner)
+          (#return result))))
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result (#call work-poll
+          (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (work-pending task) Work-poll-result first (#unreachable))
+        (#return (#match (#call work-poll (: task task : waker (#borrow waker)))
+          (#case (work-ready result) result)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#;
+    let generated = build_and_run_partial_storage(source, 44);
+    assert_single_poll(&generated, "work-poll");
+    let explicit = source.replace(
+        "(#struct Outer (: inner Pair : spare Resource))",
+        "(#struct Outer (: inner Pair : spare Resource)) (#linear Outer)",
+    );
+    build_and_run_partial_storage(&explicit, 44);
+
+    let prefix = source.split_once("(#fn main () #u64").unwrap().0;
+    let pinned = prefix
+        .replace("@#async-fn ", "@#async-fn-pinned ")
+        .replace("(#let moved Resource", "(#let view (#ref Resource) (#borrow (#get (#get owner inner) right))) (#let moved Resource")
+        .replace("(#let sibling Resource", "(#assert (#u64.== (#get view value) 22u64)) (#drop view) (#let sibling Resource");
+    let pinned = format!(
+        r#"{pinned}
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let-mut frame Work-frame (#call work (:)))
+        (#let first Work-poll-result (#call work-poll
+          (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let result #u64 (#match (#call work-poll (: task pending : waker (#borrow waker)))
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame)
+        (#return result))"#
+    );
+    build_and_run_partial_storage(&pinned, 44);
+
+    let cancelled = format!(
+        r#"{prefix}
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result (#call work-poll
+          (: task (#call work (:)) : waker (#borrow waker))))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let (Work-task-cleanup moved left right spare waiting) Work-task-cleanup
+          (#call work-poll-cleanup (: task pending)))
+        (#match left
+          (#case Work-task-cleanup-owner.inner.left-empty ())
+          (#case (Work-task-cleanup-owner.inner.left-full unexpected) (#block (#forget unexpected) (#unreachable))))
+        (#let-else (Work-task-cleanup-moved-full original) Work-task-cleanup-moved moved (#unreachable))
+        (#let-else (Work-task-cleanup-owner.inner.right-full sibling) Work-task-cleanup-owner.inner.right right (#unreachable))
+        (#forget spare) (#forget waiting)
+        (#let result #u64 (#u64.+.wrap (#get original value) (#get sibling value)))
+        (#forget original) (#forget sibling)
+        (#return result))"#
+    );
+    build_and_run_partial_storage(&cancelled, 42);
+
+    let nominal_prefix = prefix.split_once("(#let old #u64").unwrap().0.replace(
+        "(#struct Pair (: left Resource : right Resource))",
+        "(#struct Pair (: left Resource : right Resource)) (#linear Pair)",
+    );
+    let nominal_main = cancelled.split_once("(#fn main () #u64").unwrap().1
+        .replace("Work-task-cleanup moved left right spare waiting", "Work-task-cleanup moved left right spare shell waiting")
+        .replace("(#forget spare)", "(#assert (#variant-is (#borrow shell) Work-task-cleanup-owner.inner.shell-full)) (#forget shell) (#forget spare)");
+    let nominal_cancel =
+        format!("{nominal_prefix}(#return (#unreachable)))))\n(#fn main () #u64{nominal_main}");
+    build_and_run_partial_storage(&nominal_cancel, 42);
+
+    let parameter = source
+        .replace("(#fn work () #u64", "(#fn work ((#mut owner Outer)) #u64")
+        .replace("(#let-mut owner Outer (#struct-literal Outer\n            (: inner (#struct-literal Pair\n               (: left (#struct-literal Resource (: value 20u64))\n                : right (#struct-literal Resource (: value 22u64))))\n             : spare (#struct-literal Resource (: value 3u64)))))", "")
+        .replace("(#call work (:))", "(#call work (: owner (#struct-literal Outer (: inner (#struct-literal Pair (: left (#struct-literal Resource (: value 20u64)) : right (#struct-literal Resource (: value 22u64)))) : spare (#struct-literal Resource (: value 3u64))))))");
+    assert!(!parameter.contains("(#let-mut owner Outer"));
+    build_and_run_partial_storage(&parameter, 44);
+
+    let deep = source
+        .replace("(#struct Pair (: left Resource : right Resource))", "(#struct Box (: resource Resource)) (#struct Pair (: left Box : right Resource))")
+        .replace(": left (#struct-literal Resource (: value 20u64))", ": left (#struct-literal Box (: resource (#struct-literal Resource (: value 20u64))))")
+        .replace("(#let moved Resource (#get (#get owner inner) left))", "(#let moved Resource (#get (#get (#get owner inner) left) resource))")
+        .replace(": left (#struct-literal Resource (: value (#u64.+.wrap old delta)))", ": left (#struct-literal Box (: resource (#struct-literal Resource (: value (#u64.+.wrap old delta)))))")
+        .replace("(#get (#get (#get owner inner) left) value)", "(#get (#get (#get (#get owner inner) left) resource) value)");
+    assert_ne!(deep, source);
+    build_and_run_partial_storage(&deep, 44);
+
+    for (input, replacement, expected) in [
+        (source, "(#let duplicate Resource (#get (#get owner inner) left)) (#forget duplicate) (#let delta #u64", "more than once"),
+        (pinned.as_str(), "(#let overlap (#ref-mut Resource) (#borrow-mut (#get (#get owner inner) right))) (#drop overlap) (#let delta #u64", "borrow"),
+    ] {
+        let invalid = input.replace("(#let delta #u64", replacement);
+        let error = graph_compile_error(&invalid, "nested-storage-invalid");
         assert!(error.message.contains(expected), "{error:?}");
         assert!(error.span.is_some(), "{error:?}");
     }

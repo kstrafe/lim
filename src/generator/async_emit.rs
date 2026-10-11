@@ -63,15 +63,47 @@ struct OwnedIndex {
 }
 
 struct AggregateField {
-    id: crate::typed_ir::FieldId,
+    path: Vec<crate::typed_ir::FieldId>,
     name: String,
     slot: usize,
 }
 
+struct AggregateShell {
+    path: Vec<crate::typed_ir::FieldId>,
+    name: String,
+    slot: usize,
+    alive: String,
+}
+
 struct Aggregate {
-    constructor: String,
+    shape: crate::generator::async_aggregate::Shape,
     fields: Vec<AggregateField>,
-    shell: Option<(usize, String)>,
+    shells: Vec<AggregateShell>,
+}
+
+impl Aggregate {
+    fn cells(&self) -> impl Iterator<Item = usize> + '_ {
+        self.fields
+            .iter()
+            .map(|field| field.slot)
+            .chain(self.shells.iter().map(|shell| shell.slot))
+    }
+
+    fn shape(
+        &self,
+        path: &[crate::typed_ir::FieldId],
+    ) -> Option<&crate::generator::async_aggregate::Shape> {
+        let mut shape = &self.shape;
+        for id in path {
+            shape = shape
+                .fields
+                .iter()
+                .find(|field| field.id == *id)?
+                .nested
+                .as_deref()?;
+        }
+        Some(shape)
+    }
 }
 
 struct Emitter<'a> {
@@ -288,7 +320,16 @@ impl<'a> Emitter<'a> {
             let mut fields = Vec::new();
             for field in layout.fields {
                 let slot = emitter.add_slot(
-                    format!("binding.{}.field.{}", layout.binding.0, field.id.index),
+                    format!(
+                        "binding.{}.field.{}",
+                        layout.binding.0,
+                        field
+                            .path
+                            .iter()
+                            .map(|id| id.index.to_string())
+                            .collect::<Vec<_>>()
+                            .join(".")
+                    ),
                     field.ty,
                 );
                 if types.contains_reference(&emitter.slots[slot].ty) {
@@ -298,45 +339,18 @@ impl<'a> Emitter<'a> {
                         .clone();
                 }
                 fields.push(AggregateField {
-                    id: field.id,
+                    path: field.path,
                     name: field.name,
                     slot,
                 });
             }
-            let explicit_owner = types
-                .linear_obligation_paths(&function.graph.bindings[layout.binding.0].ty)
-                .iter()
-                .any(Vec::is_empty);
-            let shell = if explicit_owner {
-                let name = format!(
-                    "{}-{}-shell",
-                    emitter.frame, function.graph.bindings[layout.binding.0].name
-                );
-                if !emitter.reserved.borrow_mut().insert(name.clone()) {
-                    return Err(fail(function, format!("async ownership marker '{name}' conflicts with an existing declaration")));
-                }
-                let full = emitter.fresh("AggregateAlive");
-                emitter
-                    .projections
-                    .push(format!("(#enum {name} ({full}))\n(#linear {name})"));
-                let slot = emitter.add_slot(
-                    format!("binding.{}.shell", layout.binding.0),
-                    Type::Named(name),
-                );
-                // This generated nominal marker has an explicit ownership
-                // obligation, although it is absent from source type metadata.
-                emitter.slots[slot].copy = false;
-                emitter.slots[slot].linear = true;
-                Some((slot, full))
-            } else {
-                None
-            };
+            let shells = emitter.aggregate_shells(layout.binding, &layout.shape)?;
             emitter.aggregates.insert(
                 layout.binding,
                 Aggregate {
-                    constructor: layout.constructor,
+                    shape: layout.shape,
                     fields,
-                    shell,
+                    shells,
                 },
             );
         }
@@ -855,16 +869,11 @@ impl<'a> Emitter<'a> {
             _ => unreachable!(),
         };
         let part = if !external && prefix > 0 {
-            self.aggregates.get(&binding).and_then(|aggregate| {
-                let Some(Segment::Field(id)) = place.segments.first() else {
-                    return None;
-                };
-                aggregate.fields.iter().find(|field| field.id == *id)
-            })
+            self.anchor_field(binding, &place.segments[..prefix])
         } else {
             None
         };
-        let skip = usize::from(part.is_some());
+        let skip = part.map_or(0, |part| part.path.len());
         let owner = &self.slots[if let Some(part) = part {
             part.slot
         } else if external {
@@ -1087,19 +1096,8 @@ impl<'a> Emitter<'a> {
             }
             let index = match place.root {
                 crate::typed_body::PlaceRoot::Local(binding) => self
-                    .aggregates
-                    .get(&binding)
-                    .and_then(|aggregate| {
-                        let Some(crate::typed_place::Segment::Field(id)) = place.segments.first()
-                        else {
-                            return None;
-                        };
-                        aggregate
-                            .fields
-                            .iter()
-                            .find(|field| field.id == *id)
-                            .map(|field| field.slot)
-                    })
+                    .anchor_field(binding, &place.segments)
+                    .map(|field| field.slot)
                     .unwrap_or(self.bindings[&binding]),
                 crate::typed_body::PlaceRoot::Parameter(binding) => self
                     .external_captures
@@ -1312,27 +1310,138 @@ impl<'a> Emitter<'a> {
                 .get(&binding)
                 .map_or_else(|| expression.to_owned(), |slot| self.put(*slot, expression));
         };
-        let names = aggregate
+        self.put_aggregate(aggregate, &[], expression)
+    }
+
+    fn aggregate_shells(
+        &mut self,
+        binding: BindingId,
+        shape: &crate::generator::async_aggregate::Shape,
+    ) -> Result<Vec<AggregateShell>, Error> {
+        fn visit<'a>(
+            shape: &'a crate::generator::async_aggregate::Shape,
+            path: Vec<crate::typed_ir::FieldId>,
+            name: String,
+            output: &mut Vec<(Vec<crate::typed_ir::FieldId>, String, &'a Type)>,
+        ) {
+            output.push((path.clone(), name.clone(), &shape.ty));
+            for field in &shape.fields {
+                if let Some(nested) = &field.nested {
+                    let mut path = path.clone();
+                    path.push(field.id);
+                    let name = if name.is_empty() {
+                        field.name.clone()
+                    } else {
+                        format!("{name}.{}", field.name)
+                    };
+                    visit(nested, path, name, output);
+                }
+            }
+        }
+        let mut shapes = Vec::new();
+        visit(shape, Vec::new(), String::new(), &mut shapes);
+        let mut shells = Vec::new();
+        for (path, prefix, ty) in shapes {
+            if !self
+                .types
+                .linear_obligation_paths(ty)
+                .iter()
+                .any(Vec::is_empty)
+            {
+                continue;
+            }
+            let suffix = if prefix.is_empty() {
+                "shell".into()
+            } else {
+                format!("{prefix}.shell")
+            };
+            let name = format!(
+                "{}-{}-{suffix}",
+                self.frame, self.function.graph.bindings[binding.0].name
+            );
+            if !self.reserved.borrow_mut().insert(name.clone()) {
+                return Err(fail(
+                    self.function,
+                    format!(
+                        "async ownership marker '{name}' conflicts with an existing declaration"
+                    ),
+                ));
+            }
+            let alive = self.fresh("AggregateAlive");
+            self.projections
+                .push(format!("(#enum {name} ({alive}))\n(#linear {name})"));
+            let slot = self.add_slot(format!("binding.{}.{suffix}", binding.0), Type::Named(name));
+            self.slots[slot].copy = false;
+            self.slots[slot].linear = true;
+            shells.push(AggregateShell {
+                path,
+                name: suffix,
+                slot,
+                alive,
+            });
+        }
+        Ok(shells)
+    }
+
+    fn aggregate_pattern(
+        &self,
+        aggregate: &Aggregate,
+        path: &[crate::typed_ir::FieldId],
+        names: &mut HashMap<usize, String>,
+    ) -> String {
+        let shape = aggregate.shape(path).expect("checked aggregate subtree");
+        let fields = shape
             .fields
             .iter()
-            .map(|_| self.fresh("aggregate-part"))
-            .collect::<Vec<_>>();
-        let ty = crate::type_source(&self.function.graph.bindings[binding.0].ty);
-        let mut stores = aggregate
+            .map(|field| {
+                let mut path = path.to_vec();
+                path.push(field.id);
+                if field.nested.is_some() {
+                    self.aggregate_pattern(aggregate, &path, names)
+                } else {
+                    let slot = aggregate
+                        .fields
+                        .iter()
+                        .find(|part| part.path == path)
+                        .unwrap()
+                        .slot;
+                    let name = self.fresh("aggregate-part");
+                    names.insert(slot, name.clone());
+                    name
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("({} {fields})", shape.constructor)
+    }
+
+    fn put_aggregate(
+        &self,
+        aggregate: &Aggregate,
+        path: &[crate::typed_ir::FieldId],
+        expression: &str,
+    ) -> String {
+        let mut names = HashMap::new();
+        let pattern = self.aggregate_pattern(aggregate, path, &mut names);
+        let stores = aggregate
             .fields
             .iter()
-            .zip(&names)
-            .map(|(field, name)| self.put(field.slot, name))
+            .filter_map(|field| {
+                names
+                    .get(&field.slot)
+                    .map(|name| self.put(field.slot, name))
+            })
+            .chain(
+                aggregate
+                    .shells
+                    .iter()
+                    .filter(|shell| shell.path.starts_with(path))
+                    .map(|shell| self.put(shell.slot, &format!("({})", shell.alive))),
+            )
             .collect::<Vec<_>>()
             .join("\n");
-        if let Some((slot, alive)) = &aggregate.shell {
-            stores.push_str(&format!("\n{}", self.put(*slot, &format!("({alive})"))));
-        }
-        format!(
-            "(#block (#let ({} {}) {ty} {expression})\n{stores}\n())",
-            aggregate.constructor,
-            names.join(" ")
-        )
+        let ty = crate::type_source(&aggregate.shape(path).unwrap().ty);
+        format!("(#block (#let {pattern} {ty} {expression})\n{stores}\n())")
     }
 
     fn read_binding(&self, binding: BindingId, transfer: bool) -> String {
@@ -1342,20 +1451,50 @@ impl<'a> Emitter<'a> {
                 .get(&binding)
                 .map_or_else(|| "()".into(), |slot| self.read(*slot, transfer));
         };
-        let fields = aggregate
+        self.read_aggregate(aggregate, &[], transfer)
+    }
+
+    fn read_aggregate(
+        &self,
+        aggregate: &Aggregate,
+        path: &[crate::typed_ir::FieldId],
+        transfer: bool,
+    ) -> String {
+        let shape = aggregate.shape(path).unwrap();
+        let fields = shape
             .fields
             .iter()
-            .map(|field| format!("({} {})", field.name, self.read(field.slot, transfer)))
+            .map(|field| {
+                let mut path = path.to_vec();
+                path.push(field.id);
+                let value = if field.nested.is_some() {
+                    self.read_aggregate(aggregate, &path, transfer)
+                } else {
+                    self.read(
+                        aggregate
+                            .fields
+                            .iter()
+                            .find(|part| part.path == path)
+                            .unwrap()
+                            .slot,
+                        transfer,
+                    )
+                };
+                format!("({} {value})", field.name)
+            })
             .collect::<Vec<_>>()
             .join(" ");
-        let value = format!("(#struct-literal {} ({fields}))", aggregate.constructor);
+        let value = format!("(#struct-literal {} ({fields}))", shape.constructor);
         let clear_refs = if transfer {
             aggregate
                 .fields
                 .iter()
                 .filter(|field| {
                     let slot = &self.slots[field.slot];
-                    slot.copy && self.types.contains_reference(&slot.ty)
+                    field.path.starts_with(path)
+                        && field.path.len() == path.len() + 1
+                        && slot.copy
+                        && self.types.contains_reference(&slot.ty)
                 })
                 .map(|field| {
                     let slot = &self.slots[field.slot];
@@ -1372,10 +1511,12 @@ impl<'a> Emitter<'a> {
         };
         let shell = if transfer {
             aggregate
-                .shell
-                .as_ref()
-                .map(|(slot, _)| format!("(#forget {})", self.read(*slot, true)))
-                .unwrap_or_default()
+                .shells
+                .iter()
+                .filter(|shell| shell.path == path)
+                .map(|shell| format!("(#forget {})", self.read(shell.slot, true)))
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
             String::new()
         };
@@ -1383,7 +1524,7 @@ impl<'a> Emitter<'a> {
             return value;
         }
         let result = self.fresh("reconstructed-owner");
-        let ty = crate::type_source(&self.function.graph.bindings[binding.0].ty);
+        let ty = crate::type_source(&shape.ty);
         format!("(#block (#let {result} {ty} {value}) {clear_refs} {shell} {result})")
     }
 
@@ -1391,14 +1532,53 @@ impl<'a> Emitter<'a> {
         let AddressRoot::Local(binding) = descriptor.root else {
             return None;
         };
-        let Some(AddressProjection::Field(id)) = descriptor.projections.first() else {
-            return None;
-        };
         self.aggregates
             .get(&binding)?
             .fields
             .iter()
-            .find(|field| field.id == *id)
+            .find(|field| Self::projection_starts_with(&descriptor.projections, &field.path))
+    }
+
+    fn aggregate_exact_field(&self, descriptor: &PlaceDescriptor) -> Option<&AggregateField> {
+        self.aggregate_field(descriptor)
+            .filter(|field| field.path.len() == descriptor.projections.len())
+    }
+
+    fn projection_starts_with(
+        projections: &[AddressProjection],
+        path: &[crate::typed_ir::FieldId],
+    ) -> bool {
+        projections.len() >= path.len() && projections.iter().zip(path).all(|(projection, id)| matches!(projection, AddressProjection::Field(field) if field == id))
+    }
+
+    fn anchor_field(
+        &self,
+        binding: BindingId,
+        segments: &[crate::typed_place::Segment],
+    ) -> Option<&AggregateField> {
+        self.aggregates.get(&binding)?.fields.iter().find(|field| {
+            segments.len() >= field.path.len() && segments.iter().zip(&field.path).all(|(segment, id)| matches!(segment, crate::typed_place::Segment::Field(found) if found == id))
+        })
+    }
+
+    fn aggregate_subtree(
+        &self,
+        descriptor: &PlaceDescriptor,
+    ) -> Option<(&Aggregate, Vec<crate::typed_ir::FieldId>)> {
+        let AddressRoot::Local(binding) = descriptor.root else {
+            return None;
+        };
+        let aggregate = self.aggregates.get(&binding)?;
+        let path = descriptor
+            .projections
+            .iter()
+            .map(|projection| match projection {
+                AddressProjection::Field(id) => Some(*id),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        aggregate.shape(&path)?;
+        Some((aggregate, path))
     }
 
     fn slot_definitions(&self) -> String {
@@ -1513,10 +1693,7 @@ impl<'a> Emitter<'a> {
     fn clear_binding(&self, binding: BindingId) -> String {
         if let Some(aggregate) = self.aggregates.get(&binding) {
             return aggregate
-                .fields
-                .iter()
-                .map(|field| field.slot)
-                .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
+                .cells()
                 .map(|index| {
                     let slot = &self.slots[index];
                     format!(
@@ -2275,7 +2452,14 @@ impl<'a> Emitter<'a> {
             .get(&binding)
             .ok_or_else(|| reject("projected owner has no owning cell"))?];
         let part = self.aggregate_field(descriptor);
-        let (slot, skip) = part.map_or((root_slot, 0), |field| (&self.slots[field.slot], 1));
+        let (slot, skip) = part.map_or((root_slot, 0), |field| {
+            (&self.slots[field.slot], field.path.len())
+        });
+        if part.is_none() && self.aggregates.contains_key(&binding) {
+            return Err(reject(
+                "whole aggregate borrowing requires contiguous owning storage",
+            ));
+        }
         let mut ty = crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases)
             .map_err(|message| fail(self.function, message))?;
         // This reference exists only during the immediate leaf read. It is
@@ -2906,13 +3090,7 @@ impl<'a> Emitter<'a> {
         let mut field_slots = self
             .aggregates
             .values()
-            .flat_map(|aggregate| {
-                aggregate
-                    .fields
-                    .iter()
-                    .map(|field| field.slot)
-                    .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
-            })
+            .flat_map(Aggregate::cells)
             .collect::<Vec<_>>();
         field_slots.sort_unstable();
         let fields = field_slots
@@ -2923,12 +3101,7 @@ impl<'a> Emitter<'a> {
         let set_binding = |full: &mut Vec<bool>, binding: BindingId, initialized: bool| {
             full[binding.0] = initialized;
             if let Some(aggregate) = self.aggregates.get(&binding) {
-                for index in aggregate
-                    .fields
-                    .iter()
-                    .map(|field| field.slot)
-                    .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
-                {
+                for index in aggregate.cells() {
                     full[fields[&index]] = initialized;
                 }
             }
@@ -2990,26 +3163,47 @@ impl<'a> Emitter<'a> {
                                 }
                                 _ => {}
                             }
-                        } else if descriptor.projections.len() == 1 {
-                            if let Some(field) = self.aggregate_field(descriptor) {
-                                match &located.action {
-                                    Action::Store { .. } => full[fields[&field.slot]] = true,
-                                    Action::Release { .. } => full[fields[&field.slot]] = false,
-                                    Action::Load {
-                                        kind: LoadKind::Read,
-                                        ..
-                                    } if !self.types.can_repeat(&descriptor.ty)
-                                        && !matches!(
-                                            located.source.and_then(|source| self
-                                                .lending
-                                                .as_ref()?
-                                                .access(source)),
-                                            Some(crate::generator::async_lend::Access::Lend(_))
-                                        ) =>
+                        } else {
+                            let initialized = match &located.action {
+                                Action::Store { .. } => Some(true),
+                                Action::Release { .. } => Some(false),
+                                Action::Load {
+                                    kind: LoadKind::Read,
+                                    ..
+                                } if !self.types.can_repeat(&descriptor.ty)
+                                    && !matches!(
+                                        located.source.and_then(|source| self
+                                            .lending
+                                            .as_ref()?
+                                            .access(source)),
+                                        Some(crate::generator::async_lend::Access::Lend(_))
+                                    ) =>
+                                {
+                                    Some(false)
+                                }
+                                _ => None,
+                            };
+                            if let Some(initialized) = initialized {
+                                if let Some(field) = self.aggregate_exact_field(descriptor) {
+                                    full[fields[&field.slot]] = initialized;
+                                } else if let Some((aggregate, path)) =
+                                    self.aggregate_subtree(descriptor)
+                                {
+                                    for slot in aggregate
+                                        .fields
+                                        .iter()
+                                        .filter(|field| field.path.starts_with(&path))
+                                        .map(|field| field.slot)
+                                        .chain(
+                                            aggregate
+                                                .shells
+                                                .iter()
+                                                .filter(|shell| shell.path.starts_with(&path))
+                                                .map(|shell| shell.slot),
+                                        )
                                     {
-                                        full[fields[&field.slot]] = false
+                                        full[fields[&slot]] = initialized;
                                     }
-                                    _ => {}
                                 }
                             }
                         }
@@ -3077,16 +3271,29 @@ impl<'a> Emitter<'a> {
                     );
                     let projection = !projections.is_empty()
                         && (!matches!(located.action, Action::Place { .. } | Action::Store { .. })
-                            || projections.len() > 1);
+                            || self
+                                .aggregate_field(descriptor)
+                                .is_some_and(|field| projections.len() > field.path.len()));
                     let initialized = if let Some(field) = self.aggregate_field(descriptor) {
                         (!reads && !projection) || full[fields[&field.slot]]
                     } else if reads {
                         self.aggregates.get(binding).is_none_or(|aggregate| {
+                            let path = self
+                                .aggregate_subtree(descriptor)
+                                .map(|(_, path)| path)
+                                .unwrap_or_default();
                             aggregate
                                 .fields
                                 .iter()
+                                .filter(|field| field.path.starts_with(&path))
                                 .map(|field| field.slot)
-                                .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
+                                .chain(
+                                    aggregate
+                                        .shells
+                                        .iter()
+                                        .filter(|shell| shell.path.starts_with(&path))
+                                        .map(|shell| shell.slot),
+                                )
                                 .all(|slot| full[fields[&slot]])
                         })
                     } else {
@@ -3397,6 +3604,29 @@ impl<'a> Emitter<'a> {
                     ));
                 };
                 if !descriptor.projections.is_empty() {
+                    if let Some((aggregate, path)) = self.aggregate_subtree(descriptor) {
+                        if *kind == LoadKind::Clone {
+                            return Err(error(
+                                "whole aggregate cloning requires contiguous owning storage",
+                            ));
+                        }
+                        if matches!(
+                            located
+                                .source
+                                .and_then(|source| self.lending.as_ref()?.access(source)),
+                            Some(crate::generator::async_lend::Access::Lend(_))
+                        ) {
+                            return Err(error(
+                                "whole aggregate lending requires contiguous owning storage",
+                            ));
+                        }
+                        let read = self.read_aggregate(
+                            aggregate,
+                            &path,
+                            !self.types.can_repeat(&descriptor.ty),
+                        );
+                        return Ok(self.put_value(*dst, &read));
+                    }
                     if self.leases.get(*dst).is_some() {
                         self.owned_projection_address(*place, true)?;
                         return Ok(String::new());
@@ -3411,8 +3641,8 @@ impl<'a> Emitter<'a> {
                             format!("(#call {} (: {} {read}))", slot.lend, slot.lend_argument);
                         return Ok(self.put_value(*dst, &reborrow));
                     }
-                    if descriptor.projections.len() == 1 {
-                        if let Some(field) = self.aggregate_field(descriptor) {
+                    {
+                        if let Some(field) = self.aggregate_exact_field(descriptor) {
                             let index = field.slot;
                             let read = match kind {
                                 LoadKind::Read => self.read(index, !self.slots[index].copy),
@@ -3617,10 +3847,11 @@ impl<'a> Emitter<'a> {
                     ));
                 };
                 if !descriptor.projections.is_empty() {
-                    if descriptor.projections.len() == 1 {
-                        if let Some(field) = self.aggregate_field(descriptor) {
-                            return Ok(self.put(field.slot, &self.value(*value, true)));
-                        }
+                    if let Some((aggregate, path)) = self.aggregate_subtree(descriptor) {
+                        return Ok(self.put_aggregate(aggregate, &path, &self.value(*value, true)));
+                    }
+                    if let Some(field) = self.aggregate_exact_field(descriptor) {
+                        return Ok(self.put(field.slot, &self.value(*value, true)));
                     }
                     let (target, ty) = self.owned_projection_place(*place, true)?;
                     let value = self.value(*value, true);
@@ -3642,8 +3873,19 @@ impl<'a> Emitter<'a> {
                     ));
                 };
                 if !descriptor.projections.is_empty() {
-                    if descriptor.projections.len() == 1 {
-                        if let Some(field) = self.aggregate_field(descriptor) {
+                    if let Some((aggregate, path)) = self.aggregate_subtree(descriptor) {
+                        return Ok(format!(
+                            "(#{} {})",
+                            if *kind == ReleaseKind::Drop {
+                                "drop"
+                            } else {
+                                "forget"
+                            },
+                            self.read_aggregate(aggregate, &path, true)
+                        ));
+                    }
+                    {
+                        if let Some(field) = self.aggregate_exact_field(descriptor) {
                             let slot = &self.slots[field.slot];
                             if slot.copy && self.types.contains_reference(&slot.ty) {
                                 return Ok(format!(
@@ -4110,14 +4352,7 @@ impl<'a> Emitter<'a> {
                         .into_iter()
                         .collect::<Vec<_>>()
                 },
-                |aggregate| {
-                    aggregate
-                        .fields
-                        .iter()
-                        .map(|field| field.slot)
-                        .chain(aggregate.shell.iter().map(|(slot, _)| *slot))
-                        .collect()
-                },
+                |aggregate| aggregate.cells().collect(),
             )),
             Cell::Value(value) => self.values.get(value).map(|slot| vec![*slot]),
             Cell::Scope(scope) => self.scopes.get(scope).map(|slot| vec![*slot]),
@@ -4158,11 +4393,14 @@ impl<'a> Emitter<'a> {
                     })
                     .or_else(|| {
                         aggregate
-                            .shell
-                            .as_ref()
-                            .filter(|(slot, _)| *slot == index)
-                            .map(|_| {
-                                format!("{}.shell", self.function.graph.bindings[binding.0].name)
+                            .shells
+                            .iter()
+                            .find(|shell| shell.slot == index)
+                            .map(|shell| {
+                                format!(
+                                    "{}.{}",
+                                    self.function.graph.bindings[binding.0].name, shell.name
+                                )
                             })
                     })
             });
@@ -4795,23 +5033,18 @@ impl<'a> Emitter<'a> {
         aggregate_parameters.sort_by_key(|(binding, _)| binding.0);
         for (binding, aggregate) in aggregate_parameters {
             let parameter = &start_parameters[binding.0];
-            let names = aggregate
-                .fields
-                .iter()
-                .map(|_| self.fresh("aggregate-parameter"))
-                .collect::<Vec<_>>();
+            let mut names = HashMap::new();
+            let pattern = self.aggregate_pattern(aggregate, &[], &mut names);
             factory_captures.push(format!(
-                "(#let ({} {}) {} {})",
-                aggregate.constructor,
-                names.join(" "),
+                "(#let {pattern} {} {})",
                 crate::type_source(&parameter.ty),
                 parameter.name
             ));
-            for (field, name) in aggregate.fields.iter().zip(names) {
-                initial_parts.insert(field.slot, name);
+            for (slot, name) in names {
+                initial_parts.insert(slot, name);
             }
-            if let Some((slot, alive)) = &aggregate.shell {
-                initial_parts.insert(*slot, format!("({alive})"));
+            for shell in &aggregate.shells {
+                initial_parts.insert(shell.slot, format!("({})", shell.alive));
             }
         }
         for (index, slot) in self.slots.iter().enumerate() {
@@ -7796,6 +8029,51 @@ mod tests {
         let error = generate(&planning)
             .err()
             .expect("a missing leaf cannot be reconstructed");
+        assert!(
+            error.message.contains("initialized field storage"),
+            "{}",
+            error.message
+        );
+        let source = &planning.program.source_files[error.span.source_id as usize].source;
+        assert!(source[error.span.start..error.span.end].contains("owner"));
+    }
+
+    #[test]
+    fn nested_field_storage_rejects_missing_subtree_restoration() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let-mut owner Outer (#struct-literal Outer (: inner
+            (#struct-literal Pair
+              (: left (#struct-literal Resource (: value seed))
+               : right (#struct-literal Resource (: value 2u64)))))))
+          (#let moved Resource (#get (#get owner inner) left))
+          (#let delta #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#forget moved)
+          (#let sibling Resource (#get (#get owner inner) right))
+          (#set-field owner inner (#struct-literal Pair
+            (: left (#struct-literal Resource (: value delta)) : right sibling)))
+          (#forget owner) (#return seed))";
+        let declarations = format!(
+            "(#struct Resource (: value #u64)) (#linear Resource)
+             (#struct Pair (: left Resource : right Resource))
+             (#struct Outer (: inner Pair)) {RUN}"
+        );
+        let mut planning = prepare_function(function, &declarations);
+        assert!(generate(&planning).is_ok());
+        let graph = &mut planning.functions[0].graph;
+        let mut removed = 0;
+        for block in &mut graph.blocks {
+            block.actions.retain(|located| {
+                let remove = matches!(located.action, Action::Store { place, .. }
+                    if matches!(graph.places[place.0].root, AddressRoot::Local(_))
+                        && !graph.places[place.0].projections.is_empty());
+                removed += usize::from(remove);
+                !remove
+            });
+        }
+        assert_eq!(removed, 1);
+        let error = generate(&planning)
+            .err()
+            .expect("an incomplete subtree cannot be reconstructed");
         assert!(
             error.message.contains("initialized field storage"),
             "{}",

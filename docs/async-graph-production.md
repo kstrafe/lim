@@ -1596,8 +1596,8 @@ and verifies that reconstruction is rejected, rather than reading an Empty cell.
 The complete 231-test async integration suite passes, as does the emitter's
 missing-restoration regression.
 
-This is not complete recursive aggregate storage. Nested owning field moves
-still require further lowering, and borrowing an entire decomposed struct is
+At this stage, nested owning field moves still required further lowering (see
+the recursive-storage update below). Borrowing an entire decomposed struct is
 rejected because its cells do not form contiguous original-struct storage. Field
 layout selection is representation planning, not a replacement for source
 ownership analysis or ordinary generated-code validation.
@@ -1621,3 +1621,36 @@ Verification passes all 231 async integration tests and 225 selected async unit
 tests (three manual benchmarks ignored). A concurrent integration/unit run hit
 one existing 20-second aggregate-loop subprocess timeout; the integration suite
 passed on its subsequent isolated run without changing the timeout.
+
+## Recursive storage for nested partial struct moves
+
+Storage selection now follows complete checked field-identity paths. It splits
+only the nested struct nodes needed by projected consumption, leaving unrelated
+struct fields intact. Nested destructuring initializes the leaves once; a whole
+subtree store restores its descendant cells, and a whole subtree move rebuilds
+the original concrete type only from initialized descendants. Availability
+analysis tracks those descendant cells through the graph's fixed point, rather
+than treating the first field as one indivisible Full value.
+
+Borrow projection and internal-reference recovery start at the actual stored
+leaf and skip its entire checked path prefix. A pinned borrow of one nested
+sibling therefore retains its address while another sibling moves across an
+await. Each explicitly linear decomposed node has its own shell obligation,
+including nested nodes; cancellation names these with paths such as
+`owner.inner.shell` alongside `owner.inner.left` and `owner.inner.right`.
+
+`async_rebuilds_nested_partially_moved_structs` exercises local and parameter
+storage, three-level paths, pinned sibling borrows, ordinary and nominal-parent
+cancellation, repeated consumption rejection and conflicting borrow rejection.
+Positive cases execute cold and warm generated code and independently parsed
+ordinary Lim. A graph-corruption unit test removes a subtree restoration and
+checks that rebuilding the incomplete owner is rejected. The executable example
+is `examples/async_nested_partial_struct.lim`.
+
+Whole borrows or clones of a decomposed struct still need contiguous storage;
+this change does not pretend that independent cells form a native struct.
+Decomposition through tuple, array or enum-payload projections is also separate
+work. Original source and final ordinary generated-program validation remain
+mandatory, including on cache hits.
+Verification passes all 232 async integration tests, 226 selected async unit
+tests (three manual benchmarks ignored), and all five native example tests.
