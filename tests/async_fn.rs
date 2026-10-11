@@ -2797,8 +2797,8 @@ fn async_unit_loop_expression_can_be_suspended_in_a_call_argument() {
         (#let result #u64 (#call run (: waker (#borrow waker))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2835,8 +2835,8 @@ fn async_unit_while_expression_can_be_suspended_in_a_call_argument() {
         (#let result #u64 (#call run (: waker (#borrow waker))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 43);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 43);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2873,8 +2873,8 @@ fn async_for_range_expression_can_be_suspended_in_a_call_argument() {
         (#let result #u64 (#call run (: waker (#borrow waker))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 44);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 44);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2913,8 +2913,8 @@ fn async_for_expression_can_be_suspended_in_a_call_argument() {
         (#let result #u64 (#call run (: waker (#borrow waker))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 45);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 45);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -2950,8 +2950,8 @@ fn async_while_let_expression_can_be_suspended_in_a_call_argument() {
         (#let result #u64 (#call run (: waker (#borrow waker))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 46);
-    assert!(generated.contains("expression-frame"), "{generated}");
+    let generated = build_and_run_graph(source, 46);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -3320,8 +3320,8 @@ fn async_function_suspends_on_a_discarded_copy_await_in_a_block() {
               (#block (#forget unexpected) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll.dispatch"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -3525,8 +3525,8 @@ fn async_let_else_can_await_before_an_unreachable_failure() {
             (#case (work-pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return value))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll.dispatch"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -3557,8 +3557,8 @@ fn async_let_else_can_await_before_a_diverging_panic() {
             (#case (work-pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll.dispatch"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -3591,8 +3591,8 @@ fn async_let_else_can_suspend_in_one_panic_only_branch() {
             (#case (work-pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll.dispatch"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -3626,8 +3626,8 @@ fn async_let_else_can_suspend_in_one_panic_only_match_arm() {
             (#case (work-pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll.dispatch"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]
@@ -3658,8 +3658,8 @@ fn async_let_else_awaits_inside_an_assertion_before_unreachable() {
             (#case (work-pending pending) (#block (#forget pending) 0u64))))
         (#forget waker)
         (#return result))";
-    let generated = build_and_run(source, 42);
-    assert!(generated.contains("poll.dispatch"), "{generated}");
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
 }
 
 #[test]

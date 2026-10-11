@@ -933,6 +933,18 @@ loop regression now runs both scalar and linear results on graph explicitly,
 and attempts to reuse the consumed linear return are rejected instead of
 asserting a legacy-private enum name.
 
+### Public single-poll regression migration
+
+Eleven further regressions now select graph lowering explicitly: five unit
+loop expressions passed as call arguments, a discarded Copy await in a block,
+and five let-else failure forms involving await, panic, assertions, and
+unreachable control flow. Their original native programs and expected return
+values are unchanged. Generated output is checked for the public single-poll
+interface instead of legacy `expression-frame` or `poll.dispatch` names.
+This removes test dependencies on private staging layout without recreating
+legacy helper functions or weakening the source scenarios. It is not evidence
+that all graph-default failures or cancellation-interface differences are gone.
+
 ### Earlier audit
 
 A temporary graph default followed by `cargo test --test async_fn --quiet`
