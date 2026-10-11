@@ -334,9 +334,32 @@ capture mapping. A non-async unit regression verifies that split, and another
 checks that ambiguous destinations do not acquire strong tag facts. Semantic
 cache records include the new flag and use a versioned format boundary.
 
-Mixed selections involving pinned-reference parameters and effectful index
-windows remain unfinished default-switch gates. Poll-local mutable-slice
-projections are covered by the retained-capability path described below.
+Mixed pinned-reference selections now cover the same-kind local/external paths
+described below. Effectful index windows and the other public-interface gates
+remain unfinished. Poll-local mutable-slice projections are covered by the
+retained-capability path described below.
+
+### Local pin primitives and same-kind external selections
+
+The executable graph lowers `#pin` and `#pin-shared` as checked address borrows,
+not generic expressions whose local operand would be replaced by a value read.
+They preserve the checked source pin type and shared/exclusive mode. Original
+source validation still enforces permanent local immovability; this lowering
+does not permit moving a source-pinned local after forgetting its view.
+Pinning a local in a movable async frame reports the stationary-frame requirement
+at the source pin expression, rather than a generated projection error.
+
+Native regressions choose a shared or exclusive pinned reference to either a
+parent local or a caller's pinned object, retain the selected reference across
+Pending, and resume both branches. Indexed variants use local and external
+arrays with different lengths and change the index variable before suspension;
+the resumed read retains the originally selected element. Cancellation covers
+both whole-object choices. A conflicting write to the caller's pinned object
+while Pending remains live is rejected even inside `#unsafe`.
+
+An ordinary slice reference and a pinned reference cannot be branch alternatives
+of the same value: their types differ. These tests do not introduce an implicit
+pin upgrade/downgrade or prove arbitrary allocation/static mixed anchors.
 
 On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
 thin reference locals into stationary frame owners, including checked static

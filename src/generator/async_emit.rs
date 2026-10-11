@@ -2366,6 +2366,12 @@ impl<'a> Emitter<'a> {
         pinned: bool,
     ) -> Result<String, Error> {
         if matches!(descriptor.root, AddressRoot::Local(_)) {
+            if pinned && !self.pinned {
+                return Err(fail(
+                    self.function,
+                    "pinning a local requires a pinned async frame",
+                ));
+            }
             // A movable poll is stationary while executing. Its internal
             // handles were certified Empty on every Pending boundary in new;
             // this does not make a source pin movable or grant borrow access.

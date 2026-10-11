@@ -1501,11 +1501,13 @@ impl Builder<'_> {
                 }
                 Ok((end, dst))
             }
-            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" => {
+            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut" | "pin" | "pin-shared" => {
                 if !matches!(children.len(), 2 | 3) {
                     return Err(error(Some(source), "invalid borrow arity"));
                 }
-                if children.len() == 3 && matches!(head, "pin-borrow" | "pin-borrow-mut") {
+                if children.len() == 3
+                    && matches!(head, "pin-borrow" | "pin-borrow-mut" | "pin" | "pin-shared")
+                {
                     return Err(error(Some(source), "unsupported scoped pinned borrow"));
                 }
                 let (end, place) = self.address(children[1], block)?;
@@ -1526,7 +1528,7 @@ impl Builder<'_> {
                     Action::Borrow {
                         dst: (!scoped).then_some(dst),
                         place,
-                        mutable: matches!(head, "borrow-mut" | "pin-borrow-mut"),
+                        mutable: matches!(head, "borrow-mut" | "pin-borrow-mut" | "pin"),
                         pinned,
                         scope: scoped.then_some(source),
                     },
@@ -2825,6 +2827,41 @@ mod tests {
             |located| matches!(&located.action, Action::ScopeEnter(bindings)
                 if bindings.contains(&failure_commit.bindings[0]))
         ));
+    }
+
+    #[test]
+    fn local_pin_primitives_lower_to_checked_address_borrows() {
+        let (lowered, declarations) = prepare_with_context(
+            "",
+            "(#fn work (: seed #u64) #u64
+              (#let-mut local #u64 seed)
+              (#let shared (#pin-ref #u64) (#pin-shared local))
+              (#let first #u64 (#deref shared)) (#forget shared)
+              (#let exclusive (#pin-ref-mut #u64) (#pin local))
+              (#let answer #u64 (#deref exclusive)) (#forget exclusive)
+              (#return (#u64.+.wrap first answer)))",
+        );
+        let graph = build(&declarations.bodies[&lowered.body_name], &[]).unwrap();
+        let borrows = graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .filter_map(|located| match located.action {
+                Action::Borrow {
+                    place,
+                    mutable,
+                    pinned,
+                    scope,
+                    ..
+                } => {
+                    assert!(matches!(graph.places[place.0].root, AddressRoot::Local(_)));
+                    assert!(scope.is_none());
+                    Some((mutable, pinned))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(borrows, vec![(false, true), (true, true)]);
     }
 
     #[test]

@@ -10940,6 +10940,96 @@ fn graph_selected_reference_mixes_slice_and_external_reference_targets() {
 }
 
 #[test]
+fn graph_pinned_reference_selects_local_or_external_storage() {
+    let runtime = external_mutable_slice_source()
+        .split_once("(@#async-fn")
+        .unwrap()
+        .0;
+    let source = format!(
+        r#"{runtime}
+      (#fn cancel-child (: task ChildTask) () (#forget task) (#return ()))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+        : cancel (cancel-frame ((await-0 cancel-child)))
+        : function (#fn work (: other (#pin-ref-mut #u64) : choose #bool) #u64
+          (#let-mut local #u64 42u64)
+          (#let view (#pin-ref-mut #u64)
+            (#if choose (#pin local) (#borrow-mut (#deref other))))
+          (#assert (#u64.== (#deref view) 42u64))
+          (#await () ChildTask ChildPending ChildReady child-poll Start)
+          (#let answer #u64 (#deref view))
+          (#forget view) (#forget other) (#forget local) (#return answer))))
+      (#fn main () #u64
+        (#let-mut other #u64 42u64) (#let waker #u64 0u64)
+        (#let-mut frame Work-frame (#call work (: other (#pin other) : choose true)))
+        (#let first Work-poll-result
+          (#call work-poll (: task (#pin frame) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready result) result)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#forget frame) (#forget other) (#return answer))"#
+    );
+    build_and_run_graph(&source, 42);
+    build_and_run_graph(&source.replace(": choose true", ": choose false"), 42);
+    let shared = source
+        .replace("#pin-ref-mut", "#pin-ref")
+        .replace("(#pin local)", "(#pin-shared local)")
+        .replace("(#pin other)", "(#pin-shared other)")
+        .replace("(#borrow-mut (#deref other))", "(#borrow (#deref other))");
+    build_and_run_graph(&shared, 42);
+    build_and_run_graph(&shared.replace(": choose true", ": choose false"), 42);
+    let projected = source
+        .replace(
+            "other (#pin-ref-mut #u64)",
+            "other (#pin-ref-mut (#array #u64 3))",
+        )
+        .replace(
+            "(#let-mut local #u64 42u64)",
+            "(#let-mut local (#array #u64 2) (#array-of (#array #u64 2) 17u64 42u64))
+             (#let-mut index #usize 1usize)",
+        )
+        .replace("(#pin local)", "(#pin-borrow-mut (#index local index))")
+        .replace(
+            "(#borrow-mut (#deref other))",
+            "(#borrow-mut (#index other index))",
+        )
+        .replace(
+            "(#await () ChildTask",
+            "(#set index 0usize) (#await () ChildTask",
+        )
+        .replace(
+            "(#let-mut other #u64 42u64)",
+            "(#let-mut other (#array #u64 3) (#array-of (#array #u64 3) 17u64 42u64 91u64))",
+        );
+    assert_ne!(projected, source);
+    build_and_run_graph(&projected, 42);
+    build_and_run_graph(&projected.replace(": choose true", ": choose false"), 42);
+    let second = "(#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready result) result)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))";
+    let canceled = source.replace(
+        second,
+        "(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))
+         (#call cancel-frame (: task cleanup)) (#let answer #u64 42u64)",
+    );
+    assert_ne!(canceled, source);
+    build_and_run_graph(&canceled, 42);
+    build_and_run_graph(&canceled.replace(": choose true", ": choose false"), 42);
+    let conflicting = source.replace(
+        second,
+        &format!("(#unsafe (#pin-write (#pin-borrow-mut other) 0u64)) {second}"),
+    );
+    let error = graph_compile_error(&conflicting, "mixed-pinned-target-live-write");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    assert!(error.span.is_some());
+    let movable = source.replace("@#async-fn-pinned", "@#async-fn");
+    let error = graph_compile_error(&movable, "movable-pinned-local-target");
+    assert!(error.message.contains("pinned async frame"), "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&movable[span.start..span.end], "(#pin local)");
+}
+
+#[test]
 fn graph_whole_pinned_reborrows_preserve_kind_before_and_after_pending() {
     let runtime = external_mutable_slice_source()
         .split_once("(@#async-fn")
