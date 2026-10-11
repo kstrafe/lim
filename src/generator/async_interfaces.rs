@@ -16,6 +16,7 @@ pub(crate) enum Provenance {
     PinnedCancel,
     GraphCleanup,
     CancelDispatcher,
+    GraphDestroy,
 }
 
 #[derive(Clone, Debug)]
@@ -119,6 +120,36 @@ impl Registry {
                 {
                     interface.declaration.parameters[0].ty = Type::Named(cleanup.clone());
                 }
+            }
+            if matches!(task, Type::PinnedReference { .. })
+                && self.functions.values().any(|interface| {
+                    interface.provenance == Provenance::CancelDispatcher
+                        && interface.declaration.parameters[0].ty == Type::Named(cleanup.clone())
+                })
+            {
+                let name = format!("{}-destroy", poll.name);
+                if self.reserved.contains_key(&name) {
+                    return Err(Error {
+                        message: format!(
+                            "async generated name '{name}' conflicts with an existing declaration"
+                        ),
+                        span,
+                    });
+                }
+                self.reserved.insert(name.clone(), span);
+                self.generated_names.insert(name.clone(), origin);
+                let mut declaration = poll.clone();
+                declaration.name = name.clone();
+                declaration.parameters.truncate(1);
+                declaration.return_type = Type::Unit;
+                self.functions.insert(
+                    name,
+                    FunctionInterface {
+                        declaration,
+                        span,
+                        provenance: Provenance::GraphDestroy,
+                    },
+                );
             }
         }
         Ok(())

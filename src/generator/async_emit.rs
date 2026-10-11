@@ -47,6 +47,7 @@ struct Slot {
     storage: Type,
     raw: bool,
     anchor: Option<crate::typed_place::Place>,
+    dependencies: Vec<BindingId>,
     copy: bool,
     linear: bool,
 }
@@ -108,7 +109,7 @@ impl<'a> Emitter<'a> {
             ));
         };
         let body = &planning.declarations.bodies[&function.model.body_name];
-        let self_borrows = crate::generator::async_self_borrow::Plan::new(
+        let mut self_borrows = crate::generator::async_self_borrow::Plan::new(
             &function.graph,
             body,
             &planning.declarations.flows[&function.model.body_name],
@@ -119,6 +120,11 @@ impl<'a> Emitter<'a> {
             message: error.message,
             span: error.span.unwrap_or(function.source.function.span),
         })?;
+        self_borrows.retain_async_captures(
+            &function.graph,
+            &planning.declarations,
+            &planning.interfaces,
+        );
         function
             .graph
             .validate()
@@ -209,6 +215,11 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let slot = emitter.add_slot(format!("binding.{index}"), binding.ty.clone());
+            emitter.slots[slot].dependencies = self_borrows
+                .dependent_bindings
+                .get(&BindingId(index))
+                .cloned()
+                .unwrap_or_default();
             if let Some(anchor) = self_borrows.bindings.get(&BindingId(index)) {
                 emitter.erase_reference(slot, anchor.clone())?;
             }
@@ -221,6 +232,11 @@ impl<'a> Emitter<'a> {
                 continue;
             }
             let slot = emitter.add_slot(format!("value.{index}"), value.ty.clone());
+            emitter.slots[slot].dependencies = self_borrows
+                .dependent_values
+                .get(&ValueId(index))
+                .cloned()
+                .unwrap_or_default();
             if let Some(anchor) = self_borrows.values.get(&ValueId(index)) {
                 emitter.erase_reference(slot, anchor.clone())?;
             }
@@ -411,6 +427,7 @@ impl<'a> Emitter<'a> {
             storage: ty.clone(),
             raw: false,
             anchor: None,
+            dependencies: Vec::new(),
             ty,
         };
         let index = self.slots.len();
@@ -585,16 +602,10 @@ impl<'a> Emitter<'a> {
                 crate::type_source(&slot.storage), slot.put, Self::slot_ref(slot, true));
         }
         if !slot.copy && self.types.contains_reference(&slot.ty) {
-            let old = self.fresh("stored-occupied");
             // Stage the input before touching the destination, as a normal
             // call would. Keep the actual stored enum tags visible: a unit
             // helper's invalidation summary cannot establish the child's
             // newly selected payload in the returned Pending frame.
-            let occupied = if slot.linear {
-                format!("(#block (#forget {old}) (#assert false))")
-            } else {
-                format!("(#forget {old})")
-            };
             // Check the tag before extracting a pinned owner. Even an invalid
             // dispatcher state must not move an occupied, potentially borrowed
             // payload and only then discover that initialization was illegal.
@@ -609,10 +620,7 @@ impl<'a> Emitter<'a> {
                   (#let {incoming} {ty} {value})
                   (#let {cell} (#pin-ref-mut {name}) {reference})
                   {empty_guard}
-                  (#let {previous} {name} (#unsafe (#pin-read {cell})))
-                  (#match {previous}
-                    (#case {empty} ())
-                    (#case ({full} {old}) {occupied}))
+                  (#unsafe (#forget (#pin-read {cell})))
                   (#unsafe (#pin-write {cell} ({empty})))
                   (#unsafe (#forget (#pin-read {cell})))
                   (#unsafe (#pin-write {cell} ({full} {incoming})))
@@ -622,7 +630,6 @@ impl<'a> Emitter<'a> {
                 cell = cell,
                 name = slot.name,
                 reference = Self::slot_ref(slot, true),
-                previous = self.fresh("stored-storage"),
                 empty = slot.empty,
                 full = slot.full,
             );
@@ -775,6 +782,13 @@ impl<'a> Emitter<'a> {
             let reference = self.fresh("retired-cell");
             let previous = self.fresh("retired-storage");
             let slot = &self.slots[index];
+            if !slot.linear {
+                // Non-owning handles have no destruction obligation. Discard
+                // storage in place rather than transferring a reference into
+                // a temporary that would need its pointee's nested provenance.
+                clears.push(format!("(#block (#let {reference} (#pin-ref-mut {}) {})\n(#unsafe (#forget (#pin-read {reference})))\n(#unsafe (#pin-write {reference} ({})))\n(#drop {reference}) ())", slot.name, Self::slot_ref(slot, true), slot.empty));
+                continue;
+            }
             let occupied = if slot.linear {
                 format!("(#block (#forget {handle}) (#assert false))")
             } else {
@@ -2363,70 +2377,44 @@ impl<'a> Emitter<'a> {
             .collect()
     }
 
-    /// Export cancellation obligations by source declaration/await identity.
-    /// Private cell numbers and the dispatcher PC are never part of this ABI.
-    fn cleanup_interface(&self, receiver: &str) -> Result<String, Error> {
-        if !self.planning.public_cleanup {
-            if self.function.cancel.is_some() {
-                return Err(fail(
-                    self.function,
-                    "graph cancellation requires state-specific checked cleanup contracts",
-                ));
-            }
-            return Ok(String::new());
-        }
+    fn cleanup_occupied(&self) -> HashSet<usize> {
         use crate::generator::async_cells::Cell;
-        let plan = crate::generator::async_cells::Plan::cancellation(
+        crate::generator::async_cells::Plan::cancellation(
             &self.function.graph,
             &self.types,
             self.retirement.as_ref(),
             self.lending.as_ref(),
-        );
-        let mut occupied = HashSet::new();
-        for cell in plan.iter().flat_map(|plan| &plan.cancel_live) {
-            let slot = match cell {
-                Cell::Binding(binding) => self.bindings.get(binding),
-                Cell::Value(value) => self.values.get(value),
-                Cell::Scope(scope) => self.scopes.get(scope),
-            };
-            if let Some(slot) = slot {
-                occupied.insert(*slot);
-            }
-        }
-        let cleanup = format!("{}-cleanup", self.frame);
-        let mut fields = Vec::new();
-        let mut definitions = Vec::new();
-        let mut transfers = Vec::new();
-        let mut captures = Vec::new();
-        let mut public = Vec::new();
-        let mut used = HashSet::new();
-        fn source_expressions<'a>(
-            node: &'a crate::SpannedExpr,
-            output: &mut Vec<&'a crate::SpannedExpr>,
-        ) {
+        )
+        .iter()
+        .flat_map(|plan| &plan.cancel_live)
+        .filter_map(|cell| match cell {
+            Cell::Binding(binding) => self.bindings.get(binding),
+            Cell::Value(value) => self.values.get(value),
+            Cell::Scope(scope) => self.scopes.get(scope),
+        })
+        .copied()
+        .collect()
+    }
+
+    fn cleanup_names(&self, occupied: &HashSet<usize>) -> Result<HashMap<usize, String>, Error> {
+        fn visit<'b>(node: &'b crate::SpannedExpr, output: &mut Vec<&'b crate::SpannedExpr>) {
             output.push(node);
             for child in &node.children {
-                source_expressions(child, output);
+                visit(child, output);
             }
         }
         let mut expressions = Vec::new();
         for statement in self.function.source.function.children.iter().skip(4) {
-            source_expressions(statement, &mut expressions);
+            visit(statement, &mut expressions);
         }
-        for (index, slot) in self
+        let mut used = HashSet::new();
+        let mut names = HashMap::new();
+        for (index, _) in self
             .slots
             .iter()
             .enumerate()
-            .filter(|(_, slot)| slot.linear)
+            .filter(|(index, slot)| slot.linear && occupied.contains(index))
         {
-            if !occupied.contains(&index) {
-                // A solver fact is made visible to independent ordinary checking.
-                transfers.push(format!(
-                    "(#assert (#variant-is (#borrow (#get state {})) {}))",
-                    slot.field, slot.empty
-                ));
-                continue;
-            }
             let name = if let Some((binding, _)) =
                 self.bindings.iter().find(|(_, actual)| **actual == index)
             {
@@ -2452,8 +2440,7 @@ impl<'a> Emitter<'a> {
                             "owned cancellation temporary has no source identity",
                         )
                     })?;
-                    let ordinal = expressions.iter().position(|expression| expression.span == span)
-                        .ok_or_else(|| fail(self.function, "owned cancellation temporary has no original source-expression identity"))?;
+                    let ordinal = expressions.iter().position(|expression| expression.span == span).ok_or_else(|| fail(self.function, "owned cancellation temporary has no original source-expression identity"))?;
                     format!("source-expression-{ordinal}")
                 }
             } else {
@@ -2468,6 +2455,166 @@ impl<'a> Emitter<'a> {
                 occurrence += 1;
                 field = format!("{name}.{occurrence}");
             }
+            names.insert(index, field);
+        }
+        Ok(names)
+    }
+
+    fn cancellation_handlers(&self) -> Result<HashMap<String, String>, Error> {
+        let Some(Expr::List(config)) = &self.function.cancel else {
+            if self.function.cancel.is_some() {
+                return Err(fail(self.function, "invalid graph cleanup configuration"));
+            }
+            return Ok(HashMap::new());
+        };
+        let [Expr::Symbol(_), Expr::List(entries)] = config.as_slice() else {
+            return Err(fail(
+                self.function,
+                "graph cleanup requires (function ((source-slot handler) ...))",
+            ));
+        };
+        let mut handlers = HashMap::new();
+        for entry in entries {
+            let Expr::List(entry) = entry else {
+                return Err(fail(self.function, "invalid graph cleanup handler"));
+            };
+            let [Expr::Symbol(slot), Expr::Symbol(handler)] = entry.as_slice() else {
+                return Err(fail(
+                    self.function,
+                    "graph cleanup handler requires (source-slot handler)",
+                ));
+            };
+            if handlers.insert(slot.clone(), handler.clone()).is_some() {
+                return Err(fail(
+                    self.function,
+                    format!("duplicate graph cleanup slot '{slot}'"),
+                ));
+            }
+        }
+        Ok(handlers)
+    }
+
+    /// Cancel dependent values before extracting any referent. Both public and
+    /// private cleanup use this sequence, so neither can export a dangling child.
+    fn in_place_cleanup(&self) -> Result<String, Error> {
+        let occupied = self.cleanup_occupied();
+        let names = self.cleanup_names(&occupied)?;
+        let handlers = self.cancellation_handlers()?;
+        let mut dependent = self
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(index, slot)| {
+                slot.linear && !slot.dependencies.is_empty() && occupied.contains(index)
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        let mut order = Vec::new();
+        while !dependent.is_empty() {
+            let next = dependent.iter().position(|candidate| {
+                !dependent.iter().any(|other| {
+                    other != candidate
+                        && self.slots[*other]
+                            .dependencies
+                            .iter()
+                            .any(|binding| self.bindings.get(binding) == Some(candidate))
+                })
+            });
+            let Some(next) = next else {
+                return Err(fail(self.function, "cyclic async cancellation dependency"));
+            };
+            order.push(dependent.remove(next));
+        }
+        let mut output = Vec::new();
+        for index in order {
+            let slot = &self.slots[index];
+            let name = &names[&index];
+            let handler = handlers.get(name).ok_or_else(|| fail(self.function, format!("async source slot '{name}' retaining a frame-local borrow requires an in-place cancellation handler")))?;
+            let declaration = self.planning.interfaces.function(handler).ok_or_else(|| {
+                fail(
+                    self.function,
+                    format!("unknown graph cleanup handler '{handler}'"),
+                )
+            })?;
+            let aliases = &self.planning.declarations.aliases;
+            let expected = crate::typed_ir::resolve_type(&slot.ty, aliases)
+                .map_err(|message| fail(self.function, message))?;
+            let parameter = declaration
+                .parameters
+                .first()
+                .and_then(|parameter| crate::typed_ir::resolve_type(&parameter.ty, aliases).ok());
+            let pinned = matches!(&parameter, Some(Type::PinnedReference { mutable: true, target }) if target.as_ref() == &expected);
+            let stationary_child = self.planning.interfaces.functions.values().any(|interface|
+                interface.provenance == crate::generator::async_interfaces::Provenance::AsyncPoll
+                    && matches!(interface.declaration.parameters.first().map(|parameter| &parameter.ty), Some(Type::PinnedReference { target, .. }) if target.as_ref() == &expected));
+            if stationary_child && !pinned {
+                return Err(fail(self.function, format!("pinned child in source slot '{name}' requires an in-place handler taking a pinned mutable reference")));
+            }
+            if declaration.unsafe_call
+                || declaration.parameters.len() != 1
+                || declaration.return_type != Type::Unit
+                || (!pinned && parameter.as_ref() != Some(&expected))
+            {
+                return Err(fail(self.function, format!("dependent cleanup handler '{handler}' must safely consume {} or cancel its pinned mutable reference and return ()", crate::type_source(&slot.ty))));
+            }
+            let reference = Self::slot_ref(slot, true);
+            let operation = if pinned {
+                format!("(#call {handler} (: {} (#pin-get-payload-mut {reference} {} 0)))\n(#unsafe (#forget (#pin-read {reference})))\n(#unsafe (#pin-write {reference} ({})))", declaration.parameters[0].name, slot.full, slot.empty)
+            } else {
+                let payload = self.fresh("dependent-child");
+                // This contract consumes a movable child while its borrowed
+                // parent remains stationary. It is not a pinned-child move.
+                format!(
+                    "(#let {payload} {} {})\n(#call {handler} (: {} {payload}))",
+                    crate::type_source(&slot.ty),
+                    self.read(index, true),
+                    declaration.parameters[0].name
+                )
+            };
+            output.push(format!(
+                "(#if (#variant-is {} {}) (#block {operation} ()) ())",
+                Self::slot_ref(slot, false),
+                slot.full
+            ));
+        }
+        Ok(output.join("\n"))
+    }
+
+    /// Export cancellation obligations by source declaration/await identity.
+    /// Private cell numbers and the dispatcher PC are never part of this ABI.
+    fn cleanup_interface(&self, receiver: &str) -> Result<String, Error> {
+        if !self.planning.public_cleanup {
+            if self.function.cancel.is_some() {
+                return Err(fail(
+                    self.function,
+                    "graph cancellation requires state-specific checked cleanup contracts",
+                ));
+            }
+            return Ok(String::new());
+        }
+        let occupied = self.cleanup_occupied();
+        let names = self.cleanup_names(&occupied)?;
+        let cleanup = format!("{}-cleanup", self.frame);
+        let mut fields = Vec::new();
+        let mut definitions = Vec::new();
+        let mut transfers = Vec::new();
+        let mut captures = Vec::new();
+        let mut public = Vec::new();
+        for (index, slot) in self
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.linear)
+        {
+            if !occupied.contains(&index) {
+                // A solver fact is made visible to independent ordinary checking.
+                transfers.push(format!(
+                    "(#assert (#variant-is (#borrow (#get state {})) {}))",
+                    slot.field, slot.empty
+                ));
+                continue;
+            }
+            let field = names[&index].clone();
             let cell = format!("{cleanup}-{field}");
             let empty = format!("{cell}-empty");
             let full = format!("{cell}-full");
@@ -2485,13 +2632,23 @@ impl<'a> Emitter<'a> {
             let payload = self.fresh("cleanup-payload");
             transfers.push(format!("(#let {local} {cell} (#match (#get state {}) (#case {} ({empty})) (#case ({} {payload}) ({full} {payload}))))", slot.field, slot.empty, slot.full));
             captures.push(format!("({field} {local})"));
-            public.push((field, empty, full, slot.ty.clone()));
+            public.push((
+                field,
+                empty,
+                full,
+                slot.ty.clone(),
+                !slot.dependencies.is_empty(),
+            ));
         }
         let extraction = if self.pinned {
             // Keep loan clearing and extraction in this ordinary function.
             // A wrapper around private cancel loses entry/clearing correlation
             // in nested caller contracts for conditional internal references.
-            let clear = self.clear_handle_slots(&self.reference_slots());
+            let clear = format!(
+                "{}\n{}",
+                self.clear_handle_slots(&self.reference_slots()),
+                self.in_place_cleanup()?
+            );
             let pc = self.fresh("cleanup-pc");
             let mut takes = vec![format!("(#let {pc} #u32 (#get task pc))")];
             let mut captures = vec![format!("(pc {pc})")];
@@ -2532,38 +2689,29 @@ impl<'a> Emitter<'a> {
             let Expr::List(config) = config else {
                 return Err(fail(self.function, "invalid graph cleanup configuration"));
             };
-            let [Expr::Symbol(dispatch), Expr::List(entries)] = config.as_slice() else {
+            let [Expr::Symbol(dispatch), Expr::List(_)] = config.as_slice() else {
                 return Err(fail(
                     self.function,
                     "graph cleanup requires (function ((source-slot handler) ...))",
                 ));
             };
-            let mut handlers = HashMap::new();
-            for entry in entries {
-                let Expr::List(entry) = entry else {
-                    return Err(fail(self.function, "invalid graph cleanup handler"));
-                };
-                let [Expr::Symbol(slot), Expr::Symbol(handler)] = entry.as_slice() else {
-                    return Err(fail(
-                        self.function,
-                        "graph cleanup handler requires (source-slot handler)",
-                    ));
-                };
-                if handlers.insert(slot.clone(), handler.clone()).is_some() {
-                    return Err(fail(
-                        self.function,
-                        format!("duplicate graph cleanup slot '{slot}'"),
-                    ));
-                }
-            }
+            let mut handlers = self.cancellation_handlers()?;
             let mut calls = Vec::new();
-            for (field, empty, full, ty) in &public {
+            for (field, empty, full, ty, dependent) in &public {
                 let handler = handlers.remove(field).ok_or_else(|| {
                     fail(
                         self.function,
                         format!("missing graph cleanup handler for source slot '{field}'"),
                     )
                 })?;
+                if *dependent {
+                    // Dependent payloads were destroyed while their referents
+                    // remained in the pinned parent; public cells must be Empty.
+                    calls.push(format!(
+                        "(#assert (#variant-is (#borrow (#get task {field})) {empty}))"
+                    ));
+                    continue;
+                }
                 let declaration = self.planning.interfaces.function(&handler).ok_or_else(|| {
                     fail(
                         self.function,
@@ -2592,6 +2740,13 @@ impl<'a> Emitter<'a> {
                 "\n(#fn {dispatch} (: task {cleanup}) () {} (#forget task) (#return ()))",
                 calls.join("\n")
             ));
+            if self.pinned {
+                // Preserve the clearing-before-owner-access sequence in this
+                // entry point too. An aggregate call summary does not encode
+                // that ordering, whereas ordinary statements do.
+                let destruction = calls.join("\n").replace("(#get task ", "(#get cleanup ");
+                source.push_str(&format!("\n(#fn {}-destroy (: task {receiver}) ()\n{extraction}\n{}\n(#forget state)\n(#let cleanup {cleanup} (#struct-literal {cleanup} ({})))\n{destruction}\n(#forget cleanup)\n(#return ()))", self.poll, transfers.join("\n"), captures.join(" ")));
+            }
         }
         Ok(source)
     }
@@ -2745,7 +2900,11 @@ impl<'a> Emitter<'a> {
         let cancel = if self.pinned {
             let state = format!("{}-state", self.frame);
             let refs = self.reference_slots();
-            let clear = self.clear_handle_slots(&refs);
+            let clear = format!(
+                "{}\n{}",
+                self.clear_handle_slots(&refs),
+                self.in_place_cleanup()?
+            );
             let pc = self.fresh("cancelled-pc");
             let mut takes = vec![format!("(#let {pc} #u32 (#get task pc))")];
             let mut captured = vec![format!("(pc {pc})")];
@@ -3468,7 +3627,7 @@ mod tests {
             ),
             42,
         );
-        assert!(generated[0].source.contains("retired-storage"));
+        assert!(generated[0].source.contains("retired-cell"));
     }
 
     #[test]

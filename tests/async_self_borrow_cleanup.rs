@@ -4,14 +4,16 @@ use std::{fs, process::Command, time::Duration};
 
 #[test]
 fn child_retaining_a_parent_borrow_cannot_be_exported_by_cleanup() {
-    let source = "(#enum Child ((Holding (#ref #u64))))
+    let source = "(#enum Child ((Holding (#ref #u64) #u64))) (#linear Child)
       (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
-        (#return (#match task (#case (Holding view) (ChildReady (#deref view))))))
+        (#return (#match task (#case (Holding view count)
+          (#if (#u64.== count 0u64) (ChildPending (Holding view 1u64))
+            (ChildReady (#deref view)))))))
       (@#async-fn-pinned (: protocol WorkAwait : waker #u64
         : function (#fn work () #u64
           (#let owner #u64 40u64)
-          (#let answer #u64 (#await Child ChildPending ChildReady child-poll (Holding (#borrow owner))))
+          (#let answer #u64 (#await Child ChildPending ChildReady child-poll (Holding (#borrow owner) 0u64)))
           (#forget owner) (#return answer))))";
     let scratch = support::Scratch::new("async-retained-child-borrow");
     let mut config = lim::CompileConfig::default();

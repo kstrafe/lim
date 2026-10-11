@@ -58,7 +58,8 @@ Graph cancellation configuration uses these source slots:
 ```
 
 Each handler must safely consume exactly one value of the slot's declared type
-and return `()`. Every exposed owning slot requires a handler; duplicate,
+and return `()`, except for stationary dependent children described below.
+Every exposed owning slot requires a handler; duplicate,
 missing, unknown, unsafe, or incorrectly typed handlers are rejected. The
 dispatcher has the ordinary signature
 `(#fn work-cancel (: task work-frame-cleanup) () ...)`. Call it on the result of
@@ -113,11 +114,18 @@ is rejected instead of erasing its caller lifetime. Handles selecting multiple
 internal referents are also rejected until checked selected-anchor storage is
 available.
 
-This does not yet cover owning aggregates or child futures retaining ordinary
-frame-local borrows. Cleanup currently extracts owning values by value; allowing
-such a child to leave with its referent would invalidate its pointer. These
-cases fail closed until cancellation can destroy dependents in place before
-extracting owners. Movable `@#async-fn` frames cannot use this representation.
+Owning aggregates and child futures retaining frame-local borrows require a
+configured cancellation handler. Cleanup first retires non-owning poll handles,
+then invokes dependent handlers in dependency order while their referents remain
+Full and stationary. Independent owners are extracted only afterward. A movable
+dependent child can be consumed by its handler; a generated pinned child requires
+a safe handler taking `(#pin-ref-mut ChildFrame)` and returning `()`. A pinned
+graph task with cancellation configuration generates `work-poll-destroy` with
+that signature, so a parent can use it directly as its child's handler. Both
+public cleanup and private cancellation perform this phase. Dependent cleanup
+record fields are Empty; they never export live pointers into the parent.
+Repeated destruction is idempotent. Missing handlers and dependency cycles fail
+closed. Movable `@#async-fn` frames cannot use internal raw-reference storage.
 
 The default switch remains gated on legacy public task/state layout adapters,
 the full existing async matrix, general guard aliases and retained child borrows,
@@ -134,6 +142,10 @@ Thin local-reference and cleanup regressions are in `tests/async_self_borrows.rs
 and `tests/async_self_borrow_cleanup.rs`, including signed narrow writes and
 descending aggregate projections after repeated Pending, warm-cache identity,
 source-spanned loan violations, and unsafe dependent-child extraction rejection.
+`tests/async_dependent_cancellation.rs` covers native dependent destruction before
+owner extraction, entry/Ready/repeated cancellation, private cleanup, nested
+generated pinned children, and cold/warm identity. This coverage does not close
+the selected-target, guard/lending, or default-route migration gates.
 
 Checkpoint verification (2026-10-10, through `nix develop -c`): the library
 suite passed 1,295 tests; frontend migration/cache regressions passed 12 tests;

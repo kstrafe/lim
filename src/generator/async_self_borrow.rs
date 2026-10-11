@@ -15,6 +15,9 @@ use crate::Type;
 pub(crate) struct Plan {
     pub bindings: HashMap<BindingId, crate::typed_place::Place>,
     pub values: HashMap<ValueId, crate::typed_place::Place>,
+    /// Owning cells whose references depend on local stationary storage.
+    pub dependent_bindings: HashMap<BindingId, Vec<BindingId>>,
+    pub dependent_values: HashMap<ValueId, Vec<BindingId>>,
 }
 
 #[derive(Debug)]
@@ -143,7 +146,10 @@ impl Plan {
                 }
             }
             if !thin(&binding.ty) {
-                at(reject_retained_internal(&all), binding.span)?;
+                let owners = internal_owners(&all);
+                if !owners.is_empty() {
+                    plan.dependent_bindings.insert(BindingId(index), owners);
+                }
                 continue;
             }
             if let Some(place) = at(anchor(&all), binding.span)? {
@@ -154,7 +160,10 @@ impl Plan {
             if let Some(source) = value.source {
                 let loans = origins.value_before(body, flow, FlowNodeId(0), source);
                 if !thin(&value.ty) {
-                    at(reject_retained_internal(&loans), value.span)?;
+                    let owners = internal_owners(&loans);
+                    if !owners.is_empty() {
+                        plan.dependent_values.insert(ValueId(index), owners);
+                    }
                     continue;
                 }
                 if let Some(place) = at(anchor(&loans), value.span)? {
@@ -181,21 +190,172 @@ impl Plan {
         }
         Ok(plan)
     }
+
+    /// Declaration-only child factories have no ordinary return-loan summary
+    /// during planning. Their implementation retains every argument in its
+    /// initial frame; account for those captures without fabricating a layout
+    /// or granting access permissions. Final ordinary checking remains required.
+    pub(crate) fn retain_async_captures(
+        &mut self,
+        graph: &Graph,
+        declarations: &Declarations,
+        interfaces: &crate::generator::async_interfaces::Registry,
+    ) {
+        use crate::generator::async_exec::Compute;
+        fn merge(
+            map: &mut HashMap<ValueId, Vec<BindingId>>,
+            dst: ValueId,
+            owners: Vec<BindingId>,
+        ) -> bool {
+            let entry = map.entry(dst).or_default();
+            let old = entry.len();
+            for owner in owners {
+                if !entry.contains(&owner) {
+                    entry.push(owner);
+                }
+            }
+            entry.sort_by_key(|owner| owner.0);
+            entry.len() != old
+        }
+        loop {
+            let mut changed = false;
+            for action in graph.blocks.iter().flat_map(|block| &block.actions) {
+                match &action.action {
+                    Action::Compute {
+                        dst,
+                        operation: Compute::Checked(operation),
+                    } if operation.callee.is_some_and(|callee| {
+                        interfaces
+                            .functions
+                            .get(&declarations.function(callee).name)
+                            .is_some_and(|interface| {
+                                interface.provenance
+                                    == crate::generator::async_interfaces::Provenance::AsyncStart
+                            })
+                    }) =>
+                    {
+                        let mut owners = Vec::new();
+                        for operand in &operation.operands {
+                            if let Some(place) = self.values.get(&operand.value) {
+                                if let PlaceRoot::Local(owner) = place.root {
+                                    owners.push(owner);
+                                }
+                            }
+                            owners.extend(
+                                self.dependent_values
+                                    .get(&operand.value)
+                                    .into_iter()
+                                    .flatten()
+                                    .copied(),
+                            );
+                        }
+                        changed |= merge(&mut self.dependent_values, *dst, owners);
+                    }
+                    Action::Bind { binding, value, .. } => {
+                        let owners = self
+                            .dependent_values
+                            .get(value)
+                            .cloned()
+                            .unwrap_or_default();
+                        let entry = self.dependent_bindings.entry(*binding).or_default();
+                        for owner in owners {
+                            if !entry.contains(&owner) {
+                                entry.push(owner);
+                                changed = true;
+                            }
+                        }
+                        entry.sort_by_key(|owner| owner.0);
+                    }
+                    Action::Store { place, value } => {
+                        if let AddressRoot::Local(binding) = graph.places[place.0].root {
+                            let owners = self
+                                .dependent_values
+                                .get(value)
+                                .cloned()
+                                .unwrap_or_default();
+                            let entry = self.dependent_bindings.entry(binding).or_default();
+                            for owner in owners {
+                                if !entry.contains(&owner) {
+                                    entry.push(owner);
+                                    changed = true;
+                                }
+                            }
+                            entry.sort_by_key(|owner| owner.0);
+                        }
+                    }
+                    Action::Load { dst, place, .. } => {
+                        if let AddressRoot::Local(binding) = graph.places[place.0].root {
+                            changed |= merge(
+                                &mut self.dependent_values,
+                                *dst,
+                                self.dependent_bindings
+                                    .get(&binding)
+                                    .cloned()
+                                    .unwrap_or_default(),
+                            );
+                        }
+                    }
+                    Action::Compute {
+                        dst,
+                        operation: Compute::Identity(value),
+                    } => {
+                        let owners = self
+                            .dependent_values
+                            .get(value)
+                            .cloned()
+                            .unwrap_or_default();
+                        changed |= merge(&mut self.dependent_values, *dst, owners);
+                    }
+                    _ => {}
+                }
+            }
+            for block in &graph.blocks {
+                use crate::generator::async_exec::{Argument, Terminator};
+                let edges = match &block.terminator {
+                    Terminator::Goto(edge) => vec![edge],
+                    Terminator::Branch { yes, no, .. }
+                    | Terminator::PatternTest { yes, no, .. } => vec![yes, no],
+                    Terminator::Await { ready, .. } => vec![ready],
+                    _ => Vec::new(),
+                };
+                for edge in edges {
+                    for (argument, parameter) in edge
+                        .arguments
+                        .iter()
+                        .zip(&graph.blocks[edge.target.0].parameters)
+                    {
+                        if let Argument::Value(value) = argument {
+                            let owners = self
+                                .dependent_values
+                                .get(value)
+                                .cloned()
+                                .unwrap_or_default();
+                            changed |= merge(&mut self.dependent_values, *parameter, owners);
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        self.dependent_bindings
+            .retain(|_, owners| !owners.is_empty());
+        self.dependent_values.retain(|_, owners| !owners.is_empty());
+    }
 }
 
-// Cleanup currently exports owning cells by value. A child or aggregate with
-// a pointer into its parent cannot accompany a moved referent. Until cleanup
-// can destroy dependents in place, reject this representation rather than
-// losing that lifetime when the thin reference is erased.
-fn reject_retained_internal(origins: &[LoanOrigin]) -> Result<(), String> {
-    if origins
-        .iter()
-        .any(|origin| internal(origin) && !origin.pinned)
-    {
-        Err("async aggregates or child futures retaining frame-local borrows require in-place cancellation before owner extraction".into())
-    } else {
-        Ok(())
+fn internal_owners(origins: &[LoanOrigin]) -> Vec<BindingId> {
+    let mut owners = Vec::new();
+    for origin in origins.iter().filter(|origin| internal(origin)) {
+        if let PlaceRoot::Local(binding) = origin.place.root {
+            if !owners.contains(&binding) {
+                owners.push(binding);
+            }
+        }
     }
+    owners.sort_by_key(|binding| binding.0);
+    owners
 }
 
 #[cfg(test)]
@@ -245,16 +405,16 @@ mod tests {
     }
 
     #[test]
-    fn aggregates_cannot_export_a_pointer_into_an_extracted_owner() {
-        let error = plan(
+    fn aggregates_record_dependencies_for_in_place_cleanup() {
+        let plan = plan(
             "(#struct Held (: view (#ref #u64)))
           (#fn work () #u64
             (#let owner #u64 40u64)
             (#let held Held (#struct-literal Held (: view (#borrow owner))))
             (#forget held) (#forget owner) (#return 0u64))",
         )
-        .err()
         .unwrap();
-        assert!(error.contains("in-place cancellation"), "{error}");
+        assert_eq!(plan.dependent_bindings.len(), 1);
+        assert!(!plan.dependent_values.is_empty());
     }
 }
