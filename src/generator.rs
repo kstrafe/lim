@@ -66,12 +66,14 @@ enum TemplateValue {
 pub(crate) mod async_addresses;
 pub(crate) mod async_array_anchor;
 pub(crate) mod async_cells;
+// Independent source-contract regressions; executable lowering uses the
+// checked original-body graph rather than these former syntax probes.
+#[cfg(test)]
 pub(crate) mod async_cfg;
+#[cfg(test)]
 pub(crate) mod async_contract;
-pub(crate) mod async_dispatch;
 pub(crate) mod async_emit;
 pub(crate) mod async_exec;
-pub(crate) mod async_fn;
 pub(crate) mod async_immediate;
 pub(crate) mod async_interfaces;
 pub(crate) mod async_lease;

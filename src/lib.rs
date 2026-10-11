@@ -12361,40 +12361,6 @@ mod tests {
     }
 
     #[test]
-    fn async_capture_cache_encoding_is_deterministic_and_rejects_malformed_plans() {
-        let forms = parse("((0 1 2) ((1 ()) (0 (y x))))")
-            .unwrap()
-            .into_iter()
-            .map(|form| form.expr)
-            .collect::<Vec<_>>();
-        let plans = decode_async_capture_plans(&forms).unwrap();
-        let encoded = encode_async_capture_plans(&plans);
-        assert_eq!(decode_async_capture_plans(&encoded), Some(plans));
-        assert_eq!(
-            expression_source(&encoded[0]).unwrap(),
-            "((0 1 2) ((0 (x y)) (1 ())))"
-        );
-        for source in [
-            "((0 1 2) ((0 (x x))))",
-            "((0 1 2) ((0 ()) (0 ())))",
-            "((0 2 1) ())",
-            "((-1 1 2) ())",
-            "((0 1 2) ((-1 ())))",
-            "((0 1 2) ((0 (42))))",
-            "((0 1 2) ()) ((0 1 2) ())",
-            "malformed",
-            "",
-        ] {
-            let forms = parse(source)
-                .unwrap()
-                .into_iter()
-                .map(|form| form.expr)
-                .collect::<Vec<_>>();
-            assert!(decode_async_capture_plans(&forms).is_none(), "{source}");
-        }
-    }
-
-    #[test]
     fn async_compilation_expands_generators_once_across_all_frontend_stages() {
         let directory =
             std::env::temp_dir().join(format!("lim-shared-frontend-{}", std::process::id()));

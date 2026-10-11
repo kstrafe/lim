@@ -1,31 +1,7 @@
 //! Built-in generator expansion, validation witnesses, and source publication.
 //! Runtime parsing and semantic checking consume ordinary emitted declarations.
-use super::{async_cfg, async_contract, async_dispatch, async_fn, async_source, async_types};
+use super::{async_source, async_types};
 use crate::*;
-
-pub(crate) fn async_function_statement_source(
-    expression: &SpannedExpr,
-    statement_index: usize,
-) -> Option<&SpannedExpr> {
-    if matches!(
-        &expression.expr,
-        Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#fn" || head == "fn")
-    ) {
-        return expression.children.get(4 + statement_index);
-    }
-    expression
-        .children
-        .iter()
-        .find_map(|child| async_function_statement_source(child, statement_index))
-}
-
-pub(crate) fn async_lowering_statement_index(error: &str) -> Option<usize> {
-    let marker = "async statement ";
-    let start = error.find(marker)? + marker.len();
-    let rest = &error[start..];
-    let end = rest.find(':')?;
-    rest[..end].parse().ok()
-}
 
 pub(crate) fn is_async_invocation(expression: &SpannedExpr) -> bool {
     matches!(&expression.expr, Expr::List(items)
@@ -34,32 +10,6 @@ pub(crate) fn is_async_invocation(expression: &SpannedExpr) -> bool {
 }
 
 pub(crate) type ExpansionPlans = HashMap<(u32, usize, usize), HashMap<usize, HashSet<String>>>;
-
-pub(crate) fn async_generated_source(
-    invocation: &Expr,
-    span: Span,
-    capture_plans: Option<&ExpansionPlans>,
-    copy_types: &HashSet<String>,
-    type_environment: &async_types::AsyncTypeEnvironment,
-) -> Result<String, String> {
-    let key = (span.source_id, span.start, span.end);
-    let captures = capture_plans.and_then(|plans| plans.get(&key));
-    let source = async_fn::generated_source_with_environment(
-        invocation,
-        captures,
-        copy_types,
-        type_environment,
-    )?;
-    // Private capture witnesses are checked too: freshen introduced match
-    // bindings before analysis, without changing public parameter keys.
-    // The uncollapsed helpers are private capture-analysis witnesses only.
-    // Executable/inspectable output uses one dispatcher per concrete future.
-    if capture_plans.is_some() {
-        async_dispatch::collapse(&source, type_environment)
-    } else {
-        async_dispatch::hygienize_source(&source, type_environment)
-    }
-}
 
 pub(crate) fn async_type_environment(
     expressions: &[SpannedExpr],
@@ -273,118 +223,6 @@ pub(crate) fn async_type_environment_identity(
     format!("enums:{enums};aliases:{aliases};functions:{functions};structs:{structs}")
 }
 
-struct AsyncCaptureInvocation {
-    key: (u32, usize, usize),
-    poll_name: String,
-    pinned: bool,
-}
-
-fn async_capture_invocations(program: &Program) -> Vec<AsyncCaptureInvocation> {
-    let mut invocations = Vec::new();
-    for span in program.generated_source_invocations.values() {
-        let Some(file) = program.source_files.get(span.source_id as usize) else {
-            continue;
-        };
-        let Some(text) = file.source.get(span.start..span.end) else {
-            continue;
-        };
-        let Ok(mut parsed) = parse(text) else {
-            continue;
-        };
-        if parsed.len() != 1 {
-            continue;
-        }
-        let expression = parsed.remove(0).expr;
-        let Ok(normalized) = normalize_builtin_generator_invocation(&expression) else {
-            continue;
-        };
-        let Expr::List(items) = &normalized else {
-            continue;
-        };
-        let Some(Expr::Symbol(kind)) = items.get(1) else {
-            continue;
-        };
-        let pinned = kind == "#async-fn-pinned";
-        if kind != "#async-fn" && !pinned {
-            continue;
-        }
-        let Some(Expr::List(names)) = items.get(2) else {
-            continue;
-        };
-        let Some(Expr::Symbol(poll_name)) = names.get(4) else {
-            continue;
-        };
-        invocations.push(AsyncCaptureInvocation {
-            key: (span.source_id, span.start, span.end),
-            poll_name: poll_name.clone(),
-            pinned,
-        });
-    }
-    invocations
-}
-
-fn async_capture_plans(
-    program: &Program,
-    live_parameters: &HashMap<String, HashSet<usize>>,
-    invocations: &[AsyncCaptureInvocation],
-) -> ExpansionPlans {
-    let mut plans = HashMap::new();
-    for invocation in invocations {
-        let mut stages = HashMap::new();
-        let prefix = format!(
-            "{}{}-resume-",
-            invocation.poll_name,
-            if invocation.pinned { "-move" } else { "" }
-        );
-        for item in &program.items {
-            let Item::Function(function) = item else {
-                continue;
-            };
-            let Some(stage_index) = function
-                .name
-                .strip_prefix(&prefix)
-                .and_then(|suffix| suffix.parse::<usize>().ok())
-            else {
-                continue;
-            };
-            let capture_count = function.parameters.len().saturating_sub(2);
-            let live = live_parameters.get(&function.name);
-            let captures = function
-                .parameters
-                .iter()
-                .enumerate()
-                .take(capture_count)
-                .filter(|(parameter_index, _)| {
-                    live.is_some_and(|live| live.contains(parameter_index))
-                })
-                .map(|(_, parameter)| parameter.name.clone())
-                .collect();
-            stages.insert(stage_index, captures);
-        }
-        plans.insert(invocation.key, stages);
-    }
-    plans
-}
-
-pub(crate) fn async_capture_plan_identity(
-    plan: Option<&HashMap<usize, HashSet<String>>>,
-) -> String {
-    let Some(plan) = plan else {
-        return "syntax-fallback".into();
-    };
-    let mut stages = plan.iter().collect::<Vec<_>>();
-    stages.sort_by_key(|(stage, _)| **stage);
-    stages
-        .into_iter()
-        .map(|(stage, names)| {
-            let mut names = names.iter().collect::<Vec<_>>();
-            names.sort();
-            format!("{stage}:{names:?}")
-        })
-        .collect::<Vec<_>>()
-        .join(";")
-}
-
 pub(crate) fn parse_program_in_directory(
     source: &str,
     base: &Path,
@@ -440,12 +278,9 @@ pub(crate) fn expand_prepared_owned_program(
     }
 }
 
-/// One selection for executable and inspectable output. Graph is the production
-/// default; the legacy route is reachable only by internal removal audits.
+/// The same graph implementation serves executable and inspectable output.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AsyncRoute {
-    #[cfg(test)]
-    Legacy,
     Graph,
 }
 
@@ -662,169 +497,8 @@ fn expand_prepared_program_with_route(
             graph_generated_program(prepared, prepared.capture_cache_directory.as_deref())?;
         return Ok((program, ExpansionPlans::new()));
     }
-    let capture_cache_key = format!(
-        "lim-async-captures-v1\nimplementation={}\n{}",
-        env!("LIM_BUILD_FINGERPRINT"),
-        prepared.dependency_context
-    );
-    if let Some(directory) = prepared
-        .capture_cache_directory
-        .as_deref()
-        .filter(|_| prepared.expressions.iter().any(is_async_invocation))
-    {
-        if let Some(plans) = generator::read_cached_expansion(directory, &capture_cache_key)
-            .and_then(|forms| decode_async_capture_plans(&forms))
-        {
-            if let Ok(program) = parse_prepared_program_with_async_captures(prepared, Some(&plans))
-            {
-                crate::cache_report::record(
-                    "async-captures",
-                    &generator::cache_path(directory, &capture_cache_key),
-                    &capture_cache_key,
-                    "hit",
-                );
-                return Ok((program, plans));
-            }
-        }
-    }
-    let probe = parse_prepared_program_with_async_captures(prepared, None)?;
-    let invocations = async_capture_invocations(&probe);
-    if invocations.is_empty() {
-        return Ok((probe, ExpansionPlans::new()));
-    }
-    let prefixes = invocations
-        .iter()
-        .map(|invocation| {
-            format!(
-                "{}{}-resume-",
-                invocation.poll_name,
-                if invocation.pinned { "-move" } else { "" }
-            )
-        })
-        .collect::<Vec<_>>();
-    let live_parameters = match typecheck::typed_capture_requirements(&probe, &prefixes) {
-        Ok(live_parameters) => live_parameters,
-        Err(_) => {
-            // Keep parsing semantically invalid programs so callers can ask
-            // the ordinary checked-program boundary for its source diagnostic.
-            let no_typed_capture_plan = ExpansionPlans::new();
-            let fallback =
-                parse_prepared_program_with_async_captures(prepared, Some(&no_typed_capture_plan))?;
-            return Ok((fallback, no_typed_capture_plan));
-        }
-    };
-    let capture_plans = async_capture_plans(&probe, &live_parameters, &invocations);
-    if capture_plans.is_empty() {
-        return Ok((probe, capture_plans));
-    }
-    let program = parse_prepared_program_with_async_captures(prepared, Some(&capture_plans))?;
-    if let Some(directory) = prepared.capture_cache_directory.as_deref() {
-        crate::cache_report::record(
-            "async-captures",
-            &generator::cache_path(directory, &capture_cache_key),
-            &capture_cache_key,
-            "missing-or-invalid",
-        );
-        generator::write_cached_expansion(
-            directory,
-            &capture_cache_key,
-            &encode_async_capture_plans(&capture_plans),
-        );
-    }
-    Ok((program, capture_plans))
-}
-
-pub(crate) fn encode_async_capture_plans(plans: &ExpansionPlans) -> Vec<Expr> {
-    let mut entries = plans.iter().collect::<Vec<_>>();
-    entries.sort_by_key(|(key, _)| **key);
-    entries
-        .into_iter()
-        .map(|((source_id, start, end), stages)| {
-            let mut stages = stages.iter().collect::<Vec<_>>();
-            stages.sort_by_key(|(stage, _)| **stage);
-            Expr::List(vec![
-                Expr::List(vec![
-                    Expr::Integer(i128::from(*source_id)),
-                    Expr::Integer(*start as i128),
-                    Expr::Integer(*end as i128),
-                ]),
-                Expr::List(
-                    stages
-                        .into_iter()
-                        .map(|(stage, captures)| {
-                            let mut captures = captures
-                                .iter()
-                                .cloned()
-                                .map(Expr::Symbol)
-                                .collect::<Vec<_>>();
-                            captures.sort_by(|left, right| match (left, right) {
-                                (Expr::Symbol(left), Expr::Symbol(right)) => left.cmp(right),
-                                _ => unreachable!(),
-                            });
-                            Expr::List(vec![Expr::Integer(*stage as i128), Expr::List(captures)])
-                        })
-                        .collect(),
-                ),
-            ])
-        })
-        .collect()
-}
-
-pub(crate) fn decode_async_capture_plans(forms: &[Expr]) -> Option<ExpansionPlans> {
-    fn index(expression: &Expr) -> Option<usize> {
-        let Expr::Integer(value) = expression else {
-            return None;
-        };
-        usize::try_from(*value).ok()
-    }
-    let mut plans = ExpansionPlans::new();
-    if forms.is_empty() {
-        return None;
-    }
-    for form in forms {
-        let Expr::List(entry) = form else {
-            return None;
-        };
-        let [Expr::List(key), Expr::List(stages)] = entry.as_slice() else {
-            return None;
-        };
-        let [source_id, start, end] = key.as_slice() else {
-            return None;
-        };
-        let key = (
-            u32::try_from(index(source_id)?).ok()?,
-            index(start)?,
-            index(end)?,
-        );
-        if key.1 > key.2 {
-            return None;
-        }
-        let mut decoded_stages = HashMap::new();
-        for stage in stages {
-            let Expr::List(stage) = stage else {
-                return None;
-            };
-            let [stage, Expr::List(names)] = stage.as_slice() else {
-                return None;
-            };
-            let mut captures = HashSet::new();
-            for name in names {
-                let Expr::Symbol(name) = name else {
-                    return None;
-                };
-                if !captures.insert(name.clone()) {
-                    return None;
-                }
-            }
-            if decoded_stages.insert(index(stage)?, captures).is_some() {
-                return None;
-            }
-        }
-        if plans.insert(key, decoded_stages).is_some() {
-            return None;
-        }
-    }
-    Some(plans)
+    let program = parse_prepared_program_items(prepared, None, true)?;
+    Ok((program, ExpansionPlans::new()))
 }
 
 pub(crate) struct PreparedProgramSyntax {
@@ -1017,13 +691,6 @@ pub(crate) fn prepare_program_syntax(
     })
 }
 
-pub(crate) fn parse_prepared_program_with_async_captures(
-    prepared: &PreparedProgramSyntax,
-    capture_plans: Option<&ExpansionPlans>,
-) -> Result<Program, SourceError> {
-    parse_prepared_program_items(prepared, capture_plans, true)
-}
-
 /// Declaration input for original-body planning. Async interfaces live in an
 /// explicit deferred registry, not invented executable/extern declarations.
 /// Ordinary bodies are parsed but stay unnormalized until layout completion;
@@ -1036,13 +703,12 @@ pub(crate) fn parse_prepared_async_declarations(
 
 pub(crate) fn parse_prepared_program_items(
     prepared: &PreparedProgramSyntax,
-    capture_plans: Option<&ExpansionPlans>,
+    _capture_plans: Option<&ExpansionPlans>,
     expand_async: bool,
 ) -> Result<Program, SourceError> {
     let expressions = prepared.expressions.clone();
     let mut source_files = prepared.source_files.clone();
     let async_copy_types = &prepared.async_copy_types;
-    let async_types = &prepared.async_types;
     let mut items = Vec::with_capacity(expressions.len());
     let mut statement_spans = HashMap::new();
     let mut statement_expressions = HashMap::new();
@@ -1055,6 +721,14 @@ pub(crate) fn parse_prepared_program_items(
     for mut expression in expressions {
         if !expand_async && is_async_invocation(&expression) {
             continue;
+        }
+        if is_async_invocation(&expression) {
+            return Err(SourceError::new(
+                "async invocations require graph expansion",
+                DiagnosticCode::Type,
+            )
+            .at(expression.span)
+            .attach(&source_files));
         }
         let original_async = async_source::Source::from_invocation(&expression)?;
         validate_primitive_spelling(&expression).map_err(|(message, span)| {
@@ -1142,30 +816,17 @@ pub(crate) fn parse_prepared_program_items(
                             | "#vec"
                             | "#vec-alloc"
                             | "#vec-sort"
-                            | "#async-fn"
-                            | "#async-fn-pinned"
                     )
                 ) {
-                    let generated_text = if matches!(kind, Some("#async-fn" | "#async-fn-pinned")) {
-                        async_generated_source(
-                            &normalized_invocation,
-                            form_span,
-                            capture_plans,
+                    let generated_text = kind.and_then(|kind| {
+                        materialize_builtin_generated_source(
+                            kind,
+                            forms,
+                            &worker_functions,
                             &async_copy_types,
-                            &async_types,
                         )
                         .ok()
-                    } else {
-                        kind.and_then(|kind| {
-                            materialize_builtin_generated_source(
-                                kind,
-                                forms,
-                                &worker_functions,
-                                &async_copy_types,
-                            )
-                            .ok()
-                        })
-                    };
+                    });
                     if let Some(generated_text) = generated_text {
                         let source_id = u32::try_from(source_files.len()).map_err(|_| {
                             "too many source files while tracking builtin output".to_owned()
@@ -1208,110 +869,19 @@ pub(crate) fn parse_prepared_program_items(
         }
         let parsed_items = if let Expr::List(forms) = &expression {
             if matches!(forms.first(), Some(Expr::At)) {
-                let generated = if matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn" || kind == "#async-fn-pinned")
-                {
-                    if let Some(error) = async_contract::check(&source_expression, &async_types) {
-                        return Err(attach_span_to_source_error_kind(
-                            error.message,
-                            error.span,
+                parse_generated_items_with_copy_types(forms, &async_copy_types).map_err(
+                    |error| {
+                        attach_span_to_source_error_kind(
+                            format!(
+                                "{error} while expanding generated declaration {}",
+                                expression_source(&expression).unwrap_or_else(|_| "<?>".into())
+                            ),
+                            form_span,
                             &source_files,
                             "generator error: ",
-                        ));
-                    }
-                    if let Err(error) = async_cfg::check(&source_expression, &async_types) {
-                        return Err(attach_span_to_source_error_kind(
-                            error.message,
-                            error.span,
-                            &source_files,
-                            "generator error: ",
-                        ));
-                    }
-                    async_generated_source(
-                        &normalized_invocation,
-                        form_span,
-                        capture_plans,
-                        &async_copy_types,
-                        &async_types,
-                    )
-                    .and_then(|source| parse_generated_source_items(&source))
-                } else {
-                    parse_generated_items_with_copy_types(forms, &async_copy_types)
-                };
-                generated.map_err(|error| {
-                    let is_async_fn = matches!(forms.get(1), Some(Expr::Symbol(kind)) if kind == "#async-fn" || kind == "#async-fn-pinned");
-                    let escaped_name = error.split_once("unknown value '")
-                        .and_then(|(_, rest)| rest.split_once("' outside").map(|(name, _)| name));
-                    let error_span = if is_async_fn && escaped_name.is_some() {
-                        source_value_symbol_span(&source_expression, escaped_name.unwrap())
-                            .unwrap_or(form_span)
-                    } else if is_async_fn && error.contains("shadowing") {
-                        let details = match &normalized_invocation {
-                            Expr::List(invocation) => invocation.get(4),
-                            _ => None,
-                        }
-                        .and_then(|function| function_shadowing(function).ok().flatten());
-                        details
-                            .and_then(|(name, statement_index)| {
-                                let statement = statement_index.and_then(|index| {
-                                    async_function_statement_source(&source_expression, index)
-                                })?;
-                                shadow_binding_span(statement.span, &name, &source_files)
-                            })
-                            .unwrap_or(form_span)
-                    } else if is_async_fn
-                        && async_lowering_statement_index(&error).is_some()
-                    {
-                        let statement_index = async_lowering_statement_index(&error)
-                            .expect("checked async statement marker");
-                        match &normalized_invocation {
-                            Expr::List(invocation) => invocation.get(4),
-                            _ => None,
-                        }
-                        .and_then(|_| {
-                            async_function_statement_source(&source_expression, statement_index)
-                        })
-                        .and_then(|statement| {
-                            if error.contains("body cannot return")
-                                || error.contains("does not support body returns")
-                            {
-                                if let Some(span) =
-                                    source_form_head_span(statement, &["#return"])
-                                {
-                                    return Some(span);
-                                }
-                            }
-                            let await_index = if error.contains(
-                                "nested #await requires an explicit result type",
-                            ) {
-                                1
-                            } else if error.contains(
-                                "awaited #let-else #for initialization cannot yet be combined with suspension",
-                            ) {
-                                1
-                            } else {
-                                0
-                            };
-                            source_form_head_span_nth(statement, &["#await"], await_index)
-                                .or_else(|| source_form_head_span_nth(statement, &["#await"], 0))
-                                .or(Some(statement.span))
-                        })
-                        .unwrap_or(form_span)
-                    } else if is_async_fn && (error.contains("await") || error.contains("capture")) {
-                        source_form_head_span(&source_expression, &["#await"])
-                            .unwrap_or(form_span)
-                    } else {
-                        form_span
-                    };
-                    attach_span_to_source_error_kind(
-                        format!(
-                            "{error} while expanding generated declaration {}",
-                            expression_source(&expression).unwrap_or_else(|_| "<?>".into())
-                        ),
-                        error_span,
-                        &source_files,
-                        "generator error: ",
-                    )
-                })?
+                        )
+                    },
+                )?
             } else {
                 vec![parse_item(&expression).map_err(|error| {
                     let error_span =
@@ -1479,7 +1049,7 @@ fn write_prepared_generated_sources_reusing_graph(
     prepared: &PreparedProgramSyntax,
     directory: &Path,
     cache_directory: Option<&Path>,
-    async_plans: &ExpansionPlans,
+    _async_plans: &ExpansionPlans,
     route: AsyncRoute,
     retained_graph_output: Option<&[super::async_emit::Generated]>,
 ) -> Result<(), SourceError> {
@@ -1530,12 +1100,6 @@ fn write_prepared_generated_sources_reusing_graph(
         {
             continue;
         }
-        let capture_key = (
-            expression.span.source_id,
-            expression.span.start,
-            expression.span.end,
-        );
-        let capture_plan = async_plans.get(&capture_key);
         let invocation = expression_source(&expression.expr)?;
         if route == AsyncRoute::Graph && is_async_invocation(expression) {
             // The planner and this loop both preserve invocation order, including
@@ -1571,23 +1135,15 @@ fn write_prepared_generated_sources_reusing_graph(
         let kind = expect_symbol(forms.get(1), "generated declaration name")?;
         if !matches!(
             kind,
-            "#thread-spawn"
-                | "#vec"
-                | "#vec-alloc"
-                | "#vec-sort"
-                | "#optional"
-                | "#result"
-                | "#async-fn"
-                | "#async-fn-pinned"
+            "#thread-spawn" | "#vec" | "#vec-alloc" | "#vec-sort" | "#optional" | "#result"
         ) {
             continue;
         }
         let key = format!(
-            "lim-inspectable-generated-source-v6\ncompiler={}\nimplementation={}\ndependency-context={}\nasync-capture-plan={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}",
+            "lim-inspectable-generated-source-v6\ncompiler={}\nimplementation={}\ndependency-context={}\nasync-copy-types={}\nasync-type-environment={}\ninvocation={invocation}",
             env!("CARGO_PKG_VERSION"),
             env!("LIM_BUILD_FINGERPRINT"),
             dependency_context,
-            async_capture_plan_identity(capture_plan),
             async_copy_type_identity(&copy_types),
             async_type_environment_identity(&async_types),
         );
@@ -1598,24 +1154,7 @@ fn write_prepared_generated_sources_reusing_graph(
             &generated_cache,
             &key,
             &builtin_origins[&invocation],
-            || {
-                if matches!(kind, "#async-fn" | "#async-fn-pinned") {
-                    let source = async_fn::generated_source_with_environment(
-                        &original,
-                        capture_plan,
-                        &copy_types,
-                        &async_types,
-                    )?;
-                    async_dispatch::collapse(&source, &async_types)
-                } else {
-                    materialize_builtin_generated_source(
-                        &kind,
-                        &forms,
-                        &worker_functions,
-                        copy_types,
-                    )
-                }
-            },
+            || materialize_builtin_generated_source(&kind, &forms, &worker_functions, copy_types),
         )?;
     }
     Ok(())
@@ -2130,7 +1669,7 @@ mod async_migration_tests {
     }
 
     #[test]
-    fn legacy_public_cancellation_state_patterns_are_a_production_switch_gate() {
+    fn obsolete_per_state_cancellation_patterns_are_not_supported() {
         let text = format!(
             "{}
           (#fn cancel-frame (: task Work-frame-state) ()
@@ -2146,9 +1685,6 @@ mod async_migration_tests {
             .replace("@#async-fn", "@#async-fn-pinned")
         );
         let prepared = syntax(&text, None);
-        let (legacy, _) =
-            expand_prepared_program_with_route(&prepared, AsyncRoute::Legacy).unwrap();
-        typecheck::CheckedProgram::validate_with_span(&legacy).unwrap();
         let error = expand_prepared_program_with_route(&prepared, AsyncRoute::Graph)
             .err()
             .unwrap();

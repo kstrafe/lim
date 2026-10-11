@@ -1429,3 +1429,26 @@ Invalid shared/exclusive multi-target aliasing must still fail at the original
 source expression before publishing generated cache files. Legacy implementation
 deletion, private cleanup-interface removal, and the complete safety audit are
 still outstanding; these passing cases do not establish goal completion.
+
+## Legacy lowering removed
+
+The legacy lowering and dispatcher-collapse modules have now been deleted,
+along with the frontend capture-discovery/cache pipeline and its codec test.
+There is no test-only legacy route left. Ordinary declaration parsing never
+expands async bodies through a second implementation, and inspectable source
+publication consumes the same graph output as executable compilation.
+The former cancellation-state migration gate now checks rejection of the
+obsolete per-state patterns directly on graph, without compiling a legacy
+version first.
+
+Independent syntax-contract tests remain test-only regression probes, not an
+alternate executable lowering path. The empty expansion-plan return plumbing
+and graph-private cancellation interfaces still need cleanup. Removal of the
+legacy implementation alone does not prove the complete async safety goal.
+
+Post-removal checking passed all targets. The library suite passed 1,348 tests
+(three manual benchmarks ignored); the lower count reflects removal of tests
+for the obsolete implementation/cache codec, not disabling graph regressions.
+All 229 async integration tests, ten dependent-cancellation tests, five
+standalone generated-code boundary tests, thirteen immediate-borrow tests,
+and three heap-contents tests also passed.
