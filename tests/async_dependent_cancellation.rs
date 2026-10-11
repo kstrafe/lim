@@ -44,6 +44,19 @@ fn dependent_child_is_destroyed_before_exporting_its_owner() {
 }
 
 #[test]
+fn runtime_array_child_is_cancelled_before_destroying_its_selected_owner() {
+    let program = source()
+        .replace("(#fn destroy-owner (: value Owner) ()\n        (#assert (#u64.== (#get value amount) 40u64))",
+            "(#fn destroy-owner (: value (#array Owner 2)) ()\n        (#assert (#u64.== (#get (#index value 0usize) amount) 10u64))\n        (#assert (#u64.== (#get (#index value 1usize) amount) 40u64))")
+        .replace("(#let owner Owner (#struct-literal Owner (: amount 40u64)))",
+            "(#let owner (#array Owner 2) (#array-of (#array Owner 2)\n            (#struct-literal Owner (: amount 10u64)) (#struct-literal Owner (: amount 40u64))))\n          (#let-mut index #usize 1usize)")
+        .replace("(Holding (#borrow owner) 0u64)",
+            "(#block (#let selected (#ref Owner) (#borrow (#index owner index)))\n              (#set index 0usize) (Holding selected 0u64))");
+    assert!(program.contains("(#index owner index)"));
+    run(&program, "async-runtime-array-dependent-cancellation");
+}
+
+#[test]
 fn suspended_for_step_cancels_child_before_its_body_owner() {
     let original = "(#let owner Owner (#struct-literal Owner (: amount 40u64)))
           (#let answer #u64 (#await Child Pending Ready child-poll

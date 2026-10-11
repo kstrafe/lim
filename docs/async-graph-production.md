@@ -86,7 +86,17 @@ different selected reference. The checked original borrow retains its ordinary
 or pinned type and exclusivity; a pinned physical address is not permission to
 upgrade a source loan to a pin. Native tests cover mutable writes, repeated
 Pending, cancellation, caller alias conflicts and standalone emitted source.
-Dynamic array-index and allocation/static mixed-anchor recipes remain gates.
+Runtime array indices retain the address selected by the original bounds-checked
+expression, not the index variable's later value. Pure generated address recipes
+recover coordinates using sampled physical element stride and address direction;
+they account for nested field offsets and zero-sized elements. Reconstruction
+uses ordinary checked projection helpers, retaining source type and exclusivity.
+Cold/warm native tests cover index mutation before suspension, shared/exclusive
+scalar and nested field selections, two runtime coordinates, zero-sized arrays
+and trailing empty fields. Dependent-child cancellation tests read the selected
+element before destroying its array owner; caller alias violations still fail
+with original source spans, and standalone generated source remains checked.
+Allocation/static mixed-anchor recipes remain gates.
 Repeatable scalar and ordinary shared-reference guard
 payloads can be previewed from a linear scrutinee while an awaiting guard
 executes. Shared snapshots retain their ordinary pointee loans, not loans of

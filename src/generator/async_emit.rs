@@ -79,6 +79,7 @@ struct Emitter<'a> {
     immediate: crate::generator::async_immediate::Plan,
     reference_cells: Option<crate::generator::async_cells::Plan>,
     projections: Vec<String>,
+    array_anchors: crate::generator::async_array_anchor::Recipes,
     addresses: HashMap<PlaceId, usize>,
     address_retirement: Option<crate::generator::async_addresses::Plan>,
 }
@@ -207,6 +208,7 @@ impl<'a> Emitter<'a> {
                 .map_err(|error| fail(function, error.message))?,
             reference_cells: None,
             projections: Vec::new(),
+            array_anchors: Default::default(),
             addresses: HashMap::new(),
             address_retirement: None,
         };
@@ -418,6 +420,21 @@ impl<'a> Emitter<'a> {
             emitter.retirement.as_ref(),
             emitter.lending.as_ref(),
         );
+        let places = emitter
+            .slots
+            .iter()
+            .filter_map(|slot| slot.anchor.as_ref())
+            .flatten()
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut recipes = crate::generator::async_array_anchor::Recipes::new(
+            places,
+            &function.graph,
+            &planning.declarations,
+            |role| emitter.fresh(role),
+        );
+        emitter.projections.append(&mut recipes.declarations);
+        emitter.array_anchors = recipes;
         Ok(emitter)
     }
 
@@ -483,7 +500,43 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    fn internal_anchor(&self, place: &crate::typed_place::Place, mutable: bool) -> String {
+    fn internal_anchor(
+        &self,
+        place: &crate::typed_place::Place,
+        mutable: bool,
+        pointer: &str,
+    ) -> String {
+        let mut indices = HashMap::new();
+        let mut statements = Vec::new();
+        for (position, segment) in place.segments.iter().enumerate() {
+            if *segment != crate::typed_place::Segment::DynamicIndex {
+                continue;
+            }
+            let array = self.anchor_project(place, position, false, &indices);
+            let index = self.fresh("anchor-index");
+            statements.push(format!(
+                "(#let {index} #usize {})",
+                self.array_anchors
+                    .get(place, position)
+                    .index(&array, pointer)
+            ));
+            indices.insert(position, index);
+        }
+        let anchor = self.anchor_project(place, place.segments.len(), mutable, &indices);
+        if statements.is_empty() {
+            anchor
+        } else {
+            format!("(#block {} {anchor})", statements.join("\n"))
+        }
+    }
+
+    fn anchor_project(
+        &self,
+        place: &crate::typed_place::Place,
+        prefix: usize,
+        mutable: bool,
+        indices: &HashMap<usize, String>,
+    ) -> String {
         use crate::typed_place::Segment;
         let (binding, external) = match place.root {
             crate::typed_body::PlaceRoot::Local(binding) => (binding, false),
@@ -503,10 +556,18 @@ impl<'a> Emitter<'a> {
         );
         if external {
             anchor = format!("(#deref {anchor})");
-            if !place.segments.is_empty() {
+        }
+        if let Some(projected) = self
+            .array_anchors
+            .project(place, prefix, mutable, &anchor, indices)
+        {
+            return projected;
+        }
+        if external {
+            if prefix != 0 {
                 let base = self.fresh("external-anchor");
                 let mut projected = base.clone();
-                for segment in &place.segments {
+                for (position, segment) in place.segments[..prefix].iter().enumerate() {
                     projected = match segment {
                         Segment::Field(id) => format!(
                             "(#get {projected} {})",
@@ -514,6 +575,9 @@ impl<'a> Emitter<'a> {
                         ),
                         Segment::Tuple(index) => format!("(#get {projected} {index})"),
                         Segment::Index(index) => format!("(#index {projected} {index}usize)"),
+                        Segment::DynamicIndex => {
+                            format!("(#index {projected} {})", indices[&position])
+                        }
                         _ => unreachable!("external anchors have checked static projections"),
                     };
                 }
@@ -523,7 +587,26 @@ impl<'a> Emitter<'a> {
                 );
             }
         }
-        for segment in &place.segments {
+        let mut steps = Vec::new();
+        for (position, segment) in place.segments[..prefix].iter().enumerate() {
+            if position != 0 {
+                let parent = self.fresh("anchor-parent");
+                let target = crate::generator::async_array_anchor::target_type(
+                    place,
+                    position,
+                    &self.function.graph,
+                    &self.planning.declarations,
+                );
+                let ty = Type::PinnedReference {
+                    mutable,
+                    target: Box::new(target),
+                };
+                steps.push(format!(
+                    "(#let {parent} {} {anchor})",
+                    crate::type_source(&ty)
+                ));
+                anchor = parent;
+            }
             let projected = match segment {
                 Segment::Field(id) => format!(
                     "(#get {anchor} {})",
@@ -531,11 +614,16 @@ impl<'a> Emitter<'a> {
                 ),
                 Segment::Tuple(index) => format!("(#get {anchor} {index})"),
                 Segment::Index(index) => format!("(#index {anchor} {index}usize)"),
+                Segment::DynamicIndex => format!("(#index {anchor} {})", indices[&position]),
                 _ => unreachable!("internal anchors were checked before emission"),
             };
             anchor = format!("(#pin-borrow{suffix} {projected})");
         }
-        anchor
+        if steps.is_empty() {
+            anchor
+        } else {
+            format!("(#block {} {anchor})", steps.join("\n"))
+        }
     }
 
     /// A dormant source branch may have a constant out-of-bounds access.
@@ -563,8 +651,13 @@ impl<'a> Emitter<'a> {
             ty = match (segment, ty) {
                 (Segment::Field(id), _) => resolve(&self.planning.declarations.field(*id).ty),
                 (Segment::Tuple(index), Type::Tuple(fields)) => resolve(&fields[*index]),
-                (Segment::Index(index), Type::Array(element, length)) => {
-                    if *index >= length as u128 {
+                (
+                    segment @ (Segment::Index(_) | Segment::DynamicIndex),
+                    Type::Array(element, length),
+                ) => {
+                    if length == 0
+                        || matches!(segment, Segment::Index(index) if *index >= length as u128)
+                    {
                         return false;
                     }
                     resolve(&element)
@@ -573,6 +666,37 @@ impl<'a> Emitter<'a> {
             };
         }
         true
+    }
+
+    fn anchor_probe(&self, place: &crate::typed_place::Place, pointer: &str) -> String {
+        fn probe(
+            emitter: &Emitter<'_>,
+            place: &crate::typed_place::Place,
+            pointer: &str,
+            start: usize,
+            indices: &mut HashMap<usize, String>,
+        ) -> String {
+            if let Some(position) = (start..place.segments.len()).find(|position| {
+                place.segments[*position] == crate::typed_place::Segment::DynamicIndex
+            }) {
+                let array = emitter.anchor_project(place, position, false, indices);
+                let recipe = emitter.array_anchors.get(place, position);
+                let index = emitter.fresh("probe-index");
+                indices.insert(position, index.clone());
+                let rest = probe(emitter, place, pointer, position + 1, indices);
+                format!(
+                    "(#bool.&& {} (#block (#let {index} #usize {}) {rest}))",
+                    recipe.probe(&array, pointer),
+                    recipe.index(&array, pointer)
+                )
+            } else {
+                format!(
+                    "(#usize.== (#ptr-address {pointer}) (#ptr-address (#ref-ptr {})))",
+                    emitter.anchor_project(place, place.segments.len(), false, indices)
+                )
+            }
+        }
+        probe(self, place, pointer, 0, &mut HashMap::new())
     }
 
     fn materialize_internal_reference(
@@ -591,7 +715,7 @@ impl<'a> Emitter<'a> {
                 "(#unsafe (#{}ptr-borrow{} {} {pointer}))",
                 if pinned { "pin-" } else { "" },
                 if mutable { "-mut" } else { "" },
-                self.internal_anchor(place, mutable)
+                self.internal_anchor(place, mutable, pointer)
             )
         };
         if let [place] = places.as_slice() {
@@ -619,11 +743,11 @@ impl<'a> Emitter<'a> {
             let owner = &self.slots[index];
             selected = format!(
                 "(#if (#bool.&& (#variant-is {} {})
-                (#usize.== (#ptr-address {pointer}) (#ptr-address (#ref-ptr {}))))
+                {})
                 {} {selected})",
                 Self::slot_ref(owner, false),
                 owner.full,
-                self.internal_anchor(place, false),
+                self.anchor_probe(place, pointer),
                 materialize(place)
             );
         }

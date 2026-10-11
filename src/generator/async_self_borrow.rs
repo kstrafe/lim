@@ -76,12 +76,12 @@ fn anchor(origins: &[LoanOrigin]) -> Result<Option<Vec<crate::typed_place::Place
                 crate::typed_place::Segment::Field(_)
                     | crate::typed_place::Segment::Tuple(_)
                     | crate::typed_place::Segment::Index(_)
+                    | crate::typed_place::Segment::DynamicIndex
             )
         })
     }) {
         return Err(
-            "internal reference anchors require checked static struct/tuple/array projections"
-                .into(),
+            "internal reference anchors require checked struct/tuple/array projections".into(),
         );
     }
     Ok(Some(places))
@@ -107,11 +107,9 @@ pub(crate) fn direct_place(
             AddressProjection::Index(index) => graph.values[index.0]
                 .source
                 .and_then(|source| crate::typed_place::literal_index(body, source))
-                .map(Segment::Index)
-                .ok_or_else(|| "internal array anchors require a checked constant index".into()),
+                .map_or(Ok(Segment::DynamicIndex), |index| Ok(Segment::Index(index))),
             _ => Err(
-                "internal reference anchors require checked static struct/tuple/array projections"
-                    .into(),
+                "internal reference anchors require checked struct/tuple/array projections".into(),
             ),
         })
         .collect::<Result<Vec<_>, String>>()?;

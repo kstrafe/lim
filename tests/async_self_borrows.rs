@@ -410,6 +410,40 @@ fn selected_array_elements_source(mutable: bool) -> String {
 }
 
 #[test]
+fn runtime_selected_array_indices_are_not_reread_after_suspension() {
+    for mutable in [false, true] {
+        let suffix = if mutable { "-mut" } else { "" };
+        let source = selected_array_elements_source(mutable)
+            .replace(
+                "(#let view (#ref",
+                "(#let-mut selected #usize 1usize)\n(#let view (#ref",
+            )
+            .replace("(#index owner 1usize)", "(#index owner selected)")
+            .replace(
+                &format!("(#borrow{suffix} (#index external 2usize))"),
+                &format!("(#borrow{suffix} (#index external (#usize.+.wrap selected 1usize)))"),
+            )
+            .replace(
+                "(#let ignored #u64 (#await",
+                "(#set selected 0usize)\n(#let ignored #u64 (#await",
+            );
+        assert!(source.contains("(#index owner selected)"));
+        assert_independent_generated_source(&source);
+        run_native(&source, "async-runtime-array-selection", 42);
+        let conflicting = source.replace(
+            "(#drop next)",
+            "(#drop next)\n(#set-index external 2usize 99u64)",
+        );
+        assert_borrow_error(
+            &conflicting,
+            "async-runtime-array-caller-conflict",
+            "#set-index",
+            0,
+        );
+    }
+}
+
+#[test]
 fn selected_array_elements_preserve_offsets_and_external_loans() {
     for mutable in [false, true] {
         let source = selected_array_elements_source(mutable);

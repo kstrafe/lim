@@ -64,6 +64,7 @@ enum TemplateValue {
 }
 
 pub(crate) mod async_addresses;
+pub(crate) mod async_array_anchor;
 pub(crate) mod async_cells;
 pub(crate) mod async_cfg;
 pub(crate) mod async_contract;
