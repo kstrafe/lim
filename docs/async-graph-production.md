@@ -115,12 +115,14 @@ Ready and cancellation, and drains its child through public cleanup. It keeps
 the same two frames and native result of 58. An additional source-body test
 reads Copy owner data while its shared self-references are retained; this legal
 read is supported by graph lowering, unlike the old shape-specific restriction.
-Graph-default selection and legacy removal remain separate gates.
+Graph-default selection and legacy removal were separate migration gates;
+both have since been completed.
 
-## Current support and gates
+## Historical support and migration gates
 
-Range bounds now have the same semantics in ordinary code and both async
-routes: evaluate start, then end, exactly once before entering the loop.
+At this migration checkpoint, range bounds had the same semantics in ordinary
+code and both then-existing async routes: evaluate start, then end, exactly once
+before entering the loop. Only the graph route remains today.
 Suspending either bound resumes its computation without evaluating a completed
 bound again. Labeled continue and break preserve the captured endpoints.
 Native regressions cover side-effecting factories, immediate children,
@@ -340,7 +342,8 @@ cache records include the new flag and use a versioned format boundary.
 
 Mixed pinned-reference selections now cover the same-kind local/external paths
 described below. Effectful index windows and the other public-interface gates
-remain unfinished. Poll-local mutable-slice projections are covered by the
+were unfinished at this checkpoint and were subsequently addressed below.
+Poll-local mutable-slice projections are covered by the
 retained-capability path described below.
 
 ### Local pin primitives and same-kind external selections
@@ -414,13 +417,14 @@ record fields are Empty; they never export live pointers into the parent.
 Repeated destruction is idempotent. Missing handlers and dependency cycles fail
 closed. Movable `@#async-fn` frames cannot use internal raw-reference storage.
 
-The default switch remains gated on legacy public task/state layout adapters,
+At this checkpoint, the default switch was gated on legacy public task/state
+layout adapters,
 the full existing async matrix, general guard aliases and retained child borrows,
 broader selected-address/projection contracts, and named poll-handle recycling
-with correct internal-loan permissions. A passing graph fixture does not close
-these gates. No `src/lib.rs` patch is needed to select this explicit route;
-changing `DEFAULT_ASYNC_ROUTE` before compatibility work would break existing
-public cancellation-state patterns.
+with correct internal-loan permissions. A passing graph fixture did not close
+these gates at that time. The adapters and public cancellation examples were
+subsequently migrated and the graph route became the production default; this
+list is not an outstanding-work list.
 
 Focused public-API/native and standalone-artifact regressions are in
 `tests/async_graph_production.rs`. Private graph emitter and frontend migration
@@ -466,9 +470,10 @@ including programs with transitively imported async invocations. This is
 source-to-assembly evidence, not a claim that every graph-mode runtime outcome
 has been checked. Run it with `cargo test --test async_graph_readiness --
 --ignored --nocapture`; the broad test uses a 32 MiB thread stack like the staged
-contract audit. Default-route runtime verification and legacy removal remain
-required. Representation-specific legacy solver tests retain an explicitly
-named temporary fixture rather than depending on the migrated public example.
+contract audit. Default-route runtime verification and legacy removal were
+still required at that checkpoint and have since completed. Representation-
+specific legacy solver tests then retained a temporary fixture; those layout
+dependencies and the legacy implementation were subsequently removed.
 
 ## Compilation measurements
 
@@ -580,8 +585,9 @@ and standalone generated-code regressions verify its result is still 42.
 
 The native outcome manifest marks migrated examples as `graph-exit`, selecting
 graph configuration for both native execution and the staged contract audit.
-This is migration bookkeeping, not a second runtime API: the default route is
-still legacy, and the selectors must be removed when the default switch lands.
+This was migration bookkeeping, not a second runtime API. The default route
+was then legacy; it is now graph. Explicit graph selection chooses the same
+production implementation, not an alternative runtime.
 
 The enum self-reference example no longer declares an unused function matching
 legacy frame-state variants. Its unchanged native result (42) now runs via
@@ -650,8 +656,9 @@ eliminated, but the larger semantic-analysis cost remains.
 At this checkpoint, all 1,333 library tests, 213 async integration tests, and
 32 graph-production tests pass. More loop, value-break, external-borrow, and
 three-phase condition/body/step regressions now explicitly exercise graph
-lowering instead of relying on legacy private helper names. These checks do
-not complete the default switch, legacy removal, or source-fact remapping.
+lowering instead of relying on legacy private helper names. These checks
+did not, at that checkpoint, complete the default switch, legacy removal, or
+source-fact remapping. Those migration gates were subsequently completed.
 
 ### Layout-independent pinned-storage solver tests
 
@@ -668,8 +675,8 @@ load with a source-spanned missing-provenance error, and the origin solver does
 not fabricate loaded references. Public graph self-reference regressions remain
 separate: their generated thin-pointer representation is not expected to have
 the legacy frame's physical reference slots. Two legacy-layout solver probes
-remain; removing these layout dependencies is progress toward legacy removal,
-not the default switch.
+remained at this checkpoint; both were later replaced with ordinary pinned
+storage probes before the legacy implementation was deleted.
 
 ### Graph-default integration audit
 
@@ -748,13 +755,15 @@ Direct scalar and field-projection tests cover suffix and explicit literal
 spellings. The mutation-branch regression now exercises graph lowering for
 both selected branches, match alternatives, immediate/mixed suspension, local
 borrowed writes, and linear-owner consumption failures. Longer-lived scoped
-reference holders and the other default-switch gates remain unfinished.
+reference holders and the other default-switch gates were unfinished at this
+checkpoint, before the later production migration.
 
 ### Removing the remaining legacy-layout solver fixtures
 
 The two remaining legacy-layout solver probes have been replaced, and their
-dedicated legacy self-reference fixture and parser helper removed. This does
-not remove the legacy lowering implementation or switch the default route.
+dedicated legacy self-reference fixture and parser helper removed. That step
+alone did not remove the legacy implementation or switch the default route;
+both changes were completed later.
 
 Ordinary pinned-storage tests now check that the union of poll exits retains
 the possible Pending source even when Ready definitely clears it. Both direct
@@ -912,7 +921,8 @@ Failure kinds still require separate treatment:
   meaning or weakening the test.
 
 The 167/62 counts describe the pre-global-fix audit, not a completed migration.
-Graph-default selection and legacy removal remain required work.
+Graph-default selection and legacy removal were required work at this audit
+checkpoint; both have since completed.
 
 ### Explicit consumption of discarded source results
 
@@ -1103,11 +1113,14 @@ necessary. Formatting and whitespace checks also passed.
 
 A temporary graph default followed by `cargo test --test async_fn --quiet`
 completed with 145 passing and 68 failing tests (213 total, 45.11 seconds).
-The temporary default was restored to legacy after the audit. This is not a
-claim that 68 distinct semantic bugs remain: failures include assertions about
+The temporary default was restored to legacy after this historical audit. This
+was not a claim that 68 distinct semantic bugs remained: failures included
+assertions about
 legacy private layouts, different diagnostics, and native compilation timeouts
 under parallel testing, as well as genuine lowering/borrow failures. The audit
-does not justify switching the default or deleting legacy yet.
+did not justify switching the default or deleting legacy at that time. The
+later production migration completed those gates; these counts are not current
+failure counts.
 
 `graph_nested_destructuring_preserves_projection_types_and_retained_loans`
 now exercises the explicit graph route independently of that default. It runs
@@ -1335,9 +1348,9 @@ Verification passed 1,355 library tests (three manual benchmarks ignored),
 the focused fresh/cache collision test, and all 229 async integration tests
 in 29.40 seconds. A fresh temporary graph-default audit passed 219 and failed
 10 in 38.27 seconds, versus 215/14 before this change. Legacy was restored
-after the audit and the ordinary compiler rebuilt. The remaining interface,
-diagnostic and unsupported-legacy expectations still need migration before
-the default switch and legacy removal.
+after the audit and the ordinary compiler rebuilt. The interface, diagnostic
+and unsupported-legacy expectations still needed migration at that checkpoint;
+that work completed before the production default switch and legacy removal.
 
 ## Loop-return interface verification
 
@@ -1351,10 +1364,10 @@ legacy-private choice or expression-ready helper names.
 An incorrect explicit condition result type is checked through the complete
 graph compilation pipeline. It must produce a type diagnostic for the Ready
 payload mismatch and underline the original `#u64` type token. All 229 async
-integration tests passed in 35.01 seconds after this change. The default is
-still legacy; this verification does not establish completion of the route
-removal or the full async safety goal. Legacy is to be removed, not retained
-as a backward-compatibility interface for the unreleased language.
+integration tests passed in 35.01 seconds after this change. The default was
+still legacy at that checkpoint; this verification alone did not establish
+route removal or the full async safety goal. The later migration deleted
+legacy rather than retaining a backward-compatibility interface.
 
 ## Graph is now the default
 
@@ -1366,9 +1379,9 @@ explicit cleanup remain checked. Nested await result types come from their
 declared child protocols; the obsolete unsupported-nesting expectation is gone.
 
 The production default is graph, and `async-lowering=legacy` is rejected as an
-unknown configuration value. The legacy enum variant is currently test-only.
-This is not a compatibility mode: its remaining implementation and private
-state/cancellation interfaces are still removal work.
+unknown configuration value. At this checkpoint the legacy enum variant was
+test-only, not a compatibility mode. Its implementation and private
+state/cancellation interfaces were subsequently removed as recorded below.
 
 The switch audit passed 1,356 library tests (three manual benchmarks ignored)
 and all 229 async integration tests. A broader all-target audit exposed extra
@@ -1429,8 +1442,9 @@ array element, exclusive mixed-layout selection with referent-specific writes,
 changed runtime indices, and mutable fields under indexed array elements.
 Invalid shared/exclusive multi-target aliasing must still fail at the original
 source expression before publishing generated cache files. Legacy implementation
-deletion, private cleanup-interface removal, and the complete safety audit are
-still outstanding; these passing cases do not establish goal completion.
+deletion and private cleanup-interface removal were still outstanding at this
+checkpoint and were completed below. These passing cases alone did not
+establish the complete safety goal.
 
 ## Legacy lowering removed
 
@@ -1445,8 +1459,9 @@ version first.
 
 Independent syntax-contract tests remain test-only regression probes, not an
 alternate executable lowering path. The empty expansion-plan return plumbing
-and graph-private cancellation interfaces still need cleanup. Removal of the
-legacy implementation alone does not prove the complete async safety goal.
+and graph-private cancellation interfaces still needed cleanup at that
+checkpoint; the subsequent cleanup is recorded below. Removal of the legacy
+implementation alone does not prove the complete async safety goal.
 
 Post-removal checking passed all targets. The library suite passed 1,348 tests
 (three manual benchmarks ignored); the lower count reflects removal of tests
