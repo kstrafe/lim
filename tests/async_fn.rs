@@ -1294,101 +1294,63 @@ fn pinned_async_frames_keep_local_pins_stationary_across_suspension() {
 }
 
 #[test]
-fn legacy_pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel() {
-    let source = include_str!("fixtures/legacy_async_self_reference.lim");
-    let generated = build_and_run(source, 58);
-    assert!(
-        generated.contains(
-            "(#struct Read-after-await-frame ((state Read-after-await-frame-state) (owner Owner)))"
-        ),
-        "{generated}"
-    );
-    assert!(
-        generated.contains("(#pin-borrow (#get (#get (#get task owner) payload) left))"),
-        "the self-reference must be formed from the pinned frame field: {generated}"
-    );
-    assert!(
-        generated
-            .contains("(read-after-await-frame-await-0 (#pin-ref #u64) (#pin-ref #u64) Child)"),
-        "both disjoint internal references must be retained in the suspended state: {generated}"
-    );
+fn pinned_async_frame_self_reference_survives_pending_and_is_cleared_on_cancel() {
+    let source = include_str!("../examples/async_fn_self_reference.lim");
+    let generated = build_and_run_graph(source, 58);
+    assert_single_poll(&generated, "read-after-await-poll");
+    assert_frame_has_program_counter(&generated, "Read-after-await-frame");
 
     let pending_mutation = source.replace(
         "  (#let second Read-after-await-poll-result",
-        "  (#set-field frame owner (#struct-literal Owner ((payload (#struct-literal Payload ((left 99u64) (right 5u64)))))))\n  (#let second Read-after-await-poll-result",
+        "  (#call read-after-await-owner-replace (: task (#pin-borrow-mut frame) : value (#struct-literal Owner ((payload (#struct-literal Payload ((left 99u64) (right 5u64))))))))\n  (#let second Read-after-await-poll-result",
     );
-    let error = lim::check_types(&lim::parse_program(&pending_mutation).unwrap()).unwrap_err();
-    assert!(
-        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
-        "the owner must stay borrowed while the frame is Pending: {error}"
-    );
+    assert_ne!(pending_mutation, source);
+    let error = graph_compile_error(&pending_mutation, "async-pending-owner-replace");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
 
-    let conflicting_projection = source.replace(
-        "  (#let second Read-after-await-poll-result",
-        "  (#let left-pin (#pin-ref-mut #u64)\n    (#pin-borrow-mut (#get (#get (#get pending-frame owner) payload) left)))\n  (#let second Read-after-await-poll-result",
-    );
-    let error =
-        lim::check_types(&lim::parse_program(&conflicting_projection).unwrap()).unwrap_err();
-    assert!(
-        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
-        "the live internal reference must exclude an overlapping mutable projection: {error}"
-    );
+    // Keep both disjoint shared projections alive through await, and reject
+    // exclusive aliases formed from the source owner, not private frame fields.
+    for field in ["left", "right"] {
+        let overlapping = source.replace(
+            "    (#let result #u64",
+            &format!("    (#let conflict (#pin-ref-mut #u64) (#pin-borrow-mut (#get (#get owner payload) {field})))\n    (#let result #u64"),
+        );
+        assert_ne!(overlapping, source);
+        let error = graph_compile_error(&overlapping, &format!("async-self-overlap-{field}"));
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    }
 
-    let conflicting_second_projection = source.replace(
-        "  (#let second Read-after-await-poll-result",
-        "  (#let right-pin (#pin-ref-mut #u64)\n    (#pin-borrow-mut (#get (#get (#get pending-frame owner) payload) right)))\n  (#let second Read-after-await-poll-result",
+    let cancelled_mutation = source.replace(
+        "  (#block\n    (#let cleanup Read-after-await-frame-cleanup",
+        "  (#call read-after-await-owner-replace (: task (#pin-borrow-mut cancelled) : value (#struct-literal Owner ((payload (#struct-literal Payload ((left 11u64) (right 7u64))))))))\n  (#block\n    (#let cleanup Read-after-await-frame-cleanup",
     );
-    let error =
-        lim::check_types(&lim::parse_program(&conflicting_second_projection).unwrap()).unwrap_err();
-    assert!(
-        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
-        "the second internal reference must also exclude its overlapping mutable projection: {error}"
-    );
+    assert_ne!(cancelled_mutation, source);
+    let error = graph_compile_error(&cancelled_mutation, "async-before-cleanup-owner-replace");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
 
-    let mutation = source.replace(
-        "  (#call cancel-self-ref-state (: task state))",
-        "  (#set-field cancelled owner (#struct-literal Owner ((payload (#struct-literal Payload ((left 11u64) (right 7u64)))))))\n  (#call cancel-self-ref-state (: task state))",
-    );
-    let error = lim::check_types(&lim::parse_program(&mutation).unwrap()).unwrap_err();
-    assert!(
-        error.contains("borrow") || error.contains("access") || error.contains("pinned"),
-        "the owner must stay borrowed until the suspended reference is consumed: {error}"
-    );
-
+    // Shared internal references do not forbid a simultaneous shared owner read.
     let direct_owner_use = source.replace(
         "(#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result)",
         "(#u64.+.wrap (#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result) (#get (#get owner payload) left))",
     );
-    let error = lim::parse_program(&direct_owner_use)
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains("owner") && error.contains("only be used to initialize"),
-        "owner access must not bypass the retained reference loan: {error}"
-    );
+    assert_ne!(direct_owner_use, source);
+    build_and_run_graph(&direct_owner_use, 98);
 }
 
 #[test]
 fn pinned_async_frame_retains_enum_payload_reference_across_pending() {
     let source = include_str!("../examples/async_fn_enum_self_reference.lim");
-    let generated = build_and_run(source, 42);
-    let compact = generated.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        compact.contains(
-            "(#pin-borrow (#get (#pin-get-payload (#pin-borrow (#get (#get task owner) choice)) Number 0) value))"
-        ),
-        "the frame should reborrow a struct field nested in the selected enum payload: {generated}"
-    );
-    assert!(
-        generated.contains("(read-after-await-frame-await-0 (#pin-ref #u64) Child)"),
-        "the enum-payload reference should be carried in the pending state: {generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "read-after-await-poll");
 
     let pending_mutation = source.replace(
-        "  (#let second Read-after-await-poll-result",
-        "  (#let choice-pin (#pin-ref-mut Choice)\n    (#pin-borrow-mut (#get (#get pending-frame owner) choice)))\n  (#let second Read-after-await-poll-result",
+        "    (#let result #u64",
+        "    (#let choice-pin (#pin-ref-mut Choice)\n      (#pin-borrow-mut (#get owner choice)))\n    (#let result #u64",
     );
-    let error = lim::check_types(&lim::parse_program(&pending_mutation).unwrap()).unwrap_err();
+    assert_ne!(pending_mutation, source);
+    let error = graph_compile_error(&pending_mutation, "async-enum-owner-overlap");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access") || error.contains("pinned"),
         "the enum owner must remain borrowed while its payload reference is pending: {error}"
@@ -1396,35 +1358,25 @@ fn pinned_async_frame_retains_enum_payload_reference_across_pending() {
 }
 
 #[test]
-fn pinned_async_frame_promotes_a_local_owner_before_self_borrowing_it() {
+fn pinned_async_frame_initializes_a_local_owner_before_self_borrowing_it() {
     let source = include_str!("../examples/async_fn_local_self_reference.lim");
-    let generated = build_and_run(source, 42);
-    let compact = generated.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        compact.contains(
-            "(#fn local-self-ref ((seed #u64)) Local-self-ref-frame (#let owner LocalOwner",
-        ),
-        "the owner must be initialized before the frame is returned: {generated}"
-    );
-    assert!(
-        generated.contains("(#pin-borrow (#get (#get (#get task owner) payload) left))"),
-        "the local reference must be formed from the pinned frame's owner: {generated}"
-    );
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "local-self-ref-poll");
 
     let late_owner = source.replace(
         "    (#let owner LocalOwner",
         "    (#let before-owner #u64 1u64)\n    (#let owner LocalOwner",
     );
-    let error = lim::parse_program(&late_owner).unwrap_err();
-    assert!(
-        error.contains("must be the first function statement"),
-        "local owners after other statements are not hoisted implicitly: {error}"
-    );
+    assert_ne!(late_owner, source);
+    // Graph lowering executes source statements after pinning, without the
+    // legacy restriction that the owner must be the first source statement.
+    build_and_run_graph(&late_owner, 42);
 }
 
 #[test]
 fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
     let source = include_str!("../examples/async_fn_local_self_reference.lim")
+        .replace("(#let owner LocalOwner", "(#let-mut owner LocalOwner")
         .replace("(#pin-ref #u64)", "(#pin-ref-mut #u64)")
         .replace(
             "(#pin-borrow (#get (#get owner payload) left))",
@@ -1434,21 +1386,17 @@ fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
             "    (#return (#u64.+.wrap (#deref view) result))",
             "    (#unsafe (#pin-write view 41u64))\n    (#return (#u64.+.wrap (#deref view) result))",
         );
-    lim::check_types(&lim::parse_program(&source).unwrap()).unwrap();
-    let generated = build_and_run(&source, 43);
-    assert!(
-        generated.contains("(#pin-ref-mut #u64)"),
-        "the exclusive reference must remain typed in the suspended state: {generated}"
-    );
+    let generated = build_and_run_graph(&source, 43);
+    assert_single_poll(&generated, "local-self-ref-poll");
 
     let overlapping_owner_read = source.replace(
         "    (#unsafe (#pin-write view 41u64))",
         "    (#let overlapping #u64 (#get (#get owner payload) left))\n    (#unsafe (#pin-write view 41u64))",
     );
-    let error = match lim::parse_program(&overlapping_owner_read) {
-        Err(error) => error,
-        Ok(program) => lim::check_types(&program).unwrap_err(),
-    };
+    assert_ne!(overlapping_owner_read, source);
+    let error = graph_compile_error(&overlapping_owner_read, "async-exclusive-owner-overlap");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access") || error.contains("pinned"),
         "reading through the owner must conflict with the retained exclusive projection: {error}"
@@ -1458,39 +1406,50 @@ fn pinned_async_frame_retains_mutable_self_reference_across_pending() {
         "    (#let result #u64",
         "    (#let second-view (#pin-ref-mut #u64)\n      (#pin-borrow-mut (#get (#get owner payload) left)))\n    (#let result #u64",
     );
-    let error = match lim::parse_program(&duplicate_exclusive_borrow) {
-        Err(error) => error,
-        Ok(program) => lim::check_types(&program).unwrap_err(),
-    };
+    assert_ne!(duplicate_exclusive_borrow, source);
+    let error = graph_compile_error(
+        &duplicate_exclusive_borrow,
+        "async-exclusive-self-duplicate",
+    );
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
         error.contains("borrow") || error.contains("access") || error.contains("pinned"),
         "the same pinned projection must not be borrowed exclusively twice: {error}"
     );
 
-    let (prefix, after_second_poll) = source
+    // Make the local owner explicitly linear so cleanup must return it after
+    // clearing the internal exclusive reference; do not inspect private cells.
+    let linear = source.replace("(#struct LocalOwner", "(#linear LocalOwner)\n(#struct LocalOwner")
+        .replace("(#return (#u64.+.wrap (#deref view) result))",
+            "(#let answer #u64 (#u64.+.wrap (#deref view) result))\n    (#drop view)\n    (#forget owner)\n    (#return answer)");
+    let (prefix, after_second_poll) = linear
         .split_once("  (#let second Local-self-ref-poll-result")
         .unwrap();
     let (_, suffix) = after_second_poll.split_once("  (#forget frame)").unwrap();
     let cancelled = format!(
         "{prefix}\
-          (#let cancelled-state Local-self-ref-frame-state\n\
-            (#call local-self-ref-poll-cancel (: task pending-frame)))\n\
-          (#forget cancelled-state)\n\
-          (#set-field frame owner\n\
-            (#struct-literal LocalOwner ((payload\n\
-              (#struct-literal LocalPayload ((left 41u64) (right 5u64)))))))\n\
-          (#let result #u64 (#get (#get (#get frame owner) payload) left))\n\
+          (#let cleanup Local-self-ref-frame-cleanup\n\
+            (#call local-self-ref-poll-cleanup (: task pending-frame)))\n\
+          (#let result #u64 (#match (#get cleanup owner)\n\
+            (#case Local-self-ref-frame-cleanup-owner-empty (#unreachable))\n\
+            (#case (Local-self-ref-frame-cleanup-owner-full extracted) (#block\n\
+              (#let-mut owned LocalOwner extracted)\n\
+              (#set-field owned payload (#struct-literal LocalPayload ((left 41u64) (right 5u64))))\n\
+              (#let value #u64 (#get (#get owned payload) left))\n\
+              (#forget owned) value))))\n\
+          (#match (#get cleanup await-0)\n\
+            (#case Local-self-ref-frame-cleanup-await-0-empty ())\n\
+            (#case (Local-self-ref-frame-cleanup-await-0-full child) (#forget child)))\n\
+          (#forget cleanup)\n\
           (#forget frame){suffix}"
     );
-    let generated = build_and_run(&cancelled, 41);
-    assert!(
-        generated.contains("(#fn local-self-ref-poll-cancel"),
-        "the generated cancel path should be exercised: {generated}"
-    );
+    let generated = build_and_run_graph(&cancelled, 41);
+    assert_single_poll(&generated, "local-self-ref-poll");
 }
 
 #[test]
-fn pinned_async_result_reference_keeps_its_frame_borrow_live() {
+fn pinned_async_result_cannot_export_a_local_self_reference() {
     let source = include_str!("../examples/async_fn_local_self_reference.lim")
         .replace(
             "(#fn local-self-ref ((seed #u64)) #u64",
@@ -1505,10 +1464,15 @@ fn pinned_async_result_reference_keeps_its_frame_borrow_live() {
             "(#let result (#pin-ref #u64)\n    (#match second",
         )
         .replace("(#return result))", "(#return (#deref result)))");
-    let error = lim::check_types(&lim::parse_program(&source).unwrap()).unwrap_err();
+    let error = graph_compile_error(&source, "async-pinned-local-reference-result");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow);
+    let error = error.message;
     assert!(
-        error.contains("borrow") || error.contains("pinned") || error.contains("destroy"),
-        "the async result reference must keep its pinned frame borrowed: {error}"
+        error.contains("borrow")
+            || error.contains("pinned")
+            || error.contains("destroy")
+            || error.contains("retaining a reference to local"),
+        "the async result must not export a reference to local source storage: {error}"
     );
 }
 
