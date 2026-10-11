@@ -1932,7 +1932,11 @@ impl<'a> Emitter<'a> {
                             AddressProjection::Field(_) | AddressProjection::Tuple(_)
                         )
                     });
-                if (!simple_owned && !simple_handle) || !descriptor.checks().is_empty() {
+                let computed_value = matches!(descriptor.root, AddressRoot::Value(_))
+                    && descriptor.projections.is_empty();
+                if (!simple_owned && !simple_handle && !computed_value)
+                    || !descriptor.checks().is_empty()
+                {
                     return Err(error(
                         "projected addresses need checked storage and immediate place checks",
                     ));
@@ -1941,6 +1945,22 @@ impl<'a> Emitter<'a> {
             }
             Action::Load { dst, place, kind } => {
                 let descriptor = &graph.places[place.0];
+                if let AddressRoot::Value(value) = descriptor.root {
+                    if descriptor.projections.is_empty() {
+                        if !self.types.can_repeat(&descriptor.ty) {
+                            return Err(error(
+                                "computed owning value loads require explicit lending storage",
+                            ));
+                        }
+                        let read = self.value(value, false);
+                        let read = if *kind == LoadKind::Clone {
+                            self.clone_read(&descriptor.ty, &read)
+                        } else {
+                            read
+                        };
+                        return Ok(self.put_value(*dst, &read));
+                    }
+                }
                 if self.addresses.contains_key(place) {
                     if !self.types.can_repeat(&descriptor.ty)
                         || self.types.contains_reference(&descriptor.ty)

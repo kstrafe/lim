@@ -2274,7 +2274,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#variant-is` | `(#variant-is enum-reference Variant)` | `(#let is-some #bool (#variant-is value Some))` (expression) | Tests an enum reference's active variant without consuming the reference or enum; accepts ordinary or pinned shared/exclusive references. It does not statically refine later payload projections, which retain their runtime active-variant check. |
 | `#when` | `(#when boolean-expression)` | `(#case (Some x) (#when (#u64.> x 0u64)) x)` (inside `#case`) | Adds a guard to a match arm; guarded arms do not alone establish exhaustiveness. |
 | `#while` | `(#while condition body...)` | `(#while (#u64.< i 4u64) (#set i (#u64.+.wrap i 1u64)))` (statement) | Repeats while its boolean condition is true. |
-| `#while-let` | `(#while-let pattern value body...)` | `(#while-let (Some x) next (#set total x))` (statement) | Repeatedly matches a value and runs the body while the pattern succeeds. Inside async functions, the scrutinee may remain synchronous while the body suspends. |
+| `#while-let` | `(#while-let pattern value body...)` | `(#while-let (Some x) next (#set total x))` (statement) | Evaluates the value once per iteration, matches that same value, and runs the body while the pattern succeeds. A mismatch exits without running the body. Inside async functions, the scrutinee may remain synchronous while the body suspends. |
 
 #### Typed operator families (alphabetical)
 

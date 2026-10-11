@@ -7809,28 +7809,26 @@ fn lower_expr(expression: &Expr) -> Result<Expr, String> {
                     "while-let requires a pattern, value, and at least one body statement".into(),
                 );
             }
-            // Preserve the complete pattern. Enum payload bindings are harmless
-            // in the boolean guard, while aggregate patterns need their literal
-            // fields checked to avoid turning every tuple/struct guard into an
-            // unconditional loop.
-            let condition_pattern = items[1].clone();
+            // Evaluate the scrutinee once per iteration. A separate condition
+            // match and binding match would repeat effects (and awaits), and
+            // could bind a different value than the one whose pattern passed.
             let repeated_value = Expr::List(vec![Expr::Symbol("clone".into()), items[2].clone()]);
             let mut body = vec![Expr::Symbol("block".into())];
             body.extend(items[3..].iter().cloned());
             let then_value = Expr::List(body);
             lower_expr(&Expr::List(vec![
-                Expr::Symbol("while".into()),
+                Expr::Symbol("loop".into()),
                 Expr::List(vec![
                     Expr::Symbol("match".into()),
-                    repeated_value.clone(),
-                    Expr::List(vec![condition_pattern, Expr::Symbol("true".into())]),
-                    Expr::List(vec![Expr::Symbol("_".into()), Expr::Symbol("false".into())]),
-                ]),
-                Expr::List(vec![
-                    Expr::Symbol("if-let".into()),
-                    items[1].clone(),
                     repeated_value,
-                    then_value,
+                    Expr::List(vec![items[1].clone(), then_value]),
+                    Expr::List(vec![
+                        Expr::Symbol("_".into()),
+                        Expr::List(vec![
+                            Expr::Symbol("block".into()),
+                            Expr::List(vec![Expr::Symbol("break".into())]),
+                        ]),
+                    ]),
                 ]),
             ]))
         }
