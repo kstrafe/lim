@@ -10356,6 +10356,40 @@ fn async_loop_body_restores_values_mutated_through_borrowed_places() {
 }
 
 #[test]
+fn pinned_mutable_slice_holder_reborrows_elements_without_moving_holder() {
+    let source = r#"
+      (#fn lend (: holder (#pin-ref-mut (#slice-mut #u64))) (#slice-mut #u64)
+        (#return (#slice-mut-range (#deref holder) 0usize (#slice-mut-len (#deref holder)))))
+      (#fn main () #u64
+        (#let-mut values (#array #u64 1) (#array-of (#array #u64 1) 41u64))
+        (#let-mut items (#slice-mut #u64) (#slice-mut-of (#borrow-mut values)))
+        (#let range (#slice-mut #u64) (#call lend (: holder (#pin items))))
+        (#deref-set (#slice-mut-idx range 0usize) 42u64)
+        (#forget range)
+        (#forget items)
+        (#return (#index values 0usize)))
+    "#;
+    build_and_run_graph(source, 42);
+    let conflicting = source.replace(
+        "(#forget range)",
+        "(#set-index values 0usize 0u64) (#forget range)",
+    );
+    let error = graph_compile_error(&conflicting, "pinned-slice-retained-owner");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&conflicting[span.start..span.end], "#set-index");
+    let shared = source
+        .replace(
+            "(#pin-ref-mut (#slice-mut #u64))",
+            "(#pin-ref (#slice-mut #u64))",
+        )
+        .replace("(#pin items)", "(#pin-shared items)");
+    let error = graph_compile_error(&shared, "pinned-slice-shared-holder");
+    assert_eq!(error.code, lim::DiagnosticCode::Type, "{error:?}");
+    assert!(error.message.contains("exclusive"), "{error:?}");
+}
+
+#[test]
 fn async_for_void_await_step_respects_continue_break_and_false_condition() {
     let source = r#"
       (#enum ConditionTask ((Check #bool)))

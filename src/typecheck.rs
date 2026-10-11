@@ -7765,14 +7765,16 @@ fn list_expression(
         "slice-range" | "slice-mut-range" => {
             require_arity(operator, items, 4)?;
             if operator == "slice-mut-range" && !matches!(&items[1], Expr::Symbol(_)) {
-                let (exclusive, pinned) = borrow_projection_permissions(
+                let (exclusive, _) = borrow_projection_permissions(
                     &items[1], variables, functions, structs, enums, mutable, aliases,
                 )
                 .map_err(|error| error.at(ErrorSite::Argument(operator.into(), 1)))?;
-                if !exclusive || pinned {
+                // A range reborrows the slice's elements, not the holder.
+                // Pinning that holder does not pin its external elements.
+                if !exclusive {
                     return Err(semantic_at!(
                         ErrorSite::Argument(operator.into(), 1),
-                        "slice-mut-range requires an exclusive unpinned handle place"
+                        "slice-mut-range requires an exclusive handle place"
                     ));
                 }
             }
@@ -9207,8 +9209,10 @@ fn projection_root(expression: &Expr) -> Option<&Expr> {
             Some(expression)
         }
         Expr::List(items)
-            if (items.len() == 3
-                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index"))
+            if (items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(name)) if name == "deref"))
+                || (items.len() == 3
+                    && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get" || name == "index"))
                 || (items.len() == 4
                     && matches!(items.first(), Some(Expr::Symbol(name)) if name == "get-payload")) =>
         {

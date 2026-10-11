@@ -1853,6 +1853,13 @@ half must itself be consumed (for example, passed to a function or explicitly
 `#forget`-ted). Mutable slices can be returned when their inferred provenance
 comes from a function argument; a view of a local array cannot escape.
 
+Pinning a mutable slice **holder** does not pin its backing elements. An
+exclusive reference to that holder, including `(#pin-ref-mut (#slice-mut T))`,
+can reborrow a range through `(#slice-mut-range (#deref holder) start end)`
+without extracting or moving the holder. A shared holder reference cannot
+grant this exclusive access. The resulting range still borrows the original
+backing storage and must end before conflicting access to that storage.
+
 `(#slice-mut-range parent start end)` reborrows an existing mutable slice
 handle: a named handle or an exclusive, variable-rooted aggregate field/tuple
 slot such as `(#get holder view)`. Owned aggregate projections require a
