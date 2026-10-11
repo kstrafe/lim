@@ -3444,7 +3444,12 @@ impl<'a> Emitter<'a> {
                 let Some(slot) = self.bindings.get(&binding) else {
                     return Ok(self.put_value(*dst, "()"));
                 };
-                if self.aggregates.contains_key(&binding) && *kind == LoadKind::Read {
+                if self.aggregates.contains_key(&binding) {
+                    if *kind == LoadKind::Clone {
+                        return Err(error(
+                            "whole aggregate cloning requires contiguous owning storage",
+                        ));
+                    }
                     let transfer = !self.types.can_repeat(&graph.bindings[binding.0].ty);
                     return Ok(self.put_value(*dst, &self.read_binding(binding, transfer)));
                 }
@@ -3525,9 +3530,24 @@ impl<'a> Emitter<'a> {
                         let ty = self.slots[*slot].ty.clone();
                         self.clone_read(&ty, &read)
                     }
-                    LoadKind::Clone => return Err(error(
-                        "linear clone must call its checked clone hook through a borrowed place",
-                    )),
+                    LoadKind::Clone => {
+                        // Keep the original owner in its stationary cell.
+                        // A typed shared projection lets ordinary clone-hook
+                        // checking retain pointee origins in both owners.
+                        let slot = &self.slots[*slot];
+                        let reference = format!(
+                            "(#pin-get-payload {} {} 0)",
+                            Self::slot_ref(slot, false),
+                            slot.full
+                        );
+                        let ty = crate::type_source(&slot.ty);
+                        let helper = self.fresh("clone-owner");
+                        let argument = self.fresh("clone-owner-input");
+                        self.projections.push(format!(
+                            "(#fn {helper} (: {argument} (#pin-ref {ty})) {ty}\n  (#return (#clone (#deref {argument}))))"
+                        ));
+                        format!("(#call {helper} (: {argument} {reference}))")
+                    }
                 };
                 Ok(self.put_value(*dst, &read))
             }

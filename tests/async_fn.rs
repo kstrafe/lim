@@ -6798,6 +6798,12 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
             "(#let overlap (#ref-mut Resource) (#borrow-mut (#get pair right))) (#drop overlap) (#let delta #u64",
             "borrow",
         ),
+        (
+            source,
+            "(#forget pair)",
+            "(#let duplicate Pair (#clone pair)) (#forget duplicate) (#forget pair)",
+            "contiguous owning storage",
+        ),
     ] {
         let invalid = source.replace(needle, replacement);
         let error = graph_compile_error(&invalid, "partial-storage-invalid");
@@ -6862,6 +6868,31 @@ fn async_clones_computed_reference_bearing_owners() {
     let error = graph_compile_error(&exclusive, "computed-clone-exclusive-reference");
     assert!(
         error.message.contains("clone") || error.message.contains("Clone"),
+        "{error:?}"
+    );
+    let reused = source
+        .replace(
+            "(#let holder Holder (#clone (#call make-holder (: reference owner))))",
+            "(#let original Holder (#call make-holder (: reference owner)))\n          (#let holder Holder (#clone original))",
+        )
+        .replace(
+            "(#let result #u64 (#deref (#get holder reference)))",
+            "(#let result #u64 (#u64.+.wrap (#deref (#get holder reference)) (#deref (#get original reference))))\n          (#forget original)",
+        );
+    assert_ne!(reused, source);
+    build_and_run_graph(&reused, 84);
+    let conflicting = reused.replace(
+        "(#let second Work-poll-result",
+        "(#set owner 43u64) (#let second Work-poll-result",
+    );
+    let error = graph_compile_error(&conflicting, "reused-clone-retains-origin");
+    assert!(error.message.contains("borrow"), "{error:?}");
+    let span = error
+        .span
+        .expect("retained owners need a source diagnostic");
+    let write = conflicting.find("(#set owner 43u64)").unwrap();
+    assert!(
+        span.start >= write && span.end <= write + "(#set owner 43u64)".len(),
         "{error:?}"
     );
 }

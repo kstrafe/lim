@@ -1601,3 +1601,23 @@ still require further lowering, and borrowing an entire decomposed struct is
 rejected because its cells do not form contiguous original-struct storage. Field
 layout selection is representation planning, not a replacement for source
 ownership analysis or ordinary generated-code validation.
+
+## Clone a retained named owner without moving it
+
+The reference-bearing clone regression now also names the original owner,
+clones it, suspends, and reads through both owners after resumption. That case
+exposed a remaining local-owner restriction: the dispatcher only admitted Copy
+clone loads even though the source checker had accepted the linear clone.
+Named linear owners now clone through a typed shared pinned projection, just
+like computed owners. The original cell remains Full for its later use and
+explicit consumption. The caller-mutation rejection verifies that both retained
+owners preserve the original reference's loan, with an original-source span.
+
+This does not reconstruct decomposed aggregates merely to borrow them for a
+clone: whole clones of those bindings still require contiguous storage and are
+rejected before emitting a read from the unused parent cell. Individual stored
+fields continue to clone through their own typed projections.
+Verification passes all 231 async integration tests and 225 selected async unit
+tests (three manual benchmarks ignored). A concurrent integration/unit run hit
+one existing 20-second aggregate-loop subprocess timeout; the integration suite
+passed on its subsequent isolated run without changing the timeout.
