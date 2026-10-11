@@ -1,9 +1,10 @@
 //! Representation planning for references into a stationary async frame.
 //!
 //! Ordinary source loan analysis remains the authority for access and escape
-//! checks. This module only identifies thin internal handles that can be
-//! stored as raw pointers and materialized for an individual poll operation.
-use std::collections::HashMap;
+//! checks. This module identifies thin selected handles that can be stored as
+//! raw pointers and materialized for an individual poll operation. Boundary
+//! references retain separate lifetime-bearing captures.
+use std::collections::{HashMap, HashSet};
 
 use crate::generator::async_exec::{Action, AddressRoot, Graph, ValueId};
 use crate::typed_body::{BindingId, Body, PlaceRoot};
@@ -15,6 +16,8 @@ use crate::Type;
 pub(crate) struct Plan {
     pub bindings: HashMap<BindingId, Vec<crate::typed_place::Place>>,
     pub values: HashMap<ValueId, Vec<crate::typed_place::Place>>,
+    /// Real boundary references retained separately from erased selected handles.
+    pub external_parameters: HashSet<BindingId>,
     /// Owning cells whose references depend on local stationary storage.
     pub dependent_bindings: HashMap<BindingId, Vec<BindingId>>,
     pub dependent_values: HashMap<ValueId, Vec<BindingId>>,
@@ -43,11 +46,15 @@ fn internal(origin: &LoanOrigin) -> bool {
 
 fn classify(origins: &[LoanOrigin]) -> Result<bool, String> {
     let local = origins.iter().any(internal);
-    if local && origins.iter().any(|origin| !internal(origin)) {
-        return Err(
-            "async handles mixing frame-local and external referents require separate storage"
-                .into(),
-        );
+    if local
+        && origins.iter().any(|origin| {
+            !internal(origin)
+                && (!matches!(origin.place.root, PlaceRoot::Parameter(_))
+                    || origin.owned_allocation
+                    || origin.lifetime_only)
+        })
+    {
+        return Err("selected external async anchors require a checked reference parameter".into());
     }
     Ok(local)
 }
@@ -57,7 +64,7 @@ fn anchor(origins: &[LoanOrigin]) -> Result<Option<Vec<crate::typed_place::Place
         return Ok(None);
     }
     let mut places = Vec::new();
-    for origin in origins.iter().filter(|origin| internal(origin)) {
+    for origin in origins {
         if !places.contains(&origin.place) {
             places.push(origin.place.clone());
         }
@@ -187,6 +194,30 @@ impl Plan {
                         .or_insert(vec![at(direct_place(graph, place), action.span)?]);
                 }
             }
+        }
+        for place in plan.bindings.values().chain(plan.values.values()).flatten() {
+            if let PlaceRoot::Parameter(binding) = place.root {
+                if !thin(&graph.bindings[binding.0].ty) {
+                    return Err(Error {
+                        message:
+                            "selected external async anchors require a thin reference parameter"
+                                .into(),
+                        span: graph.bindings[binding.0].span,
+                    });
+                }
+                plan.external_parameters.insert(binding);
+            }
+        }
+        // The parameter's real reference moves into a hidden capture, not into
+        // an erased source cell. The source binding uses a pointer to the same
+        // referent and is reconstructed from that lifetime-bearing capture.
+        for &binding in &plan.external_parameters {
+            plan.bindings.insert(
+                binding,
+                vec![crate::typed_place::Place::root(PlaceRoot::Parameter(
+                    binding,
+                ))],
+            );
         }
         Ok(plan)
     }
@@ -408,16 +439,21 @@ mod tests {
     }
 
     #[test]
-    fn mixed_internal_external_handles_cannot_erase_caller_lifetimes() {
-        let error = plan(
+    fn mixed_internal_external_handles_retain_reference_parameters() {
+        let plan = plan(
             "(#fn work (: external (#ref #u64) : choose #bool) #u64
           (#let owner #u64 40u64)
           (#let view (#ref #u64) (#if choose (#borrow owner) external))
           (#drop view) (#forget owner) (#return 0u64))",
         )
-        .err()
         .unwrap();
-        assert!(error.contains("mixing frame-local and external"), "{error}");
+        assert_eq!(plan.external_parameters.len(), 1);
+        assert!(plan.bindings.values().any(|places| places
+            .iter()
+            .any(|place| matches!(place.root, PlaceRoot::Parameter(_)))
+            && places
+                .iter()
+                .any(|place| matches!(place.root, PlaceRoot::Local(_)))));
     }
 
     #[test]

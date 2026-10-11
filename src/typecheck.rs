@@ -2019,6 +2019,7 @@ fn check_types_inner(
             *diagnostic_span = span;
             message
         })?;
+        declarations.seed_parameter_loan_slots();
         return Ok(declarations);
     }
     if !enforce_ownership {

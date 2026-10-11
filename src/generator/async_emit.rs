@@ -66,6 +66,7 @@ struct Emitter<'a> {
     pinned: bool,
     slots: Vec<Slot>,
     bindings: HashMap<BindingId, usize>,
+    external_captures: HashMap<BindingId, usize>,
     values: HashMap<ValueId, usize>,
     scopes: HashMap<crate::typed_body::NodeId, usize>,
     reserved: RefCell<HashSet<String>>,
@@ -186,6 +187,7 @@ impl<'a> Emitter<'a> {
             pinned: function.source.pinned_frame.is_some(),
             slots: Vec::new(),
             bindings: HashMap::new(),
+            external_captures: HashMap::new(),
             values: HashMap::new(),
             scopes: HashMap::new(),
             reserved: RefCell::new(reserved),
@@ -206,6 +208,19 @@ impl<'a> Emitter<'a> {
             address_retirement: None,
         };
         emitter.finish = emitter.fresh("frame-finish");
+        let mut external_parameters = self_borrows
+            .external_parameters
+            .iter()
+            .copied()
+            .collect::<Vec<_>>();
+        external_parameters.sort_by_key(|binding| binding.0);
+        for binding in external_parameters {
+            let slot = emitter.add_slot(
+                format!("external.{}", binding.0),
+                function.graph.bindings[binding.0].ty.clone(),
+            );
+            emitter.external_captures.insert(binding, slot);
+        }
         // Each scope/declaration activates its own cell. The factory installs
         // only initial arguments; it must never execute source declarations.
         for (index, binding) in function.graph.bindings.iter().enumerate() {
@@ -463,16 +478,41 @@ impl<'a> Emitter<'a> {
 
     fn internal_anchor(&self, place: &crate::typed_place::Place, mutable: bool) -> String {
         use crate::typed_place::Segment;
-        let crate::typed_body::PlaceRoot::Local(binding) = place.root else {
-            unreachable!()
+        let (binding, external) = match place.root {
+            crate::typed_body::PlaceRoot::Local(binding) => (binding, false),
+            crate::typed_body::PlaceRoot::Parameter(binding) => (binding, true),
+            _ => unreachable!(),
         };
-        let owner = &self.slots[self.bindings[&binding]];
+        let owner = &self.slots[if external {
+            self.external_captures[&binding]
+        } else {
+            self.bindings[&binding]
+        }];
         let suffix = if mutable { "-mut" } else { "" };
         let mut anchor = format!(
             "(#pin-get-payload{suffix} {} {} 0)",
             Self::slot_ref(owner, mutable),
             owner.full
         );
+        if external {
+            anchor = format!("(#deref {anchor})");
+            if !place.segments.is_empty() {
+                let base = self.fresh("external-anchor");
+                let mut projected = base.clone();
+                for segment in &place.segments {
+                    let field = match segment {
+                        Segment::Field(id) => self.planning.declarations.field(*id).name.clone(),
+                        Segment::Tuple(index) => index.to_string(),
+                        _ => unreachable!("external anchors have checked static projections"),
+                    };
+                    projected = format!("(#get {projected} {field})");
+                }
+                return format!(
+                    "(#block (#let {base} {} {anchor}) (#borrow{suffix} {projected}))",
+                    crate::type_source(&self.function.graph.bindings[binding.0].ty)
+                );
+            }
+        }
         for segment in &place.segments {
             let field = match segment {
                 Segment::Field(id) => self.planning.declarations.field(*id).name.clone(),
@@ -512,10 +552,14 @@ impl<'a> Emitter<'a> {
         // an unselected branch may never have initialized its owner cell.
         let mut selected = "(#unreachable)".to_owned();
         for place in places.iter().rev() {
-            let crate::typed_body::PlaceRoot::Local(binding) = place.root else {
-                unreachable!()
+            let index = match place.root {
+                crate::typed_body::PlaceRoot::Local(binding) => self.bindings[&binding],
+                crate::typed_body::PlaceRoot::Parameter(binding) => {
+                    self.external_captures[&binding]
+                }
+                _ => unreachable!(),
             };
-            let owner = &self.slots[self.bindings[&binding]];
+            let owner = &self.slots[index];
             selected = format!(
                 "(#if (#bool.&& (#variant-is {} {})
                 (#usize.== (#ptr-address {pointer}) (#ptr-address (#ref-ptr {}))))
@@ -2897,19 +2941,68 @@ impl<'a> Emitter<'a> {
             .unwrap()
             .parameters;
         let mut initial = Vec::new();
+        let mut factory_captures = Vec::new();
+        let mut captured_cells = HashMap::new();
+        let mut captured_pointers = HashMap::new();
+        let mut external_parameters = self.external_captures.keys().copied().collect::<Vec<_>>();
+        external_parameters.sort_by_key(|binding| binding.0);
+        for binding in external_parameters {
+            let parameter = start_parameters.get(binding.0).ok_or_else(|| {
+                fail(
+                    self.function,
+                    "poll-only context references cannot be retained in a selected async anchor",
+                )
+            })?;
+            let Type::Reference { mutable, .. } =
+                crate::typed_ir::resolve_type(&parameter.ty, &self.planning.declarations.aliases)
+                    .map_err(|message| fail(self.function, message))?
+            else {
+                unreachable!()
+            };
+            let capture_index = self.external_captures[&binding];
+            let capture = &self.slots[capture_index];
+            let cell = self.fresh("external-capture");
+            let pointer = self.fresh("external-pointer");
+            let suffix = if mutable { "-mut" } else { "" };
+            let source_slot = &self.slots[self.bindings[&binding]];
+            factory_captures.push(format!(
+                "(#let-mut {cell} {} ({} {}))
+              (#let {pointer} {} (#ref-ptr
+                (#get-payload (#borrow{suffix} {cell}) {} 0)))",
+                capture.name,
+                capture.full,
+                parameter.name,
+                crate::type_source(&source_slot.storage),
+                capture.full
+            ));
+            captured_cells.insert(capture_index, cell);
+            captured_pointers.insert(binding, pointer);
+        }
         for (index, slot) in self.slots.iter().enumerate() {
             let parameter = self.bindings.iter().find_map(|(binding, actual)| {
                 (*actual == index && binding.0 < start_parameters.len())
                     .then(|| &start_parameters[binding.0])
             });
-            initial.push(format!(
-                "({} {})",
-                slot.field,
+            let value = if let Some(cell) = captured_cells.get(&index) {
+                cell.clone()
+            } else {
                 parameter.map_or_else(
                     || format!("({})", slot.empty),
-                    |parameter| format!("({} {})", slot.full, parameter.name)
+                    |parameter| {
+                        let value = self
+                            .bindings
+                            .iter()
+                            .find_map(|(binding, actual)| {
+                                (*actual == index)
+                                    .then(|| captured_pointers.get(binding))
+                                    .flatten()
+                            })
+                            .map_or(parameter.name.as_str(), String::as_str);
+                        format!("({} {value})", slot.full)
+                    },
                 )
-            ));
+            };
+            initial.push(format!("({} {})", slot.field, value));
         }
         let signature = start_parameters
             .iter()
@@ -2978,6 +3071,7 @@ impl<'a> Emitter<'a> {
           (#struct {} ((pc #u32) {fields}))\n(#linear {})\n\
           (#enum {} (({} {}) ({} {})))\n\
           (#fn {} ({signature}) {}\n\
+            {}\n\
             (#return (#struct-literal {} ((pc {}u32) {}))))\n\
           (#fn {} ((task {})) ()\n\
             {finish_fields}\n(#forget task)\n(#return ()))\n\
@@ -2994,6 +3088,7 @@ impl<'a> Emitter<'a> {
             crate::type_source(&self.result),
             self.function.model.source_name,
             self.frame,
+            factory_captures.join("\n"),
             self.frame,
             graph.entry.0,
             initial.join(" "),
@@ -3178,6 +3273,37 @@ mod tests {
         )
         .unwrap();
         crate::generator::async_prepare::prepare(&syntax).unwrap()
+    }
+
+    #[test]
+    fn selected_external_parameter_has_a_lifetime_bearing_capture() {
+        let planning = prepare_generator(
+            "#async-fn-pinned",
+            "(#fn work (: external (#ref #u64) : choose #bool) #u64
+          (#let owner #u64 40u64)
+          (#let view (#ref #u64) (#if choose (#borrow owner) external))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#let answer #u64 (#u64.+.wrap (#deref view) extra))
+          (#drop view) (#return answer))",
+            "",
+        );
+        let function = &planning.functions[0];
+        let body = &planning.declarations.bodies[&function.model.body_name];
+        let plan = crate::generator::async_self_borrow::Plan::new(
+            &function.graph,
+            body,
+            &planning.declarations.flows[&function.model.body_name],
+            &planning.declarations,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            plan.external_parameters.len(),
+            1,
+            "anchors: {:?}; bindings: {:?}",
+            plan.bindings,
+            body.bindings
+        );
     }
 
     fn runtime(body: &str, main: &str, expected: i32) -> Vec<Generated> {

@@ -1518,6 +1518,31 @@ impl Declarations {
         self.summarize_parameter_loans_with_contents(true);
     }
 
+    /// Boundary reference identities are type facts, not a borrow proof or a
+    /// physical layout. Planning also needs them to distinguish references to
+    /// caller storage from references to locals. Deferred named types remain
+    /// opaque; this does not invent their fields, contents, or call effects.
+    pub(crate) fn seed_parameter_loan_slots(&mut self) {
+        let mut parameter_slots = HashMap::new();
+        for (name, body) in &self.bodies {
+            let mut slots = vec![Vec::new(); body.bindings.len()];
+            for (index, binding) in body.bindings.iter().take(body.parameter_count).enumerate() {
+                self.collect_parameter_loan_slots(
+                    &binding.ty,
+                    &mut Vec::new(),
+                    &mut HashSet::new(),
+                    &mut slots[index],
+                    false,
+                    false,
+                );
+            }
+            parameter_slots.insert(name.clone(), slots);
+        }
+        for (name, slots) in parameter_slots {
+            self.bodies.get_mut(&name).unwrap().parameter_loan_slots = slots;
+        }
+    }
+
     fn summarize_parameter_loans_with_contents(&mut self, include_parameter_contents: bool) {
         let _timing = crate::timing::detail(if include_parameter_contents {
             "semantic.contents_summaries"
@@ -1560,25 +1585,7 @@ impl Declarations {
         }
         let mut names = self.bodies.keys().cloned().collect::<Vec<_>>();
         names.sort();
-        let mut parameter_slots = HashMap::new();
-        for name in &names {
-            let body = &self.bodies[name];
-            let mut slots = vec![Vec::new(); body.bindings.len()];
-            for (index, binding) in body.bindings.iter().take(body.parameter_count).enumerate() {
-                self.collect_parameter_loan_slots(
-                    &binding.ty,
-                    &mut Vec::new(),
-                    &mut HashSet::new(),
-                    &mut slots[index],
-                    false,
-                    false,
-                );
-            }
-            parameter_slots.insert(name.clone(), slots);
-        }
-        for (name, slots) in parameter_slots {
-            self.bodies.get_mut(&name).unwrap().parameter_loan_slots = slots;
-        }
+        self.seed_parameter_loan_slots();
         for name in &names {
             let body = &self.bodies[name];
             let mut schema = vec![Vec::new(); body.bindings.len()];

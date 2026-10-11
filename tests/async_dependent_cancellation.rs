@@ -57,6 +57,36 @@ fn exclusive_dependent_mutates_owner_before_owner_destruction() {
 }
 
 #[test]
+fn dependent_child_cancellation_preserves_selected_internal_and_external_owners() {
+    for choose in ["true", "false"] {
+        let program = source()
+            .replace("(#fn work () #u64", "(#fn work (: external (#ref Owner) : choose #bool) #u64")
+            .replace("(#let answer #u64 (#await Child Pending Ready child-poll\n            (Holding (#borrow owner) 0u64)))",
+                "(#let view (#ref Owner) (#if choose (#borrow owner) external))\n          (#let answer #u64 (#await Child Pending Ready child-poll (Holding view 0u64)))\n          (#drop view)")
+            .replace("(#let waker #u64 0u64)", "(#let outside Owner (#struct-literal Owner (: amount 40u64)))\n        (#let waker #u64 0u64)")
+            .replace("(#call work ())", &format!("(#call work (: external (#borrow outside) : choose {choose}))"))
+            .replace("(#forget task) (#return 42u64)", "(#forget task) (#forget outside) (#return 42u64)");
+        assert!(program.contains("(#let view (#ref Owner)"));
+        run(&program, "async-mixed-dependent-cancellation");
+    }
+}
+
+#[test]
+fn pinned_child_cancellation_preserves_selected_internal_and_external_owners() {
+    for choose in ["true", "false"] {
+        let program = pinned_source()
+            .replace("(#fn parent () #u64", "(#fn parent (: external (#ref Owner) : choose #bool) #u64")
+            .replace("(#let-mut nested Child-frame (#call child (: view (#borrow owner))))",
+                "(#let view (#ref Owner) (#if choose (#borrow owner) external))\n          (#let-mut nested Child-frame (#call child (: view view)))\n          (#drop view)")
+            .replace("(#let waker #u64 0u64)", "(#let outside Owner (#struct-literal Owner (: amount 40u64)))\n        (#let waker #u64 0u64)")
+            .replace("(#call parent ())", &format!("(#call parent (: external (#borrow outside) : choose {choose}))"))
+            .replace("(#forget task) (#return 42u64)", "(#forget task) (#forget outside) (#return 42u64)");
+        assert!(program.contains("(#let view (#ref Owner)"));
+        run(&program, "async-mixed-pinned-dependent-cancellation");
+    }
+}
+
+#[test]
 fn cancellation_before_first_poll_and_after_ready_is_idempotent() {
     let prefix = source().split("(#fn main").next().unwrap();
     let program = format!(

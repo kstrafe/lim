@@ -108,10 +108,19 @@ owner cells provide the across-suspension proof. Source checks still reject
 conflicting loans, mutation or
 consumption of borrowed owners, and returning a reference to a source local.
 Cancellation clears these non-owning handles before extracting owning cells.
-External references keep their ordinary lifetime-bearing storage and caller
-contracts. A single handle that can refer either inside or outside the frame
-is rejected instead of erasing its caller lifetime. Thin handles may select
-multiple internal referents with checked static struct/tuple projections. Their
+External references keep lifetime-bearing storage and caller contracts.
+Thin handles may select internal storage or a reference supplied at the function
+boundary. For mixed handles, the generator retains the real boundary reference
+in a separate Empty/Full capture and reconstructs the source parameter from it;
+erasing a selected address never erases the caller's borrow. Shared and exclusive
+captures survive source-handle release and are cleared on completion or explicit
+cancellation. Reference parameter roots are seeded during planning as type facts,
+not as a replacement for either ownership check. Static field/tuple projections
+preserve the selected referent's native layout, including stack-backed versus
+frame-backed aggregates. Other mixed provenance needs a checked anchor recipe
+and remains rejected rather than guessed.
+Thin handles may select multiple internal referents with checked static
+struct/tuple projections. Their
 raw address preserves the source choice; reconstruction first checks each
 candidate owner's Full tag, then compares its projected address. It never
 accesses an Empty owner's payload. Shared and exclusive references can select

@@ -397,6 +397,157 @@ fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
 }
 
 #[test]
+fn mixed_internal_external_reference_retains_caller_storage() {
+    for mutable in [false, true] {
+        let suffix = if mutable { "-mut" } else { "" };
+        let write = if mutable {
+            "(#deref-set view 42u64)"
+        } else {
+            ""
+        };
+        let release_parameter = if mutable { "" } else { "(#drop external)" };
+        let (inside, outside) = if mutable { (44, 44) } else { (42, 52) };
+        let external_value = if mutable {
+            "(#if choose 50u64 42u64)"
+        } else {
+            "50u64"
+        };
+        let source = format!("{CHILD}
+          (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
+            : function (#fn work (: external (#ref{suffix} #u64) : choose #bool) #u64
+              (#let-mut owner #u64 40u64)
+              (#let view (#ref{suffix} #u64) (#if choose (#borrow{suffix} owner) external))
+              {release_parameter}
+              (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+              {write}
+              (#let answer #u64 (#u64.+.wrap (#deref view) extra))
+              (#drop view) (#forget owner) (#return answer))))
+          (#fn run (: choose #bool) #u64
+            (#let-mut external #u64 50u64) (#let waker #u64 0u64)
+            (#let-mut task Work-frame (#call work (: external (#borrow{suffix} external) : choose choose)))
+            (#let answer #u64 (#loop
+              (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+                (#case (work-pending next) (#block (#drop next) (#continue)))
+                (#case (work-ready value) (#block (#break value))))))
+            (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+            (#forget task) (#assert (#u64.== external {external_value})) (#return answer))
+          (#fn main () #u64
+            (#assert (#u64.== (#call run (: choose true)) {inside}u64))
+            (#assert (#u64.== (#call run (: choose false)) {outside}u64)) (#return 42u64))");
+        run_native(&source, "async-mixed-reference", 42);
+    }
+}
+
+#[test]
+fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
+    let source = format!("{CHILD}
+      (#struct Outside (: other #u64 : selected #u64))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
+        : function (#fn work (: external (#ref-mut Outside) : choose #bool) #u64
+          (#let-mut owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 80u64 40u64))
+          (#let view (#ref-mut #u64) (#if choose
+            (#borrow-mut (#get owner 1)) (#borrow-mut (#get external selected))))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#deref-set view 42u64)
+          (#let answer #u64 (#u64.+.wrap (#deref view) extra))
+          (#drop view) (#forget owner) (#return answer))))
+      (#fn run (: choose #bool : cancel #bool) #u64
+        (#let-mut external Outside (#struct-literal Outside (: other 90u64 : selected 50u64)))
+        (#let waker #u64 0u64)
+        (#let-mut task Work-frame (#call work (: external (#borrow-mut external) : choose choose)))
+        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#drop next)
+        (#if cancel (#block
+          (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+          (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+          (#forget task)
+          (#assert (#u64.== (#get external selected) 50u64))
+          (#return 42u64)) ())
+        (#let answer #u64 (#loop
+          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (work-pending later) (#block (#drop later) (#continue)))
+            (#case (work-ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+        (#forget task)
+        (#assert (#u64.== (#get external other) 90u64))
+        (#assert (#u64.== (#get external selected) (#if choose 50u64 42u64)))
+        (#return answer))
+      (#fn main () #u64
+        (#assert (#u64.== (#call run (: choose true : cancel false)) 44u64))
+        (#assert (#u64.== (#call run (: choose false : cancel false)) 44u64))
+        (#assert (#u64.== (#call run (: choose true : cancel true)) 42u64))
+        (#assert (#u64.== (#call run (: choose false : cancel true)) 42u64)) (#return 42u64))");
+    run_native(&source, "async-mixed-external-projection", 42);
+}
+
+#[test]
+fn mixed_selected_future_cannot_erase_a_callers_borrow_or_escape_its_local() {
+    let work = format!(
+        "{CHILD}
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
+        : function (#fn work (: external (#ref #u64) : choose #bool) #u64
+          (#let owner #u64 40u64)
+          (#let view (#ref #u64) (#if choose (#borrow owner) external))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#let answer #u64 (#u64.+.wrap (#deref view) extra))
+          (#drop view) (#return answer))))"
+    );
+    let conflict = "(#set external 99u64)";
+    let source = format!("{work}
+      (#fn main () #u64
+        (#let-mut external #u64 50u64) (#let waker #u64 0u64)
+        (#let-mut task Work-frame (#call work (: external (#borrow external) : choose true)))
+        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#forget first) {conflict} (#forget task) (#return 0u64))");
+    assert_borrow_error(&source, "async-mixed-caller-mutation", "#set", 0);
+    let escaping = format!(
+        "{work}
+      (#fn escape () Work-frame
+        (#let local #u64 50u64)
+        (#return (#call work (: external (#borrow local) : choose false))))"
+    );
+    let error = compile_error(&escaping, "async-mixed-caller-escape");
+    assert_eq!(error.code, DiagnosticCode::Borrow, "{error:?}");
+    assert!(error.span.is_some());
+}
+
+#[test]
+fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
+    let source = format!(
+        "{CHILD}
+      (#struct Values (: first #u64 : second #u64 : third #u64 : fourth #u64
+        : fifth #u64 : sixth #u64 : seventh #u64 : last #u64))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
+        : function (#fn work (: external (#ref-mut Values) : choose #bool) #u64
+          (#let-mut owner Values (#struct-literal Values (: first 1u64 : second 2u64
+            : third 3u64 : fourth 4u64 : fifth 5u64 : sixth 6u64 : seventh 7u64 : last 40u64)))
+          (#let-mut view (#ref-mut Values) (#if choose (#borrow-mut owner) external))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#deref-set (#borrow-mut (#get view last)) 42u64)
+          (#assert (#u64.== (#get view first) (#if choose 1u64 10u64)))
+          (#let answer #u64 (#u64.+.wrap (#get view last) extra))
+          (#drop view) (#forget owner) (#return answer))))
+      (#fn run (: choose #bool) #u64
+        (#let-mut external Values (#struct-literal Values (: first 10u64 : second 20u64
+          : third 30u64 : fourth 40u64 : fifth 50u64 : sixth 60u64 : seventh 70u64 : last 80u64)))
+        (#let waker #u64 0u64)
+        (#let-mut task Work-frame (#call work (: external (#borrow-mut external) : choose choose)))
+        (#let answer #u64 (#loop
+          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (work-pending next) (#block (#drop next) (#continue)))
+            (#case (work-ready value) (#block (#break value))))))
+        (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+        (#forget task) (#assert (#u64.== (#get external first) 10u64))
+        (#assert (#u64.== (#get external last) (#if choose 80u64 42u64))) (#return answer))
+      (#fn main () #u64
+        (#assert (#u64.== (#call run (: choose true)) 44u64))
+        (#assert (#u64.== (#call run (: choose false)) 44u64)) (#return 42u64))"
+    );
+    run_native(&source, "async-mixed-aggregate-layout", 42);
+}
+
+#[test]
 fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
     let source = format!(
         "{CHILD}

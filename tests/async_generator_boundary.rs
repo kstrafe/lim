@@ -173,6 +173,72 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
     check_build_and_run(&scratch, &empty_left, 52);
 }
 
+#[test]
+fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code() {
+    let source = "(#struct Outside (: other #u64 : selected #u64))
+      (#enum Child ((Waiting #u64))) (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+        (#return (#match task (#case (Waiting count)
+          (#if (#u64.== count 0u64) (ChildPending (Waiting 1u64)) (ChildReady count))))))
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+        : function (#fn work (: external (#ref-mut #u64) : choose #bool) #u64
+          (#let-mut owner #u64 40u64)
+          (#let view (#ref-mut #u64) (#if choose (#borrow-mut owner) external))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#forget extra) (#deref-set view 42u64)
+          (#let answer #u64 (#deref view)) (#drop view) (#return answer))))
+      (#fn main () #u64
+        (#let-mut external Outside (#struct-literal Outside (: other 90u64 : selected 50u64)))
+        (#let waker #u64 0u64)
+        (#let-mut task Work-frame (#call work (: external (#borrow-mut (#get external selected)) : choose false)))
+        (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready value) value)
+          (#case (work-pending bad) (#block (#drop bad) (#unreachable)))))
+        (#forget task) (#assert (#u64.== (#get external other) 90u64))
+        (#assert (#u64.== (#get external selected) 42u64)) (#return answer))";
+    for mutable in [false, true] {
+        let source = if mutable {
+            source.to_owned()
+        } else {
+            source
+                .replace("#ref-mut", "#ref")
+                .replace("#borrow-mut", "#borrow")
+                .replace("(#forget extra) (#deref-set view 42u64)", "(#forget extra)")
+                .replace(
+                    "(#get external selected) 42u64",
+                    "(#get external selected) 50u64",
+                )
+        };
+        let mut config = lim::CompileConfig::default();
+        config.set("async-lowering", "graph");
+        let (scratch, standalone) = generated_standalone_with_config(
+            &source,
+            "(@#async-fn-pinned",
+            "work-poll",
+            "async-generator-mixed-external",
+            &config,
+        );
+        if !mutable {
+            assert!(standalone.contains("external.0"), "{standalone}");
+        }
+        assert!(standalone.contains(if mutable {
+            "(#ref-mut #u64)"
+        } else {
+            "(#ref #u64)"
+        }));
+        check_build_and_run(&scratch, &standalone, if mutable { 42 } else { 50 });
+        let invalid = standalone.replace(
+            "(#let answer #u64 (#match",
+            "(#set-field external selected 99u64) (#let answer #u64 (#match",
+        );
+        let error = lim::check_types(&lim::parse_program(&invalid).unwrap()).unwrap_err();
+        assert!(error.contains("borrow"), "{error}");
+    }
+}
+
 fn check_build_and_run(scratch: &support::Scratch, source: &str, expected: i32) {
     let path = scratch.path().join("standalone.lim");
     let cache = scratch.path().join("standalone-cache");
