@@ -744,3 +744,22 @@ case. The existing legacy regression remains positive: destructuring a nested
 exclusive reference must eventually work on graph too, not become an expected
 rejection. Default migration also still requires resolving the remaining public
 interface differences and auditing the other control-flow failures.
+
+### Exclusive destructuring: the caller-loop join
+
+`nested_exclusive_pattern_storage_survives_consecutive_polls` lowers the same
+nested tuple/struct pattern with an external `#ref-mut #u64`. Three consecutive
+straight-line polls return 42 as independently checked native ordinary code.
+Forgetting the first Pending frame permits referent mutation; mutating it while
+retaining that frame rejects with Borrow at the original assignment's `#set`.
+
+The caller loop from `async_destructure.lim` still rejects this exclusive
+variant. Instrumenting the conflicting origins showed the *same* original
+borrow, referent and source span under two different storage paths: the initial
+aggregate cell and its destructured reference cell. The caller's loop join
+unions these possible locations, and argument checking treats them as
+simultaneously retained exclusive handles. Straight-line calls do not introduce
+that union. Thus the boundary failure is not evidence that the generated moves
+physically duplicate this handle; preserving loan-path correlation through the
+caller loop remains necessary. Neither origin is discarded by weakening
+ordinary overlap checks, and the valid looping program remains unresolved.

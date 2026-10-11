@@ -4220,6 +4220,91 @@ mod tests {
         runtime_planned(planning, expected)
     }
 
+    #[test]
+    fn nested_exclusive_pattern_storage_survives_consecutive_polls() {
+        // Keep calls straight-line: the caller-loop join still loses the
+        // distinction between the initial aggregate and destructured slot.
+        // Do not make that unresolved positive case an expected rejection.
+        let source = include_str!("../../examples/async_destructure.lim")
+            .replace("(#tuple #u16 #u16)", "(#tuple #u16 (#ref-mut #u64))")
+            .replace("(#as right #u64)", "(#deref right)")
+            .replace(
+                "(#let waker #u64",
+                "(#let-mut owner #u64 11u64) (#let waker #u64",
+            )
+            .replace("9u16 11u16", "9u16 (#borrow-mut owner)");
+        let source = format!(
+            "{}
+          (#fn main () #u64
+            (#let-mut owner #u64 11u64)
+            (#let waker #u64 0u64)
+            (#let frame Work-task (#call work (: values
+              (#struct-literal Values (: a 22u64 : z
+                (#tuple (#tuple #u16 (#ref-mut #u64)) 9u16 (#borrow-mut owner)))))))
+            (#let-else (work-pending first) Work-poll-result
+              (#call work-poll (: task frame : waker (#borrow waker))) (#unreachable))
+            (#let-else (work-pending second) Work-poll-result
+              (#call work-poll (: task first : waker (#borrow waker))) (#unreachable))
+            (#let-else (work-ready value) Work-poll-result
+              (#call work-poll (: task second : waker (#borrow waker))) (#unreachable))
+            (#return value))",
+            source.split_once("(#fn main").unwrap().0
+        );
+        let syntax = crate::prepare_program_syntax(
+            &source,
+            std::path::Path::new("."),
+            None,
+            &crate::CompileConfig::default(),
+            None,
+        )
+        .unwrap();
+        runtime_planned(
+            crate::generator::async_prepare::prepare(&syntax).unwrap(),
+            42,
+        );
+        let cancelled = format!(
+            "{} (#forget first) (#set owner 42u64) (#return owner))",
+            source
+                .split_once("(#let-else (work-pending second)")
+                .unwrap()
+                .0,
+        );
+        let syntax = crate::prepare_program_syntax(
+            &cancelled,
+            std::path::Path::new("."),
+            None,
+            &crate::CompileConfig::default(),
+            None,
+        )
+        .unwrap();
+        runtime_planned(
+            crate::generator::async_prepare::prepare(&syntax).unwrap(),
+            42,
+        );
+        let invalid = source.replace(
+            "(#let-else (work-ready value)",
+            "(#set owner 99u64) (#let-else (work-ready value)",
+        );
+        let syntax = crate::prepare_program_syntax(
+            &invalid,
+            std::path::Path::new("."),
+            None,
+            &crate::CompileConfig::default(),
+            None,
+        )
+        .unwrap();
+        let planning = crate::generator::async_prepare::prepare(&syntax).unwrap();
+        let generated = generate(&planning).unwrap();
+        let program = program(&planning, &generated).unwrap();
+        let (message, code, span, _) = crate::CheckedProgram::validate_with_span(&program)
+            .err()
+            .expect("a Pending exclusive frame retains its external loan");
+        assert_eq!(code, crate::DiagnosticCode::Borrow, "{message}");
+        let span = span.expect("retained exclusive loan keeps the assignment span");
+        assert_eq!(&invalid[span.start..span.end], "#set", "{message}");
+        assert_eq!(span.start, invalid.find("#set owner 99u64").unwrap());
+    }
+
     fn runtime_planned(planning: Planning, expected: i32) -> Vec<Generated> {
         let generated = generate(&planning).unwrap();
         runtime_generated(planning, generated, expected)
