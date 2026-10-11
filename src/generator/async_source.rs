@@ -908,7 +908,7 @@ impl Lowered {
         &self,
         checked: &mut crate::CheckedProgram<'_>,
     ) -> Result<Vec<Suspension>, Error> {
-        let mut facts = checked
+        let (mut facts, types) = checked
             .suspension_storage_facts(&HashSet::from([self.body_name.clone()]))
             .map_err(|error| Error {
                 message: format!("async suspension storage effects are unresolved: {error:?}"),
@@ -921,7 +921,6 @@ impl Lowered {
         let declarations = checked.declarations();
         let body = &declarations.bodies[&self.body_name];
         let sites = self.map(body, &facts.flow, declarations)?;
-        let types = crate::linearcheck::LinearTypes::from_program(checked.program());
         let values = crate::generator::async_values::plan_with_types(
             body,
             &facts.flow,

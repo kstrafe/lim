@@ -259,11 +259,15 @@ impl<'a> CheckedProgram<'a> {
         &mut self,
         names: &std::collections::HashSet<String>,
     ) -> Result<
-        HashMap<String, crate::typed_flow::StorageFacts>,
+        (
+            HashMap<String, crate::typed_flow::StorageFacts>,
+            crate::linearcheck::LinearTypes,
+        ),
         crate::typed_ir::StagedReferentError,
     > {
         let types = crate::linearcheck::LinearTypes::from_program(self.program);
-        self.declarations.suspension_storage_facts(&types, names)
+        let facts = self.declarations.suspension_storage_facts(&types, names)?;
+        Ok((facts, types))
     }
 
     /// Inspect the retained body representation. This is a compiler debugging
