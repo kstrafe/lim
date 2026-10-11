@@ -8,5 +8,5 @@
   (#fn work ((input Maybe)) #u64
     (#let-else (Some value) Maybe input
       (#return (#u64.+.wrap 1u64
-        (#await Child ChildPending ChildReady child-poll (Waiting 7u64)))))
+        (#await #u32 Child ChildPending ChildReady child-poll (Waiting 7u64)))))
     (#return value))))

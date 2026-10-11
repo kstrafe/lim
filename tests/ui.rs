@@ -948,7 +948,7 @@ fn compilation_errors_render_the_offending_source_line() {
             name: "async-let-else-await",
             diagnostic_code: "E4000",
             offending_line:
-                "        (#await Child ChildPending ChildReady child-poll (Waiting 7u64)))))",
+                "        (#await #u32 Child ChildPending ChildReady child-poll (Waiting 7u64)))))",
             line_number: 11,
         },
         Case {
@@ -1248,7 +1248,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unknown-match-variant" => Some("Missing"),
             "non-exhaustive-match" => Some("#match"),
             "unknown-let-else-variant" => Some("Missing"),
-            "async-let-else-await" => Some("#await"),
+            "async-let-else-await" => Some("#u32"),
             "duplicate-enum-match-pattern" => Some("Ready"),
             "enum-match-payload-arity" => Some("One"),
             "duplicate-wildcard-match-pattern" => Some("_"),

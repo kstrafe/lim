@@ -6336,7 +6336,20 @@ fn statement_type_in_context(
                 }
                 Ok(Type::Never)
             } else {
-                Err(semantic_format!("unknown or inactive loop label '{label}'"))
+                let operator = if matches!(statement, Statement::BreakTo(_)) {
+                    "break-to"
+                } else {
+                    "continue-to"
+                };
+                let mut error = semantic_at!(
+                    ErrorSite::Argument(operator.into(), 1),
+                    "unknown or inactive loop label '{label}'"
+                );
+                error.scope = Some(Box::new(Expr::List(vec![
+                    Expr::Symbol(operator.into()),
+                    Expr::Symbol(label.clone()),
+                ])));
+                Err(error)
             }
         }
         Statement::Break | Statement::Continue => {
@@ -6353,7 +6366,15 @@ fn statement_type_in_context(
                 }
                 Ok(Type::Never)
             } else {
-                Err("break or continue used outside a loop".into())
+                let operator = if matches!(statement, Statement::Break) {
+                    "break"
+                } else {
+                    "continue"
+                };
+                Err(semantic_at!(
+                    ErrorSite::Operator(operator.into()),
+                    "break or continue used outside a loop"
+                ))
             }
         }
         Statement::Return(value) => {
