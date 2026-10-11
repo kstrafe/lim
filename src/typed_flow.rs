@@ -10822,26 +10822,15 @@ fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
             }
         }
     }
-    if !existing
-        .allocation_contents
-        .shares_storage(&incoming.allocation_contents)
-    {
-        for (key, contents) in &incoming.allocation_contents {
-            changed |= merge_loan_origins(
-                existing.allocation_contents.entry(key.clone()).or_default(),
-                contents,
-            );
-        }
-    }
+    changed |= merge_shared_loan_maps(
+        &mut existing.allocation_contents,
+        &incoming.allocation_contents,
+    );
     if let (Some(held), Some(other)) = (
         &mut existing.parameter_contents,
         &incoming.parameter_contents,
     ) {
-        if !held.shares_storage(other) {
-            for (key, contents) in other {
-                changed |= merge_loan_origins(held.entry(key.clone()).or_default(), contents);
-            }
-        }
+        changed |= merge_shared_loan_maps(held, other);
     }
     if !existing.global_known_contents.is_empty() {
         existing.global_known_contents.retain(|global, paths| {
@@ -10861,6 +10850,32 @@ fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
             changed |= *paths != previous;
             !paths.is_empty()
         });
+    }
+    changed
+}
+
+fn merge_shared_loan_maps<K: Clone + Eq + std::hash::Hash>(
+    existing: &mut SharedLoanData<HashMap<K, Vec<LoanOrigin>>>,
+    incoming: &SharedLoanData<HashMap<K, Vec<LoanOrigin>>>,
+) -> bool {
+    if existing.shares_storage(incoming) {
+        return false;
+    }
+    let mut changed = false;
+    for (key, contents) in incoming {
+        if let Some(held) = existing.get(key) {
+            let Some(first_new) = contents.iter().position(|origin| !held.contains(origin)) else {
+                continue;
+            };
+            let held = existing.get_mut(key).unwrap();
+            held.push(contents[first_new].clone());
+            merge_loan_origins(held, &contents[first_new + 1..]);
+            changed = true;
+        } else {
+            // Preserve empty keys and the original change flag: inserting an
+            // empty contents vector did not count as a new loan origin.
+            changed |= merge_loan_origins(existing.entry(key.clone()).or_default(), contents);
+        }
     }
     changed
 }
@@ -16550,6 +16565,70 @@ mod tests {
         assert!(state
             .global_known_contents
             .shares_storage(&snapshot.global_known_contents));
+    }
+
+    #[test]
+    fn shared_contents_joins_match_eager_maps_and_preserve_empty_keys() {
+        let first = allocation_origin(NodeId(0), Vec::new(), None);
+        let mut second = first.clone();
+        second.mutable = true;
+        let mut duplicate = first.clone();
+        duplicate.span = Some(Span {
+            start: 1,
+            end: 2,
+            line: 1,
+            column: 2,
+            source_id: 0,
+        });
+        let choices = [
+            None,
+            Some(vec![]),
+            Some(vec![first.clone()]),
+            Some(vec![second.clone(), duplicate.clone(), first.clone()]),
+        ];
+        for held_choice in &choices {
+            for incoming_choice in &choices {
+                for reverse in [false, true] {
+                    let make = |choice: &Option<Vec<LoanOrigin>>| {
+                        let mut map = HashMap::from([(0usize, vec![first.clone()])]);
+                        if let Some(origins) = choice {
+                            let mut origins = origins.clone();
+                            if reverse {
+                                origins.reverse();
+                            }
+                            map.insert(1, origins);
+                        }
+                        map
+                    };
+                    let original: SharedLoanData<_> = make(held_choice).into();
+                    let incoming: SharedLoanData<_> = make(incoming_choice).into();
+                    let mut expected = (*original).clone();
+                    let mut expected_changed = false;
+                    for (key, origins) in &incoming {
+                        expected_changed |=
+                            merge_loan_origins(expected.entry(*key).or_default(), origins);
+                    }
+                    let mut actual = original.clone();
+                    assert_eq!(
+                        merge_shared_loan_maps(&mut actual, &incoming),
+                        expected_changed
+                    );
+                    assert_eq!(*actual, expected);
+                    for (key, origins) in &actual {
+                        assert_eq!(
+                            origins.iter().map(|origin| origin.span).collect::<Vec<_>>(),
+                            expected[key]
+                                .iter()
+                                .map(|origin| origin.span)
+                                .collect::<Vec<_>>()
+                        );
+                    }
+                    let changed_map = *original != expected;
+                    assert_eq!(actual.shares_storage(&original), !changed_map);
+                    assert_eq!(*original, make(held_choice));
+                }
+            }
+        }
     }
 
     #[test]

@@ -2292,3 +2292,36 @@ This is not evidence of a useful equality or whole-check speedup, so the
 comparison-order change was removed. The equality-contract regression remains.
 The trial passed all 1,369 library tests with seven existing ignored tests;
 the retained regression is rerun against the unchanged production predicate.
+
+## Keeping unchanged parameter and allocation contents shared
+
+Distinct-snapshot parameter and allocation joins previously obtained mutable
+map entries before checking whether incoming origins were already present.
+That detached shared maps, cloning keys and every stored origin on no-op joins.
+They now inspect the existing entry first and detach only for a missing key or
+the first new origin. Source order and the first representative's diagnostic
+span remain unchanged. Missing empty keys are still inserted, with the original
+false change flag when no new origins appear. Global known-contents intersections
+and binding joins are unchanged; no facts are reused across analysis graphs.
+
+Thirty-two pairwise map controls compare contents, change flags, spans, empty
+keys and snapshot isolation against the eager implementation. All 1,370 library
+tests pass (seven existing ignored), along with 22 cancellation, independently
+compiled generated-boundary, adversarial-borrow and UI integration tests.
+Three guard/partial-struct/partial-borrow assembly outputs are byte-identical.
+
+Twenty-one alternating warm release pairs on CPU 8, after three warmups and
+without concurrent builds/tests, measure total medians (before / after):
+
+| Fixture | Before (ms) | Shared contents joins (ms) |
+| --- | ---: | ---: |
+| Suspended reference guard | 230.423 | 224.199 |
+| Nested partial struct | 61.734 | 61.510 |
+| Partial borrow | 97.713 | 94.667 |
+
+The guard improves 2.7% and partial borrowing 3.1%; nested structs are nearly
+unchanged. A 31-pair guard repeat after four warmups measures 230.370 / 225.627 ms
+(2.1% less), with provenance 123.799 / 120.581 ms and referent contracts
+113.216 / 110.831 ms. Total ranges still overlap at 224.952–243.404 /
+220.666–243.718 ms, so these are modest fixture-specific median improvements,
+not a universal speed guarantee or completion of the broader performance audit.
