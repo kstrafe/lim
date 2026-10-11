@@ -6620,6 +6620,66 @@ fn async_for_condition_sequences_awaits_in_a_value_expression() {
 }
 
 #[test]
+fn async_clones_computed_reference_bearing_owners() {
+    let source = r#"
+      (#struct Holder (: reference (#ref #u64)))
+      (#linear Holder)
+      (#fn make-holder (: reference (#ref #u64)) Holder
+        (#return (#struct-literal Holder (: reference reference))))
+      (#enum Step (Start Resume))
+      (#linear Step)
+      (#enum StepPoll ((Pending Step) (Ready ())))
+      (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+        (#return (#match task
+          (#case Start (Pending Resume))
+          (#case Resume (Ready ())))))
+      (@#async-fn (: protocol WorkAwait : waker #u64 : function
+        (#fn work (: owner (#ref #u64)) #u64
+          (#let holder Holder (#clone (#call make-holder (: reference owner))))
+          (#let ready () (#await () Step Pending Ready step-poll Start))
+          (#let result #u64 (#deref (#get holder reference)))
+          (#forget holder)
+          (#return result))))
+      (#fn main () #u64
+        (#let-mut owner #u64 42u64)
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result
+          (#call work-poll (: task (#call work (: owner (#borrow owner))) : waker (#borrow waker))))
+        (#let-else (work-pending task) Work-poll-result first (#unreachable))
+        (#let second Work-poll-result
+          (#call work-poll (: task task : waker (#borrow waker))))
+        (#return (#match second
+          (#case (work-ready result) result)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#;
+    let generated = build_and_run_graph(source, 42);
+    assert_single_poll(&generated, "work-poll");
+    let invalid = source.replace(
+        "(#let second Work-poll-result",
+        "(#set owner 43u64) (#let second Work-poll-result",
+    );
+    let error = graph_compile_error(&invalid, "computed-clone-retains-origin");
+    assert!(error.message.contains("borrow"), "{error:?}");
+    let write = invalid.find("(#set owner 43u64)").unwrap();
+    let span = error
+        .span
+        .expect("borrow violation needs an original source span");
+    assert!(
+        span.start >= write && span.end <= write + "(#set owner 43u64)".len(),
+        "{error:?}"
+    );
+    let exclusive = source
+        .replace("(#ref #u64)", "(#ref-mut #u64)")
+        .replace("waker (#ref-mut #u64)", "waker (#ref #u64)")
+        .replace("owner (#borrow owner)", "owner (#borrow-mut owner)");
+    let error = graph_compile_error(&exclusive, "computed-clone-exclusive-reference");
+    assert!(
+        error.message.contains("clone") || error.message.contains("Clone"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn async_while_let_body_can_suspend_multiple_times_after_matching() {
     let source = "(#enum Maybe ((Some #u64) None))
       (#enum ConditionTask (ConditionWaiting ConditionResuming))

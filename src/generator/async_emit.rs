@@ -2958,9 +2958,6 @@ impl<'a> Emitter<'a> {
                                             .iter().flat_map(|edge| &edge.arguments)
                                             .any(|argument| matches!(argument, Argument::Value(actual) if *actual == value))
                                 });
-                                if used_elsewhere || self.types.contains_reference(&descriptor.ty) {
-                                    return Err(error("computed owning clone requires an exclusive reference-free temporary"));
-                                }
                                 let index = *self.values.get(&value).ok_or_else(|| {
                                     error("computed clone source has no owning cell")
                                 })?;
@@ -2979,14 +2976,20 @@ impl<'a> Emitter<'a> {
                                 let argument = self.fresh("clone-input");
                                 let ty = crate::type_source(&descriptor.ty);
                                 // Clone from the existing stationary cell.
-                                // End the clone's shared borrow before taking
-                                // and explicitly forgetting the sole-use
-                                // original, so a loop can refill its cell.
+                                // Reference-bearing clones retain their checked
+                                // origins through the typed helper. Preserve a
+                                // reused original; consume only sole-use inputs
+                                // so a loop can refill their cells.
                                 self.projections.push(format!(
                                     "(#fn {helper} (: {argument} (#pin-ref {ty})) {ty}\n  (#return (#clone (#deref {argument}))))"
                                 ));
                                 let cloned = self.fresh("cloned-temporary");
-                                let read = format!("(#block (#let {cloned} {ty}\n  (#call {helper} (: {argument} {reference})))\n  (#forget {})\n  {cloned})", self.value(value, true));
+                                let retire = if used_elsewhere {
+                                    String::new()
+                                } else {
+                                    format!("(#forget {})", self.value(value, true))
+                                };
+                                let read = format!("(#block (#let {cloned} {ty}\n  (#call {helper} (: {argument} {reference})))\n  {retire}\n  {cloned})");
                                 return Ok(self.put_value(*dst, &read));
                             }
                             return Err(error(

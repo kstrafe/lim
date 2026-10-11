@@ -1532,3 +1532,20 @@ ordinary program, and executes both compilation paths. The companion negative
 test rejects destroying the live referent, an overlapping shared borrow, and
 retaining the handle across suspension without pinning. It checks original-source
 diagnostic locations and requires that invalid invocations publish no cache.
+
+## Computed owning clones retain reference provenance
+
+The earlier sole-use, reference-free clone restriction is no longer imposed on
+typed owning value cells. A computed owner is cloned through a shared pinned
+projection and a typed helper; the ordinary checker propagates references in
+the returned aggregate. Only sole-use originals are explicitly forgotten after
+cloning. Originals with additional graph uses stay in their existing cells.
+Raw erased clone storage remains unsupported; this is not permission to clone
+exclusive references or to bypass source or generated-program validation.
+
+`async_clones_computed_reference_bearing_owners` clones a linear struct returned
+by a function, suspends, and reads through its shared reference after resumption.
+The companion mutation rejection retains the original caller source span.
+All 230 async integration tests and 76 emitter tests pass (one manual emitter
+benchmark remains ignored). Partial aggregate move/reconstruction storage and
+further guard/lending performance work remain separate unfinished improvements.
