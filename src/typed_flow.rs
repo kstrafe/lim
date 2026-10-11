@@ -6622,6 +6622,11 @@ impl FlowGraph {
                 }
             }
         }
+        // This query summarizes only these parameter slots, not validity of
+        // local consumption or unresolved calls. Those checks run separately.
+        if candidates.is_empty() {
+            return Vec::new();
+        }
         let moves = self.referent_consumptions_with_origins(
             body,
             types,
@@ -6723,6 +6728,11 @@ impl FlowGraph {
             {
                 candidates.push(read.place.clone());
             }
+        }
+        // No parameter/global read can enter the filtered result. In
+        // particular, local reads remain obligations of the direct checker.
+        if candidates.is_empty() {
+            return Vec::new();
         }
         let moves = self.referent_consumptions_with_origins(
             body,
@@ -15468,6 +15478,61 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_referent_summary_candidates_skip_consumption_solves() {
+        let program = crate::parse_program(
+            "(#struct Resource (: value #u64)) (#linear Resource)
+             (#fn work () #u64
+               (#let-mut owner Resource (#struct-literal Resource (: value 42u64)))
+               (#let handle (#ref-mut Resource) (#borrow-mut owner))
+               (#let result #u64 (#get handle value))
+               (#forget handle) (#forget owner) (#return result))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = &declarations.flows["work"];
+        let types = LinearTypes::from_program(&program);
+        let origins = flow.loan_origins(body);
+        let reads = flow.referent_reads_with_origins(body, &origins).0;
+        assert!(!reads.is_empty(), "exercise nonempty local-only reads");
+        assert!(reads
+            .iter()
+            .all(|read| matches!(read.place.root, PlaceRoot::Local(_))));
+        assert_eq!(body.parameter_count, 0);
+
+        // The previous solve still establishes the baseline empty summaries.
+        let moves =
+            flow.referent_consumptions_with_origins(body, &types, &[], &[], &[], &[], &origins);
+        assert!(reads.iter().all(|read| {
+            !moves.before[read.event.0]
+                .as_ref()
+                .is_some_and(|state| state.keys().any(|place| place.overlaps(&read.place)))
+        }));
+        let session = crate::timing::TimingSession::start();
+        for input_reads in [Vec::new(), reads] {
+            assert!(flow
+                .filter_referent_entry_reads_with_origins(
+                    body,
+                    &types,
+                    input_reads,
+                    &[],
+                    &[],
+                    &origins,
+                )
+                .is_empty());
+        }
+        assert!(flow
+            .referent_restoration_guarantees_with_origins(body, &types, &[], &[], &origins)
+            .is_empty());
+        assert!(session
+            .finish()
+            .iter()
+            .all(|event| event.stage != "semantic.referent_consumptions"));
+        // These shortcuts do not replace full source validation.
+        crate::CheckedProgram::validate(&program).unwrap();
+    }
 
     #[test]
     fn empty_call_requirements_skip_solves_but_unknown_inputs_do_not() {

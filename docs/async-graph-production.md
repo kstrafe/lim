@@ -1753,3 +1753,29 @@ polls is rejected at the original mutation's source span. These checks cover
 the computed clone's retained-source branch; they do not remove the separate
 restriction on clones requiring erased internal-reference storage or contiguous
 whole-aggregate storage.
+
+## Skip consumption solves for empty summary domains
+
+Restoration summaries with no parameter loan slots and entry-read filters with
+no parameter/global reads now return their necessarily empty result directly.
+Local reads, unknown-call validity and direct consumption remain independent
+checking obligations. A regression exercises nonempty local-only reads,
+compares the previous solver result, verifies that neither summary query records
+a consumption solve, and still validates the full source program. All 1,357
+library tests pass, with five manual benchmarks ignored.
+
+Nine alternating old/new warm release checks per fixture on CPU 8, after the
+build and library suite finished, produced these internal timing medians:
+
+| Fixture | Consumption before / after | Contract before / after | Total before / after |
+| --- | --- | --- | --- |
+| `async_nested_partial_struct.lim` | 9.300 / 8.560 ms | 24.036 / 23.210 ms | 76.169 / 79.181 ms |
+| `async_while_let_dependencies.lim` | 8.855 / 8.121 ms | 22.511 / 21.322 ms | 69.738 / 71.621 ms |
+| `match_linear_guard.lim` | 0.403 / 0.459 ms | 0.870 / 1.115 ms | 3.508 / 5.121 ms |
+
+Consumption time fell about 8% and contract time about 3–5% on the larger
+fixtures, but total check time worsened by 3–4%. The small guard fixture also
+worsened. This establishes eliminated solver work, not a demonstrated overall
+compilation speedup. Guarded/lending performance remains open.
+All 232 async integration tests, five native example tests and the all-target
+build check also pass with the empty-domain shortcuts.
