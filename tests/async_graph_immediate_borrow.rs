@@ -193,6 +193,111 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
     );
 }
 
+fn whole_array_element_source() -> &'static str {
+    "(#struct Counter (: value #u64)) (#linear Counter)
+      (#fn touch-counter (: target (#ref-mut Counter)) ()
+        (#deref-set (#borrow-mut (#get target value))
+          (#u64.+.wrap (#get target value) 1u64))
+        (#return ()))
+      (#enum Child (Start Resume)) (#linear Child)
+      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
+        (#return (#match task (#case Start (ChildPending Resume))
+          (#case Resume (ChildReady 0u64)))))
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : function (#fn work () #u64
+          (#let-mut items (#array Counter 2)
+            (#array-of (#array Counter 2)
+              (#struct-literal Counter (: value 20u64))
+              (#struct-literal Counter (: value 20u64))))
+          (#let-mut index #usize 1usize)
+          (#let view (#ref-mut Counter) (#borrow-mut (#index items index)))
+          (#set index 0usize)
+          (#call touch-counter (: target view))
+          (#let second (#ref-mut Counter) (#borrow-mut (#index items index)))
+          (#call touch-counter (: target second))
+          (#let answer #u64
+            (#u64.+.wrap (#get (#index items 0usize) value) (#get (#index items 1usize) value)))
+          (#forget items)
+          (#let ignored #u64 (#await Child ChildPending ChildReady child-poll Start))
+          (#return answer))))
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result (#call work-poll
+          (: task (#call work ()) : waker (#borrow waker))))
+        (#let-else (work-pending task) Work-poll-result first (#unreachable))
+        (#return (#match (#call work-poll (: task task : waker (#borrow waker)))
+          (#case (work-ready answer) answer)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))"
+}
+
+#[test]
+fn whole_array_element_borrows_end_before_suspension() {
+    for source in [
+        whole_array_element_source().to_owned(),
+        whole_array_element_source().replace("(#linear Counter)", ""),
+    ] {
+        run_with_role(&source, &[], "owner-project-array");
+    }
+}
+
+#[test]
+fn whole_array_element_storage_preserves_source_and_boundary_checks() {
+    for (needle, replacement, expected) in [
+        ("(#set index 0usize)", "(#forget items)", "borrow"),
+        (
+            "(#set index 0usize)",
+            "(#let overlap (#ref Counter) (#borrow (#index items 0usize))) (#forget overlap)",
+            "borrow",
+        ),
+        (
+            "(#set index 0usize)",
+            "(#let early #u64 (#await Child ChildPending ChildReady child-poll Start))",
+            "pinned async frame",
+        ),
+    ] {
+        let mut source = whole_array_element_source().replace(needle, replacement);
+        if replacement == "(#forget items)" {
+            // Do not mask the live-borrow violation with a later double move.
+            let start = source.find("(#let second").unwrap();
+            let end = source.find("(#return answer)").unwrap() + "(#return answer)".len();
+            source.replace_range(start..end, "(#return 42u64)");
+        }
+        let scratch = support::Scratch::new("async-whole-element-invalid");
+        let cache = scratch.path().join("cache");
+        let error = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("input.lim"),
+            &config(),
+            &cache,
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert!(error.message.contains(expected), "{error:?}");
+        let span = error.span.expect("invalid borrow must identify source");
+        assert!(
+            span.start < span.end && span.end <= source.len(),
+            "{error:?}"
+        );
+        let offending_line = source.lines().nth(span.line - 1).unwrap();
+        assert!(
+            offending_line.contains(if expected == "pinned async frame" {
+                "#borrow-mut (#index items index)"
+            } else {
+                replacement
+            }),
+            "{error:?}"
+        );
+        if expected == "borrow" {
+            assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        }
+        assert!(
+            !cache.exists(),
+            "invalid source must not publish generated code"
+        );
+    }
+}
+
 #[test]
 fn poll_local_pointer_storage_does_not_authorize_source_aliasing() {
     for body in [

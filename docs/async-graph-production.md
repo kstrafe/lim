@@ -1504,3 +1504,28 @@ and encountered one `ETXTBSY` process-launch error; the affected aggregate-guard
 cleanup matrix passed its isolated rerun. This does not prove the launch race
 eliminated. The full requirement-by-requirement safety and performance audit
 remains outstanding; interface unification is not goal completion by itself.
+
+## Whole-element poll-local array borrows
+
+The completion audit found that indexed scalar-field tests did not cover a
+stored borrow of an entire aggregate element. A source-checked movable function
+that borrowed `Counter` from an owned array, changed its index, used the borrow,
+and retired it before awaiting failed ordinary checking of the generated code.
+The dispatcher joined the physical exclusive loan into the array-initialization
+arm. The same failure occurred for structurally Copy and explicitly linear
+aggregate elements.
+
+Numeric-index planning now certifies reference-free owned addresses independently
+of Copy load permission. Ordinary projected reads and writes still pass through
+the separate Copy gate. Direct owned aggregate-element references use checked
+selected-pointer storage, with their original owner anchors and the existing
+physical Empty proof at every movable Pending boundary. This exception does not
+apply to dereferenced or slice lenders, or reference-bearing aggregate contents.
+
+`whole_array_element_borrows_end_before_suspension` covers both ownership modes,
+changing the index after borrowing and mutating both selected elements. It checks
+cold/warm generated-source equality, independently parses and checks the emitted
+ordinary program, and executes both compilation paths. The companion negative
+test rejects destroying the live referent, an overlapping shared borrow, and
+retaining the handle across suspension without pinning. It checks original-source
+diagnostic locations and requires that invalid invocations publish no cache.

@@ -642,6 +642,36 @@ impl<'a> Emitter<'a> {
         index: usize,
         anchor: Vec<crate::typed_place::Place>,
     ) -> Result<(), Error> {
+        // A selected aggregate array element cannot retain a physical exclusive
+        // loan across dispatcher arms: its owning array is initialized in an
+        // earlier arm. Keep its checked address instead, as for multi-target
+        // selections. Restrict this to direct owned paths, never a slice or
+        // dereferenced lender, and retain the mandatory Empty boundary proof.
+        let indexed_aggregate = matches!(
+            crate::typed_ir::resolve_type(&self.slots[index].ty, &self.planning.declarations.aliases),
+            Ok(Type::Reference { target, .. })
+                if (!self.types.can_repeat(&target)
+                    || matches!(target.as_ref(), Type::Named(_) | Type::Array(_, _) | Type::Tuple(_)))
+                    && !self.types.contains_reference(&target)
+        ) && anchor.iter().all(|place| {
+            matches!(place.root, crate::typed_body::PlaceRoot::Local(_))
+                && place.segments.iter().all(|segment| {
+                    matches!(
+                        segment,
+                        crate::typed_place::Segment::Field(_)
+                            | crate::typed_place::Segment::Tuple(_)
+                            | crate::typed_place::Segment::Index(_)
+                            | crate::typed_place::Segment::DynamicIndex
+                    )
+                })
+                && place.segments.iter().any(|segment| {
+                    matches!(
+                        segment,
+                        crate::typed_place::Segment::Index(_)
+                            | crate::typed_place::Segment::DynamicIndex
+                    )
+                })
+        });
         // Single-target poll-local references can keep their actual lending capability.
         // Reconstructing a pointer from the backing array would bypass a live
         // slice's exclusive borrow. Retain anchors for the physical Empty
@@ -651,6 +681,7 @@ impl<'a> Emitter<'a> {
         // initialization arm of every possible referent. Movable frames still
         // require all such handles Empty before returning Pending.
         if !self.pinned
+            && !indexed_aggregate
             && anchor.len() == 1
             && anchor
                 .iter()
@@ -1930,9 +1961,11 @@ impl<'a> Emitter<'a> {
         literal(self.body, self.function.graph.values.get(index.0)?.source?)
     }
 
-    /// Only fixed-layout, owned paths with reference-free Copy leaves can be
-    /// relocated using numeric indices. Handles and variant tags need actual
-    /// selected capabilities and remain on the pinned/snapshot path.
+    /// Fixed-layout, owned paths with reference-free leaves can be relocated
+    /// using numeric indices. This certifies an address, not permission to
+    /// copy its contents: owned_projection_place separately admits Copy loads
+    /// and stores. Borrows can therefore address linear aggregate elements.
+    /// Handles and variant tags still require selected capabilities.
     fn owned_array_indices(
         &self,
         descriptor: &PlaceDescriptor,
@@ -1989,8 +2022,7 @@ impl<'a> Emitter<'a> {
             };
             ty = next;
         }
-        if ty == descriptor.ty && self.types.can_repeat(&ty) && !self.types.contains_reference(&ty)
-        {
+        if ty == descriptor.ty && !self.types.contains_reference(&ty) {
             Some(indices)
         } else {
             None
