@@ -1914,9 +1914,15 @@ impl Declarations {
                 mutations,
                 output_stores,
                 clears,
-                bounds: returned_bounds,
+                bounds: mut returned_bounds,
                 output_clears,
             } = facts;
+            if let Some(id) = self.function_id(&name) {
+                self.complete_reference_variant_bounds(
+                    &self.functions[id.0].signature.return_type,
+                    &mut returned_bounds,
+                );
+            }
             let variants = output_stores
                 .iter()
                 .filter_map(|((path, variant), stores)| {
@@ -2305,6 +2311,57 @@ impl Declarations {
         slots
     }
 
+    /// Missing conditional tag bounds are unknown alternatives, not absent
+    /// fields. Fill them with the enum's complete type-level alternatives so
+    /// mandatory nested reference payloads can be reasoned about soundly.
+    /// This describes by-value storage only and creates no initialized loans.
+    fn complete_reference_variant_bounds(
+        &self,
+        ty: &Type,
+        bounds: &mut crate::typed_flow::VariantBounds,
+    ) {
+        use crate::typed_place::Segment;
+        // First inspect the compact type schema. A large scalar array must
+        // not enumerate every element just to discover that it has no tags
+        // guarding reference storage.
+        let mut compact = Vec::new();
+        self.collect_parameter_loan_slots(
+            ty,
+            &mut Vec::new(),
+            &mut HashSet::new(),
+            &mut compact,
+            false,
+            false,
+        );
+        if !compact.iter().any(|slot| {
+            slot.storage
+                .iter()
+                .take_while(|segment| **segment != Segment::Dereference)
+                .any(|segment| matches!(segment, Segment::Payload(..)))
+        }) {
+            return;
+        }
+        for slot in self.reference_storage_slots(ty) {
+            for (index, segment) in slot.storage.iter().enumerate() {
+                if *segment == Segment::Dereference {
+                    break;
+                }
+                if let Segment::Payload(variant, _) = segment {
+                    bounds
+                        .entry(slot.storage[..index].to_vec())
+                        .or_insert_with(|| {
+                            (0..self.enums[&self.aggregate_names[variant.owner.0]].len())
+                                .map(|index| VariantId {
+                                    owner: variant.owner,
+                                    index,
+                                })
+                                .collect()
+                        });
+                }
+            }
+        }
+    }
+
     fn collect_parameter_loan_slots(
         &self,
         ty: &Type,
@@ -2542,6 +2599,60 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reference_variant_completion_skips_large_scalar_arrays_and_pointer_boundaries() {
+        let program = crate::parse_program(
+            "(#enum Holder ((Holding (#ref #u64)))) (#fn main () () (#return ()))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        for ty in [
+            Type::Array(Box::new(Type::U64), usize::MAX),
+            Type::Reference {
+                mutable: false,
+                target: Box::new(Type::Named("Holder".into())),
+            },
+            Type::PinOwned(Box::new(Type::Named("Holder".into()))),
+        ] {
+            let mut bounds = HashMap::new();
+            declarations.complete_reference_variant_bounds(&ty, &mut bounds);
+            assert!(
+                bounds.is_empty(),
+                "type tags beyond a pointer are not value contents: {ty:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn reference_variant_completion_keeps_all_alternatives_at_each_array_index() {
+        let program = crate::parse_program(
+            "(#enum Holder ((Holding (#ref #u64)) (Plain #u64)))
+             (#fn main () () (#return ()))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let holder = Type::Named("Holder".into());
+        let alternatives = ["Holding", "Plain"]
+            .into_iter()
+            .map(|name| declarations.variant_id(&holder, name).unwrap())
+            .collect::<HashSet<_>>();
+        let mut bounds = HashMap::new();
+        declarations
+            .complete_reference_variant_bounds(&Type::Array(Box::new(holder), 2), &mut bounds);
+        assert_eq!(
+            bounds,
+            HashMap::from([
+                (
+                    vec![crate::typed_place::Segment::Index(0)],
+                    alternatives.clone()
+                ),
+                (vec![crate::typed_place::Segment::Index(1)], alternatives),
+            ])
+        );
+    }
 
     #[test]
     fn expression_ids_are_dense_and_stable_across_fresh_parses() {

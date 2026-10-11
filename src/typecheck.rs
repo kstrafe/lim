@@ -19210,7 +19210,7 @@ mod typed_ownership_tests {
     }
 
     #[test]
-    fn staged_unknown_return_alternatives_remove_possible_variant_bounds() {
+    fn staged_unknown_return_alternatives_keep_all_type_variants_without_provenance() {
         let source = "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
           (#fn choose ((view (#ref #u64)) (other Choice) (selected #bool)) Choice
             (#return (#if selected
@@ -19225,7 +19225,17 @@ mod typed_ownership_tests {
             .staged_referent_entry_contracts(&types)
             .unwrap();
         let choose = declarations.function_id("choose").unwrap();
-        assert!(declarations.bodies["forward"].call_return_variant_bounds[&choose].is_empty());
+        let choice = Type::Named("Choice".into());
+        assert_eq!(
+            declarations.bodies["forward"].call_return_variant_bounds[&choose],
+            HashMap::from([(
+                Vec::new(),
+                ["Has", "Other", "Empty"]
+                    .into_iter()
+                    .map(|name| declarations.variant_id(&choice, name).unwrap())
+                    .collect::<HashSet<_>>()
+            )]),
+        );
         declarations
             .bodies
             .get_mut("choose")

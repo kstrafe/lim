@@ -84,8 +84,12 @@ executes. Shared snapshots retain their ordinary pointee loans, not loans of
 the containing cell. Rejection clears the preview and preserves the scrutinee
 for later arms. Exclusive/move-only guard aliases, reference-bearing aggregate
 previews and alternative-pattern previews still fail closed. Reading cleanup
-handlers may also be rejected when conditional call-input provenance remains
-unresolved; supporting a preview does not relax that ordinary checker boundary.
+handlers for shared-reference enum payloads work at entry, preview suspension
+and fallback-arm suspension. Ordinary call analysis carries complete nested
+enum alternatives and removes output payloads whose mandatory input references
+are proved absent through one checked safe-reference boundary. Raw pointers,
+unknown tags and repeated dereferences cannot establish that absence; supporting
+a preview does not relax the ordinary checker boundary.
 
 Scoped external borrows have explicit reference cells, tracked by the physical
 state solver through Pending and cleared on scope exit/cancellation. Their

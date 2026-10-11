@@ -229,7 +229,13 @@ fn cancelled_guard_source(declarations: &str, polls: &str, handle: &str) -> Stri
 
 #[test]
 fn reference_guard_cancellation_releases_entry_preview_and_committed_loans() {
-    let declarations = guard_cancellation_declarations();
+    run_guard_cancellation_matrix(
+        &guard_cancellation_declarations(),
+        "async-graph-reference-guard-cancel",
+    );
+}
+
+fn run_guard_cancellation_matrix(declarations: &str, label: &str) {
     let poll_first = "(#let first Work-poll-result
       (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
       (#let-else (work-pending next) Work-poll-result first (#unreachable))";
@@ -241,13 +247,13 @@ fn reference_guard_cancellation_releases_entry_preview_and_committed_loans() {
         (poll_first.into(), "next"),
         (format!("{poll_first}\n{poll_second}"), "last"),
     ] {
-        let source = cancelled_guard_source(&declarations, &polls, handle);
-        run(&source, "async-graph-reference-guard-cancel");
+        let source = cancelled_guard_source(declarations, &polls, handle);
+        run(&source, label);
     }
 }
 
 #[test]
-fn reading_guard_cleanup_still_requires_resolved_call_input_provenance() {
+fn reading_guard_cleanup_resolves_conditional_call_input_provenance() {
     let declarations = guard_cancellation_declarations().replace(
         "(#fn cancel-holder (: holder Holder) () (#forget holder) (#return ()))",
         "(#fn cancel-holder (: holder Holder) ()
@@ -255,22 +261,7 @@ fn reading_guard_cleanup_still_requires_resolved_call_input_provenance() {
             (#block (#assert (#u64.== (#deref held) 42u64)) (#drop held) ())))
           (#return ()))",
     );
-    let source = cancelled_guard_source(&declarations, "", "(#pin-borrow-mut frame)");
-    let scratch = support::Scratch::new("async-graph-reading-guard-cleanup");
-    let error = lim::compile_source_to_assembly(
-        &source,
-        &scratch.path().join("input.lim"),
-        &config(),
-        &scratch.path().join("cache"),
-        lim::TargetDescription::X86_64_SYSTEM_V,
-    )
-    .expect_err("unresolved conditional input provenance must not grant a read permission");
-    assert!(
-        error.message.contains("unresolved call inputs"),
-        "{error:?}"
-    );
-    assert!(error.span.is_some(), "{error:?}");
-    assert!(!scratch.path().join("cache").exists());
+    run_guard_cancellation_matrix(&declarations, "async-graph-reading-guard-cleanup");
 }
 
 #[test]

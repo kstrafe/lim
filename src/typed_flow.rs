@@ -13484,14 +13484,29 @@ fn value_storage_variant_bounds(
                             .all(|(expected, actual)| storage_slot_matches(expected, actual))
                 });
                 if !sources.into_iter().all(|source| {
-                    if source.global.is_some()
-                        || source.input_storage.contains(&Segment::Dereference)
-                    {
+                    if source.global.is_some() {
                         return false;
                     }
                     let Some(argument) = children.get(source.parameter + 1) else {
                         return false;
                     };
+                    if source.input_storage.contains(&Segment::Dereference) {
+                        return origins
+                            .variants
+                            .get()
+                            .and_then(|facts| facts[event.0].as_ref())
+                            .is_some_and(|facts| {
+                                inactive_referenced_variant_slot(
+                                    body,
+                                    flow,
+                                    origins,
+                                    event,
+                                    *argument,
+                                    &source.input_storage,
+                                    facts,
+                                )
+                            });
+                    }
                     let bounds = value_storage_variant_bounds(body, *argument, state, context);
                     inactive_variant_bound_slot(&bounds, &source.input_storage)
                 }) {
