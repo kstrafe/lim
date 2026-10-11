@@ -27,8 +27,20 @@ impl Recipe {
     }
 
     fn call(&self, name: &str, owner: &str, pointer: &str) -> String {
+        self.call_address(name, owner, &format!("(#ptr-address {pointer})"))
+    }
+
+    pub fn index_address(&self, owner: &str, address: &str) -> String {
+        self.call_address(&self.index, owner, address)
+    }
+
+    pub fn probe_address(&self, owner: &str, address: &str) -> String {
+        self.call_address(&self.probe, owner, address)
+    }
+
+    fn call_address(&self, name: &str, owner: &str, address: &str) -> String {
         format!(
-            "(#call {name} (: {} {owner} : {} (#ptr-address {pointer})))",
+            "(#call {name} (: {} {owner} : {} {address}))",
             self.owner, self.address
         )
     }

@@ -10701,6 +10701,122 @@ fn graph_slice_nested_array_selection_does_not_probe_a_dormant_invalid_branch() 
 }
 
 #[test]
+fn graph_slice_nested_runtime_coordinates_survive_index_mutation() {
+    let runtime = external_mutable_slice_source()
+        .split_once("(@#async-fn")
+        .unwrap()
+        .0;
+    let source = format!(
+        r#"{runtime}
+      (#struct Row (: padding #u128 : cells (#array #u64 2)))
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : function (#fn work (: items (#slice-mut Row)) #u64
+          (#let-mut outer #usize 1usize) (#let-mut inner #usize 1usize)
+          (#let row (#ref-mut Row) (#slice-mut-idx items outer))
+          (#let view (#ref-mut #u64) (#borrow-mut (#index (#get row cells) inner)))
+          (#deref-set view (#u64.+.wrap (#deref view) 1u64))
+          (#set outer 0usize) (#set inner 0usize)
+          (#await () ChildTask ChildPending ChildReady child-poll Start)
+          (#let answer #u64 (#deref view))
+          (#forget view) (#forget row) (#forget items) (#return answer))))
+      (#fn main () #u64
+        (#let-mut values (#array Row 2) (#array-of (#array Row 2)
+          (#struct-literal Row (: padding 0u128 : cells (#array-of (#array #u64 2) 3u64 4u64)))
+          (#struct-literal Row (: padding 7u128 : cells (#array-of (#array #u64 2) 17u64 41u64)))))
+        (#let waker #u64 0u64)
+        (#let first Work-poll-result
+          (#call work-poll (: task (#call work (: items (#slice-mut-of (#borrow-mut values)))) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready value) value)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))
+        (#assert (#u64.== (#index (#get (#index values 1usize) cells) 1usize) 42u64))
+        (#assert (#u64.== (#index (#get (#index values 0usize) cells) 1usize) 4u64))
+        (#return answer))"#
+    );
+    let generated = build_and_run_graph(&source, 42);
+    let declarations = source.split_once("(@#async-fn").unwrap().0;
+    let main = source.split_once("(#fn main").unwrap().1;
+    build_and_run_graph(&format!("{declarations}\n{generated}\n(#fn main{main}"), 42);
+    let shared = source
+        .replace("(#deref-set view (#u64.+.wrap (#deref view) 1u64))", "")
+        .replace("41u64", "42u64")
+        .replace("#slice-mut", "#slice")
+        .replace("#ref-mut", "#ref")
+        .replace("#borrow-mut", "#borrow");
+    build_and_run_graph(&shared, 42);
+    let single = source
+        .replace("(#array Row 2)", "(#array Row 1)")
+        .replace(
+            "(#let-mut outer #usize 1usize)",
+            "(#let-mut outer #usize 0usize)",
+        )
+        .replace(
+            "(#struct-literal Row (: padding 0u128 : cells (#array-of (#array #u64 2) 3u64 4u64)))",
+            "",
+        )
+        .replace(
+            "(#assert (#u64.== (#index (#get (#index values 0usize) cells) 1usize) 4u64))",
+            "",
+        )
+        .replace("(#index values 1usize)", "(#index values 0usize)");
+    build_and_run_graph(&single, 42);
+    let nested = source
+        .replace("(#array #u64 2)", "(#array (#array #u64 2) 2)")
+        .replace("(#array-of (#array (#array #u64 2) 2) 3u64 4u64)", "(#array-of (#array (#array #u64 2) 2) (#array-of (#array #u64 2) 3u64 4u64) (#array-of (#array #u64 2) 3u64 4u64))")
+        .replace("(#array-of (#array (#array #u64 2) 2) 17u64 41u64)", "(#array-of (#array (#array #u64 2) 2) (#array-of (#array #u64 2) 17u64 41u64) (#array-of (#array #u64 2) 17u64 41u64))")
+        .replace("(#let view (#ref-mut #u64) (#borrow-mut (#index (#get row cells) inner)))", "(#let-mut deep #usize 1usize) (#let slab (#ref-mut (#array #u64 2)) (#borrow-mut (#index (#get row cells) inner))) (#let view (#ref-mut #u64) (#borrow-mut (#index slab deep)))")
+        .replace("(#set inner 0usize)", "(#set inner 0usize) (#set deep 0usize)")
+        .replace("(#forget view)", "(#forget view) (#forget slab)")
+        .replace("(#index (#get (#index values 1usize) cells) 1usize)", "(#index (#index (#get (#index values 1usize) cells) 1usize) 1usize)")
+        .replace("(#index (#get (#index values 0usize) cells) 1usize)", "(#index (#index (#get (#index values 0usize) cells) 1usize) 1usize)");
+    build_and_run_graph(&nested, 42);
+    let zero_sized = format!(
+        "(#struct Empty ())\n{}",
+        source
+            .replace("(#array #u64 2)", "(#array Empty 2)")
+            .replace(
+                "3u64 4u64",
+                "(#struct-literal Empty ()) (#struct-literal Empty ())"
+            )
+            .replace(
+                "17u64 41u64",
+                "(#struct-literal Empty ()) (#struct-literal Empty ())"
+            )
+            .replace("(#let view (#ref-mut #u64)", "(#let view (#ref-mut Empty)")
+            .replace("(#deref-set view (#u64.+.wrap (#deref view) 1u64))", "")
+            .replace(
+                "(#let answer #u64 (#deref view))",
+                "(#let observed Empty (#deref view)) (#forget observed) (#let answer #u64 42u64)"
+            )
+            .replace(
+                "(#assert (#u64.== (#index (#get (#index values 1usize) cells) 1usize) 42u64))",
+                ""
+            )
+            .replace(
+                "(#assert (#u64.== (#index (#get (#index values 0usize) cells) 1usize) 4u64))",
+                ""
+            )
+    );
+    build_and_run_graph(&zero_sized, 42);
+    let branched = source
+        .replace(": items (#slice-mut Row)", ": items (#slice-mut Row) : choose #bool")
+        .replace("(#borrow-mut (#index (#get row cells) inner))", "(#if choose (#borrow-mut (#index (#get row cells) inner)) (#borrow-mut (#index (#get row cells) 0usize)))")
+        .replace(": items (#slice-mut-of (#borrow-mut values))", ": items (#slice-mut-of (#borrow-mut values)) : choose true");
+    build_and_run_graph(&branched, 42);
+    let constant_branch = branched.replace(": choose true", ": choose false").replace(
+        "(#index (#get (#index values 1usize) cells) 1usize) 42u64",
+        "(#index (#get (#index values 1usize) cells) 0usize) 18u64",
+    );
+    build_and_run_graph(&constant_branch, 18);
+    let conflicting = source.replace("(#let answer #u64 (#match", "(#set-index values 1usize (#struct-literal Row (: padding 0u128 : cells (#array-of (#array #u64 2) 0u64 0u64)))) (#let answer #u64 (#match");
+    let error = graph_compile_error(&conflicting, "nested-slice-pending-owner-write");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&conflicting[span.start..span.end], "#set-index");
+}
+
+#[test]
 fn dereference_reborrows_keep_exclusivity_and_pin_kind() {
     let source = r#"(#fn main () #u64
       (#let-mut value #u64 41u64)

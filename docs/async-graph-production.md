@@ -271,7 +271,17 @@ candidate probing, while actually selecting it still traps at the original
 bounds check. Native tests exercise both candidate orders, padded struct and
 aliased tuple elements, and index mutation before suspension.
 
-Mutable slices of local frame arrays, nested runtime slice coordinates,
+Nested runtime array coordinates inside external slice elements now reuse the
+ordinary array geometry recipes. A coarse outer-element lookup is followed by
+short-circuit nested bounds probes and an exact final leaf-address comparison;
+it never treats matching an outer range as permission to access any inner leaf.
+Each coordinate is recovered from the saved address, not the current index
+binding. The real slice holder remains the lifetime-bearing capture. Native
+tests cover shared and exclusive projections, padded and zero-sized elements,
+multiple nested indices, one-element outer slices, varying dynamic/static targets, standalone
+generated code, and owner mutation rejection while Pending.
+
+Mutable slices of local frame arrays,
 mixed external slice/non-slice selections without an internal anchor, and
 effectful index windows remain unfinished. These are still default-switch gates.
 
