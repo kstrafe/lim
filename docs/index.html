@@ -81,9 +81,34 @@
       </div>
     </section>
 
+    <section class="manifesto section" aria-labelledby="names-title">
+      <p class="eyebrow">03 / Names you can follow</p>
+      <h2 id="names-title">One namespace.<br>No guessing games.</h2>
+      <div class="columns">
+        <article>
+          <span class="feature-number">D</span>
+          <h3>Flat, explicit identifiers</h3>
+          <p>Global declarations live in a single namespace. There are no nested namespaces or method lookup rules to reconstruct before following a call. <code>VecU64-sort</code> is a function name, not a method selected through a receiver.</p>
+          <p>Dots and hyphens are ordinary identifier characters, not namespace operators. External imports can explicitly prefix their symbols; the resulting names are still plain identifiers.</p>
+        </article>
+        <article>
+          <span class="feature-number">E</span>
+          <h3>Built to be grepped</h3>
+          <p>Search a function or type name to follow its definition and uses. Free-standing functions and no shadowing keep names from silently changing meaning. You can trace the code with a text search, without first understanding a dispatch hierarchy.</p>
+          <p>Generated definitions are searchable Lim files in <code>.lim</code>, too. Their headers record the invoking files and lines, so you can follow an implementation back to the code that requested it.</p>
+        </article>
+        <article>
+          <span class="feature-number">F</span>
+          <h3>Keywords that leave your names alone</h3>
+          <p>The entire <code>#</code>-prefixed identifier space is reserved for the language. Keywords, builtin types, and operations are visibly marked: <code>#fn</code>, <code>#u64</code>, <code>#return</code>. Language and standard-library generators use names such as <code>@#optional</code>; your generators use names such as <code>@make-record</code>.</p>
+          <p>This supports backward-compatible keyword additions: a future <code>#feature</code> does not turn your existing <code>feature</code> identifier into a keyword. The prefix prevents name collisions; it is not a blanket guarantee against every syntax or semantic change.</p>
+        </article>
+      </div>
+    </section>
+
     <section id="safety" class="safety section" aria-labelledby="safety-title">
       <div>
-        <p class="eyebrow">03 / Explicit does not mean unchecked</p>
+        <p class="eyebrow">04 / Explicit does not mean unchecked</p>
         <h2 id="safety-title">Small surface.<br>Serious checks.</h2>
         <p class="section-intro">The compiler follows ownership and borrowing across the program—not just the function in front of you. Explicit source and static checks work together: auditability is not a substitute for safety.</p>
       </div>
@@ -95,7 +120,7 @@
     </section>
 
     <section class="speed section" aria-labelledby="speed-title">
-      <p class="eyebrow">04 / Time is part of the design</p>
+      <p class="eyebrow">05 / Time is part of the design</p>
       <h2 id="speed-title">Fast to build.<br>Native to run.</h2>
       <div class="speed-details">
         <p>A dependency-free Rust compiler with its own native instruction encoding and ELF linking. No external assembler or linker in the normal executable build path.</p>
@@ -115,7 +140,7 @@ cargo build --release
 ./target/release/lim docs/answer.lim -o answer
 ./answer
 # Exit status: 42</code></pre>
-      <p class="release-note">Lim is experimental and unreleased. The language is evolving; compatibility is not a constraint. This is a foundation for explicit, auditable systems—not a finished ecosystem.</p>
+      <p class="release-note">Lim is experimental and unreleased. Its syntax and semantics may still change; reserved keyword prefixes are designed to protect user names as the language grows. This is a foundation for explicit, auditable systems—not a finished ecosystem.</p>
     </section>
   </main>
   <footer><a class="wordmark" href="#" aria-label="Back to top">lim<span class="limit" aria-hidden="true">t → 0</span></a><p>Human-readable AI IR. As little hidden work as possible.</p><a href="#main">Back to top ↑</a></footer>
