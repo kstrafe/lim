@@ -790,8 +790,8 @@ fn build_and_run_route_status(source: &str, expected: Option<i32>, graph: bool) 
     if graph {
         command.arg("--cfg").arg("async-lowering=graph");
     }
-    let (status, _, stderr) =
-        support::run(&mut command, Duration::from_secs(20), 1024 * 1024).unwrap();
+    let (status, _, stderr) = support::run(&mut command, Duration::from_secs(20), 1024 * 1024)
+        .unwrap_or_else(|error| panic!("{error}\ninput source:\n{source}"));
     let generated_sources = fs::read_dir(scratch.path().join(".lim/generated"))
         .into_iter()
         .flatten()
@@ -9753,12 +9753,12 @@ fn async_while_let_aggregate_payloads_use_declared_capture_types() {
             "(Chosen 37u64)",
             "(Chosen (#tuple (#tuple #u64 #u64) 37u64 0u64))",
         );
-    build_and_run(&source, 40);
+    build_and_run_graph(&source, 40);
     let aliased = format!(
         "(#type Pair (#tuple #u64 #u64))\n{}",
         source.replace("(Chosen (#tuple #u64 #u64))", "(Chosen Pair)")
     );
-    build_and_run(&aliased, 40);
+    build_and_run_graph(&aliased, 40);
     let array = source
         .replace("(Chosen (#tuple #u64 #u64))", "(Chosen (#array #u64 2))")
         .replace(
@@ -9769,12 +9769,12 @@ fn async_while_let_aggregate_payloads_use_declared_capture_types() {
             "(Chosen (#tuple (#tuple #u64 #u64) 37u64 0u64))",
             "(Chosen (#array-of (#array #u64 2) 37u64 0u64))",
         );
-    build_and_run(&array, 40);
+    build_and_run_graph(&array, 40);
     let alias_chain = format!(
         "(#type PairAlias Pair)\n{}",
         aliased.replace("(Chosen Pair)", "(Chosen PairAlias)")
     );
-    build_and_run(&alias_chain, 40);
+    build_and_run_graph(&alias_chain, 40);
     let referenced = source
         .replace(
             "(Chosen (#tuple #u64 #u64))",
@@ -9792,12 +9792,12 @@ fn async_while_let_aggregate_payloads_use_declared_capture_types() {
             "(Chosen (#tuple (#tuple #u64 #u64) 37u64 0u64))",
             "(Chosen (#tuple (#tuple (#ref #u64) #u64) (#borrow owner) 0u64))",
         );
-    build_and_run(&referenced, 40);
+    build_and_run_graph(&referenced, 40);
     let nested = source
         .replace("(Chosen (#tuple #u64 #u64))", "(Chosen (#tuple #u64 (#array #u64 2)))")
         .replace("(Chosen (#tuple value bias))", "(Chosen (#tuple value (#array bias padding)))")
         .replace("(Chosen (#tuple (#tuple #u64 #u64) 37u64 0u64))", "(Chosen (#tuple (#tuple #u64 (#array #u64 2)) 37u64 (#array-of (#array #u64 2) 0u64 0u64)))");
-    build_and_run(&nested, 40);
+    build_and_run_graph(&nested, 40);
     let scratch = support::Scratch::new("async-pattern-payload-errors");
     for invalid in [
         source.replace("(#tuple value bias)", "(#tuple value)"),

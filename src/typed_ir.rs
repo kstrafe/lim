@@ -1420,7 +1420,7 @@ impl Declarations {
                     &restorations,
                     &origins,
                 );
-                let (mut entry_reads, _) = flow.referent_reads(body);
+                let (mut entry_reads, _) = flow.referent_reads_with_origins(body, &origins);
                 // Consuming an entry value also requires initialized storage,
                 // even when a later trap or restoration erases exit effects.
                 // The filter below excludes accesses preceded by proven

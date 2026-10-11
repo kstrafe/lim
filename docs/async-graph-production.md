@@ -1208,3 +1208,39 @@ and warm generator-cache hits already skip this emitter path.
 Verification passed all 1,340 library tests (three manual benchmarks ignored),
 the manual collection benchmark, 13 immediate-borrow graph integration tests,
 the ten-program nested graph regression, formatting and whitespace checks.
+
+## Reuse provenance within outcome-contract summaries
+
+The reference-bearing tuple case of
+`async_while_let_aggregate_payloads_use_declared_capture_types` exceeded its
+20-second per-compilation limit on graph lowering. Profiling a standalone copy
+found repeated loan solves inside outcome-contract summaries: the summary,
+its direct reads, consumed-entry profile and restoration guarantees each
+requested provenance independently. The full trace recorded 103 solves
+exceeding 100 ms, not one slow solve.
+
+Each filtered outcome graph now solves ordinary provenance once and shares it
+between those queries. The divergence-adjusted caller graph also reuses its
+existing snapshots for direct reads. Different outcomes still solve separately;
+the parent graph's facts cannot replace a filtered graph's facts. Entry-state
+ownership solves remain separate, and emitted-program validation is unchanged.
+The parity regression compares shared and independently solved queries and
+checks that selected normal returns remain distinct. Reads on paths without a
+selected normal return remain visible.
+
+For the same standalone input with explicit graph lowering, cold generator
+caches in fresh directories and the debug compiler, baseline total times were
+26,203.582 and 26,171.006 ms. Afterward they were 10,917.822 and 10,619.370 ms:
+58.3–59.5% below the baseline range. Inclusive provenance timing fell from
+23,338.180 to 8,331.671 ms in the final sample. These are whole-compilation
+debug measurements for this particular pathological input, not a claim about
+release compilation or all programs. Both new executables returned 40, as
+expected. Provenance remains the largest cost for this input.
+
+All six aggregate-loop variants now run explicitly on graph lowering and pass
+without increasing the timeout. Their focused integration test passed in
+18.16 seconds total, and all 229 async integration tests passed in 28.99
+seconds with the unchanged default. Graph is not yet the default; remaining
+interface/diagnostic migrations and the broader safety goal are still open.
+The final library run passed 1,354 tests (three manual benchmarks ignored).
+Formatting and whitespace checks also passed.

@@ -5272,8 +5272,17 @@ impl FlowGraph {
         self.consumptions_with_origins(body, types, Some(&origins))
     }
 
+    #[cfg(test)]
     pub fn referent_reads(&self, body: &Body) -> (Vec<ReferentRead>, Vec<FlowNodeId>) {
         let origins = self.loan_origins(body);
+        self.referent_reads_with_origins(body, &origins)
+    }
+
+    pub fn referent_reads_with_origins(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+    ) -> (Vec<ReferentRead>, Vec<FlowNodeId>) {
         let reachable = self.reachable();
         let mut reads = Vec::new();
         let mut unresolved = Vec::new();
@@ -5453,7 +5462,8 @@ impl FlowGraph {
     ) -> ReferentFunctionEffects {
         let moves = self.referent_consumptions(body, types);
         let exits = self.referent_exit_effects_from_moves(body, &moves);
-        let mut summary = self.referent_function_effects_from_exits(body, exits);
+        let origins = self.loan_origins(body);
+        let mut summary = self.referent_function_effects_from_exits(body, exits, &origins);
         summary.consuming_accesses = self.referent_consuming_accesses_from_moves(body, &moves);
         self.retain_unresolved_referent_accesses(&mut summary, &moves);
         summary
@@ -5471,6 +5481,7 @@ impl FlowGraph {
         self.referent_function_effects_with_restorations(body, types, calls, &[])
     }
 
+    #[cfg(test)]
     pub fn referent_function_effects_with_restorations(
         &self,
         body: &Body,
@@ -5500,7 +5511,7 @@ impl FlowGraph {
             origins,
         );
         let exits = self.referent_exit_effects_from_moves(body, &moves);
-        let mut summary = self.referent_function_effects_from_exits(body, exits);
+        let mut summary = self.referent_function_effects_from_exits(body, exits, origins);
         summary.consuming_accesses = self.referent_consuming_accesses_from_moves(body, &moves);
         self.retain_unresolved_referent_accesses(&mut summary, &moves);
         summary
@@ -5544,31 +5555,38 @@ impl FlowGraph {
         self.return_output_variant_graphs(body)
             .into_iter()
             .map(|(variant, filtered)| {
-                let summary = filtered.referent_function_effects_with_restorations(
+                // Each outcome has different reachability. Solve its loans
+                // once, then reuse them across both entry-state profiles and
+                // restoration guarantees; never substitute the parent graph.
+                let origins = filtered.loan_origins(body);
+                let summary = filtered.referent_function_effects_with_origins(
                     body,
                     types,
                     calls,
                     restorations,
+                    &origins,
                 );
                 let effects_from_consumed_entry = consumed_entry.map(|entry| {
-                    filtered.referent_exit_state_from_entry(
+                    filtered.referent_exit_state_from_entry_with_origins(
                         body,
                         types,
                         calls,
                         restorations,
                         entry,
                         possible_restorations,
+                        &origins,
                     )
                 });
                 (
                     variant,
                     ReferentVariantExit {
                         restored: filtered
-                            .referent_restoration_guarantees_with_calls(
+                            .referent_restoration_guarantees_with_origins(
                                 body,
                                 types,
                                 calls,
                                 restorations,
+                                &origins,
                             )
                             .into_iter()
                             .map(|place| {
@@ -5638,16 +5656,39 @@ impl FlowGraph {
         consumed_entry: &[Place],
         possible_restorations: &[(FlowNodeId, Vec<Place>)],
     ) -> Vec<ReferentExitEffect> {
-        let moves = self.referent_consumptions_with_partial_restorations(
+        let origins = self.loan_origins(body);
+        self.referent_exit_state_from_entry_with_origins(
             body,
             types,
             calls,
             restorations,
             consumed_entry,
             possible_restorations,
+            &origins,
+        )
+    }
+
+    fn referent_exit_state_from_entry_with_origins(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        consumed_entry: &[Place],
+        possible_restorations: &[(FlowNodeId, Vec<Place>)],
+        origins: &FlowLoanOrigins,
+    ) -> Vec<ReferentExitEffect> {
+        let moves = self.referent_consumptions_with_origins(
+            body,
+            types,
+            calls,
+            restorations,
+            consumed_entry,
+            possible_restorations,
+            origins,
         );
         let exits = self.referent_exit_effects_from_moves(body, &moves);
-        self.referent_function_effects_from_exits(body, exits)
+        self.referent_function_effects_from_exits(body, exits, origins)
             .effects
     }
 
@@ -5655,6 +5696,7 @@ impl FlowGraph {
         &self,
         body: &Body,
         exits: Vec<(FlowNodeId, Vec<ReferentExitEffect>, Vec<FlowNodeId>)>,
+        origins: &FlowLoanOrigins,
     ) -> ReferentFunctionEffects {
         let mut places = Vec::new();
         let mut unresolved = Vec::new();
@@ -5704,7 +5746,7 @@ impl FlowGraph {
                 }
             })
             .collect();
-        let (reads, unresolved_reads) = self.referent_reads(body);
+        let (reads, unresolved_reads) = self.referent_reads_with_origins(body, origins);
         ReferentFunctionEffects {
             has_normal_return: !exits.is_empty(),
             effects,
@@ -6545,6 +6587,24 @@ impl FlowGraph {
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
         restorations: &[(FlowNodeId, Vec<Place>)],
     ) -> Vec<Place> {
+        let origins = self.loan_origins(body);
+        self.referent_restoration_guarantees_with_origins(
+            body,
+            types,
+            calls,
+            restorations,
+            &origins,
+        )
+    }
+
+    fn referent_restoration_guarantees_with_origins(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        origins: &FlowLoanOrigins,
+    ) -> Vec<Place> {
         let mut candidates = Vec::new();
         for (index, slots) in body
             .parameter_loan_slots
@@ -6560,12 +6620,14 @@ impl FlowGraph {
                 }
             }
         }
-        let moves = self.referent_consumptions_with_restorations(
+        let moves = self.referent_consumptions_with_origins(
             body,
             types,
             calls,
             restorations,
             &candidates,
+            &[],
+            origins,
         );
         let exits = self.referent_exit_effects_from_moves(body, &moves);
         if exits.is_empty() {
@@ -18480,6 +18542,77 @@ mod tests {
         assert_eq!(payload.len(), 1);
         assert!(payload[0].storage.is_empty());
         assert_eq!(payload[0].place, held[0].place);
+    }
+
+    #[test]
+    fn outcome_summaries_reuse_only_their_own_graph_origins() {
+        let source = "(#enum Choice ((Left (#ref #u64)) (Right (#ref #u64))))
+          (#fn choose (: flag #bool : left (#ref #u64) : right (#ref #u64)) Choice
+            (#if flag
+              (#block (#assert (#u64.== (#deref left) 1u64)) (#return (Left left)))
+              (#block (#assert (#u64.== (#deref right) 2u64)) (#return (Right right))))
+            (#return (Left left)))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["choose"];
+        let graph = &checked.declarations().flows["choose"];
+        let types = LinearTypes::from_program(&program);
+        let outcomes = graph.return_output_variant_graphs(body);
+        assert_eq!(outcomes.len(), 2);
+        let mut return_events = Vec::new();
+        for filtered in outcomes.values() {
+            let origins = filtered.loan_origins(body);
+            let shared =
+                filtered.referent_function_effects_with_origins(body, &types, &[], &[], &origins);
+            let separate =
+                filtered.referent_function_effects_with_restorations(body, &types, &[], &[]);
+            assert_eq!(format!("{shared:?}"), format!("{separate:?}"));
+            let shared_entry = filtered.referent_exit_state_from_entry_with_origins(
+                body,
+                &types,
+                &[],
+                &[],
+                &[],
+                &[],
+                &origins,
+            );
+            let separate_entry =
+                filtered.referent_exit_state_from_entry(body, &types, &[], &[], &[], &[]);
+            assert_eq!(format!("{shared_entry:?}"), format!("{separate_entry:?}"));
+            assert_eq!(
+                filtered.referent_restoration_guarantees_with_origins(
+                    body,
+                    &types,
+                    &[],
+                    &[],
+                    &origins,
+                ),
+                filtered.referent_restoration_guarantees_with_calls(body, &types, &[], &[]),
+            );
+            // Reads on paths without a selected normal return still count:
+            // filtering an exit must not hide earlier unsafe accesses.
+            assert!(!shared.reads.is_empty());
+            let reachable = filtered.reachable();
+            let returns = filtered
+                .nodes
+                .iter()
+                .enumerate()
+                .filter_map(|(index, node)| {
+                    (matches!(node.action, FlowAction::Return(_))
+                        && reachable.contains(&FlowNodeId(index)))
+                    .then_some(FlowNodeId(index))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(returns.len(), 1);
+            return_events.push(returns[0]);
+            let (reads, unresolved) = filtered.referent_reads_with_origins(body, &origins);
+            assert_eq!(format!("{reads:?}"), format!("{:?}", shared.reads));
+            assert_eq!(unresolved, shared.unresolved_reads);
+        }
+        assert_ne!(
+            return_events[0], return_events[1],
+            "outcomes must stay distinct"
+        );
     }
 
     #[test]
