@@ -26,6 +26,27 @@ instance of the original type. Preserving pointer identity and real loan origins
 while supporting that access remains required; casting unrelated cells or
 weakening validation is not an acceptable substitute.
 
+The native baseline in `tests/fixtures/partial_aggregate_whole_borrow.lim`
+retains a shared reference to `Owner.kept`, moves and restores `Owner.item`,
+then borrows the whole `Owner`. It compares the original sibling address with
+the address obtained through the whole reference and returns 42 only when
+both identity and the restored value are correct. The adversarial test also
+rejects exclusive whole and sibling borrows while the sibling remains
+borrowed, with the conflict and original-borrow spans checked. An equivalent
+pinned async body with suspension before restoration is still rejected at
+`(#borrow owner)` with the contiguous-storage diagnostic. This is an open
+representation limitation, not an unsupported ordinary source ownership pattern.
+
+The existing two leaf cells have interleaved tags and payloads; the corresponding
+ordinary two-field struct has adjacent payload words. Treating the first cell
+payload as the whole struct would read the second cell's tag as a user field.
+Reconstructing the struct elsewhere would instead change the retained sibling's
+address. A replacement needs contiguous, address-stable payload storage with
+separate initialization state, retaining per-field loan origins and cleanup
+obligations in ordinary generated-code checking. General partial-initialization
+storage is a possible language-level solution, not yet implemented or approved
+as a new public primitive; no async-only checker exemption is proposed.
+
 Deep scalar borrows within independently stored aggregate leaves now lower to
 references rooted in their actual field cells. Field/tuple/static-index/runtime-
 index tests cover shared/exclusive ordinary and pinned references, disjoint

@@ -21,6 +21,54 @@ fn compile(source: &str, name: &str) -> Result<String, lim::Diagnostic> {
     )
 }
 
+#[test]
+fn restored_whole_borrow_preserves_live_sibling_address_and_alias_rules() {
+    let source = include_str!("fixtures/partial_aggregate_whole_borrow.lim");
+    let assembly = compile(source, "restored-whole-borrow").unwrap();
+    let scratch = support::Scratch::new("restored-whole-borrow-native");
+    let binary = scratch.path().join("program");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[],
+        &[],
+        TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    let (status, stdout, stderr) = support::run(
+        &mut std::process::Command::new(binary),
+        std::time::Duration::from_secs(5),
+        4096,
+    )
+    .unwrap();
+    assert_eq!(status.code(), Some(42), "{stderr:?}");
+    assert!(stdout.is_empty());
+    assert!(stderr.is_empty());
+
+    // Restoration permits a shared whole borrow, not an overlapping exclusive
+    // borrow. Borrowing the already-shared sibling exclusively is also invalid.
+    for (name, replacement, conflict) in [
+        (
+            "exclusive-restored-whole",
+            "(#let exclusive (#ref-mut Owner) (#borrow-mut owner)) (#forget exclusive) (#let whole (#ref Owner) (#borrow owner))",
+            "#borrow-mut",
+        ),
+        (
+            "exclusive-restored-sibling",
+            "(#let exclusive (#ref-mut #u64) (#borrow-mut (#get owner kept))) (#forget exclusive) (#let whole (#ref Owner) (#borrow owner))",
+            "#borrow-mut",
+        ),
+    ] {
+        let invalid = source.replace("(#let whole (#ref Owner) (#borrow owner))", replacement);
+        let diagnostic = compile(&invalid, name).unwrap_err();
+        assert_eq!(diagnostic.code, DiagnosticCode::Borrow, "{diagnostic:?}");
+        let span = diagnostic.span.unwrap();
+        assert_eq!(&invalid[span.start..span.end], conflict, "{diagnostic:?}");
+        let origin = invalid.find("#borrow (#get owner kept)").unwrap();
+        assert!(diagnostic.labels.iter().any(|label| label.span.start == origin));
+    }
+}
+
 fn assert_violation(case: Violation) {
     let diagnostic = match compile(case.source, case.name) {
         Err(diagnostic) => diagnostic,
