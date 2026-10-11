@@ -93,7 +93,10 @@ they account for nested field offsets and zero-sized elements. Reconstruction
 uses ordinary checked projection helpers, retaining source type and exclusivity.
 Cold/warm native tests cover index mutation before suspension, shared/exclusive
 scalar and nested field selections, two runtime coordinates, zero-sized arrays
-and trailing empty fields. Dependent-child cancellation tests read the selected
+and trailing empty fields. The two-coordinate regression retains an aliased
+inner array type: native construction, argument and return layout checks resolve
+the annotation instead of mistaking it for an element. Dependent-child
+cancellation tests read the selected
 element before destroying its array owner; caller alias violations still fail
 with original source spans, and standalone generated source remains checked.
 Allocation/static mixed-anchor recipes remain gates.

@@ -212,9 +212,8 @@ fn two_runtime_array_coordinates_preserve_the_selected_leaf() {
             "(#set index 1usize)",
             "(#set index 0usize) (#set inner 0usize)",
         )
-        .replace("(#forget read-back)", "(#assert (#u64.== read-back 42u64))")
-        .replace("(#type Row (#array Record 2))", "")
-        .replace("Row", "(#array Record 2)");
+        .replace("(#forget read-back)", "(#assert (#u64.== read-back 42u64))");
+    assert!(source.contains("(#array-of Row"));
     run_native(&source, "async-two-runtime-array-coordinates");
 }
 

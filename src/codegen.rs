@@ -1589,6 +1589,7 @@ fn generate_checked_assembly_with_roots(
                         &ty,
                         structs,
                         enums,
+                        aliases,
                         &constants,
                         &float_constants,
                         &constant_initializers,
@@ -5152,6 +5153,7 @@ fn constant_aggregate_words(
     ty: &Type,
     structs: &HashMap<String, Vec<Field>>,
     enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
     constants: &HashMap<String, i128>,
     float_constants: &HashMap<String, FloatConstant>,
     initializers: &HashMap<String, Expr>,
@@ -5205,7 +5207,7 @@ fn constant_aggregate_words(
                 items.first(),
                 Some(Expr::Symbol(operator)) if operator == "array-repeat"
             ) {
-                (2, true)
+                (if items.len() == 3 { 2 } else { 1 }, true)
             } else if matches!(
                 items.first(),
                 Some(Expr::Symbol(operator)) if operator == "array"
@@ -5214,18 +5216,24 @@ fn constant_aggregate_words(
             } else {
                 return Err("static array initializer must use array or array-repeat".into());
             };
-            if parse_type(items.get(1)).ok() != Some(ty.clone()) {
+            if value_start == 2
+                && parse_type(items.get(1))
+                    .ok()
+                    .and_then(|declared| resolve_type(&declared, aliases).ok())
+                    != Some(ty.clone())
+            {
                 return Err("static array initializer requires its explicit array type".into());
             }
             if repeat {
-                if items.len() != 3 {
+                if items.len() != value_start + 1 {
                     return Err("array-repeat requires one value".into());
                 }
                 let words = constant_aggregate_words(
-                    &items[2],
+                    &items[value_start],
                     element,
                     structs,
                     enums,
+                    aliases,
                     constants,
                     float_constants,
                     initializers,
@@ -5249,6 +5257,7 @@ fn constant_aggregate_words(
                         element,
                         structs,
                         enums,
+                        aliases,
                         constants,
                         float_constants,
                         initializers,
@@ -5283,6 +5292,7 @@ fn constant_aggregate_words(
                         field,
                         structs,
                         enums,
+                        aliases,
                         constants,
                         float_constants,
                         initializers,
@@ -5313,6 +5323,7 @@ fn constant_aggregate_words(
                         &field.ty,
                         structs,
                         enums,
+                        aliases,
                         constants,
                         float_constants,
                         initializers,
@@ -5362,6 +5373,7 @@ fn constant_aggregate_words(
                     field,
                     structs,
                     enums,
+                    aliases,
                     constants,
                     float_constants,
                     initializers,
@@ -6227,6 +6239,21 @@ impl FunctionContext<'_> {
             Expr::List(vec![Expr::Symbol(function), items[1].clone()])
         } else {
             items[1].clone()
+        }
+    }
+
+    /// Constructor annotations are types, not array elements. Resolve aliases
+    /// before finding the first value operand; semantic checking already
+    /// validates the annotation's element type and length.
+    fn array_value_start(&self, items: &[Expr]) -> usize {
+        if parse_type(items.get(1))
+            .ok()
+            .and_then(|ty| resolve_type(&ty, self.aliases).ok())
+            .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
+        {
+            2
+        } else {
+            1
         }
     }
 
@@ -8480,14 +8507,7 @@ impl FunctionContext<'_> {
         };
         match ty {
             Type::Array(element, length) if constructor == "array" => {
-                let value_start = if parse_type(items.get(1))
-                    .ok()
-                    .is_some_and(|declared| declared == *ty)
-                {
-                    2
-                } else {
-                    1
-                };
+                let value_start = self.array_value_start(items);
                 if items.len() - value_start != *length {
                     return Err("large array return has the wrong length".into());
                 }
@@ -8498,14 +8518,7 @@ impl FunctionContext<'_> {
                 Ok(())
             }
             Type::Array(element, length) if constructor == "array-repeat" => {
-                let value_start = if parse_type(items.get(1))
-                    .ok()
-                    .is_some_and(|declared| declared == *ty)
-                {
-                    2
-                } else {
-                    1
-                };
+                let value_start = self.array_value_start(items);
                 if items.len() != value_start + 1 {
                     return Err("large array-repeat return requires one value".into());
                 }
@@ -8648,14 +8661,7 @@ impl FunctionContext<'_> {
             return Ok(());
         }
         if let Expr::List(items) = value {
-            let value_start = if parse_type(items.get(1))
-                .ok()
-                .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
-            {
-                2
-            } else {
-                1
-            };
+            let value_start = self.array_value_start(items);
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
                 if items.len() != value_start + 1 {
                     return Err("array-repeat requires one value".into());
@@ -8751,14 +8757,7 @@ impl FunctionContext<'_> {
         }
         if let Expr::List(items) = value {
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat") {
-                let value_start = if parse_type(items.get(1))
-                    .ok()
-                    .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
-                {
-                    2
-                } else {
-                    1
-                };
+                let value_start = self.array_value_start(items);
                 if items.len() != value_start + 1 {
                     return Err("array-repeat requires one value".into());
                 }
@@ -8776,14 +8775,7 @@ impl FunctionContext<'_> {
                 return Ok(());
             }
             if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
-                let value_start = if parse_type(items.get(1))
-                    .ok()
-                    .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
-                {
-                    2
-                } else {
-                    1
-                };
+                let value_start = self.array_value_start(items);
                 if items.len() - value_start != length {
                     return Err("array return has the wrong length".into());
                 }
@@ -9294,11 +9286,8 @@ impl FunctionContext<'_> {
         }
         if let Expr::List(items) = value {
             let value_start = if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array" || operator == "array-repeat")
-                && parse_type(items.get(1))
-                    .ok()
-                    .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
             {
-                2
+                self.array_value_start(items)
             } else {
                 1
             };
@@ -15724,14 +15713,7 @@ impl FunctionContext<'_> {
         };
         match ty {
             Type::Array(element, length) if constructor == "array" => {
-                let value_start = if parse_type(items.get(1))
-                    .ok()
-                    .is_some_and(|declared| declared == *ty)
-                {
-                    2
-                } else {
-                    1
-                };
+                let value_start = self.array_value_start(items);
                 if items.len() - value_start != *length {
                     return Err("large array argument has the wrong length".into());
                 }
@@ -15746,14 +15728,7 @@ impl FunctionContext<'_> {
                 Ok(())
             }
             Type::Array(element, length) if constructor == "array-repeat" => {
-                let value_start = if parse_type(items.get(1))
-                    .ok()
-                    .is_some_and(|declared| declared == *ty)
-                {
-                    2
-                } else {
-                    1
-                };
+                let value_start = self.array_value_start(items);
                 if items.len() != value_start + 1 {
                     return Err("large array-repeat argument requires one value".into());
                 }
@@ -16831,14 +16806,7 @@ impl FunctionContext<'_> {
             if let Expr::List(items) = value {
                 if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array-repeat")
                 {
-                    let value_start = if parse_type(items.get(1))
-                        .ok()
-                        .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
-                    {
-                        2
-                    } else {
-                        1
-                    };
+                    let value_start = self.array_value_start(items);
                     if items.len() != value_start + 1 {
                         return Err("array-repeat requires one value".into());
                     }
@@ -16856,14 +16824,7 @@ impl FunctionContext<'_> {
                     return Ok(());
                 }
                 if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "array") {
-                    let value_start = if parse_type(items.get(1))
-                        .ok()
-                        .is_some_and(|ty| matches!(ty, Type::Array(_, _)))
-                    {
-                        2
-                    } else {
-                        1
-                    };
+                    let value_start = self.array_value_start(items);
                     if items.len() - value_start != *length {
                         return Err("array argument has the wrong length".into());
                     }
