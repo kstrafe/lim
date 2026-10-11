@@ -358,6 +358,133 @@ fn run_native(source: &str, label: &str, expected: i32) {
     assert!(stdout.is_empty() && stderr.is_empty());
 }
 
+fn selected_array_elements_source(mutable: bool) -> String {
+    let suffix = if mutable { "-mut" } else { "" };
+    let write = if mutable {
+        "(#deref-set view 42u64)"
+    } else {
+        ""
+    };
+    let (left_result, right_result, external_value) =
+        if mutable { (44, 44, 42) } else { (42, 52, 50) };
+    format!("{CHILD}
+          (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
+            : function (#fn work (: choose #bool : external (#ref{suffix} (#array #u64 4))) #u64
+              (#let-mut owner (#array #u64 3) (#array-of (#array #u64 3) 1u64 40u64 3u64))
+              (#let view (#ref{suffix} #u64) (#if choose
+                (#borrow{suffix} (#index owner 1usize))
+                (#borrow{suffix} (#index external 2usize))))
+              (#let ignored #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+              {write}
+              (#let answer #u64 (#u64.+.wrap (#deref view) ignored))
+              (#drop view) (#assert (#u64.== (#index owner 0usize) 1u64))
+              (#assert (#u64.== (#index owner 2usize) 3u64))
+              (#forget owner) (#return answer))))
+          (#fn run (: choose #bool : cancel #bool) #u64
+            (#let-mut external (#array #u64 4)
+              (#array-of (#array #u64 4) 4u64 5u64 50u64 7u64))
+            (#let waker #u64 0u64)
+            (#let-mut task Work-frame (#call work (: choose choose : external (#borrow{suffix} external))))
+            (#let first Work-poll-result
+              (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
+            (#drop next)
+            (#if cancel (#block
+              (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+              (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
+              (#set-index external 2usize 42u64) (#forget task) (#return 42u64)) ())
+            (#let answer #u64 (#loop
+              (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+                (#case (work-pending later) (#block (#drop later) (#continue)))
+                (#case (work-ready value) (#block (#break value))))))
+            (#forget task)
+            (#assert (#u64.== (#index external 0usize) 4u64))
+            (#assert (#u64.== (#index external 3usize) 7u64))
+            (#assert (#u64.== (#index external 2usize) (#if choose 50u64 {external_value}u64)))
+            (#return answer))
+          (#fn main () #u64
+            (#assert (#u64.== (#call run (: choose true : cancel false)) {left_result}u64))
+            (#assert (#u64.== (#call run (: choose false : cancel false)) {right_result}u64))
+            (#assert (#u64.== (#call run (: choose true : cancel true)) 42u64))
+            (#return (#call run (: choose false : cancel true))))")
+}
+
+#[test]
+fn selected_array_elements_preserve_offsets_and_external_loans() {
+    for mutable in [false, true] {
+        let source = selected_array_elements_source(mutable);
+        assert_independent_generated_source(&source);
+        run_native(&source, "async-selected-array-elements", 42);
+    }
+}
+
+fn assert_independent_generated_source(source: &str) {
+    let scratch = support::Scratch::new("async-array-independent-source");
+    let input = scratch.path().join("input.lim");
+    let cache = scratch.path().join("cache");
+    let output = scratch.path().join("generated");
+    lim::write_generated_sources_from_path_with_config_and_cache(
+        source,
+        &input,
+        &output,
+        &config(),
+        &cache,
+    )
+    .unwrap();
+    let mut standalone = source.to_owned();
+    for invocation in lim::parse(source).unwrap().into_iter().rev() {
+        if source[invocation.span.start..invocation.span.end].starts_with("(@") {
+            standalone.replace_range(invocation.span.start..invocation.span.end, "");
+        }
+    }
+    for entry in std::fs::read_dir(output).unwrap() {
+        standalone.push('\n');
+        standalone.push_str(&std::fs::read_to_string(entry.unwrap().path()).unwrap());
+    }
+    let program = lim::parse_program(&standalone).unwrap();
+    lim::check_types(&program).unwrap_or_else(|error| panic!("{error}\n{standalone}"));
+    lim::generate_assembly(&program).unwrap();
+}
+
+#[test]
+fn selected_array_future_keeps_the_callers_array_borrowed() {
+    for mutable in [false, true] {
+        let source = selected_array_elements_source(mutable).replace(
+            "(#drop next)",
+            "(#drop next)\n(#set-index external 2usize 99u64)",
+        );
+        assert_borrow_error(
+            &source,
+            "async-selected-array-caller-conflict",
+            "#set-index",
+            0,
+        );
+    }
+}
+
+#[test]
+fn dormant_out_of_bounds_array_anchor_is_not_probed() {
+    let source = format!(
+        "{CHILD}
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
+        : function (#fn work (: choose #bool) #u64
+          (#let left (#array #u64 3) (#array-of (#array #u64 3) 1u64 2u64 3u64))
+          (#let right (#array #u64 4) (#array-of (#array #u64 4) 4u64 5u64 50u64 7u64))
+          (#let view (#ref #u64) (#if choose
+            (#borrow (#index left 8usize)) (#borrow (#index right 2usize))))
+          (#let result #u64 (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
+          (#return (#u64.+.wrap (#deref view) result)))))
+      (#fn main () #u64 (#let waker #u64 0u64)
+        (#let-mut task Work-frame (#call work (: choose false)))
+        (#let answer #u64 (#loop
+          (#match (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker)))
+            (#case (work-pending next) (#block (#drop next) (#continue)))
+            (#case (work-ready value) (#block (#break value))))))
+        (#forget task) (#return answer))"
+    );
+    run_native(&source, "async-dormant-array-anchor", 52);
+}
+
 #[test]
 fn selected_internal_reference_keeps_its_owner_across_repeated_pending() {
     for mutable in [false, true] {

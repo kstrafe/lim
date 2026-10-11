@@ -78,7 +78,16 @@ public cleanup interface.
 Source-time delayed initialization stays at the original graph Bind. Factories
 install only parameters; repeated Pending retries poll the existing child.
 Static pinned owner projections and supported checked selected addresses use
-stationary storage. Repeatable scalar and ordinary shared-reference guard
+stationary storage. Thin selected references can also project constant array
+indices, including selections between frame arrays and caller-owned arrays with
+different lengths and offsets. Source bounds checks still run at selection;
+an impossible constant-index candidate is never probed when reconstructing a
+different selected reference. The checked original borrow retains its ordinary
+or pinned type and exclusivity; a pinned physical address is not permission to
+upgrade a source loan to a pin. Native tests cover mutable writes, repeated
+Pending, cancellation, caller alias conflicts and standalone emitted source.
+Dynamic array-index and allocation/static mixed-anchor recipes remain gates.
+Repeatable scalar and ordinary shared-reference guard
 payloads can be previewed from a linear scrutinee while an awaiting guard
 executes. Shared snapshots retain their ordinary pointee loans, not loans of
 the containing cell. Rejection clears the preview and preserves the scrutinee

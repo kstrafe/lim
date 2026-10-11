@@ -289,9 +289,12 @@ impl<'a> Emitter<'a> {
                     if !emitter.pinned {
                         return Err(fail(function, "local borrows require a pinned async frame"));
                     }
-                    let anchor =
-                        crate::generator::async_self_borrow::direct_place(&function.graph, place)
-                            .map_err(|message| fail(function, message))?;
+                    let anchor = crate::generator::async_self_borrow::direct_place(
+                        &function.graph,
+                        body,
+                        place,
+                    )
+                    .map_err(|message| fail(function, message))?;
                     emitter.erase_reference(slot, vec![anchor])?;
                 }
                 emitter.scopes.insert(scope, slot);
@@ -504,12 +507,15 @@ impl<'a> Emitter<'a> {
                 let base = self.fresh("external-anchor");
                 let mut projected = base.clone();
                 for segment in &place.segments {
-                    let field = match segment {
-                        Segment::Field(id) => self.planning.declarations.field(*id).name.clone(),
-                        Segment::Tuple(index) => index.to_string(),
+                    projected = match segment {
+                        Segment::Field(id) => format!(
+                            "(#get {projected} {})",
+                            self.planning.declarations.field(*id).name
+                        ),
+                        Segment::Tuple(index) => format!("(#get {projected} {index})"),
+                        Segment::Index(index) => format!("(#index {projected} {index}usize)"),
                         _ => unreachable!("external anchors have checked static projections"),
                     };
-                    projected = format!("(#get {projected} {field})");
                 }
                 return format!(
                     "(#block (#let {base} {} {anchor}) (#borrow{suffix} {projected}))",
@@ -518,14 +524,55 @@ impl<'a> Emitter<'a> {
             }
         }
         for segment in &place.segments {
-            let field = match segment {
-                Segment::Field(id) => self.planning.declarations.field(*id).name.clone(),
-                Segment::Tuple(index) => index.to_string(),
+            let projected = match segment {
+                Segment::Field(id) => format!(
+                    "(#get {anchor} {})",
+                    self.planning.declarations.field(*id).name
+                ),
+                Segment::Tuple(index) => format!("(#get {anchor} {index})"),
+                Segment::Index(index) => format!("(#index {anchor} {index}usize)"),
                 _ => unreachable!("internal anchors were checked before emission"),
             };
-            anchor = format!("(#pin-borrow{suffix} (#get {anchor} {field}))");
+            anchor = format!("(#pin-borrow{suffix} {projected})");
         }
         anchor
+    }
+
+    /// A dormant source branch may have a constant out-of-bounds access.
+    /// It cannot supply a selected address, so never probe that payload when
+    /// materializing a reference formed by another branch.
+    fn anchor_in_bounds(&self, place: &crate::typed_place::Place) -> bool {
+        use crate::typed_place::Segment;
+        let (binding, external) = match place.root {
+            crate::typed_body::PlaceRoot::Local(binding) => (binding, false),
+            crate::typed_body::PlaceRoot::Parameter(binding) => (binding, true),
+            _ => unreachable!(),
+        };
+        let resolve = |ty: &Type| {
+            crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases)
+                .expect("anchor types were resolved before emission")
+        };
+        let mut ty = resolve(&self.function.graph.bindings[binding.0].ty);
+        if external {
+            let Type::Reference { target, .. } = ty else {
+                unreachable!("external captures are checked thin reference parameters");
+            };
+            ty = resolve(&target);
+        }
+        for segment in &place.segments {
+            ty = match (segment, ty) {
+                (Segment::Field(id), _) => resolve(&self.planning.declarations.field(*id).ty),
+                (Segment::Tuple(index), Type::Tuple(fields)) => resolve(&fields[*index]),
+                (Segment::Index(index), Type::Array(element, length)) => {
+                    if *index >= length as u128 {
+                        return false;
+                    }
+                    resolve(&element)
+                }
+                _ => unreachable!("anchor projections were checked before emission"),
+            };
+        }
+        true
     }
 
     fn materialize_internal_reference(
@@ -548,6 +595,9 @@ impl<'a> Emitter<'a> {
             )
         };
         if let [place] = places.as_slice() {
+            if !self.anchor_in_bounds(place) {
+                return "(#unreachable)".into();
+            }
             return materialize(place);
         }
         // The raw address retains the choice made by the source expression.
@@ -556,6 +606,9 @@ impl<'a> Emitter<'a> {
         // an unselected branch may never have initialized its owner cell.
         let mut selected = "(#unreachable)".to_owned();
         for place in places.iter().rev() {
+            if !self.anchor_in_bounds(place) {
+                continue;
+            }
             let index = match place.root {
                 crate::typed_body::PlaceRoot::Local(binding) => self.bindings[&binding],
                 crate::typed_body::PlaceRoot::Parameter(binding) => {
@@ -2384,7 +2437,30 @@ impl<'a> Emitter<'a> {
                         target: Box::new(graph.places[place.0].ty.clone()),
                     }
                 };
-                if self.slots[self.addresses[place]].ty != expected {
+                let address = self.addresses[place];
+                if self.slots[address].ty != expected {
+                    // A pinned frame's checked array selection is retained as
+                    // a pinned address. The source requested an ordinary loan,
+                    // not a pin: preserve that exact capability while anchoring
+                    // the emitted loan to the selected storage. Never upgrade
+                    // ordinary storage to pinned or change exclusivity here.
+                    if matches!((&self.slots[address].ty, &expected),
+                        (Type::PinnedReference { mutable: actual, target: from },
+                         Type::Reference { mutable: requested, target: to })
+                        if actual == requested && from == to)
+                    {
+                        let helper = self.fresh("selected-source-borrow");
+                        let input = self.fresh("selected-source-input");
+                        self.projections.push(format!(
+                            "(#fn {helper} (: {input} {}) {} (#return (#unsafe (#ptr-borrow{} {input} (#ref-ptr {input})))))",
+                            crate::type_source(&self.slots[address].ty), crate::type_source(&expected),
+                            if *mutable { "-mut" } else { "" },
+                        ));
+                        let read = self.read(address, true);
+                        return Ok(
+                            self.put_value(*dst, &format!("(#call {helper} (: {input} {read}))"))
+                        );
+                    }
                     return Err(error(
                         "selected borrow cannot change its checked pinning or exclusivity",
                     ));

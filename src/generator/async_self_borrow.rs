@@ -73,12 +73,15 @@ fn anchor(origins: &[LoanOrigin]) -> Result<Option<Vec<crate::typed_place::Place
         place.segments.iter().any(|segment| {
             !matches!(
                 segment,
-                crate::typed_place::Segment::Field(_) | crate::typed_place::Segment::Tuple(_)
+                crate::typed_place::Segment::Field(_)
+                    | crate::typed_place::Segment::Tuple(_)
+                    | crate::typed_place::Segment::Index(_)
             )
         })
     }) {
         return Err(
-            "internal reference anchors require checked static struct/tuple projections".into(),
+            "internal reference anchors require checked static struct/tuple/array projections"
+                .into(),
         );
     }
     Ok(Some(places))
@@ -86,6 +89,7 @@ fn anchor(origins: &[LoanOrigin]) -> Result<Option<Vec<crate::typed_place::Place
 
 pub(crate) fn direct_place(
     graph: &Graph,
+    body: &Body,
     place: crate::generator::async_exec::PlaceId,
 ) -> Result<crate::typed_place::Place, String> {
     use crate::generator::async_exec::AddressProjection;
@@ -100,8 +104,14 @@ pub(crate) fn direct_place(
         .map(|projection| match projection {
             AddressProjection::Field(field) => Ok(Segment::Field(*field)),
             AddressProjection::Tuple(index) => Ok(Segment::Tuple(*index)),
+            AddressProjection::Index(index) => graph.values[index.0]
+                .source
+                .and_then(|source| crate::typed_place::literal_index(body, source))
+                .map(Segment::Index)
+                .ok_or_else(|| "internal array anchors require a checked constant index".into()),
             _ => Err(
-                "internal reference anchors require checked static struct/tuple projections".into(),
+                "internal reference anchors require checked static struct/tuple/array projections"
+                    .into(),
             ),
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -191,7 +201,7 @@ impl Plan {
                 if matches!(graph.places[place.0].root, AddressRoot::Local(_)) {
                     plan.values
                         .entry(value)
-                        .or_insert(vec![at(direct_place(graph, place), action.span)?]);
+                        .or_insert(vec![at(direct_place(graph, body, place), action.span)?]);
                 }
             }
         }
