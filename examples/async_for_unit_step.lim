@@ -18,10 +18,10 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first work-poll-result
+  (#let first Work-poll-result
     (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (work-pending task) work-poll-result first (#unreachable))
-  (#let second work-poll-result
+  (#let-else (work-pending task) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result
     (#call work-poll (: task task : waker (#borrow waker))))
   (#return (#match second
     (#case (work-ready value) value)

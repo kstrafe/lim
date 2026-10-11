@@ -10643,26 +10643,26 @@ mod generation_planning_tests {
     #[test]
     fn selected_deferred_pointer_and_slice_operations_require_layout() {
         for (parameters, operation) in [
-            ("(ptr (#ptr start-task))", "(#unsafe (#ptr-read ptr))"),
+            ("(ptr (#ptr Start-task))", "(#unsafe (#ptr-read ptr))"),
             (
-                "(ptr (#ptr start-task))",
+                "(ptr (#ptr Start-task))",
                 "(#unsafe (#ptr-offset ptr 1usize))",
             ),
             (
-                "(ptr (#ptr-mut start-task)) (value start-task)",
+                "(ptr (#ptr-mut Start-task)) (value Start-task)",
                 "(#unsafe (#ptr-write ptr value))",
             ),
-            ("(items (#slice start-task))", "(#slice-idx items 0usize)"),
+            ("(items (#slice Start-task))", "(#slice-idx items 0usize)"),
             (
-                "(items (#slice start-task))",
+                "(items (#slice Start-task))",
                 "(#slice-range items 0usize 1usize)",
             ),
             (
-                "(items (#slice-mut start-task))",
+                "(items (#slice-mut Start-task))",
                 "(#slice-mut-idx items 0usize)",
             ),
             (
-                "(items (#slice-mut start-task))",
+                "(items (#slice-mut Start-task))",
                 "(#slice-mut-split items 0usize)",
             ),
         ] {
@@ -10677,7 +10677,7 @@ mod generation_planning_tests {
     #[test]
     fn deferred_handle_operations_and_poll_matching_need_no_frame_layout() {
         plan(
-            "(#fn main ((ptr (#ptr start-task)) (items (#slice start-task)) (result start-poll-result)) #u64
+            "(#fn main ((ptr (#ptr Start-task)) (items (#slice Start-task)) (result Start-poll-result)) #u64
                 (#let address #usize (#ptr-address ptr))
                 (#let length #usize (#slice-len items))
                 (#return (#match result
@@ -10736,7 +10736,7 @@ mod generation_planning_tests {
         let mut declarations =
             resolve_generation_planning(&program, &interfaces, &selected).unwrap();
         assert!(declarations.planning_only);
-        assert!(declarations.deferred_layouts.contains_key("start-task"));
+        assert!(declarations.deferred_layouts.contains_key("Start-task"));
         let types = crate::linearcheck::LinearTypes::from_program(&program);
         assert!(matches!(
             declarations.check_referent_entry_contracts(&types),
@@ -17107,21 +17107,21 @@ mod typed_ownership_tests {
             (
                 "async_fn_local_self_reference",
                 "local-self-ref-poll",
-                "local-self-ref-poll-result",
+                "Local-self-ref-poll-result",
                 "local-self-ref-ready",
                 "local-self-ref-pending",
             ),
             (
                 "async_fn_self_reference",
                 "read-after-await-poll",
-                "read-after-await-poll-result",
+                "Read-after-await-poll-result",
                 "read-after-await-ready",
                 "read-after-await-pending",
             ),
             (
                 "async_fn_enum_self_reference",
                 "read-after-await-poll",
-                "read-after-await-poll-result",
+                "Read-after-await-poll-result",
                 "read-after-await-ready",
                 "read-after-await-pending",
             ),

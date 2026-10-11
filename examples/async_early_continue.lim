@@ -27,13 +27,13 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
-  (#let-else (work-pending first-condition) work-poll-result first (#unreachable))
-  (#let second work-poll-result (#call work-poll (: task first-condition : waker (#borrow waker))))
-  (#let-else (work-pending second-condition) work-poll-result second (#unreachable))
-  (#let third work-poll-result (#call work-poll (: task second-condition : waker (#borrow waker))))
-  (#let-else (work-pending body) work-poll-result third (#unreachable))
-  (#let fourth work-poll-result (#call work-poll (: task body : waker (#borrow waker))))
+  (#let first Work-poll-result (#call work-poll (: task (#call work ()) : waker (#borrow waker))))
+  (#let-else (work-pending first-condition) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result (#call work-poll (: task first-condition : waker (#borrow waker))))
+  (#let-else (work-pending second-condition) Work-poll-result second (#unreachable))
+  (#let third Work-poll-result (#call work-poll (: task second-condition : waker (#borrow waker))))
+  (#let-else (work-pending body) Work-poll-result third (#unreachable))
+  (#let fourth Work-poll-result (#call work-poll (: task body : waker (#borrow waker))))
   (#return (#match fourth
     (#case (work-ready value) value)
     (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))

@@ -21,11 +21,11 @@
     (#return result))))
 
 (#fn run ((choose #bool) (waker (#ref #u64))) #u64
-  (#let-mut task work-task
+  (#let-mut task Work-task
     (#call work (: choose choose : values
       (#struct-literal Values (: a 22u64 : z (#tuple (#tuple #u16 #u16) 9u16 11u16))))))
   (#for-range (attempt #u64) 0u64 4u64
-    (#let result work-poll-result (#call work-poll (: task task : waker waker)))
+    (#let result Work-poll-result (#call work-poll (: task task : waker waker)))
     (#match result
       (#case (work-pending next) (#block (#set task next) ()))
       (#case (work-ready value) (#block (#return value)))))

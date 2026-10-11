@@ -63,7 +63,7 @@
     (#case (Waiting remaining)
       (#forget remaining)))
   (#return ()))
-(#fn cancel-work ((task work-task)) ()
+(#fn cancel-work ((task Work-task)) ()
   (#match task
     (#case (work-task-start offset)
       (#forget offset))
@@ -87,12 +87,12 @@
       (: executor (#borrow executor) : metadata (#struct-literal WakeMetadata ((amount 1u64))))))
   (#let
     first
-    work-poll-result
+    Work-poll-result
     (#call work-poll (: task (#call work (: offset 1u64)) : waker (#borrow waker))))
-  (#let-else (work-pending pending) work-poll-result first (#unreachable))
+  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
   (#let pending-text (#array #char 16) "poll 1: pending\n")
   (#call print-text (: text (#borrow-slice pending-text)))
-  (#let second work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+  (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
   (#let
     result
     #u64

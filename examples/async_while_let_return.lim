@@ -20,16 +20,16 @@
       (#return second))
     (#return 5u64))))
 (#fn run ((choice Choice) (waker (#ref #u64))) #u64
-  (#let first work-poll-result (#call work-poll (: task (#call work (: choice choice)) : waker waker)))
-  (#let-else (work-pending after-condition) work-poll-result first (#unreachable))
-  (#let second work-poll-result (#call work-poll (: task after-condition : waker waker)))
+  (#let first Work-poll-result (#call work-poll (: task (#call work (: choice choice)) : waker waker)))
+  (#let-else (work-pending after-condition) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result (#call work-poll (: task after-condition : waker waker)))
   (#return (#match second
     (#case (work-ready value) value)
     (#case (work-pending after-first)
       (#block
-        (#let third work-poll-result (#call work-poll (: task after-first : waker waker)))
-        (#let-else (work-pending after-second) work-poll-result third (#unreachable))
-        (#let fourth work-poll-result (#call work-poll (: task after-second : waker waker)))
+        (#let third Work-poll-result (#call work-poll (: task after-first : waker waker)))
+        (#let-else (work-pending after-second) Work-poll-result third (#unreachable))
+        (#let fourth Work-poll-result (#call work-poll (: task after-second : waker waker)))
         (#match fourth
           (#case (work-ready value) value)
           (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable)))))))))

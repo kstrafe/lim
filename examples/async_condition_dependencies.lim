@@ -41,9 +41,9 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task work-task (#call work ()))
+  (#let-mut task Work-task (#call work ()))
   (#for-range (attempt #u64) 0u64 10u64
-    (#let polled work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+    (#let polled Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
     (#match polled
       (#case (work-pending next) (#block (#set task next) ()))
       (#case (work-ready result) (#block (#return result)))))

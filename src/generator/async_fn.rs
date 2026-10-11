@@ -1850,7 +1850,7 @@ fn fresh_async_name(source: &str, next_name: &mut usize) -> String {
         .and_then(|(_, rest)| rest.split_whitespace().next())
         .unwrap_or("function");
     loop {
-        let name = format!("lim.async.{namespace}.choice-{}", *next_name);
+        let name = format!("Lim.async.{namespace}.choice-{}", *next_name);
         *next_name += 1;
         if !source.contains(&name) {
             return name;
@@ -11816,6 +11816,14 @@ fn generated_source_with_capture_selection(
         return Err("@#async-fn #fn requires a name, parameters, result type, and body".into());
     }
     let start = symbol(&function[1], "function name")?;
+    // Public constructor names remain based on the function identifier; type
+    // capitalization does not rename functions or enum variants.
+    let canonical_frame = format!("{start}-{}", if pinned { "frame" } else { "task" });
+    let state_prefix = if frame == super::builtins::capitalized_type_name(&canonical_frame) {
+        canonical_frame
+    } else {
+        frame.clone()
+    };
     if start == public_poll || names.iter().any(|name| name == start) {
         return Err("@#async-fn start function must differ from generated names".into());
     }
@@ -12410,8 +12418,8 @@ fn generated_source_with_capture_selection(
     }
     if stages.is_empty() {
         if pinned {
-            let start_variant = format!("{frame}-start");
-            let done_variant = format!("{frame}-done");
+            let start_variant = format!("{state_prefix}-start");
+            let done_variant = format!("{state_prefix}-done");
             let start_helper = format!("{poll}-start");
             let body_helper = fresh_async_name(&source, &mut next_nested_await);
             let result_name = fresh_async_name(&source, &mut next_nested_await);
@@ -12506,7 +12514,7 @@ fn generated_source_with_capture_selection(
             }
             return Ok(generated);
         }
-        let start_variant = format!("{frame}-start");
+        let start_variant = format!("{state_prefix}-start");
         let start_helper = format!("{poll}-start");
         let body_helper = fresh_async_name(&source, &mut next_nested_await);
         let result_name = fresh_async_name(&source, &mut next_nested_await);
@@ -12739,7 +12747,7 @@ fn generated_source_with_capture_selection(
     {
         return Err("@#async-fn bindings cannot use reserved waker or lim.async.* names".into());
     }
-    let start_variant = format!("{frame}-start");
+    let start_variant = format!("{state_prefix}-start");
     let start_helper = format!("{poll}-start");
     if start == start_helper
         || start.starts_with(&format!("{poll}-child-"))
@@ -12749,7 +12757,7 @@ fn generated_source_with_capture_selection(
     }
     let mut variants = vec![format!("({start_variant} {})", types(&start_params))];
     let mut await_cases = Vec::new();
-    let done_variant = format!("{frame}-done");
+    let done_variant = format!("{state_prefix}-done");
     if pinned {
         if source.contains(&cancel) {
             return Err(format!("{generator_name} generated cancellation function '{cancel}' collides with its input"));
@@ -12759,7 +12767,7 @@ fn generated_source_with_capture_selection(
     }
     let mut helpers = Vec::new();
     for (index, stage) in stages.iter().enumerate() {
-        let await_variant = format!("{frame}-await-{index}");
+        let await_variant = format!("{state_prefix}-await-{index}");
         let resume = format!("{poll}-resume-{index}");
         let child_helper = format!("{poll}-child-{index}");
         variants.push(format!(
@@ -12942,7 +12950,7 @@ fn generated_source_with_capture_selection(
                 .collect::<Vec<_>>();
             fields.push(("lim.async.child".into(), stage.child.clone()));
             cancellation_states.push(AsyncCancelState {
-                variant: format!("{frame}-await-{index}"),
+                variant: format!("{state_prefix}-await-{index}"),
                 fields,
             });
         }

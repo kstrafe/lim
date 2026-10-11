@@ -25,7 +25,7 @@
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap (#deref view) result)))))
 
-(#fn cancel-enum-state ((task read-after-await-frame-state)) ()
+(#fn cancel-enum-state ((task Read-after-await-frame-state)) ()
   (#match task
     (#case read-after-await-frame-start ())
     (#case (read-after-await-frame-await-0 view child)
@@ -34,16 +34,16 @@
   (#return ()))
 
 (#fn main () #u64
-  (#let-mut frame read-after-await-frame
+  (#let-mut frame Read-after-await-frame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((choice (Number (#struct-literal NumberPayload ((value 40u64))))))))))
   (#let waker #u64 0u64)
-  (#let first read-after-await-poll-result
+  (#let first Read-after-await-poll-result
     (#call read-after-await-poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (read-after-await-pending pending-frame) read-after-await-poll-result first (#unreachable))
-  (#let second read-after-await-poll-result
+  (#let-else (read-after-await-pending pending-frame) Read-after-await-poll-result first (#unreachable))
+  (#let second Read-after-await-poll-result
     (#call read-after-await-poll (: task pending-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second

@@ -20,10 +20,10 @@
     (#return iteration))))
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first work-poll-result
+  (#let first Work-poll-result
     (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-  (#let-else (work-pending pending) work-poll-result first (#unreachable))
-  (#let second work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
   (#let result #u64 (#match second
     (#case (work-ready value) value)
     (#case (work-pending pending-again)

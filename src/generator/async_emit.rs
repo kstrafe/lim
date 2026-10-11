@@ -3248,7 +3248,7 @@ mod tests {
     const RUN: &str = "
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task work-task (#call work (: seed 40u64)))
+        (#let-mut task Work-task (#call work (: seed 40u64)))
         (#loop
           (#match (#call work-poll (: task task : waker (#borrow waker)))
             (#case (work-pending next) (#block (#set task next) ()))
@@ -3400,8 +3400,8 @@ mod tests {
         let main = "
           (#fn main () #u64
             (#let waker #u64 0u64)
-            (#let first work-poll-result (#call work-poll (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let first Work-poll-result (#call work-poll (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready value) value)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))";
@@ -3582,9 +3582,9 @@ mod tests {
                 "(#fn main () #u64
                 (#let waker #u64 0u64) (#let value #u64 40u64)
                 (#let view ({ty} #u64) ({borrow} value))
-                (#let task work-task (#call work (: value view)))
-                (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-                (#let-else (work-pending next) work-poll-result first (#unreachable))
+                (#let task Work-task (#call work (: value view)))
+                (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable))
                 (#assert (#u64.== (#deref view) 40u64))
                 (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
                   (#case (work-ready result) result)
@@ -3610,9 +3610,9 @@ mod tests {
     fn releasing_one_incoming_handle_does_not_retire_its_live_alias() {
         let main = "(#fn main () #u64
           (#let waker #u64 0u64) (#let value #u64 20u64)
-          (#let task work-task (#call work (: value (#borrow value))))
-          (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))
+          (#let task Work-task (#call work (: value (#borrow value))))
+          (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))
           (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
             (#case (work-ready result) result)
             (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))";
@@ -3634,9 +3634,9 @@ mod tests {
     fn selected_shared_handles_survive_branch_transfers_and_loop_retries() {
         let main = "(#fn main () #u64
           (#let waker #u64 0u64) (#let left #u64 20u64) (#let right #u64 99u64)
-          (#let-mut task work-task (#call work (: choose true : left (#borrow left) : right (#borrow right))))
+          (#let-mut task Work-task (#call work (: choose true : left (#borrow left) : right (#borrow right))))
           (#loop
-            (#let result work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+            (#let result Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
             (#match result
               (#case (work-pending next) (#block (#set task next) ()))
               (#case (work-ready answer) (#block (#return answer) ()))))
@@ -3680,9 +3680,9 @@ mod tests {
             "{extra}
           (#fn main () #u64
             (#let waker #u64 0u64) (#let value #u64 20u64)
-            (#let task work-task (#call work (: value (#borrow value))))
-            (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let task Work-task (#call work (: value (#borrow value))))
+            (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready result) result)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))"
@@ -3715,9 +3715,9 @@ mod tests {
             "{extra}
           (#fn main () #u64
             (#let waker #u64 0u64) (#let-mut value #u64 20u64)
-            (#let task work-task (#call work (: value (#borrow value))))
-            (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let task Work-task (#call work (: value (#borrow value))))
+            (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#set value 21u64) (#forget next) (#return 0u64))"
         );
         let planning = prepare_function(function, &bad_main);
@@ -3752,9 +3752,9 @@ mod tests {
             "{extra}
               (#fn main () #u64
                 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
-                (#let task work-task (#call work (: view (#borrow-mut value))))
-                (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-                (#let-else (work-pending next) work-poll-result first (#unreachable))
+                (#let task Work-task (#call work (: view (#borrow-mut value))))
+                (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable))
                 (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                   (#case (work-ready answer) answer)
                   (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -3793,8 +3793,8 @@ mod tests {
                 "(#fn read-view (: view (#ref-mut #u64) : amount #u64) #u64 (#return (#u64.+.wrap (#deref view) amount)))
               (#fn later () #u64 (#return 0u64))
               (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 20u64)
-                (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
-                (#let-mut running (#pin-ref-mut work-frame) (#pin-borrow-mut task))
+                (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
+                (#let-mut running (#pin-ref-mut Work-frame) (#pin-borrow-mut task))
                 (#let-mut answer #u64 0u64)
                 (#loop (#match (#call work-poll (: task running : waker (#borrow waker)))
                   (#case (work-pending next) (#block (#set running next) ()))
@@ -3821,9 +3821,9 @@ mod tests {
             let main = format!(
                 "(#fn echo (: view ({ty} #u64)) ({ty} #u64) (#return view))
                   (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
-                    (#let-mut task work-frame (#call work (: view ({borrow} value))))
-                    (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-                    (#let-else (work-pending next) work-poll-result first (#unreachable))
+                    (#let-mut task Work-frame (#call work (: view ({borrow} value))))
+                    (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                    (#let-else (work-pending next) Work-poll-result first (#unreachable))
                     (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                       (#case (work-ready answer) answer)
                       (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -3879,8 +3879,8 @@ mod tests {
             (#deref-set view (#u64.+.wrap (#deref view) amount))
             (#return (#struct-literal Holder (: view view))))
           (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
-            (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
-            (#let-mut running (#pin-ref-mut work-frame) (#pin-borrow-mut task))
+            (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
+            (#let-mut running (#pin-ref-mut Work-frame) (#pin-borrow-mut task))
             (#let-mut retries #u64 0u64) (#let-mut answer #u64 0u64)
             (#loop (#match (#call work-poll (: task running : waker (#borrow waker)))
               (#case (work-pending next) (#block (#set running next)
@@ -3906,11 +3906,11 @@ mod tests {
             &proposed.source_files[span.source_id as usize].source[span.start..span.end],
             "#deref-set",
         );
-        let first = "(#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))";
+        let first = "(#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))";
         let second =
-            "(#let second work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
-          (#let-else (work-pending last) work-poll-result second (#unreachable))";
+            "(#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+          (#let-else (work-pending last) Work-poll-result second (#unreachable))";
         for (polls, handle, expected) in [
             (String::new(), "(#pin-borrow-mut task)", 40),
             (first.to_owned(), "next", 40),
@@ -3922,9 +3922,9 @@ mod tests {
                     (#deref-set view (#u64.+.wrap (#deref view) amount))
                     (#return (#struct-literal Holder (: view view))))
                   (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
-                    (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
+                    (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
                     {polls}
-                    (#let state work-frame-state (#call work-poll-cancel (: task {handle})))
+                    (#let state Work-frame-state (#call work-poll-cancel (: task {handle})))
                     (#forget state) (#forget task)
                     (#assert (#u64.== value {expected}u64)) (#set value 99u64)
                     (#return 42u64))"
@@ -3934,11 +3934,11 @@ mod tests {
             // cleanup, and allow the referent again only after that cleanup.
             runtime_planned(prepare_generator("#async-fn-pinned", function, &main), 42);
             if expected == 41 {
-                let cleanup = "(#fn echo-state (: state work-frame-state) work-frame-state
+                let cleanup = "(#fn echo-state (: state Work-frame-state) Work-frame-state
                     (#return state))";
                 let conflicting = format!("{cleanup}\n{}", main.replace(
                     "(#forget state) (#forget task)",
-                    "(#set value 99u64) (#let observed work-frame-state (#call echo-state (: state state))) (#forget observed) (#forget task)",
+                    "(#set value 99u64) (#let observed Work-frame-state (#call echo-state (: state state))) (#forget observed) (#forget task)",
                 ));
                 let planning = prepare_generator("#async-fn-pinned", function, &conflicting);
                 let generated = generate(&planning).unwrap();
@@ -3971,8 +3971,8 @@ mod tests {
           (#fn echo (: view (#ref-mut #u64) : amount #u64) (#ref-mut #u64)
             (#deref-set view (#u64.+.wrap (#deref view) amount)) (#return view))";
         let main = "(#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
-            (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
-            (#let-mut running (#pin-ref-mut work-frame) (#pin-borrow-mut task))
+            (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
+            (#let-mut running (#pin-ref-mut Work-frame) (#pin-borrow-mut task))
             (#let-mut retries #u64 0u64) (#let-mut answer #u64 0u64)
             (#loop (#match (#call work-poll (: task running : waker (#borrow waker)))
               (#case (work-pending next) (#block (#set running next)
@@ -4073,9 +4073,9 @@ mod tests {
         let main = "(#fn read-view (: view (#ref-mut #u64) : amount #u64) #u64
               (#return (#u64.+.wrap (#deref view) amount)))
             (#fn main () #u64 (#let waker #u64 0u64) (#let-mut first #u64 40u64) (#let-mut other #u64 100u64)
-              (#let-mut task work-frame (#call work (: view (#borrow-mut first) : other (#borrow-mut other))))
-              (#let initial work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-              (#let-else (work-pending next) work-poll-result initial (#unreachable))
+              (#let-mut task Work-frame (#call work (: view (#borrow-mut first) : other (#borrow-mut other))))
+              (#let initial Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+              (#let-else (work-pending next) Work-poll-result initial (#unreachable))
               (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                 (#case (work-ready answer) answer)
                 (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -4091,9 +4091,9 @@ mod tests {
             (#return (#u64.+.wrap before child)))";
         let main = "(#fn echo (: view (#ref-mut #u64)) (#ref-mut #u64) (#return view))
             (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
-              (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
-              (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-              (#let-else (work-pending next) work-poll-result first (#unreachable))
+              (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
+              (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+              (#let-else (work-pending next) Work-poll-result first (#unreachable))
               (#set value 99u64)
               (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                 (#case (work-ready answer) answer)
@@ -4130,7 +4130,7 @@ mod tests {
                 .items
                 .iter()
                 .find_map(|item| match item {
-                    Item::Struct { name, fields, .. } if name == "work-frame-state" => fields
+                    Item::Struct { name, fields, .. } if name == "Work-frame-state" => fields
                         .iter()
                         .find(|field| field.name == format!("value.{}", child.0))
                         .map(|field| field.ty.clone()),
@@ -4160,10 +4160,10 @@ mod tests {
                 .name;
             let polls = match phase {
                 "initial" => String::new(),
-                "pending" => "(#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-                    (#let-else (work-pending next) work-poll-result first (#unreachable)) (#drop next)".into(),
-                "ready" => "(#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-                    (#let-else (work-pending next) work-poll-result first (#unreachable))
+                "pending" => "(#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                    (#let-else (work-pending next) Work-poll-result first (#unreachable)) (#drop next)".into(),
+                "ready" => "(#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                    (#let-else (work-pending next) Work-poll-result first (#unreachable))
                     (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                       (#case (work-ready answer) answer)
                       (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -4178,19 +4178,19 @@ mod tests {
                     (#case (Start value) (#assert false))
                     (#case (Resume value) (#assert (#u64.== value 2u64))))
                   (#deref-set count (#u64.+.wrap (#deref count) 1u64)) (#return ()))
-                (#fn destroy-state (: state work-frame-state : count (#ref-mut #u64)) ()
+                (#fn destroy-state (: state Work-frame-state : count (#ref-mut #u64)) ()
                   (#match (#get state value.{child})
                     (#case {empty} ())
                     (#case ({full} child) (#call cancel-child (: task child : count count))))
                   (#forget state) (#return ()))
                 (#fn main () #u64
                   (#let waker #u64 0u64) (#let-mut value #u64 40u64) (#let-mut count #u64 0u64)
-                  (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
+                  (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
                   {polls}
-                  (#let state work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
+                  (#let state Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
                   (#call destroy-state (: state state : count (#borrow-mut count)))
                   (#set value 99u64)
-                  (#let again work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
+                  (#let again Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
                   (#assert (#u32.== (#get again pc) 4294967295u32))
                   (#call destroy-state (: state again : count (#borrow-mut count)))
                   (#assert (#u64.== count {expected_count}u64))
@@ -4220,8 +4220,8 @@ mod tests {
           (#return total))";
         let main = "(#fn echo (: view (#ref-mut #u64)) (#ref-mut #u64) (#return view))
           (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
-            (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
-            (#let-mut running (#pin-ref-mut work-frame) (#pin-borrow-mut task))
+            (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
+            (#let-mut running (#pin-ref-mut Work-frame) (#pin-borrow-mut task))
             (#let-mut answer #u64 0u64) (#let-mut retries #u64 0u64)
             (#loop (#match (#call work-poll (: task running : waker (#borrow waker)))
               (#case (work-pending next) (#block (#set running next)
@@ -4245,9 +4245,9 @@ mod tests {
             (#return (#u64.+.wrap (#deref (#get holder view)) amount)))
           (#fn main () #u64 (#let waker #u64 0u64)
             (#let-mut value Source (#struct-literal Source (: amount 40u64)))
-            (#let-mut task work-frame (#call work (: view (#borrow-mut value))))
-            (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let-mut task Work-frame (#call work (: view (#borrow-mut value))))
+            (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready answer) answer)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -4289,9 +4289,9 @@ mod tests {
             );
             let main = format!("(#fn echo (: view ({ty} #u64)) ({ty} #u64) (#return view))
               (#fn main () #u64 (#let waker #u64 0u64) (#let-mut value #u64 40u64)
-                (#let-mut task work-frame (#call work (: view ({borrow} value))))
-                (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-                (#let-else (work-pending next) work-poll-result first (#unreachable))
+                (#let-mut task Work-frame (#call work (: view ({borrow} value))))
+                (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable))
                 (#let result ({ty} #u64) (#match (#call work-poll (: task next : waker (#borrow waker)))
                   (#case (work-ready result) result)
                   (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -4380,9 +4380,9 @@ mod tests {
           (#drop view) (#forget owner) (#return (#u64.+.wrap seed child)))";
         let main = "(#struct Empty ()) (#linear Empty)
           (#fn main () #u64 (#let waker #u64 0u64)
-          (#let-mut task work-frame (#call work (: seed 40u64)))
-          (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))
+          (#let-mut task Work-frame (#call work (: seed 40u64)))
+          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))
           (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
             (#case (work-ready answer) answer)
             (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -4403,8 +4403,8 @@ mod tests {
           (#drop left) (#drop right) (#forget owner) (#return answer))";
         let main = "(#struct Source (: left #u64 : right #u64)) (#linear Source)
           (#fn main () #u64 (#let waker #u64 0u64)
-            (#let-mut task work-frame (#call work (: seed 38u64)))
-            (#let-mut running (#pin-ref-mut work-frame) (#pin-borrow-mut task))
+            (#let-mut task Work-frame (#call work (: seed 38u64)))
+            (#let-mut running (#pin-ref-mut Work-frame) (#pin-borrow-mut task))
             (#let-mut retries #u64 0u64) (#let-mut answer #u64 0u64)
             (#loop (#match (#call work-poll (: task running : waker (#borrow waker)))
               (#case (work-pending next) (#block (#set running next) (#set retries (#u64.+.wrap retries 1u64)) ()))
@@ -4419,11 +4419,11 @@ mod tests {
         // The source async loop itself is unchanged and suspends twice.
         let main = "(#struct Source (: left #u64 : right #u64)) (#linear Source)
           (#fn main () #u64 (#let waker #u64 0u64)
-            (#let-mut task work-frame (#call work (: seed 38u64)))
-            (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
-            (#let second work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
-            (#let-else (work-pending last) work-poll-result second (#unreachable))
+            (#let-mut task Work-frame (#call work (: seed 38u64)))
+            (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
+            (#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+            (#let-else (work-pending last) Work-poll-result second (#unreachable))
             (#let answer #u64 (#match (#call work-poll (: task last : waker (#borrow waker)))
               (#case (work-ready answer) answer)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -4458,11 +4458,11 @@ mod tests {
           (#let observed #u64 (#deref view)) (#drop view) (#forget owner)
           (#return (#u64.+.wrap observed child)))";
         let first =
-            "(#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))";
+            "(#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))";
         let second =
-            "(#let second work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
-          (#let-else (work-pending last) work-poll-result second (#unreachable))";
+            "(#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+          (#let-else (work-pending last) Work-poll-result second (#unreachable))";
         for (phase, polls, receiver, owners, children, child_value) in [
             ("initial", String::new(), "(#pin-borrow-mut task)", 0, 0, 0),
             ("before-owner", first.into(), "next", 0, 1, 5),
@@ -4493,7 +4493,7 @@ mod tests {
                 .items
                 .iter()
                 .find_map(|item| match item {
-                    Item::Struct { name, fields, .. } if name == "work-frame-state" => Some(fields),
+                    Item::Struct { name, fields, .. } if name == "Work-frame-state" => Some(fields),
                     _ => None,
                 })
                 .unwrap();
@@ -4546,15 +4546,15 @@ mod tests {
                 "{phase}: no actual owner storage inspected"
             );
             let extra = format!("(#fn destroy-state
-                (: state work-frame-state : owners (#ref-mut #u64) : children (#ref-mut #u64)) ()
+                (: state Work-frame-state : owners (#ref-mut #u64) : children (#ref-mut #u64)) ()
                 {} (#forget state) (#return ()))
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut owners #u64 0u64) (#let-mut children #u64 0u64)
-                (#let-mut task work-frame (#call work (: seed 35u64)))
+                (#let-mut task Work-frame (#call work (: seed 35u64)))
                 {polls}
-                (#let state work-frame-state (#call work-poll-cancel (: task {receiver})))
+                (#let state Work-frame-state (#call work-poll-cancel (: task {receiver})))
                 (#call destroy-state (: state state : owners (#borrow-mut owners) : children (#borrow-mut children)))
-                (#let again work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
+                (#let again Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
                 (#assert (#u32.== (#get again pc) 4294967295u32))
                 (#call destroy-state (: state again : owners (#borrow-mut owners) : children (#borrow-mut children)))
                 (#assert (#u64.== owners {owners}u64))
@@ -4597,9 +4597,9 @@ mod tests {
                     (#let waker #u64 0u64) (#let-mut count #u64 0u64)
                     (#let pointer (#ptr-mut #u64) (#unsafe (#asm (#ptr-mut #u64)
                       ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
-                    (#let-mut task work-frame (#call work (: selected {selected} : count pointer)))
+                    (#let-mut task Work-frame (#call work (: selected {selected} : count pointer)))
                     (#assert (#u64.== count 0u64))
-                    (#let-mut running (#pin-ref-mut work-frame) (#pin-borrow-mut task))
+                    (#let-mut running (#pin-ref-mut Work-frame) (#pin-borrow-mut task))
                     (#let-mut retries #u64 0u64) (#let-mut answer #u64 0u64)
                     (#loop (#match (#call work-poll (: task running : waker (#borrow waker)))
                       (#case (work-pending next) (#block (#set running next)
@@ -4632,13 +4632,13 @@ mod tests {
           (#fn main () #u64 (#let waker #u64 0u64) (#let-mut count #u64 0u64)
             (#let pointer (#ptr-mut #u64) (#unsafe (#asm (#ptr-mut #u64)
               ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
-            (#let-mut task work-frame (#call work (: seed 35u64 : count pointer)))
+            (#let-mut task Work-frame (#call work (: seed 35u64 : count pointer)))
             (#assert (#u64.== count 0u64))
-            (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#assert (#u64.== count 0u64))
-            (#let second work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
-            (#let-else (work-pending last) work-poll-result second (#unreachable))
+            (#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+            (#let-else (work-pending last) Work-poll-result second (#unreachable))
             (#assert (#u64.== count 1u64))
             (#let answer #u64 (#match (#call work-poll (: task last : waker (#borrow waker)))
               (#case (work-ready answer) answer)
@@ -4684,19 +4684,19 @@ mod tests {
         );
         let slot = &emitter.slots[emitter.bindings[&binding]];
         let cleanup = format!(
-            "(#fn cancel-state (: state work-frame-state : count (#ref Counter)) ()
+            "(#fn cancel-state (: state Work-frame-state : count (#ref Counter)) ()
             (#match (#get state {})
               (#case {} ())
               (#case ({} owner) (#call destroy-owner (: owner owner : count count))))
             (#forget state) (#return ()))",
             slot.field, slot.empty, slot.full
         );
-        let first = "(#let first work-poll-result
+        let first = "(#let first Work-poll-result
             (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))";
-        let second = "(#let second work-poll-result
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))";
+        let second = "(#let second Work-poll-result
             (#call work-poll (: task next : waker (#borrow waker))))
-            (#let-else (work-pending last) work-poll-result second (#unreachable))";
+            (#let-else (work-pending last) Work-poll-result second (#unreachable))";
         let ready = "(#let answer #u64 (#match
             (#call work-poll (: task last : waker (#borrow waker)))
               (#case (work-ready result) result)
@@ -4717,14 +4717,14 @@ mod tests {
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let created Counter (#struct-literal Counter (: storage (#atomic-init #u64 0u64))))
                 (#let destroyed Counter (#struct-literal Counter (: storage (#atomic-init #u64 0u64))))
-                (#let-mut task work-frame (#call work (: created (#borrow created) : destroyed (#borrow destroyed))))
+                (#let-mut task Work-frame (#call work (: created (#borrow created) : destroyed (#borrow destroyed))))
                 (#assert (#u64.== (#call read-counter (: count (#borrow created))) 0u64)) {polls}
                 (#assert (#u64.== (#call read-counter (: count (#borrow created))) {constructed}u64))
                 (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {prior_destroyed}u64))
-                (#let state work-frame-state (#call work-poll-cancel (: task {handle})))
+                (#let state Work-frame-state (#call work-poll-cancel (: task {handle})))
                 (#call cancel-state (: state state : count (#borrow destroyed)))
                 (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {constructed}u64))
-                (#let again work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
+                (#let again Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
                 (#assert (#u32.== (#get again pc) 4294967295u32))
                 (#call cancel-state (: state again : count (#borrow destroyed)))
                 (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {constructed}u64))
@@ -4766,9 +4766,9 @@ mod tests {
           (#return (#u64.+.wrap observed child)))";
         let main = "(#struct Source (: amount #u64)) (#linear Source)
           (#fn main () #u64 (#let waker #u64 0u64)
-            (#let-mut task work-frame (#call work (: seed 40u64)))
-            (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let-mut task Work-frame (#call work (: seed 40u64)))
+            (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready answer) answer)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -4776,13 +4776,13 @@ mod tests {
         runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
         for action in [
             "(#forget task)",
-            "(#let moved work-frame task) (#forget moved)",
+            "(#let moved Work-frame task) (#forget moved)",
         ] {
             let bad = format!("(#struct Source (: amount #u64)) (#linear Source)
               (#fn main () #u64 (#let waker #u64 0u64)
-                (#let-mut task work-frame (#call work (: seed 40u64)))
-                (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-                (#let-else (work-pending next) work-poll-result first (#unreachable)) (#drop next)
+                (#let-mut task Work-frame (#call work (: seed 40u64)))
+                (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable)) (#drop next)
                 {action} (#return 0u64))");
             let planning = prepare_generator("#async-fn-pinned", function, &bad);
             let generated = generate(&planning).unwrap();
@@ -4826,9 +4826,9 @@ mod tests {
             let main = format!("(#struct Source (: padding #u64 : amount #u64)) (#linear Source)
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut owner Source (#struct-literal Source (: padding 99u64 : amount 10u64)))
-                (#let-mut task work-frame (#call work (: view ({borrow} owner))))
-                (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-                (#let-else (work-pending next) work-poll-result first (#unreachable))
+                (#let-mut task Work-frame (#call work (: view ({borrow} owner))))
+                (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable))
                 (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                   (#case (work-ready answer) answer)
                   (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -4872,10 +4872,10 @@ mod tests {
                 "(#struct Source (: amount #u64)) (#linear Source)
               (#fn main () #u64 (#let waker #u64 0u64)
               (#let-mut owner Source (#struct-literal Source (: amount 40u64)))
-              (#let-mut task work-frame (#call work (: view ({borrow} owner))))
-              (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-              (#let-else (work-pending next) work-poll-result first (#unreachable)) (#drop next)
-              (#let state work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
+              (#let-mut task Work-frame (#call work (: view ({borrow} owner))))
+              (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+              (#let-else (work-pending next) Work-poll-result first (#unreachable)) (#drop next)
+              (#let state Work-frame-state (#call work-poll-cancel (: task (#pin-borrow-mut task))))
               (#forget state) (#forget task) (#set-field owner amount 42u64)
               (#let answer #u64 (#get owner amount)) (#forget owner) (#return answer))"
             );
@@ -4946,9 +4946,9 @@ mod tests {
                 let main = format!("(#struct Source (: padding #u64 : amount {field_type})) (#linear Source)
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut owner Source (#struct-literal Source (: padding 99u64 : amount {field_value})))
-                (#let-mut task work-frame (#call work (: view ({initial} owner))))
-                (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-                (#let-else (work-pending next) work-poll-result first (#unreachable))
+                (#let-mut task Work-frame (#call work (: view ({initial} owner))))
+                (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable))
                 (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                   (#case (work-ready answer) answer)
                   (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -5020,10 +5020,10 @@ mod tests {
                     (#let-mut count #u64 0u64)
                     (#let pointer (#ptr-mut #u64) (#unsafe (#asm (#ptr-mut #u64)
                       ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
-                    (#let task work-task (#call work (: view ({borrow} value) : count pointer)))
+                    (#let task Work-task (#call work (: view ({borrow} value) : count pointer)))
                     (#assert (#u64.== count 0u64))
-                    (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-                    (#let-else (work-pending next) work-poll-result first (#unreachable))
+                    (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+                    (#let-else (work-pending next) Work-poll-result first (#unreachable))
                     (#assert (#u64.== count 1u64))
                     (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                       (#case (work-ready answer) answer)
@@ -5078,9 +5078,9 @@ mod tests {
                     (#return (#struct-literal Owned (: value (#deref view)))))
                   (#fn main () #u64
                     (#let waker #u64 0u64) (#let-mut value #u64 39u64)
-                    (#let task work-task (#call work (: view ({borrow} value))))
-                    (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-                    (#let-else (work-pending next) work-poll-result first (#unreachable))
+                    (#let task Work-task (#call work (: view ({borrow} value))))
+                    (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+                    (#let-else (work-pending next) Work-poll-result first (#unreachable))
                     (#assert (#u64.== value 40u64)) (#set value 99u64)
                     (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
                       (#case (work-ready answer) answer)
@@ -5105,9 +5105,9 @@ mod tests {
             let main = format!(
                 "(#fn main () #u64
                   (#let waker #u64 0u64) (#let-mut value #u64 20u64)
-                  (#let task work-task (#call work (: view ({borrow} value))))
-                  (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-                  (#let-else (work-pending next) work-poll-result first (#unreachable))
+                  (#let task Work-task (#call work (: view ({borrow} value))))
+                  (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+                  (#let-else (work-pending next) Work-poll-result first (#unreachable))
                   (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                     (#case (work-ready answer) answer)
                     (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -5151,7 +5151,7 @@ mod tests {
                   (#fn main () #u64
                     (#let waker #u64 0u64)
                     (#let-mut owner Holder (#struct-literal Holder (: amount 20u64)))
-                    (#let-mut task work-task (#call work (: view ({borrow} owner))))
+                    (#let-mut task Work-task (#call work (: view ({borrow} owner))))
                     (#loop
                       (#match (#call work-poll (: task task : waker (#borrow waker)))
                         (#case (work-pending next) (#block (#set task next) ()))
@@ -5193,8 +5193,8 @@ mod tests {
                     "{declarations}
                       (#fn main () #u64
                         (#let waker #u64 0u64) (#let-mut owner {target} {construct})
-                        (#let first work-poll-result (#call work-poll (: task (#call work (: view ({borrow} owner))) : waker (#borrow waker))))
-                        (#let-else (work-pending next) work-poll-result first (#unreachable))
+                        (#let first Work-poll-result (#call work-poll (: task (#call work (: view ({borrow} owner))) : waker (#borrow waker))))
+                        (#let-else (work-pending next) Work-poll-result first (#unreachable))
                         (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                           (#case (work-ready answer) answer)
                           (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -5241,9 +5241,9 @@ mod tests {
                   (#fn main () #u64
                     (#let waker #u64 0u64) (#let value #u64 40u64)
                     (#let holder Holder (#struct-literal Holder (: padding 99u64 : view (#borrow value))))
-                    (#let task work-task (#call work (: holder ({borrow} holder))))
-                    (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-                    (#let-else (work-pending next) work-poll-result first (#unreachable))
+                    (#let task Work-task (#call work (: holder ({borrow} holder))))
+                    (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+                    (#let-else (work-pending next) Work-poll-result first (#unreachable))
                     (#let result #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                       (#case (work-ready result) result)
                       (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -5256,9 +5256,9 @@ mod tests {
                   (#fn main () #u64
                     (#let waker #u64 0u64) (#let-mut value #u64 40u64)
                     (#let holder Holder (#struct-literal Holder (: padding 99u64 : view (#borrow value))))
-                    (#let task work-task (#call work (: holder ({borrow} holder))))
-                    (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-                    (#let-else (work-pending next) work-poll-result first (#unreachable))
+                    (#let task Work-task (#call work (: holder ({borrow} holder))))
+                    (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+                    (#let-else (work-pending next) Work-poll-result first (#unreachable))
                     (#set value 99u64) (#forget next) (#return 0u64))"
             );
             // Only the copied leaf remains live after the outer handle was
@@ -5267,8 +5267,8 @@ mod tests {
             // mutating the copied reference's pointee remains forbidden.
             let release_main = main
                 .replace(
-                    "(#let-else (work-pending next) work-poll-result first (#unreachable))",
-                    "(#let-else (work-pending next) work-poll-result first (#unreachable)) (#forget holder)",
+                    "(#let-else (work-pending next) Work-poll-result first (#unreachable))",
+                    "(#let-else (work-pending next) Work-poll-result first (#unreachable)) (#forget holder)",
                 )
                 .replace("(#forget holder) (#return result)", "(#return result)");
             runtime_planned(prepare_function(&function, &release_main), 42);
@@ -5302,9 +5302,9 @@ mod tests {
             (#let waker #u64 0u64) (#let value #u64 40u64)
             (#let holder Holder (#struct-literal Holder (: padding 99u64
               : stored (#struct-literal Stored (: view (#borrow value))))))
-            (#let task work-task (#call work (: holder (#borrow holder))))
-            (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let task Work-task (#call work (: holder (#borrow holder))))
+            (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#let result #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready result) result)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
@@ -5334,9 +5334,9 @@ mod tests {
                     : inner (#struct-literal Inner (: padding 88u64
                       : pair (#tuple (#tuple #u64 #u64) 40u64 99u64))))))
                   (#let view ({ty} Owner) ({borrow} owner))
-                  (#let task work-task (#call work (: view view)))
-                  (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-                  (#let-else (work-pending next) work-poll-result first (#unreachable))
+                  (#let task Work-task (#call work (: view view)))
+                  (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+                  (#let-else (work-pending next) Work-poll-result first (#unreachable))
                   (#assert (#u64.== (#get view padding) 77u64))
                   (#let result #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                     (#case (work-ready result) result)
@@ -5365,9 +5365,9 @@ mod tests {
               (#return (#u64.+.wrap (#deref view) child)))",
             "(#fn main () #u64
               (#let waker #u64 0u64) (#let-mut value #u64 40u64)
-              (#let task work-task (#call work (: view (#borrow value))))
-              (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-              (#let-else (work-pending next) work-poll-result first (#unreachable))
+              (#let task Work-task (#call work (: view (#borrow value))))
+              (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+              (#let-else (work-pending next) Work-poll-result first (#unreachable))
               (#set value 99u64)
               (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
                 (#case (work-ready result) result)
@@ -5395,7 +5395,7 @@ mod tests {
             "(#fn work ((view (#ref #u64))) #u64
               (#return (#u64.+.wrap (#deref view)
                 (#await Child ChildPending ChildReady child-poll (Start 2u64)))))",
-            "(#fn escape () work-task
+            "(#fn escape () Work-task
               (#let value #u64 40u64)
               (#return (#call work (: view (#borrow value)))))
               (#fn main () #u64 (#return 42u64))",
@@ -5427,10 +5427,10 @@ mod tests {
                 (#let pointer (#ptr-mut #u64) (#unsafe (#asm (#ptr-mut #u64)
                   ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
                 (#let owner Owner (#struct-literal Owner (: padding 77u64 : value 40u64)))
-                (#let task work-task (#call work (: view (#borrow owner) : count pointer)))
+                (#let task Work-task (#call work (: view (#borrow owner) : count pointer)))
                 (#assert (#u64.== count 0u64))
-                (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-                (#let-else (work-pending next) work-poll-result first (#unreachable))
+                (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable))
                 (#assert (#u64.== count 1u64))
                 (#let result #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
                   (#case (work-ready result) result)
@@ -5485,10 +5485,10 @@ mod tests {
             (#let waker #u64 0u64) (#let-mut count #u64 0u64)
             (#let pointer (#ptr-mut #u64) (#unsafe (#asm (#ptr-mut #u64)
               ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
-            (#let task work-task (#call work (: seed 40u64 : count pointer)))
+            (#let task Work-task (#call work (: seed 40u64 : count pointer)))
             (#assert (#u64.== count 0u64))
-            (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#assert (#u64.== count 1u64))
             (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready value) (#block (#assert (#u64.== count 1u64)) value))
@@ -5573,10 +5573,10 @@ mod tests {
             (#let-mut count #u64 0u64)
             (#let pointer (#ptr-mut #u64) (#unsafe (#asm (#ptr-mut #u64)
               ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
-            (#let task work-task (#call work (: seed 40u64 : count pointer)))
+            (#let task Work-task (#call work (: seed 40u64 : count pointer)))
             (#assert (#u64.== count 0u64))
-            (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#assert (#u64.== count 2u64))
             (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready value) (#block
@@ -5607,9 +5607,9 @@ mod tests {
           (#forget items) (#return result))";
         let main = "(#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task work-frame (#call work (: seed 42u64)))
-          (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))
+          (#let-mut task Work-frame (#call work (: seed 42u64)))
+          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))
           (#let result #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
             (#case (work-ready answer) answer)
             (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
@@ -5620,10 +5620,10 @@ mod tests {
         let invalid = function.replace("1usize", "2usize");
         let main = "(#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task work-frame (#call work (: seed 42u64)))
-          (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))
-          (#let state work-frame-state (#call work-poll-cancel (: task next)))
+          (#let-mut task Work-frame (#call work (: seed 42u64)))
+          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))
+          (#let state Work-frame-state (#call work-poll-cancel (: task next)))
           (#forget state) (#forget task) (#return 99u64))";
         let planning = prepare_generator("#async-fn-pinned", &invalid, main);
         let generated = generate(&planning).unwrap();
@@ -5644,9 +5644,9 @@ mod tests {
           (#forget items) (#return result))";
         let main = "(#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task work-frame (#call work (: seed 42u64)))
-          (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))
+          (#let-mut task Work-frame (#call work (: seed 42u64)))
+          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))
           (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
             (#case (work-ready result) result)
             (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
@@ -5655,10 +5655,10 @@ mod tests {
         let invalid = function.replace("outer #usize 1usize", "outer #usize 2usize");
         let main = "(#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task work-frame (#call work (: seed 42u64)))
-          (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))
-          (#let state work-frame-state (#call work-poll-cancel (: task next)))
+          (#let-mut task Work-frame (#call work (: seed 42u64)))
+          (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))
+          (#let state Work-frame-state (#call work-poll-cancel (: task next)))
           (#forget state) (#forget task) (#return 99u64))";
         let planning = prepare_generator("#async-fn-pinned", &invalid, main);
         let generated = generate(&planning).unwrap();
@@ -5671,9 +5671,9 @@ mod tests {
           (#struct Owner (: values (#array #u64 2)))
           (#fn main () #u64
             (#let waker #u64 0u64)
-            (#let-mut task work-frame (#call work (: seed 42u64)))
-            (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let-mut task Work-frame (#call work (: seed 42u64)))
+            (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready result) result)
               (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))
@@ -5748,9 +5748,9 @@ mod tests {
             "(#fn panic ((value #u64)) #u64 (#return value))
              (#fn main () #u64
                (#let waker #u64 0u64)
-               (#let task work-task (#call work (: seed 42u64)))
-               (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-               (#let-else (work-pending next) work-poll-result first (#unreachable))
+               (#let task Work-task (#call work (: seed 42u64)))
+               (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+               (#let-else (work-pending next) Work-poll-result first (#unreachable))
                (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
                  (#case (work-ready answer) answer)
                  (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))",
@@ -5769,10 +5769,10 @@ mod tests {
             (#let-mut count #u64 0u64)
             (#let pointer (#ptr-mut #u64) (#unsafe (#asm (#ptr-mut #u64)
               ((rdi (#borrow-mut count))) \"and rdi, -2\\nmov rax, rdi\")))
-            (#let task work-task (#call work (: seed 40u64 : count pointer)))
+            (#let task Work-task (#call work (: seed 40u64 : count pointer)))
             (#assert (#u64.== count 0u64))
-            (#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#assert (#u64.== count 1u64))
             (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready value) (#block

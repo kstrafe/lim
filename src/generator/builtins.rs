@@ -1,6 +1,14 @@
 //! Built-in generator registration and argument validation.
 use crate::*;
 
+pub(crate) fn capitalized_type_name(name: &str) -> String {
+    let mut characters = name.chars();
+    let Some(first) = characters.next() else {
+        return String::new();
+    };
+    first.to_uppercase().chain(characters).collect()
+}
+
 pub(crate) fn named_builtin_keys(kind: &str) -> Option<&'static [&'static str]> {
     Some(match kind {
         "#optional" => &["type", "name"],
@@ -93,7 +101,15 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
         };
         let mut names = [frame_suffix, "poll-result", "pending", "ready", "poll"]
             .iter()
-            .map(|suffix| Expr::Symbol(format!("{start}-{suffix}")))
+            .enumerate()
+            .map(|(index, suffix)| {
+                let name = format!("{start}-{suffix}");
+                Expr::Symbol(if index < 2 {
+                    capitalized_type_name(&name)
+                } else {
+                    name
+                })
+            })
             .collect::<Vec<_>>();
         names.push(protocol);
         normalized.push(Expr::List(names));
@@ -116,4 +132,36 @@ pub(crate) fn normalize_builtin_generator_invocation(expression: &Expr) -> Resul
         );
     }
     Ok(Expr::List(normalized))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn async_type_names_are_capitalized_without_renaming_functions_or_variants() {
+        for (generator, storage) in [
+            ("#async-fn", "Work-task"),
+            ("#async-fn-pinned", "Work-frame"),
+        ] {
+            let source = format!("(@{generator} (: protocol WorkAwait : waker #u64 : function (#fn work () #u64 (#return 0u64))))");
+            let expression = crate::parse(&source).unwrap().remove(0).expr;
+            let normalized = normalize_builtin_generator_invocation(&expression).unwrap();
+            let Expr::List(items) = normalized else {
+                panic!("expected invocation");
+            };
+            let Expr::List(names) = &items[2] else {
+                panic!("expected generated names");
+            };
+            let expected = [
+                storage,
+                "Work-poll-result",
+                "work-pending",
+                "work-ready",
+                "work-poll",
+                "WorkAwait",
+            ];
+            assert_eq!(names, &expected.map(|name| Expr::Symbol(name.into())));
+        }
+    }
 }

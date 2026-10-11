@@ -82,8 +82,8 @@ fn run(source: &str, label: &str) -> String {
 
 #[test]
 fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
-    let first = "(#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-      (#let-else (work-pending next) work-poll-result first (#unreachable))";
+    let first = "(#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+      (#let-else (work-pending next) Work-poll-result first (#unreachable))";
     let second = "(#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
       (#case (work-ready value) value) (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
       (#assert (#u64.== answer 42u64))";
@@ -99,14 +99,14 @@ fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
             : function (#fn work (: seed #u64) #u64
               (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))
           (#fn main () #u64 (#let waker #u64 0u64)
-            (#let-mut task work-frame (#call work (: seed 42u64))) {polls}
+            (#let-mut task Work-frame (#call work (: seed 42u64))) {polls}
             (#call work-cancel (: task (#call work-poll-cleanup (: task {handle}))))
             (#call work-cancel (: task (#call work-poll-cleanup (: task (#pin-borrow-mut task)))))
             (#forget task) (#return 42u64))"
         );
         let artifact = run(&source, "async-graph-cancel");
         assert!(artifact
-            .contains("(#struct work-frame-cleanup ((await-0 work-frame-cleanup-await-0)))"));
+            .contains("(#struct Work-frame-cleanup ((await-0 Work-frame-cleanup-await-0)))"));
     }
 }
 
@@ -115,8 +115,8 @@ fn movable_cleanup_consumes_the_frame_at_entry_and_pending() {
     for (polls, task) in [
         ("", "task"),
         (
-            "(#let first work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))",
+            "(#let first Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))",
             "next",
         ),
     ] {
@@ -127,7 +127,7 @@ fn movable_cleanup_consumes_the_frame_at_entry_and_pending() {
             : function (#fn work (: seed #u64) #u64
               (#return (#await Child ChildPending ChildReady child-poll (Start seed))))))
           (#fn main () #u64 (#let waker #u64 0u64)
-            (#let task work-task (#call work (: seed 42u64))) {polls}
+            (#let task Work-task (#call work (: seed 42u64))) {polls}
             (#call work-cancel (: task (#call work-poll-cleanup (: task {task}))))
             (#return 42u64))"
         );
@@ -150,10 +150,10 @@ fn guard_preview_keeps_linear_scrutinee_through_rejection_and_resumption() {
             (#case (Start amount) (#await Child ChildPending ChildReady child-poll (Start amount)))
             (#case (Resume amount) amount))))))
       (#fn main () #u64 (#let waker #u64 0u64)
-        (#let first work-poll-result (#call work-poll (: task (#call work (: seed 42u64)) : waker (#borrow waker))))
-        (#let-else (work-pending next) work-poll-result first (#unreachable))
-        (#let second work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
-        (#let-else (work-pending last) work-poll-result second (#unreachable))
+        (#let first Work-poll-result (#call work-poll (: task (#call work (: seed 42u64)) : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result first (#unreachable))
+        (#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+        (#let-else (work-pending last) Work-poll-result second (#unreachable))
         (#return (#match (#call work-poll (: task last : waker (#borrow waker)))
           (#case (work-ready answer) answer)
           (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))");
@@ -250,11 +250,11 @@ fn delayed_owner_initialization_and_configured_destruction_are_exactly_once() {
         (#assert (#u64.== (#get owner amount) 40u64))
         (#call bump-counter (: count (#get owner destroyed)))
         (#forget owner) (#return ()))";
-    let first = "(#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-      (#let-else (work-pending next) work-poll-result first (#unreachable))";
+    let first = "(#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+      (#let-else (work-pending next) Work-poll-result first (#unreachable))";
     let second =
-        "(#let second work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
-      (#let-else (work-pending last) work-poll-result second (#unreachable))";
+        "(#let second Work-poll-result (#call work-poll (: task next : waker (#borrow waker))))
+      (#let-else (work-pending last) Work-poll-result second (#unreachable))";
     let ready = "(#let answer #u64 (#match (#call work-poll (: task last : waker (#borrow waker)))
       (#case (work-ready value) value) (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
       (#assert (#u64.== answer 42u64))";
@@ -282,7 +282,7 @@ fn delayed_owner_initialization_and_configured_destruction_are_exactly_once() {
           (#fn main () #u64 (#let waker #u64 0u64)
             (#let created Counter (#struct-literal Counter (: storage (#atomic-init #u64 0u64))))
             (#let destroyed Counter (#struct-literal Counter (: storage (#atomic-init #u64 0u64))))
-            (#let-mut task work-frame (#call work (: created (#borrow created) : destroyed (#borrow destroyed))))
+            (#let-mut task Work-frame (#call work (: created (#borrow created) : destroyed (#borrow destroyed))))
             (#assert (#u64.== (#call read-counter (: count (#borrow created))) 0u64)) {polls}
             (#assert (#u64.== (#call read-counter (: count (#borrow created))) {created}u64))
             (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {destroyed}u64))
@@ -328,9 +328,9 @@ fn scoped_external_tokens_survive_pending_and_release_on_exit_or_cleanup() {
                   (#return answer))))
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 1u64 2u64))
-                (#let-mut task work-frame (#call work (: owner ({borrow} owner))))
-                (#let first work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-                (#let-else (work-pending next) work-poll-result first (#unreachable))
+                (#let-mut task Work-frame (#call work (: owner ({borrow} owner))))
+                (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable))
                 {finish} (#forget task)
                 (#set owner (#tuple (#tuple #u64 #u64) 40u64 2u64))
                 (#return (#u64.+.wrap (#get owner 0) (#get owner 1))))");

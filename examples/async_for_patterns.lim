@@ -21,11 +21,11 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let-mut task work-task
+  (#let-mut task Work-task
     (#call work (: bounds
       (#struct-literal Bounds (: a 20u64 : z (#tuple (#tuple #u64 #u64) 0u64 2u64))))))
   (#for-range (attempt #u64) 0u64 4u64
-    (#let outcome work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
+    (#let outcome Work-poll-result (#call work-poll (: task task : waker (#borrow waker))))
     (#match outcome
       (#case (work-pending next) (#block (#set task next) ()))
       (#case (work-ready value) (#block (#return value)))))

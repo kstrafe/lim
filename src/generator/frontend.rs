@@ -1647,7 +1647,7 @@ mod async_migration_tests {
                 expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
             let output = &program.source_files.last().unwrap().source;
             assert!(
-                output.contains("work-frame-cleanup-source-expression-"),
+                output.contains("Work-frame-cleanup-source-expression-"),
                 "{output}"
             );
             bodies.push(output.split_once("\n\n").unwrap().1.to_owned());
@@ -1758,10 +1758,10 @@ mod async_migration_tests {
             expand_prepared_program_with_route(&prepared, AsyncRoute::Graph).unwrap();
         let output = &program.source_files.last().unwrap().source;
         assert!(
-            output.contains("(#fn work-cancel ((task work-frame-cleanup)) ()"),
+            output.contains("(#fn work-cancel ((task Work-frame-cleanup)) ()"),
             "{output}"
         );
-        assert!(output.contains("work-frame-cleanup-await-0-full"));
+        assert!(output.contains("Work-frame-cleanup-await-0-full"));
         typecheck::CheckedProgram::validate_with_span(&program).unwrap();
     }
 
@@ -1784,9 +1784,9 @@ mod async_migration_tests {
             "{}
           (#fn main () #u64
             (#let waker #u64 0u64)
-            (#let first work-poll-result (#call work-poll
+            (#let first Work-poll-result (#call work-poll
               (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
-            (#let-else (work-pending next) work-poll-result first (#unreachable))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
             (#return (#match (#call work-poll (: task next : waker (#borrow waker)))
               (#case (work-ready value) value)
               (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))",
@@ -1824,7 +1824,7 @@ mod async_migration_tests {
           (@produce)
           (@#async-fn (: protocol SecondAwait : waker #u64 : function
             (#fn second (: seed #u64) #u64
-              (#return (#await work-task work-pending work-ready work-poll
+              (#return (#await Work-task work-pending work-ready work-poll
                 (#call work (: seed seed)))))))"
         );
         let scratch = Scratch::new();
@@ -1877,7 +1877,7 @@ mod async_migration_tests {
     fn legacy_public_cancellation_state_patterns_are_a_production_switch_gate() {
         let text = format!(
             "{}
-          (#fn cancel-frame (: task work-frame-state) ()
+          (#fn cancel-frame (: task Work-frame-state) ()
             (#match task
               (#case (work-frame-start seed) (#forget seed))
               (#case (work-frame-await-0 seed child) (#block (#forget seed) (#forget child)))

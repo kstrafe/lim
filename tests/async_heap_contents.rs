@@ -50,11 +50,11 @@ fn heap_reference_owner_created_after_await_survives_next_await() {
         (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
         (#let waker #u64 0u64)
-        (#let first work-poll-result (#call work-poll (: task (#call work (: pointer pointer : source (#borrow source))) : waker (#borrow waker))))
-        (#let-else (work-pending waiting1) work-poll-result first (#unreachable))
-        (#let second work-poll-result (#call work-poll (: task waiting1 : waker (#borrow waker))))
-        (#let-else (work-pending waiting2) work-poll-result second (#unreachable))
-        (#let third work-poll-result (#call work-poll (: task waiting2 : waker (#borrow waker))))
+        (#let first Work-poll-result (#call work-poll (: task (#call work (: pointer pointer : source (#borrow source))) : waker (#borrow waker))))
+        (#let-else (work-pending waiting1) Work-poll-result first (#unreachable))
+        (#let second Work-poll-result (#call work-poll (: task waiting1 : waker (#borrow waker))))
+        (#let-else (work-pending waiting2) Work-poll-result second (#unreachable))
+        (#let third Work-poll-result (#call work-poll (: task waiting2 : waker (#borrow waker))))
         (#let answer #u64 (#match third
           (#case (work-ready answer) answer)
           (#case (work-pending unfinished) (#block (#forget unfinished) (#unreachable)))))
@@ -87,12 +87,12 @@ fn async_heap_reference_prevents_source_mutation_across_pending() {
         (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
         (#let waker #u64 0u64)
-        (#let first work-poll-result (#call work-poll (: task (#call work (: pointer pointer : source (#borrow source))) : waker (#borrow waker))))
-        (#let-else (work-pending waiting1) work-poll-result first (#unreachable))
-        (#let second work-poll-result (#call work-poll (: task waiting1 : waker (#borrow waker))))
-        (#let-else (work-pending waiting2) work-poll-result second (#unreachable))
+        (#let first Work-poll-result (#call work-poll (: task (#call work (: pointer pointer : source (#borrow source))) : waker (#borrow waker))))
+        (#let-else (work-pending waiting1) Work-poll-result first (#unreachable))
+        (#let second Work-poll-result (#call work-poll (: task waiting1 : waker (#borrow waker))))
+        (#let-else (work-pending waiting2) Work-poll-result second (#unreachable))
         (#set source 99u64)
-        (#let third work-poll-result (#call work-poll (: task waiting2 : waker (#borrow waker))))
+        (#let third Work-poll-result (#call work-poll (: task waiting2 : waker (#borrow waker))))
         (#return (#match third (#case (work-ready answer) answer)
           (#case (work-pending unfinished) (#block (#forget unfinished) (#unreachable))))))"#
     );
@@ -164,29 +164,29 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
         (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
-        (#let frame work-task (#call work (: pointer pointer : source (#borrow source) : counts counts)))
+        (#let frame Work-task (#call work (: pointer pointer : source (#borrow source) : counts counts)))
         (#let waker #u64 0u64)
-        (#let first work-poll-result (#call work-poll (: task frame : waker (#borrow waker))))
-        (#let-else (work-pending pending-before-owner) work-poll-result first (#unreachable))
+        (#let first Work-poll-result (#call work-poll (: task frame : waker (#borrow waker))))
+        (#let-else (work-pending pending-before-owner) Work-poll-result first (#unreachable))
         (#assert (#u64.== (#unsafe (#ptr-read counts)) 0u64))
         (#assert (#u64.== (#unsafe (#ptr-read (#ptr-offset counts 1usize))) 0u64))
         (#call work-cancel (: task pending-before-owner))
 
-        (#let frame-after-owner work-task
+        (#let frame-after-owner Work-task
           (#call work (: pointer pointer : source (#borrow source) : counts counts)))
-        (#let first-after-owner work-poll-result
+        (#let first-after-owner Work-poll-result
           (#call work-poll (: task frame-after-owner : waker (#borrow waker))))
-        (#let-else (work-pending pending-step) work-poll-result first-after-owner (#unreachable))
+        (#let-else (work-pending pending-step) Work-poll-result first-after-owner (#unreachable))
         (#assert (#u64.== (#unsafe (#ptr-read counts)) 0u64))
         (#assert (#u64.== (#unsafe (#ptr-read (#ptr-offset counts 1usize))) 0u64))
-        (#let second-after-owner work-poll-result
+        (#let second-after-owner Work-poll-result
           (#call work-poll (: task pending-step : waker (#borrow waker))))
-        (#let-else (work-pending pending-owner) work-poll-result second-after-owner (#unreachable))
+        (#let-else (work-pending pending-owner) Work-poll-result second-after-owner (#unreachable))
         (#assert (#u64.== (#unsafe (#ptr-read counts)) 1u64))
         (#assert (#u64.== (#unsafe (#ptr-read (#ptr-offset counts 1usize))) 0u64))
-        (#let repeated work-poll-result
+        (#let repeated Work-poll-result
           (#call work-poll (: task pending-owner : waker (#borrow waker))))
-        (#let-else (work-pending pending-owner-again) work-poll-result repeated (#unreachable))
+        (#let-else (work-pending pending-owner-again) Work-poll-result repeated (#unreachable))
         (#assert (#u64.== (#unsafe (#ptr-read counts)) 1u64))
         (#assert (#u64.== (#unsafe (#ptr-read (#ptr-offset counts 1usize))) 0u64))
         (#call work-cancel (: task pending-owner-again))

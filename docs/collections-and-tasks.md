@@ -368,10 +368,12 @@ repeating the result type. Declare a bundle for a handwritten task, or let
 (#let value #u64 (#await WorkAwait (#call work (($ offset)))))
 ```
 
-The generated names come from the source function name: `work-task`,
-`work-poll-result`, `work-pending`, `work-ready`, and `work-poll`. A pinned
-function uses `work-frame` instead of `work-task`, and its bundle requires
-`(#pin-ref-mut work-frame)`; pinning remains explicit. Supply `: protocol`
+The generated names come from the source function name: `Work-task`,
+`Work-poll-result`, `work-pending`, `work-ready`, and `work-poll`.
+Generated type names capitalize the first letter of the function name;
+function and public variant names retain their original spelling. A pinned
+function uses `Work-frame` instead of `Work-task`, and its bundle requires
+`(#pin-ref-mut Work-frame)`; pinning remains explicit. Supply `: protocol`
 to name the exported bundle. Generated protocols are available across internal
 and external imports, including forward references, and are inspectable in
 the function's cached `.lim/generated/` file. Cancellation handlers remain

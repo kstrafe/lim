@@ -7,10 +7,10 @@
    : function (#fn write-value () #u64 (#return 7u64))))
 
 (#fn select (: choose-reader #bool) #u64
-  (#let-mut reader read-value-frame (#call read-value ()))
-  (#let-mut writer write-value-frame (#call write-value ()))
-  (#let reader-pin (#pin-ref-mut read-value-frame) (#pin reader))
-  (#let writer-pin (#pin-ref-mut write-value-frame) (#pin writer))
+  (#let-mut reader Read-value-frame (#call read-value ()))
+  (#let-mut writer Write-value-frame (#call write-value ()))
+  (#let reader-pin (#pin-ref-mut Read-value-frame) (#pin reader))
+  (#let writer-pin (#pin-ref-mut Write-value-frame) (#pin writer))
   (#let waker #u64 0u64)
   (#let answer #u64
     (#if choose-reader
@@ -27,9 +27,9 @@
           (#case (write-value-pending write-pending)
             (#block (#forget write-pending) (#unreachable)))))))
   ; Cancellation consumes each remaining state, including the unpolled future.
-  (#let reader-state read-value-frame-state
+  (#let reader-state Read-value-frame-state
     (#call read-value-poll-cancel (: task (#pin reader))))
-  (#let writer-state write-value-frame-state
+  (#let writer-state Write-value-frame-state
     (#call write-value-poll-cancel (: task (#pin writer))))
   (#forget reader-state)
   (#forget writer-state)

@@ -23,7 +23,7 @@
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap (#u64.+.wrap (#deref view) (#deref right-view)) result)))))
 
-(#fn cancel-self-ref-state ((task read-after-await-frame-state)) ()
+(#fn cancel-self-ref-state ((task Read-after-await-frame-state)) ()
   (#match task
     (#case read-after-await-frame-start ())
     (#case (read-after-await-frame-await-0 view right-view child)
@@ -32,16 +32,16 @@
   (#return ()))
 
 (#fn main () #u64
-  (#let-mut frame read-after-await-frame
+  (#let-mut frame Read-after-await-frame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((payload (#struct-literal Payload ((left 40u64) (right 5u64)))))))))
   (#let waker #u64 0u64)
-  (#let first read-after-await-poll-result
+  (#let first Read-after-await-poll-result
     (#call read-after-await-poll
       (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (read-after-await-pending pending-frame) read-after-await-poll-result first (#unreachable))
-  (#let second read-after-await-poll-result
+  (#let-else (read-after-await-pending pending-frame) Read-after-await-poll-result first (#unreachable))
+  (#let second Read-after-await-poll-result
     (#call read-after-await-poll (: task pending-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
@@ -53,16 +53,16 @@
       ((payload (#struct-literal Payload ((left 41u64) (right 5u64)))))))
   (#forget frame)
 
-  (#let-mut cancelled read-after-await-frame
+  (#let-mut cancelled Read-after-await-frame
     (#call read-after-await
       (: owner (#struct-literal Owner
         ((payload (#struct-literal Payload ((left 10u64) (right 7u64)))))))))
-  (#let first-cancel read-after-await-poll-result
+  (#let first-cancel Read-after-await-poll-result
     (#call read-after-await-poll
       (: task (#pin-borrow-mut cancelled) : waker (#borrow waker))))
-  (#let-else (read-after-await-pending cancel-pin) read-after-await-poll-result first-cancel (#unreachable))
+  (#let-else (read-after-await-pending cancel-pin) Read-after-await-poll-result first-cancel (#unreachable))
   (#block
-    (#let state read-after-await-frame-state
+    (#let state Read-after-await-frame-state
       (#call read-after-await-poll-cancel (: task cancel-pin)))
     (#call cancel-self-ref-state (: task state)))
   (#set-field cancelled owner

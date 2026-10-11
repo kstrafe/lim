@@ -1,8 +1,8 @@
 (#import "modules/shared.lim")
-(#import-external "modules/shared.lim" external-)
+(#import-external "modules/shared.lim" External-)
 
 (#fn main () #u64
   (#return
     (#u64.+.wrap
       (#call widget-value (: widget (#struct-literal Widget ((value 20)))))
-      (#call external-widget-value (: external-widget (#struct-literal external-Widget ((external-value 22))))))))
+      (#call External-widget-value (: External-widget (#struct-literal External-Widget ((External-value 22))))))))

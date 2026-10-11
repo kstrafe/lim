@@ -25,13 +25,13 @@
 
 (#fn main () #u64
   (#let waker #u64 0u64)
-  (#let first work-poll-result
+  (#let first Work-poll-result
     (#call work-poll (: task (#call work (:)) : waker (#borrow waker))))
-  (#let-else (work-pending inner-pending) work-poll-result first (#unreachable))
-  (#let second work-poll-result
+  (#let-else (work-pending inner-pending) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result
     (#call work-poll (: task inner-pending : waker (#borrow waker))))
-  (#let-else (work-pending outer-pending) work-poll-result second (#unreachable))
-  (#let third work-poll-result
+  (#let-else (work-pending outer-pending) Work-poll-result second (#unreachable))
+  (#let third Work-poll-result
     (#call work-poll (: task outer-pending : waker (#borrow waker))))
   (#let result #u64
     (#match third

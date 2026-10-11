@@ -21,7 +21,7 @@
       (#await Child ChildPending ChildReady child-poll (Waiting 0u64)))
     (#return (#u64.+.wrap value offset)))))
 
-(#fn cancel-frame ((task work-frame-state)) ()
+(#fn cancel-frame ((task Work-frame-state)) ()
   (#match task
     (#case (work-frame-start offset) (#forget offset))
     (#case (work-frame-await-0 offset child)
@@ -30,12 +30,12 @@
   (#return ()))
 
 (#fn main () #u64
-  (#let-mut frame work-frame (#call work (: offset 40u64)))
+  (#let-mut frame Work-frame (#call work (: offset 40u64)))
   (#let waker #u64 0u64)
-  (#let first work-poll-result
+  (#let first Work-poll-result
     (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
-  (#let-else (work-pending pinned-frame) work-poll-result first (#unreachable))
-  (#let second work-poll-result
+  (#let-else (work-pending pinned-frame) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result
     (#call work-poll (: task pinned-frame : waker (#borrow waker))))
   (#let result #u64
     (#match second
@@ -44,11 +44,11 @@
         (#block (#forget unexpected) (#unreachable)))))
   (#forget frame)
 
-  (#let-mut cancelled-frame work-frame (#call work (: offset 90u64)))
-  (#let first-cancel work-poll-result
+  (#let-mut cancelled-frame Work-frame (#call work (: offset 90u64)))
+  (#let first-cancel Work-poll-result
     (#call work-poll (: task (#pin-borrow-mut cancelled-frame) : waker (#borrow waker))))
-  (#let-else (work-pending cancel-pin) work-poll-result first-cancel (#unreachable))
-  (#let state-to-cancel work-frame-state (#call work-poll-cancel (: task cancel-pin)))
+  (#let-else (work-pending cancel-pin) Work-poll-result first-cancel (#unreachable))
+  (#let state-to-cancel Work-frame-state (#call work-poll-cancel (: task cancel-pin)))
   (#call cancel-frame (: task state-to-cancel))
   (#forget cancelled-frame)
   (#forget waker)

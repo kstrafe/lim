@@ -11979,11 +11979,11 @@ mod tests {
             ),
             (
                 "(@#async-fn (: function (#fn work () #u64 (#return 1)) : protocol WorkAwait : waker Wake))",
-                "(@ #async-fn (work-task work-poll-result work-pending work-ready work-poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
+                "(@ #async-fn (Work-task Work-poll-result work-pending work-ready work-poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
             ),
             (
                 "(@#async-fn-pinned (: protocol WorkAwait : waker Wake : function (#fn work () #u64 (#return 1))))",
-                "(@ #async-fn-pinned (work-frame work-poll-result work-pending work-ready work-poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
+                "(@ #async-fn-pinned (Work-frame Work-poll-result work-pending work-ready work-poll WorkAwait) Wake (#fn work () #u64 (#return 1)))",
             ),
         ];
         for (source, expected) in cases {

@@ -25,8 +25,8 @@ Corrupt or incomplete existing graph entries fail closed without regeneration.
 
 ## Source-named cleanup
 
-For a task/frame named `work-frame`, the public cleanup record is
-`work-frame-cleanup`. `work-poll-cleanup` drains the current obligations into this
+For a task/frame named `Work-frame`, the public cleanup record is
+`Work-frame-cleanup`. `work-poll-cleanup` drains the current obligations into this
 record. A pinned frame remains stationary, with cleared cells and a terminal
 program counter; a movable frame is consumed.
 
@@ -41,8 +41,8 @@ change its public cleanup name. Source file/line changes do not. Inspect the
 generated declaration when defining a cleanup contract for computed operands.
 
 Each field is an ordinary linear tagged cell. For example, `owner` has type
-`work-frame-cleanup-owner`, with variants `work-frame-cleanup-owner-empty` and
-`(work-frame-cleanup-owner-full Source)`. Cleanup can inspect and explicitly
+`Work-frame-cleanup-owner`, with variants `Work-frame-cleanup-owner-empty` and
+`(Work-frame-cleanup-owner-full Source)`. Cleanup can inspect and explicitly
 consume this record using ordinary Lim, independently of the generator.
 Non-owning reference handles, including scoped tokens, are cleared before
 owners are drained. Omitted owning temporaries have physical Empty proofs at
@@ -62,7 +62,7 @@ and return `()`, except for stationary dependent children described below.
 Every exposed owning slot requires a handler; duplicate,
 missing, unknown, unsafe, or incorrectly typed handlers are rejected. The
 dispatcher has the ordinary signature
-`(#fn work-cancel (: task work-frame-cleanup) () ...)`. Call it on the result of
+`(#fn work-cancel (: task Work-frame-cleanup) () ...)`. Call it on the result of
 `work-poll-cleanup`. Only Full cells invoke handlers. Repeated pinned cleanup
 returns empty cells and does not repeat destruction. Movable cleanup consumes
 the frame, so reusing that frame is rejected.

@@ -17,10 +17,10 @@ fn run(body: &str, label: &str) {
           : function (#fn work (: seed #u64) #u64 {body})))
         (#fn main () #u64
           (#let waker #u64 0u64)
-          (#let-mut task work-frame (#call work (: seed 42u64)))
-          (#let first work-poll-result
+          (#let-mut task Work-frame (#call work (: seed 42u64)))
+          (#let first Work-poll-result
             (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-          (#let-else (work-pending next) work-poll-result first (#unreachable))
+          (#let-else (work-pending next) Work-poll-result first (#unreachable))
           (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
             (#case (work-ready result) result)
             (#case (work-pending pending) (#block (#forget pending) (#unreachable)))))

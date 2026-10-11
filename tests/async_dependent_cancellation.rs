@@ -27,12 +27,12 @@ fn source() -> &'static str {
           (#forget owner) (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task work-frame (#call work ()))
-        (#let first work-poll-result (#call work-poll
+        (#let-mut task Work-frame (#call work ()))
+        (#let first Work-poll-result (#call work-poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending pending) work-poll-result first (#unreachable))
-        (#let cleanup work-frame-cleanup (#call work-poll-cleanup (: task pending)))
-        (#assert (#variant-is (#borrow (#get cleanup await-0)) work-frame-cleanup-await-0-empty))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task pending)))
+        (#assert (#variant-is (#borrow (#get cleanup await-0)) Work-frame-cleanup-await-0-empty))
         (#call work-cancel (: task cleanup))
         (#call work-poll-destroy (: task (#pin-borrow-mut task)))
         (#forget task) (#return 42u64))"
@@ -63,16 +63,16 @@ fn cancellation_before_first_poll_and_after_ready_is_idempotent() {
         "{prefix}
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut unstarted work-frame (#call work ()))
+        (#let-mut unstarted Work-frame (#call work ()))
         (#call work-poll-destroy (: task (#pin-borrow-mut unstarted)))
         (#call work-poll-destroy (: task (#pin-borrow-mut unstarted)))
         (#forget unstarted)
-        (#let-mut task work-frame (#call work ()))
-        (#let first work-poll-result (#call work-poll
+        (#let-mut task Work-frame (#call work ()))
+        (#let first Work-poll-result (#call work-poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (work-pending pending) work-poll-result first (#unreachable))
-        (#let second work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
-        (#let-else (work-ready answer) work-poll-result second (#unreachable))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))
+        (#let-else (work-ready answer) Work-poll-result second (#unreachable))
         (#call work-poll-destroy (: task (#pin-borrow-mut task)))
         (#call work-poll-destroy (: task (#pin-borrow-mut task)))
         (#forget task) (#return answer))"
@@ -99,15 +99,15 @@ fn pinned_source() -> &'static str {
         : cancel (parent-cancel ((owner destroy-owner) (nested child-poll-destroy)))
         : function (#fn parent () #u64
           (#let owner Owner (#struct-literal Owner (: amount 40u64)))
-          (#let-mut nested child-frame (#call child (: view (#borrow owner))))
+          (#let-mut nested Child-frame (#call child (: view (#borrow owner))))
           (#let answer #u64 (#await ChildAwait (#pin-borrow-mut nested)))
           (#forget nested) (#forget owner) (#return answer))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let-mut task parent-frame (#call parent ()))
-        (#let first parent-poll-result (#call parent-poll
+        (#let-mut task Parent-frame (#call parent ()))
+        (#let first Parent-poll-result (#call parent-poll
           (: task (#pin-borrow-mut task) : waker (#borrow waker))))
-        (#let-else (parent-pending pending) parent-poll-result first (#unreachable))
+        (#let-else (parent-pending pending) Parent-poll-result first (#unreachable))
         (#call parent-poll-destroy (: task pending))
         (#call parent-poll-destroy (: task (#pin-borrow-mut task)))
         (#forget task) (#return 42u64))"
@@ -121,13 +121,23 @@ fn pinned_generated_child_is_cancelled_without_moving_its_frame() {
 #[test]
 fn pinned_child_rejects_a_by_value_cancellation_handler() {
     let program = pinned_source().replace("(nested child-poll-destroy)", "(nested forget-child)")
-        + "\n(#fn forget-child (: value child-frame) () (#forget value) (#return ()))";
+        + "\n(#fn forget-child (: value Child-frame) () (#forget value) (#return ()))";
     let scratch = support::Scratch::new("async-dependent-pinned-handler-error");
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");
-    let error = lim::compile_source_to_assembly(&program, &scratch.path().join("main.lim"),
-        &config, &scratch.path().join("cache"), lim::TargetDescription::X86_64_SYSTEM_V).unwrap_err();
-    assert!(error.message.contains("pinned mutable reference"), "{}", error.message);
+    let error = lim::compile_source_to_assembly(
+        &program,
+        &scratch.path().join("main.lim"),
+        &config,
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("pinned mutable reference"),
+        "{}",
+        error.message
+    );
     assert!(error.span.is_some());
     assert!(!scratch.path().join("generated").exists());
 }
@@ -135,8 +145,8 @@ fn pinned_child_rejects_a_by_value_cancellation_handler() {
 #[test]
 fn private_cancellation_cannot_export_a_live_dependent() {
     let program = source().replace(
-        "(#let cleanup work-frame-cleanup (#call work-poll-cleanup (: task pending)))\n        (#assert (#variant-is (#borrow (#get cleanup await-0)) work-frame-cleanup-await-0-empty))\n        (#call work-cancel (: task cleanup))",
-        "(#let cleanup work-frame-state (#call work-poll-cancel (: task pending)))\n        (#forget cleanup)",
+        "(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task pending)))\n        (#assert (#variant-is (#borrow (#get cleanup await-0)) Work-frame-cleanup-await-0-empty))\n        (#call work-cancel (: task cleanup))",
+        "(#let cleanup Work-frame-state (#call work-poll-cancel (: task pending)))\n        (#forget cleanup)",
     );
     assert_ne!(program, source());
     run(&program, "async-dependent-private-cancellation");

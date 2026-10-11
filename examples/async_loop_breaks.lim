@@ -22,10 +22,10 @@
     (#return result))))
 
 (#fn run ((choose #bool) (waker (#ref #u64))) #u64
-  (#let first work-poll-result
+  (#let first Work-poll-result
     (#call work-poll (: task (#call work (: choose choose)) : waker waker)))
-  (#let-else (work-pending pending) work-poll-result first (#unreachable))
-  (#let second work-poll-result (#call work-poll (: task pending : waker waker)))
+  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result (#call work-poll (: task pending : waker waker)))
   (#return (#match second
     (#case (work-ready value) value)
     (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))

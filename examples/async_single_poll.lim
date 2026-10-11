@@ -21,28 +21,28 @@
     (#let second #u64 (#await (#syntax-splice StepAwait) (Step-waiting 2u64 2u64)))
     (#return (#u64.+.wrap first second)))))
 
-(@#pin (: type work-frame : name PinnedFrame))
-(@#pin-scope (: type work-frame : pin PinnedFrame : name with-pinned-frame
+(@#pin (: type Work-frame : name PinnedFrame))
+(@#pin-scope (: type Work-frame : pin PinnedFrame : name with-pinned-frame
   : run drive-frame : destroy destroy-frame : result #u64))
 
 (#fn drive-frame (: pin PinnedFrame) #u64
   ;; The adapter is unsafe because it exposes a low-level pin view. The
   ;; generated scope still owns the storage until cleanup has completed.
-  (#let view (#pin-ref-mut work-frame)
+  (#let view (#pin-ref-mut Work-frame)
     (#unsafe (#call PinnedFrame-into-view (: pin pin))))
   (#let waker #u64 0u64)
-  (#let first work-poll-result (#call work-poll (: task view : waker (#borrow waker))))
-  (#let-else (work-pending after-first) work-poll-result first (#unreachable))
-  (#let second work-poll-result (#call work-poll (: task after-first : waker (#borrow waker))))
-  (#let-else (work-pending after-second) work-poll-result second (#unreachable))
-  (#let third work-poll-result (#call work-poll (: task after-second : waker (#borrow waker))))
-  (#let-else (work-ready answer) work-poll-result third (#unreachable))
+  (#let first Work-poll-result (#call work-poll (: task view : waker (#borrow waker))))
+  (#let-else (work-pending after-first) Work-poll-result first (#unreachable))
+  (#let second Work-poll-result (#call work-poll (: task after-first : waker (#borrow waker))))
+  (#let-else (work-pending after-second) Work-poll-result second (#unreachable))
+  (#let third Work-poll-result (#call work-poll (: task after-second : waker (#borrow waker))))
+  (#let-else (work-ready answer) Work-poll-result third (#unreachable))
   (#return answer))
 
 (#fn destroy-frame (: pin PinnedFrame) ()
-  (#let view (#pin-ref-mut work-frame)
+  (#let view (#pin-ref-mut Work-frame)
     (#unsafe (#call PinnedFrame-into-view (: pin pin))))
-  (#let state work-frame-state (#call work-poll-cancel (: task view)))
+  (#let state Work-frame-state (#call work-poll-cancel (: task view)))
   ;; Cleanup dispatches on the same initialized payloads as before. This also
   ;; works before the first work-poll or while a child remains work-pending.
   (#match state

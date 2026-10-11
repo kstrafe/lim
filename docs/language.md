@@ -1002,11 +1002,11 @@ explicit protocol name instead of listing all five generated names:
 (#await WorkAwait (#call work (($ offset))))
 ```
 
-For `work`, the generated names are `work-task`, `work-poll-result`,
+For `work`, the generated names are `Work-task`, `Work-poll-result`,
 `work-pending`, `work-ready`, and `work-poll`. The exported declaration is
-`(#syntax WorkAwait (#u64 work-task work-pending work-ready work-poll))`.
-`@#async-fn-pinned` instead generates `work-frame` and exports
-`(#syntax WorkAwait (#u64 (#pin-ref-mut work-frame) work-pending work-ready work-poll))`.
+`(#syntax WorkAwait (#u64 Work-task work-pending work-ready work-poll))`.
+`@#async-fn-pinned` instead generates `Work-frame` and exports
+`(#syntax WorkAwait (#u64 (#pin-ref-mut Work-frame) work-pending work-ready work-poll))`.
 Callers must pin a frame explicitly before awaiting that protocol.
 Generated task, result, variant, and poll names come from the source function
 name. Supply `: protocol` to select the exported bundle name.

@@ -331,7 +331,7 @@ fn println_is_an_ordinary_borrow_checked_call_inside_async_functions() {
         (#let text String (#match (#call String-from-chars (: text (#slice-of (#borrow chars))))
           (#case (StringCreated created) created) (#case _ (#panic))))
         (#let waker #u64 0u64)
-        (#let result work-poll-result (#call work-poll (: task (#call work (: text (#borrow text))) : waker (#borrow waker))))
+        (#let result Work-poll-result (#call work-poll (: task (#call work (: text (#borrow text))) : waker (#borrow waker))))
         (#let answer #u64 (#match result (#case (work-ready value) value)
           (#case (work-pending unfinished) (#block (#forget unfinished) (#panic)))))
         (#call String-free (: string text)) (#return answer))"#,

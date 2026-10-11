@@ -28,10 +28,12 @@ fn generated_standalone(
         .map(|entry| fs::read_to_string(entry.path()).unwrap())
         .find(|artifact| artifact.contains(&format!("(#fn {poll} ")))
         .unwrap_or_else(|| panic!("no generated artifact contains poll function {poll}"))
+        .replace("Lim.async.", "Ordinary.frame.")
         .replace("lim.async.", "ordinary.frame.");
     assert!(!artifact.contains("@#async-fn"), "{artifact}");
     assert!(!artifact.contains("#await"), "{artifact}");
     assert!(!artifact.contains("lim.async."), "{artifact}");
+    assert!(!artifact.contains("Lim.async."), "{artifact}");
     assert!(!artifact.contains("generator_validation"), "{artifact}");
 
     let form = lim::parse(source)
@@ -51,6 +53,7 @@ fn generated_standalone(
     assert!(!standalone.contains("@#async-fn"), "{standalone}");
     assert!(!standalone.contains("#await"), "{standalone}");
     assert!(!standalone.contains("lim.async."), "{standalone}");
+    assert!(!standalone.contains("Lim.async."), "{standalone}");
     (scratch, standalone)
 }
 
@@ -91,7 +94,7 @@ fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
           (#return (#u64.+.wrap answer 2u64)))))
       (#fn main () #u64
         (#let waker #u64 0u64)
-        (#let result work-poll-result
+        (#let result Work-poll-result
           (#call work-poll (: task (#call work (: seed 40u64)) : waker (#borrow waker))))
         (#return (#match result
           (#case (work-ready value) value)
