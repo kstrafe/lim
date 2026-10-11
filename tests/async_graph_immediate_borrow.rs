@@ -83,6 +83,127 @@ fn run(source: &str) {
 }
 
 #[test]
+fn shared_array_slice_and_range_borrow_actual_local_storage() {
+    let source = r#"
+      (#fn sum (: items (#slice #u64)) #u64
+        (#return (#u64.+.wrap (#deref (#slice-idx items 0usize))
+          (#deref (#slice-idx items 1usize)))))
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : function (#fn work () #u64
+          (#let values (#array #u64 3) (#array-of (#array #u64 3) 1u64 20u64 22u64))
+          (#return (#call sum (: items (#borrow-slice values 1usize 3usize)))))))
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#return (#match (#call work-poll (: task (#call work ()) : waker (#borrow waker)))
+          (#case (work-ready answer) answer)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#;
+    run(source);
+    run(&source
+        .replace("(#array #u64 3)", "(#array #u64 2)")
+        .replace("1u64 20u64 22u64", "20u64 22u64")
+        .replace(
+            "(#borrow-slice values 1usize 3usize)",
+            "(#borrow-slice values)",
+        ));
+}
+
+#[test]
+fn slices_of_reference_elements_preserve_the_elements_referents() {
+    run(r#"
+      (#fn sum (: items (#slice (#ref #u64))) #u64
+        (#return (#u64.+.wrap (#deref (#deref (#slice-idx items 0usize)))
+          (#deref (#deref (#slice-idx items 1usize))))))
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : function (#fn work (: first (#ref #u64) : second (#ref #u64)) #u64
+          (#let values (#array (#ref #u64) 2)
+            (#array-of (#array (#ref #u64) 2) first second))
+          (#return (#call sum (: items (#borrow-slice values)))))))
+      (#fn main () #u64
+        (#let first #u64 40u64) (#let second #u64 2u64) (#let waker #u64 0u64)
+        (#return (#match (#call work-poll
+          (: task (#call work (: first (#borrow first) : second (#borrow second)))
+           : waker (#borrow waker)))
+          (#case (work-ready answer) answer)
+          (#case (work-pending unexpected) (#block (#forget unexpected) (#unreachable))))))
+    "#);
+}
+
+#[test]
+fn slice_borrows_do_not_allow_local_escape_or_mutation_of_live_referents() {
+    for body in [
+        r#"(#fn work () (#slice #u64)
+          (#let values (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))
+          (#return (#borrow-slice values)))"#,
+        r#"(#fn work () #u64
+          (#let-mut values (#array #u64 2) (#array-of (#array #u64 2) 20u64 22u64))
+          (#let items (#slice #u64) (#borrow-slice values))
+          (#set values (#array-of (#array #u64 2) 1u64 2u64))
+          (#return (#deref (#slice-idx items 0usize))))"#,
+    ] {
+        // The ordinary source must fail ownership checking independently of
+        // any earlier unsupported-address rejection in graph preparation.
+        let ordinary = lim::parse_program(body).unwrap();
+        let ordinary_error = lim::check_types(&ordinary).unwrap_err();
+        assert!(
+            ordinary_error.contains("reference to local") || ordinary_error.contains("borrow"),
+            "{ordinary_error}"
+        );
+        let source = format!("(@#async-fn (: protocol WorkAwait : waker #u64 : function {body}))");
+        let scratch = support::Scratch::new("async-slice-rejection");
+        let error = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("input.lim"),
+            &config(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert!(
+            error.code == lim::DiagnosticCode::Borrow
+                || (error.code == lim::DiagnosticCode::Type
+                    && error.message == "selected addresses require safe checked references"),
+            "{}",
+            error.message
+        );
+        assert!(error.span.is_some());
+    }
+}
+
+#[test]
+fn noncopy_array_slices_require_a_nonmoving_storage_lease() {
+    let source = r#"
+      (#struct Token ((value #u64)))
+      (#linear Token)
+      (#fn inspect (: items (#slice Token)) #u64
+        (#return (#get (#slice-idx items 0usize) value)))
+      (@#async-fn (: protocol WorkAwait : waker #u64
+        : function (#fn work () #u64
+          (#let values (#array Token 1)
+            (#array-of (#array Token 1) (#struct-literal Token ((value 42u64)))))
+          (#let answer #u64 (#call inspect (: items (#borrow-slice values))))
+          (#forget values)
+          (#return answer))))
+    "#;
+    let scratch = support::Scratch::new("async-slice-linear-storage");
+    let error = lim::compile_source_to_assembly(
+        source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("non-Copy array slice borrowing"),
+        "{}",
+        error.message
+    );
+    let span = error.span.unwrap();
+    assert!(source[span.start..span.end].contains("#borrow-slice"));
+}
+
+#[test]
 fn external_heap_contents_survive_owner_extraction_and_later_poll_calls() {
     run(include_str!("../examples/async_heap_reference.lim"));
 }

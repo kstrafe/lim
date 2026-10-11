@@ -1997,6 +1997,12 @@ impl<'a> Emitter<'a> {
                             .expr,
                     );
                 }
+                if let Compute::Checked(operation) = operation {
+                    if operation.head == "borrow-slice" {
+                        let text = self.slice_borrow(operation, &inputs)?;
+                        return Ok(self.put_value(*dst, &text));
+                    }
+                }
                 let rendered = self
                     .render
                     .render_compute(operation, &inputs)
@@ -2381,6 +2387,89 @@ impl<'a> Emitter<'a> {
                 .collect::<Vec<_>>()
                 .join("\n")),
         }
+    }
+
+    fn slice_borrow(
+        &mut self,
+        operation: &crate::generator::async_exec::Operation,
+        inputs: &HashMap<ValueId, Expr>,
+    ) -> Result<String, Error> {
+        let error = |message| Error {
+            message,
+            span: self.body.nodes[operation.source.0]
+                .span
+                .unwrap_or(self.function.source.function.span),
+        };
+        let operand = operation
+            .operands
+            .iter()
+            .find(|operand| operand.position == [1])
+            .ok_or_else(|| error("slice borrow has no checked storage operand".into()))?;
+        let place = self
+            .function
+            .graph
+            .blocks
+            .iter()
+            .flat_map(|block| &block.actions)
+            .find_map(|action| match action.action {
+                Action::Load { dst, place, .. } if dst == operand.value => Some(place),
+                _ => None,
+            })
+            .ok_or_else(|| error("slice borrowing requires checked array storage".into()))?;
+        let descriptor = &self.function.graph.places[place.0];
+        if self.types.requires_move(&descriptor.ty) {
+            return Err(error(
+                "non-Copy array slice borrowing needs a nonmoving storage lease".into(),
+            ));
+        }
+        if self.pinned
+            || !matches!(descriptor.root, AddressRoot::Local(_))
+            || !descriptor.projections.iter().all(|projection| {
+                matches!(
+                    projection,
+                    AddressProjection::Field(_) | AddressProjection::Tuple(_)
+                )
+            })
+        {
+            return Err(error(
+                "slice borrowing needs an ordinary static local storage projection".into(),
+            ));
+        }
+        let owner = crate::generator::async_owner::Borrow::new(
+            &self.function.graph,
+            descriptor,
+            &self.planning.declarations,
+            false,
+            false,
+            true,
+        )
+        .map_err(error)?;
+        let slot = &self.slots[self.bindings[&owner.binding]];
+        let helper = self.fresh("immediate-owner-project-slice");
+        let argument = self.fresh("slice-owner-input");
+        self.projections
+            .push(owner.declaration_from_unpinned_slot(&helper, &argument, &slot.name, &slot.full));
+        let reference = format!(
+            "(#call {helper} (: {argument} (#borrow (#get task {}))))",
+            slot.field
+        );
+        let slice = format!("(#slice-of {reference})");
+        if operation.operands.len() == 1 {
+            return Ok(slice);
+        }
+        let bound = |position| -> Result<String, Error> {
+            let operand = operation
+                .operands
+                .iter()
+                .find(|operand| operand.position == [position])
+                .ok_or_else(|| error("slice borrow has an incomplete checked bound".into()))?;
+            crate::expression_source(&inputs[&operand.value]).map_err(error)
+        };
+        Ok(format!(
+            "(#slice-range {slice} {} {})",
+            bound(2)?,
+            bound(3)?
+        ))
     }
 
     fn edge(

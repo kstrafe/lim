@@ -100,6 +100,16 @@ type at use sites; they are not silently converted to pinned references.
 
 ### Frame-local borrows across suspension
 
+For synchronous calls on movable frames, shared `#borrow-slice` of a Copy
+local array (including static struct/tuple fields) projects the original storage
+through an ordinary checked helper. Whole-array and ranged slices retain the
+native layout and reference-element provenance. Range bounds use the already
+evaluated graph operands; the generator does not replay their source expressions.
+This is not across-suspension slice support: pinned, dynamically selected and
+non-Copy array storage still require a nonmoving storage lease and fail closed.
+Pending-return slice-cell provenance remains a migration gate for the printing
+example. No unsafe fat-reference reconstruction is used by this projection.
+
 On the graph route, `@#async-fn-pinned` supports ordinary shared and exclusive
 thin reference locals into stationary frame owners, including checked static
 struct/tuple projections. Declare them with `#borrow`/`#borrow-mut` as in an
