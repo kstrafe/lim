@@ -1001,8 +1001,8 @@ impl Declarations {
     /// Prepare actual parameter contents and interprocedural store/clear
     /// summaries before enforcing initialized entry and escape contracts.
     /// Keeping these phases together avoids validating later calls against
-    /// the legacy symbolic-load summaries. Legacy ownership and borrowing
-    /// validation remain independent gates during the frontend migration.
+    /// incomplete symbolic-load summaries. Typed ownership and borrowing
+    /// remain independent enforcing checks; these summaries grant no access.
     pub fn check_referent_entry_contracts(
         &mut self,
         types: &crate::linearcheck::LinearTypes,
@@ -1363,7 +1363,7 @@ impl Declarations {
                         possible_restorations: Some(possible_restorations),
                     };
                     let result = flow
-                        .infer_referent_consumed_entry_with_call_facts(body, types, self, &facts);
+                        .infer_referent_consumed_entry_with_call_facts_and_origins(body, types, self, &facts, &origins);
                     calls = facts.effects;
                     restorations = facts.restorations;
                     consumed_inputs = facts.consumed_inputs;
@@ -1435,23 +1435,25 @@ impl Declarations {
                     }
                 }));
                 entry_reads.extend(call_entry_reads);
-                summary.entry_reads = flow.filter_referent_entry_reads_with_restorations(
+                summary.entry_reads = flow.filter_referent_entry_reads_with_origins(
                     body,
                     types,
                     entry_reads,
                     &calls,
                     &restorations,
+                    &origins,
                 );
                 summary.restored_from_consumed_entry = flow
-                    .referent_restoration_guarantees_with_calls(body, types, &calls, &restorations);
+                    .referent_restoration_guarantees_with_origins(body, types, &calls, &restorations, &origins);
                 if infer_entry_contracts {
-                    summary.effects_from_consumed_entry = flow.referent_exit_state_from_entry(
+                    summary.effects_from_consumed_entry = flow.referent_exit_state_from_entry_with_origins(
                         body,
                         types,
                         &calls,
                         &restorations,
                         &consumed_entry,
                         &possible_restorations,
+                        &origins,
                     );
                 }
                 if body.staged_parameter_contents {

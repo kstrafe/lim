@@ -5647,6 +5647,7 @@ impl FlowGraph {
 
     /// Preserve residual entry assumptions separately from initialized-entry
     /// effects. A surviving seed does not imply an access by the callee.
+    #[cfg(test)]
     pub fn referent_exit_state_from_entry(
         &self,
         body: &Body,
@@ -5668,7 +5669,7 @@ impl FlowGraph {
         )
     }
 
-    fn referent_exit_state_from_entry_with_origins(
+    pub(crate) fn referent_exit_state_from_entry_with_origins(
         &self,
         body: &Body,
         types: &LinearTypes,
@@ -6580,6 +6581,7 @@ impl FlowGraph {
         self.referent_restoration_guarantees_with_calls(body, types, calls, &[])
     }
 
+    #[cfg(test)]
     pub fn referent_restoration_guarantees_with_calls(
         &self,
         body: &Body,
@@ -6597,7 +6599,7 @@ impl FlowGraph {
         )
     }
 
-    fn referent_restoration_guarantees_with_origins(
+    pub(crate) fn referent_restoration_guarantees_with_origins(
         &self,
         body: &Body,
         types: &LinearTypes,
@@ -6683,6 +6685,7 @@ impl FlowGraph {
         self.filter_referent_entry_reads_with_restorations(body, types, reads, calls, &[])
     }
 
+    #[cfg(test)]
     pub fn filter_referent_entry_reads_with_restorations(
         &self,
         body: &Body,
@@ -6690,6 +6693,26 @@ impl FlowGraph {
         reads: Vec<ReferentRead>,
         calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
         restorations: &[(FlowNodeId, Vec<Place>)],
+    ) -> Vec<ReferentRead> {
+        let origins = self.loan_origins(body);
+        self.filter_referent_entry_reads_with_origins(
+            body,
+            types,
+            reads,
+            calls,
+            restorations,
+            &origins,
+        )
+    }
+
+    pub(crate) fn filter_referent_entry_reads_with_origins(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        reads: Vec<ReferentRead>,
+        calls: &[(FlowNodeId, Vec<ReferentExitEffect>, bool)],
+        restorations: &[(FlowNodeId, Vec<Place>)],
+        origins: &FlowLoanOrigins,
     ) -> Vec<ReferentRead> {
         let mut candidates = Vec::new();
         for read in &reads {
@@ -6701,12 +6724,14 @@ impl FlowGraph {
                 candidates.push(read.place.clone());
             }
         }
-        let moves = self.referent_consumptions_with_restorations(
+        let moves = self.referent_consumptions_with_origins(
             body,
             types,
             calls,
             restorations,
             &candidates,
+            &[],
+            origins,
         );
         let requirements = reads
             .into_iter()
@@ -8100,12 +8125,31 @@ impl FlowGraph {
 
     /// Combined staged inference; owned exits and escaping-reference
     /// initialization remain separate obligations before production use.
+    #[cfg(test)]
     pub fn infer_referent_consumed_entry_with_call_facts(
         &self,
         body: &Body,
         types: &LinearTypes,
         declarations: &crate::typed_ir::Declarations,
         calls: &ReferentCallFacts,
+    ) -> Result<Vec<Place>, ReleaseConflict> {
+        let origins = self.loan_origins(body);
+        self.infer_referent_consumed_entry_with_call_facts_and_origins(
+            body,
+            types,
+            declarations,
+            calls,
+            &origins,
+        )
+    }
+
+    pub(crate) fn infer_referent_consumed_entry_with_call_facts_and_origins(
+        &self,
+        body: &Body,
+        types: &LinearTypes,
+        declarations: &crate::typed_ir::Declarations,
+        calls: &ReferentCallFacts,
+        origins: &FlowLoanOrigins,
     ) -> Result<Vec<Place>, ReleaseConflict> {
         let reachable = self.reachable();
         if let Some(event) = calls
@@ -8137,14 +8181,14 @@ impl FlowGraph {
             .possible_restorations
             .as_deref()
             .unwrap_or(&fallback_restorations);
-        let origins = self.loan_origins(body);
-        let moves = self.referent_consumptions_with_partial_restorations(
+        let moves = self.referent_consumptions_with_origins(
             body,
             types,
             &calls.effects,
             &calls.restorations,
             &[],
             possible_restorations,
+            origins,
         );
         let mut entry = Vec::new();
         self.check_referent_replacements_and_entry_requirements(
@@ -8186,13 +8230,14 @@ impl FlowGraph {
             &calls.read_inputs,
             &entry,
         )?;
-        let seeded = self.referent_consumptions_with_partial_restorations(
+        let seeded = self.referent_consumptions_with_origins(
             body,
             types,
             &calls.effects,
             &calls.restorations,
             &entry,
             possible_restorations,
+            origins,
         );
         self.check_referent_call_consumed_entry_with_moves(&calls.consumed_inputs, &seeded)?;
         let consuming_accesses = calls
@@ -15404,6 +15449,75 @@ impl Builder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn referent_contract_helpers_reuse_same_graph_origins_without_changing_facts() {
+        let program = crate::parse_program(
+            "(#struct Resource (: value #u64)) (#linear Resource)
+             (#fn work (: input (#ref-mut Resource) : choose #bool) ()
+               (#match choose
+                 (#case true (#when (#u64.> (#get input value) 0u64))
+                   (#block (#forget (#deref input)) ()))
+                 (#case _ ()))
+               (#return ()))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = &declarations.flows["work"];
+        let types = LinearTypes::from_program(&program);
+        let origins = flow.loan_origins(body);
+        flow.prepare_storage_variant_bounds(body, &origins);
+        let reads = flow.referent_reads_with_origins(body, &origins).0;
+        assert!(!reads.is_empty());
+        let old_reads = flow.filter_referent_entry_reads_with_restorations(
+            body,
+            &types,
+            reads.clone(),
+            &[],
+            &[],
+        );
+        let shared_reads =
+            flow.filter_referent_entry_reads_with_origins(body, &types, reads, &[], &[], &origins);
+        assert_eq!(format!("{old_reads:?}"), format!("{shared_reads:?}"));
+        assert_eq!(
+            flow.referent_restoration_guarantees_with_calls(body, &types, &[], &[]),
+            flow.referent_restoration_guarantees_with_origins(body, &types, &[], &[], &origins),
+        );
+        let old_exits = flow.referent_exit_state_from_entry(body, &types, &[], &[], &[], &[]);
+        let shared_exits = flow.referent_exit_state_from_entry_with_origins(
+            body,
+            &types,
+            &[],
+            &[],
+            &[],
+            &[],
+            &origins,
+        );
+        assert_eq!(format!("{old_exits:?}"), format!("{shared_exits:?}"));
+        for facts in [
+            ReferentCallFacts::default(),
+            ReferentCallFacts {
+                unresolved_inputs: vec![FlowNodeId(0)],
+                ..Default::default()
+            },
+        ] {
+            let old = flow.infer_referent_consumed_entry_with_call_facts(
+                body,
+                &types,
+                &declarations,
+                &facts,
+            );
+            let shared = flow.infer_referent_consumed_entry_with_call_facts_and_origins(
+                body,
+                &types,
+                &declarations,
+                &facts,
+                &origins,
+            );
+            assert_eq!(format!("{old:?}"), format!("{shared:?}"));
+        }
+    }
 
     #[test]
     fn definite_constructor_tags_do_not_require_complete_loan_substitution() {

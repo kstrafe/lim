@@ -1654,3 +1654,37 @@ work. Original source and final ordinary generated-program validation remain
 mandatory, including on cache hits.
 Verification passes all 232 async integration tests, 226 selected async unit
 tests (three manual benchmarks ignored), and all five native example tests.
+
+## Reuse provenance within referent-contract inference
+
+A warm release profile of nested partial storage found referent-contract
+analysis dominating validation even when generated Lim was cached. The ordinary
+contract pass already solved provenance for each divergence-adjusted body, but
+entry inference, entry-read filtering, restoration guarantees and consumed-entry
+exit summaries solved that same graph again. These consumers now receive the
+existing immutable provenance snapshot; initialization and consumption state
+still solve separately for each entry assumption. Filtered outcome graphs keep
+their own independent solves. Source checks, generated-code checks and contract
+validation are not skipped or substituted with cache hits.
+
+Seven paired release `--check --timings` samples per fixture, alternating old/new
+execution order after warming both binaries, produced these internal medians:
+
+| Fixture | Contract pass before / after | Total check before / after |
+| --- | --- | --- |
+| `async_nested_partial_struct.lim` | 43.240 / 35.519 ms (17.9% less) | 98.299 / 93.057 ms (5.3% less) |
+| `async_while_let_dependencies.lim` | 36.291 / 29.388 ms (19.0% less) | 88.703 / 85.721 ms (3.4% less) |
+| `match_linear_guard.lim` | 1.242 / 0.976 ms (21.4% less) | 4.202 / 5.391 ms |
+
+The small guard fixture had large timing variation in unchanged parsing and
+lowering stages; its total median worsened, so this is not evidence of a general
+end-to-end guard speedup. The larger async fixtures did improve overall, and
+their provenance time fell about 32%. These are warm check timings, not native
+execution speedups or a claim that every program benefits.
+
+A parity regression compares fresh and shared-snapshot helpers on guarded
+linear referent consumption, including unresolved-input rejection. All 1,354
+library tests pass (five manual benchmarks ignored). Further optimization of
+consumption solves and contiguous partial storage remain separate work.
+The 232-test async suite, five native example tests and all-target build check
+also pass with the shared-snapshot production path.
