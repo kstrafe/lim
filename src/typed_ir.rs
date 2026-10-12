@@ -1823,7 +1823,7 @@ impl Declarations {
                         return None;
                     };
                     word_inputs.get(&callee).map(
-                        |inputs: &Vec<crate::typed_body::ParameterLoanSummary>| {
+                        |inputs: &Vec<crate::typed_body::WordInputRequirement>| {
                             (callee, inputs.clone())
                         },
                     )
@@ -2123,7 +2123,7 @@ impl Declarations {
                     for input in &word_inputs[&id] {
                         let captured =
                             crate::typed_place::Segment::ThreadCapture(owner, input.parameter);
-                        let mut retained = input.clone();
+                        let mut retained = input.loan.clone();
                         retained.storage = vec![
                             crate::typed_place::Segment::Payload(
                                 self.variant_id(
@@ -2146,7 +2146,7 @@ impl Declarations {
                         {
                             summaries.entry(spawn).or_default().push(retained);
                         }
-                        let mut retried = input.clone();
+                        let mut retried = input.loan.clone();
                         retried.parameter = 0;
                         retried.input_storage.insert(0, captured);
                         retried.storage = vec![

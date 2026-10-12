@@ -47,6 +47,44 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 }
 
 #[test]
+fn imported_conditional_word_input_guards_survive_cache_hits() {
+    let scratch = support::Scratch::new("semantic-word-input-guards");
+    let directory = scratch.path();
+    fs::write(
+        directory.join("lib.lim"),
+        "
+      (#enum Cell ((Vacant) (Occupied (#ref #u64))))
+      (#fn inspect (: words (#slice #u64)) #u64
+        (#let value Cell (#unsafe (#word-read Cell words)))
+        (#return (#match value (#case (Vacant) 42u64) (#case (Occupied view) (#deref view)))))
+      (#fn forward (: words (#slice #u64)) #u64
+        (#return (#call inspect (: words words))))",
+    )
+    .unwrap();
+    let config = CompileConfig::default();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let amount #u64 42u64)
+        (#let-mut words (#array #u64 4) (#array-repeat 0u64))
+        (#unsafe (#word-write Cell (#borrow-slice-mut words 1usize 3usize) (Vacant)))
+        (#let answer #u64 (#call forward (: words (#borrow-slice words 1usize 3usize))))
+        (#forget words) (#return answer))";
+    for source in [
+        source.to_string(),
+        source.replace("(Vacant)))", "(Occupied (#borrow amount))))"),
+    ] {
+        let cold = compile(directory, &source, &config).0.unwrap();
+        let (warm, report) = compile(directory, &source, &config);
+        assert_eq!(cold, warm.unwrap());
+        assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+        let invalid = source.replace("(#let answer", "(#unsafe (#word-write #u64 (#borrow-slice-mut words 1usize 2usize) 0u64)) (#unsafe (#word-write #u64 (#borrow-slice-mut words 2usize 3usize) 0u64)) (#let answer");
+        let cold_error = compile(directory, &invalid, &config).0.unwrap_err();
+        let warm_error = compile(directory, &invalid, &config).0.unwrap_err();
+        assert_eq!(cold_error, warm_error);
+    }
+}
+
+#[test]
 fn imported_word_constructor_facts_survive_cache_hits() {
     let scratch = support::Scratch::new("semantic-word-constructors");
     let directory = scratch.path();

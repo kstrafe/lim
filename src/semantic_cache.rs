@@ -13,14 +13,14 @@ use std::{
 };
 
 use crate::{
-    typed_body::{ParameterLoanSummary, ParameterStoreSummary},
+    typed_body::{ParameterLoanSummary, ParameterStoreSummary, WordInputRequirement, WordTagGuard},
     typed_flow::ParameterSummary,
     typed_ir::{AggregateId, DeclarationId, Declarations, FieldId, GlobalId, VariantId},
     typed_place::Segment,
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v13\0";
+const MAGIC: &[u8] = b"lim-semantic-v14\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -539,6 +539,8 @@ record_codec!(
     variants_definitely_written,
     variants
 );
+record_codec!(WordTagGuard, address, variant);
+record_codec!(WordInputRequirement, loan, guards);
 record_codec!(
     ParameterSummary,
     word_inputs,

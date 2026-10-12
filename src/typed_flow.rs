@@ -2143,7 +2143,7 @@ pub(crate) type VariantBounds = HashMap<Vec<Segment>, HashSet<VariantId>>;
 /// same provenance and outcome graphs for each consumer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ParameterSummary {
-    pub word_inputs: Vec<crate::typed_body::ParameterLoanSummary>,
+    pub word_inputs: Vec<crate::typed_body::WordInputRequirement>,
     pub returned: Vec<crate::typed_body::ParameterLoanSummary>,
     pub stores: Vec<crate::typed_body::ParameterStoreSummary>,
     pub mutations: Option<Vec<crate::typed_body::ParameterLoanSummary>>,
@@ -4495,7 +4495,7 @@ impl FlowGraph {
         body: &Body,
         origins: &FlowLoanOrigins,
         actual: &FlowLoanOrigins,
-    ) -> Vec<crate::typed_body::ParameterLoanSummary> {
+    ) -> Vec<crate::typed_body::WordInputRequirement> {
         if !body
             .word_layouts
             .values()
@@ -4557,6 +4557,17 @@ impl FlowGraph {
                             !held
                                 .iter()
                                 .any(|known| !known.lifetime_only && known.storage == loan.storage)
+                        })
+                        .map(|loan| {
+                            let guards = word_input_guards(
+                                body,
+                                value,
+                                &loan,
+                                self,
+                                origins,
+                                FlowNodeId(index),
+                            );
+                            (loan, guards)
                         }),
                 );
             }
@@ -4569,6 +4580,16 @@ impl FlowGraph {
                 if let Some(inputs) = body.call_word_input_requirements.get(callee) {
                     let state = origins.before[index].as_ref().unwrap();
                     for input in inputs {
+                        if word_requirement_inactive(
+                            body,
+                            self,
+                            actual,
+                            FlowNodeId(index),
+                            value,
+                            input,
+                        ) {
+                            continue;
+                        }
                         if let Some(argument) = children.get(input.parameter + 1) {
                             if let Some(actual_state) = actual.before[index].as_ref() {
                                 let supplied = word_input_available(
@@ -4583,14 +4604,25 @@ impl FlowGraph {
                             for argument in
                                 origins.value_before(body, self, FlowNodeId(index), *argument)
                             {
-                                required
-                                    .extend(apply_parameter_loan_summary(argument, input, state));
+                                let guards = forward_word_input_guards(
+                                    body,
+                                    self,
+                                    origins,
+                                    FlowNodeId(index),
+                                    value,
+                                    input,
+                                );
+                                required.extend(
+                                    apply_parameter_loan_summary(argument, input, state)
+                                        .into_iter()
+                                        .map(|loan| (loan, guards.clone())),
+                                );
                             }
                         }
                     }
                 }
             }
-            for origin in required {
+            for (origin, guards) in required {
                 let Some(mut summary) = origin.parameter_summary() else {
                     continue;
                 };
@@ -4634,8 +4666,12 @@ impl FlowGraph {
                 summary.storage_inputs.clear();
                 summary.referent_projection.clear();
                 summary.reborrow = false;
-                if !result.contains(&summary) {
-                    result.push(summary);
+                let requirement = crate::typed_body::WordInputRequirement {
+                    loan: summary,
+                    guards,
+                };
+                if !result.contains(&requirement) {
+                    result.push(requirement);
                 }
             }
         }
@@ -6476,6 +6512,35 @@ impl FlowGraph {
                     .get_or_init(|| self.variant_facts_with_origins(body, origins))
             });
         for effect in &summary.effects {
+            if let (
+                PlaceRoot::Parameter(parameter),
+                Some(slot),
+                NodeKind::Form {
+                    callee: Some(callee),
+                    ..
+                },
+            ) = (
+                &effect.place.root,
+                &effect.input_storage,
+                &body.nodes[call.0].kind,
+            ) {
+                if let Some(requirements) = body.call_word_input_requirements.get(callee) {
+                    let matching = requirements
+                        .iter()
+                        .filter(|requirement| {
+                            requirement.parameter == parameter.0
+                                && slot.starts_with(&requirement.input_storage)
+                        })
+                        .collect::<Vec<_>>();
+                    if !matching.is_empty()
+                        && matching.iter().all(|requirement| {
+                            word_requirement_inactive(body, self, origins, event, call, requirement)
+                        })
+                    {
+                        continue;
+                    }
+                }
+            }
             let mut places = Vec::new();
             let mut unsafe_initialized = false;
             let mut incomplete = false;
@@ -9551,6 +9616,16 @@ impl FlowGraph {
             {
                 let state = origins.before[index].as_ref().unwrap();
                 for requirement in required {
+                    if word_requirement_inactive(
+                        body,
+                        self,
+                        origins,
+                        FlowNodeId(index),
+                        value,
+                        requirement,
+                    ) {
+                        continue;
+                    }
                     let Some(argument) = children.get(requirement.parameter + 1) else {
                         continue;
                     };
@@ -12554,6 +12629,299 @@ fn call_loan_stores(
         return Vec::new();
     };
     substitute_call_stores(body, flow, before, value, state, stores)
+}
+
+/// A tag guard is an entry contract only if no reaching execution has changed
+/// its bytes before the guarded read. Metadata-only retirement is not a write.
+fn word_entry_tag_unchanged(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    tag: &Place,
+) -> bool {
+    let mut predecessors = vec![Vec::new(); flow.nodes.len()];
+    for (index, node) in flow.nodes.iter().enumerate() {
+        for next in &node.successors {
+            predecessors[next.0].push(FlowNodeId(index));
+        }
+    }
+    let mut pending = predecessors[event.0].clone();
+    let mut seen = HashSet::new();
+    while let Some(previous) = pending.pop() {
+        if !seen.insert(previous) || origins.before[previous.0].is_none() {
+            continue;
+        }
+        let action = &flow.nodes[previous.0].action;
+        if let FlowAction::Write { place, .. } = action {
+            let targets = match place.root {
+                PlaceRoot::Local(binding)
+                    if place.segments.contains(&Segment::Dereference)
+                        || matches!(
+                            body.bindings[binding.0].ty,
+                            Type::Reference { .. } | Type::PinnedReference { .. }
+                        ) =>
+                {
+                    origins.projected_referents(previous, binding, &place.segments)
+                }
+                _ => vec![place.clone()],
+            };
+            if targets.is_empty() || targets.iter().any(|target| target.overlaps(tag)) {
+                return false;
+            }
+        }
+        if let FlowAction::Evaluate(value) = action {
+            if let NodeKind::Form { head, callee, .. } = &body.nodes[value.0].kind {
+                if matches!(head.as_str(), "ptr-write" | "linux-syscall") {
+                    return false;
+                }
+                if matches!(head.as_str(), "word-forget" | "word-take") && callee.is_none() {
+                    pending.extend(predecessors[previous.0].iter().copied());
+                    continue;
+                }
+                if callee.is_some() {
+                    let Some(targets) = origins.call_tag_mutations(body, flow, previous, *value)
+                    else {
+                        return false;
+                    };
+                    if targets
+                        .iter()
+                        .any(|target| target.lifetime_only || target.referent_place().overlaps(tag))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        if origins
+            .stores_before(body, flow, previous)
+            .iter()
+            .any(|store| {
+                store.destination.lifetime_only || store.destination.referent_place().overlaps(tag)
+            })
+        {
+            return false;
+        }
+        pending.extend(predecessors[previous.0].iter().copied());
+    }
+    true
+}
+
+fn word_input_guards(
+    body: &Body,
+    value: NodeId,
+    loan: &LoanOrigin,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+) -> Vec<crate::typed_body::WordTagGuard> {
+    let Some(required) = loan.parameter_summary() else {
+        return Vec::new();
+    };
+    let Some(layout) = body.word_layouts.get(&value) else {
+        return Vec::new();
+    };
+    let Some(shape) = &layout.shape else {
+        return Vec::new();
+    };
+    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+        return Vec::new();
+    };
+    if children.len() != 3 {
+        return Vec::new();
+    }
+    let path = if head == "word-view" && loan.storage.first() == Some(&Segment::Dereference) {
+        &loan.storage[1..]
+    } else {
+        &loan.storage
+    };
+    let Some(slot) = layout.slots.iter().find(|slot| slot.path == path) else {
+        return Vec::new();
+    };
+    let mut common = None;
+    for source in origins
+        .value_before(body, flow, event, children[2])
+        .into_iter()
+        .filter(|source| source.storage.is_empty() && !source.lifetime_only)
+    {
+        let mut selected = source.clone();
+        append_slice_index(&mut selected.place, Segment::Index(slot.offset as u128));
+        let Some(address) = selected.parameter_summary() else {
+            continue;
+        };
+        let mut input = selected.parameter_storage.clone().unwrap_or_default();
+        input.push(Segment::Dereference);
+        input.extend_from_slice(&selected.place.segments);
+        if address.parameter != required.parameter
+            || address.global != required.global
+            || input != required.input_storage
+        {
+            continue;
+        }
+        let mut guards = Vec::new();
+        for (index, segment) in path.iter().enumerate() {
+            let Segment::Payload(variant, _) = segment else {
+                continue;
+            };
+            let Some(offset) = shape.tag_offset(&path[..index], *variant) else {
+                continue;
+            };
+            let mut tag = source.clone();
+            append_slice_index(&mut tag.place, Segment::Index(offset as u128));
+            if !word_entry_tag_unchanged(body, flow, origins, event, &tag.referent_place()) {
+                continue;
+            }
+            let Some(mut address) = tag.parameter_summary() else {
+                continue;
+            };
+            address.storage.clear();
+            address.storage_inputs.clear();
+            address.reborrow = false;
+            guards.push(crate::typed_body::WordTagGuard {
+                address,
+                variant: *variant,
+            });
+        }
+        if let Some(held) = &mut common {
+            if *held != guards {
+                return Vec::new();
+            }
+        } else {
+            common = Some(guards);
+        }
+    }
+    common.unwrap_or_default()
+}
+
+fn forward_word_input_guards(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    call: NodeId,
+    requirement: &crate::typed_body::WordInputRequirement,
+) -> Vec<crate::typed_body::WordTagGuard> {
+    let NodeKind::Form { children, .. } = &body.nodes[call.0].kind else {
+        return Vec::new();
+    };
+    let Some(state) = &origins.before[event.0] else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    for guard in &requirement.guards {
+        if guard.address.global.is_some() || guard.address.fresh_allocation.is_some() {
+            continue;
+        }
+        let Some(argument) = children.get(guard.address.parameter + 1) else {
+            continue;
+        };
+        let boundary = guard
+            .address
+            .input_storage
+            .iter()
+            .position(|part| *part == Segment::Dereference)
+            .unwrap_or(guard.address.input_storage.len());
+        let prefix = &guard.address.input_storage[..boundary];
+        let mut addresses = Vec::new();
+        for source in origins
+            .value_before(body, flow, event, *argument)
+            .into_iter()
+            .filter(|source| source.storage == prefix)
+        {
+            merge_loan_origins(
+                &mut addresses,
+                &apply_parameter_loan_summary(source, &guard.address, state),
+            );
+        }
+        // Ambiguous address substitution cannot turn alternative conditions
+        // into conjunctive guards. Retain the unconditional loan instead.
+        if addresses.len() != 1 {
+            continue;
+        }
+        let tag = &addresses[0];
+        if tag.lifetime_only
+            || !tag.storage.is_empty()
+            || has_dynamic_projection(&tag.referent_place())
+            || !word_entry_tag_unchanged(body, flow, origins, event, &tag.referent_place())
+        {
+            continue;
+        }
+        let Some(mut address) = tag.parameter_summary() else {
+            continue;
+        };
+        if address.global.is_some() || address.fresh_allocation.is_some() {
+            continue;
+        }
+        address.storage.clear();
+        address.storage_inputs.clear();
+        address.reborrow = false;
+        result.push(crate::typed_body::WordTagGuard {
+            address,
+            variant: guard.variant,
+        });
+    }
+    result
+}
+
+fn word_requirement_inactive(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    call: NodeId,
+    requirement: &crate::typed_body::WordInputRequirement,
+) -> bool {
+    if requirement.guards.is_empty() {
+        return false;
+    }
+    let NodeKind::Form { children, .. } = &body.nodes[call.0].kind else {
+        return false;
+    };
+    let snapshots = origins
+        .variants
+        .get_or_init(|| flow.variant_facts_with_origins(body, origins));
+    let Some(tags) = &snapshots[event.0] else {
+        return false;
+    };
+    let Some(state) = &origins.before[event.0] else {
+        return false;
+    };
+    requirement.guards.iter().any(|guard| {
+        if guard.address.global.is_some() || guard.address.fresh_allocation.is_some() {
+            return false;
+        }
+        let Some(argument) = children.get(guard.address.parameter + 1) else {
+            return false;
+        };
+        let sources = origins.value_before(body, flow, event, *argument);
+        let mut any = false;
+        for source in sources.into_iter().filter(|source| {
+            source.storage
+                == guard.address.input_storage[..guard
+                    .address
+                    .input_storage
+                    .iter()
+                    .position(|part| *part == Segment::Dereference)
+                    .unwrap_or(guard.address.input_storage.len())]
+        }) {
+            let addresses = apply_parameter_loan_summary(source, &guard.address, state);
+            if addresses.is_empty() {
+                return false;
+            }
+            for address in addresses {
+                any = true;
+                if address.lifetime_only
+                    || !address.storage.is_empty()
+                    || !tags.get(&address.referent_place()).is_some_and(|actual| {
+                        actual.owner == guard.variant.owner && *actual != guard.variant
+                    })
+                {
+                    return false;
+                }
+            }
+        }
+        any
+    })
 }
 
 fn word_input_available(

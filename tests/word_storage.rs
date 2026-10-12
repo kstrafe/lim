@@ -59,6 +59,150 @@ const EMPTY_REFERENCE_CELL: &str = "
   (#let cell Cell (#unsafe (#word-take Cell (#borrow-slice-mut words))))
   (#forget cell) (#return 42u64))";
 
+const OPTIONAL_WORD_READER: &str = "
+(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+(#fn inspect (: words (#slice #u64)) #u64
+  (#let cell Cell (#unsafe (#word-read Cell words)))
+  (#return (#match cell
+    (#case (Vacant) 42u64)
+    (#case (Occupied value) (#deref value)))))
+(#fn main () #u64
+  (#let amount #u64 42u64)
+  (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+  (#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))
+  (#let answer #u64 (#call inspect (: words (#borrow-slice words))))
+  (#forget words) (#return answer))";
+
+#[test]
+fn word_reader_entry_loans_are_conditional_on_actual_payload_tags() {
+    run(OPTIONAL_WORD_READER);
+    let occupied = OPTIONAL_WORD_READER.replace(
+        "#word-write Cell (#borrow-slice-mut words) (Vacant)",
+        "#word-write Cell (#borrow-slice-mut words) (Occupied (#borrow amount))",
+    );
+    run(&occupied);
+    for invalid in [
+        OPTIONAL_WORD_READER.replace("(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))", ""),
+        occupied.replace("(#let answer", "(#unsafe (#word-forget Cell (#borrow-slice-mut words))) (#let answer"),
+        OPTIONAL_WORD_READER.replace("(#let answer", "(#unsafe (#word-write #u64 (#borrow-slice-mut words 0usize 1usize) 0u64)) (#let answer"),
+    ] {
+        let error = compile(&invalid).unwrap_err();
+        assert!(error.message.contains("missing required input loan") || error.message.contains("unresolved call inputs"), "{error:?}");
+    }
+}
+
+#[test]
+fn word_reader_forwards_payload_conditions_through_checked_helpers() {
+    let source = OPTIONAL_WORD_READER.replace("(#fn main", "(#fn forward (: words (#slice #u64)) #u64 (#return (#call inspect (: words words)))) (#fn main")
+        .replace("#call inspect (: words (#borrow-slice words))", "#call forward (: words (#borrow-slice words))");
+    run(&source);
+    let invalid = source.replace(
+        "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))",
+        "",
+    );
+    assert!(compile(&invalid).is_err());
+}
+
+#[test]
+fn guarded_word_readers_check_each_address_and_exact_enum_identity() {
+    let prefix = OPTIONAL_WORD_READER.split("(#fn main").next().unwrap();
+    let source = format!(
+        "{prefix}
+      (#fn choose (: flag #bool) #u64
+        (#let amount #u64 42u64)
+        (#let-mut first (#array #u64 2) (#array-repeat 0u64))
+        (#let-mut second (#array #u64 2) (#array-repeat 0u64))
+        (#unsafe (#word-write Cell (#borrow-slice-mut first) (Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))
+        (#let words (#slice #u64) (#if flag (#borrow-slice first) (#borrow-slice second)))
+        (#let answer #u64 (#call inspect (: words words)))
+        (#forget words) (#forget first) (#forget second) (#return answer))
+      (#fn main () #u64 (#return (#call choose (: flag false))))"
+    );
+    run(&source);
+    let unknown = source.replace(
+        "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))",
+        "",
+    );
+    assert!(compile(&unknown).is_err());
+    let occupied = source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))", "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Occupied (#borrow amount)))) (#unsafe (#word-forget Cell (#borrow-slice-mut second)))");
+    assert!(compile(&occupied).is_err());
+    let wrong_type = OPTIONAL_WORD_READER
+        .replace(
+            "(#fn main",
+            "(#enum Other ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
+        )
+        .replace(
+            "#word-write Cell (#borrow-slice-mut words) (Vacant)",
+            "#word-write Other (#borrow-slice-mut words) (OtherVacant)",
+        );
+    assert!(compile(&wrong_type).is_err());
+}
+
+#[test]
+fn guarded_word_reader_conditions_follow_static_argument_ranges() {
+    let source = OPTIONAL_WORD_READER
+        .replace("(#array #u64 2)", "(#array #u64 4)")
+        .replace(
+            "#word-write Cell (#borrow-slice-mut words)",
+            "#word-write Cell (#borrow-slice-mut words 1usize 3usize)",
+        )
+        .replace(
+            "#call inspect (: words (#borrow-slice words))",
+            "#call inspect (: words (#borrow-slice words 1usize 3usize))",
+        );
+    run(&source);
+    let wrong_cell = source.replace(
+        "#call inspect (: words (#borrow-slice words 1usize 3usize))",
+        "#call inspect (: words (#borrow-slice words 0usize 2usize))",
+    );
+    assert!(compile(&wrong_cell).is_err());
+}
+
+#[test]
+fn opaque_word_addresses_cannot_waive_payload_entry_loans() {
+    let source = OPTIONAL_WORD_READER.replace("(#let answer", "(#let anchor (#ref (#array #u64 2)) (#borrow words)) (#let pointer (#ptr (#array #u64 2)) (#unsafe (#ptr-offset (#ref-ptr anchor) 0usize))) (#let opaque (#ref (#array #u64 2)) (#unsafe (#ptr-borrow anchor pointer))) (#let answer")
+        .replace("#call inspect (: words (#borrow-slice words))", "#call inspect (: words (#slice-of opaque))")
+        .replace("(#forget words)", "(#forget opaque) (#forget anchor) (#forget words)");
+    assert!(compile(&source).is_err());
+}
+
+#[test]
+fn disjoint_metadata_writes_preserve_entry_tag_conditions() {
+    let prefix = OPTIONAL_WORD_READER.split("(#fn main").next().unwrap();
+    let source = format!("{prefix}
+      (#struct Buffer (: counter #u64 : words (#array #u64 2)))
+      (#fn update-and-read (: buffer (#ref-mut Buffer)) #u64
+        (#deref-set (#borrow-mut (#get buffer counter)) 1u64)
+        (#return (#call inspect (: words (#borrow-slice (#get buffer words))))))
+      (#fn main () #u64
+        (#let-mut buffer Buffer (#struct-literal Buffer (: counter 0u64 : words (#array-repeat 0u64))))
+        (#unsafe (#word-write Cell (#borrow-slice-mut (#get buffer words)) (Vacant)))
+        (#let answer #u64 (#call update-and-read (: buffer (#borrow-mut buffer))))
+        (#assert (#u64.== (#get buffer counter) 1u64))
+        (#forget buffer) (#return answer))");
+    run(&source);
+    let invalid = source.replace(
+        "(#deref-set (#borrow-mut (#get buffer counter)) 1u64)",
+        "(#deref-set (#borrow-mut (#index (#get buffer words) 0usize)) 1u64)",
+    );
+    assert!(compile(&invalid).is_err());
+}
+
+#[test]
+fn word_reader_cannot_reuse_an_entry_tag_after_mutating_its_bytes() {
+    let source = OPTIONAL_WORD_READER.replace("(: words (#slice #u64))", "(: words (#ref-mut (#array #u64 2)))")
+        .replace("(#let cell Cell", "(#unsafe (#word-write #u64 (#borrow-slice-mut (#deref words) 0usize 1usize) 1u64)) (#let cell Cell")
+        .replace("#word-read Cell words", "#word-read Cell (#borrow-slice (#deref words))")
+        .replace("#call inspect (: words (#borrow-slice words))", "#call inspect (: words (#borrow-mut words))");
+    let error = compile(&source).unwrap_err();
+    assert!(
+        error.message.contains("missing required input loan")
+            || error.message.contains("unresolved call inputs"),
+        "{error:?}"
+    );
+}
+
 #[test]
 fn actual_empty_constructor_does_not_require_inactive_word_reference() {
     run(EMPTY_REFERENCE_CELL);

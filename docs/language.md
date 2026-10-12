@@ -2924,6 +2924,19 @@ call, including through forwarding helpers and cached imports. Returning only
 a scalar does not hide a reference read. All reaching loans must meet the
 required shared/exclusive, pinned and owning permissions.
 
+Reference slots in enum payloads have conditional entry requirements. A caller
+may omit such a loan only when an actual constructor fact proves the payload
+inactive at every reaching address. Unknown tags still require the loan. The
+same condition applies to the callee's pointee-access effects; it does not
+fabricate a reference or suppress unrelated effects. Checked forwarding helpers
+preserve exact physical tag conditions, including static slice offsets.
+
+A tag condition can describe entry storage only if the callee has not changed
+that tag before reading the cell. Known disjoint writes preserve the condition;
+tag writes, raw mutations, unknown effects and ambiguous substitutions discard
+it conservatively. No runtime flags or conditional checks are added by these
+compile-time contracts.
+
 ```lisp
 (#struct RefValue (: value (#ref #u64)))
 (#fn read-value (: words (#slice #u64)) #u64

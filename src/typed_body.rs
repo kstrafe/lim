@@ -1194,6 +1194,28 @@ pub(crate) struct ParameterLoanSummary {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct WordTagGuard {
+    /// A physical tag address, not a candidate reference-slot witness.
+    pub address: ParameterLoanSummary,
+    pub variant: VariantId,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct WordInputRequirement {
+    pub loan: ParameterLoanSummary,
+    /// The loan is required only while all these enclosing payloads are active.
+    /// Unknown tags retain the requirement; only proven inactive tags waive it.
+    pub guards: Vec<WordTagGuard>,
+}
+
+impl std::ops::Deref for WordInputRequirement {
+    type Target = ParameterLoanSummary;
+    fn deref(&self) -> &Self::Target {
+        &self.loan
+    }
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ParameterLoanSeed {
     pub owned_allocation: bool,
     pub mutable: bool,
@@ -1309,12 +1331,12 @@ pub(crate) struct Body {
     pub parameter_referent_loan_slots: Vec<Vec<ParameterLoanSeed>>,
     /// Inferred entry loans required by typed interpretations of word memory.
     /// Callers must supply actual stored origins; these are not initialized bits.
-    pub word_input_requirements: Vec<ParameterLoanSummary>,
+    pub word_input_requirements: Vec<WordInputRequirement>,
     /// Candidate numeric value slots, used only to infer abstract entry
     /// requirements. Contents-aware/native analyses never seed these slots.
     pub word_parameter_candidates: Vec<Vec<ParameterLoanSeed>>,
     pub call_word_input_requirements:
-        Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
+        Arc<HashMap<crate::typed_ir::FunctionId, Vec<WordInputRequirement>>>,
     emission_nodes: Vec<NodeId>,
     callees: HashMap<FunctionId, String>,
     declaration_names: HashMap<DeclarationId, String>,

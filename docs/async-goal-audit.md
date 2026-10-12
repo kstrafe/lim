@@ -1579,3 +1579,45 @@ as a native success. The next task is to preserve state/constructor conditions
 in those entry requirements and caller-visible cleanup effects rather than
 requiring every possible reference slot unconditionally. The broader emitter
 experiment remains uncommitted, and the goal and HTML deliverable remain open.
+
+### Constructor-conditioned word-reader entry contracts
+
+Word input requirements now keep their reference-loan permissions separate from
+physical enum-tag guards. Unknown tags retain the loan requirement; an actual
+different constructor of the same enum can waive it only at every reaching
+address. Call-effect substitution applies the same proof to accesses through
+that concealed slot, and only when every matching entry requirement is inactive.
+An unrelated or unconditional access is not suppressed.
+
+Exact checked forwarding helpers preserve physical tag addresses and static
+slice offsets. Ambiguous substitutions conservatively drop conditions rather
+than conjoining alternatives. Entry guards are inferred only when the tag bytes
+have not been changed on any path reaching the read, including loop backedges.
+Known disjoint writes preserve a condition; overlapping writes, raw mutations,
+unresolved destinations and unknown callee effects do not. Retirement of loan
+metadata alone is not a byte write. Semantic cache version fourteen serializes
+these guarded contracts with declaration identities.
+
+Native regressions cover empty and occupied optional cells, forwarding helpers,
+nonzero argument ranges and disjoint metadata writes. Unknown/ambiguous cells,
+retired occupied loans, wrong enum identities, numeric tag overwrites, callee
+tag mutation and opaque pointer anchors still reject. Imported guarded readers
+and forwarding helpers produce identical cold/warm assembly with actual cache
+hits; rejected cold/warm attempts produce identical diagnostics.
+
+The current focused gate has 52 word-storage, nineteen semantic-cache, three UI
+and ten owner-entry-tag tests passing. Formatting, all-target and diff checks
+pass. The current full experimental library again has 1,413 passes, the same two
+exclusive-input failures and eight ignored tests. The actual async_fn example
+compiles and prints started/pending/resumed/ready before exiting with 42.
+
+The full dependent-cancellation suite is still not green: eleven pass and three
+pinned-child cases reject a missing typed-reader loan on the repeated public
+destroy call (stack, heap and selected internal/external ownership). A traced
+requirement refers to the child's argument reference at the parent numeric
+region's word two; its enclosing argument-cell tag is word one. Constructor
+conditions alone are not a certificate that caller-visible cleanup effects and
+tag-preservation substitution through the nested typed view are complete.
+Those remaining substitutions need investigation alongside the two exclusive
+state-join failures. The broader emitter experiment remains uncommitted; the
+full goal and the uncommitted HTML deliverable are not complete.
