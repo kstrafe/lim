@@ -232,6 +232,42 @@ word-storage integration tests pass. All-target checking, Rust formatting and
 whitespace checks pass. Each converted handle removes one discriminator word;
 this is a layout saving, not a measured compilation-time speedup.
 
+### Borrowed initialization-state lookups (2026-10-12)
+
+Initialization specialization now looks up incoming fact slices in block-local
+identity tables. It copies an identity vector only when creating a new state,
+not when a Pending retry or converging edge reuses one. Equal facts at different
+source blocks remain different dispatcher states. Breadth-first numbering,
+edge-local transfers, domain checks and state-budget errors are unchanged.
+The tables allocate fixed metadata per source block, with key storage only for
+discovered states; this trades that metadata for cheaper repeated lookups.
+
+Three alternating before/after optimized standalone-module benchmark runs gave
+median-of-run-medians of 24.404 to 19.827 microseconds for 32 initialization facts
+(18.8% less time), and 1,300.265 to 911.020 microseconds for 4,096 facts (29.9%).
+Repeating the three alternating runs with release-matched `-O`, one codegen
+unit and fat LTO gave 39.804 to 28.426 microseconds (28.6% less time) and
+3,130.100 to 1,795.136 microseconds (42.6%), respectively. Both binaries in each
+comparison use the same flags; absolute results depend on optimization context.
+Each run measures eight warmed samples of 200 solves on a 32-block cyclic graph
+with retry edges and 95 exact states. These are synthetic solver measurements,
+not whole-compilation speedups. The ignored
+`initialization_specialization_retry_timing` test keeps the workload runnable;
+it can also run through `cargo test --release --lib` with `--ignored --nocapture`.
+
+The new regression checks duplicate edges, empty/wide domains, exact successors
+and distinct-block identities at the state limit. Existing cyclic-graph parity,
+correlated-history and edge-transfer regressions remain in place. Source and
+ordinary generated-program validation are not skipped or cached by this change.
+Reference-bearing storage, deferred child layouts and broader analysis cost
+still require follow-up; this does not complete the async goal.
+
+Verification: 1,392 library tests pass; seven pre-existing tests and the new
+manual benchmark are ignored in the ordinary run. All 104 focused async and
+word-storage integration tests pass. The manual benchmark also passes through
+Cargo's release profile. All-target checking, formatting and whitespace checks
+pass.
+
 The contiguous clone audit exposed and corrected a physical-occupancy bug:
 non-owning snapshots of linear word-backed leaves must not use the ordinary
 transfer reader. They now leave the original occupancy unchanged while the

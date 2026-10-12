@@ -57,8 +57,13 @@ impl Specialization {
         if limit == 0 {
             return Err("async initialization specialization has no state budget".into());
         }
-        let mut identities = HashMap::new();
-        identities.insert((entry, initial.clone()), 0);
+        // Borrow fact vectors for lookups. Retry/converging edges usually reuse
+        // an existing state and must not allocate another identity snapshot.
+        // Block-local tables also keep equal facts at distinct blocks separate.
+        let mut identities = (0..successors.len())
+            .map(|_| HashMap::new())
+            .collect::<Vec<_>>();
+        identities[entry].insert(initial.clone(), 0);
         let mut states = vec![SpecializedState {
             block: entry,
             before: initial,
@@ -82,8 +87,7 @@ impl Specialization {
                         "async initialization edge transfer changed the storage domain".into(),
                     );
                 }
-                let key = (next, incoming.clone());
-                let id = if let Some(&id) = identities.get(&key) {
+                let id = if let Some(&id) = identities[next].get(incoming.as_slice()) {
                     id
                 } else {
                     if states.len() == limit {
@@ -92,7 +96,7 @@ impl Specialization {
                         ));
                     }
                     let id = states.len();
-                    identities.insert(key, id);
+                    identities[next].insert(incoming.clone(), id);
                     states.push(SpecializedState {
                         block: next,
                         before: incoming,
@@ -108,6 +112,42 @@ impl Specialization {
             cursor += 1;
         }
         Ok(Self { states })
+    }
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "manual initialization-specialization benchmark; run in release with --ignored --nocapture"]
+fn initialization_specialization_retry_timing() {
+    let successors = (0..32)
+        .map(|block| vec![block, (block + 1) % 32])
+        .collect::<Vec<_>>();
+    for width in [32, 4096] {
+        let mut samples = Vec::new();
+        for _ in 0..9 {
+            let start = std::time::Instant::now();
+            for _ in 0..200 {
+                let plan = Specialization::solve(
+                    0,
+                    &successors,
+                    vec![false; width],
+                    4096,
+                    |block, fields| fields[block] = true,
+                )
+                .unwrap();
+                assert_eq!(plan.states.len(), 95);
+                std::hint::black_box(plan);
+            }
+            samples.push(start.elapsed().as_secs_f64() * 1000.0 / 200.0);
+        }
+        samples.remove(0);
+        samples.sort_by(f64::total_cmp);
+        println!(
+            "initialization retries width={width}: median={:.6}ms range={:.6}..{:.6}ms",
+            samples[samples.len() / 2],
+            samples[0],
+            samples[samples.len() - 1]
+        );
     }
 }
 
@@ -226,6 +266,25 @@ impl Analysis {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_edges_reuse_states_without_merging_distinct_blocks() {
+        for width in [0, 1, 4096] {
+            let initial = vec![false; width];
+            let plan =
+                Specialization::solve(0, &[vec![1, 1], vec![0, 1]], initial.clone(), 2, |_, _| {})
+                    .unwrap();
+            assert_eq!(plan.states.len(), 2);
+            assert_eq!(plan.states[0].block, 0);
+            assert_eq!(plan.states[1].block, 1);
+            assert_eq!(plan.states[0].successors, [1, 1]);
+            assert_eq!(plan.states[1].successors, [0, 1]);
+            assert!(plan
+                .states
+                .iter()
+                .all(|state| state.before == initial && state.after == initial));
+        }
+    }
 
     #[test]
     fn specialization_preserves_correlated_fields_and_exact_successors() {
