@@ -1230,6 +1230,8 @@ pub(crate) struct ParameterStoreSummary {
     pub destination: ParameterLoanSummary,
     pub sources: Vec<ParameterLoanSummary>,
     pub definitely_written: bool,
+    /// Every reaching effect only changes loan metadata, not the backing bytes.
+    pub preserves_bytes: bool,
     /// The physical tag write can be definite even when substituting every
     /// possible incoming loan source is incomplete at this call site.
     pub variants_definitely_written: bool,

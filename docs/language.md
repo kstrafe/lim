@@ -2927,6 +2927,13 @@ An occupied cell still needs real reference provenance after retirement; a new
 typed empty-constructor write can establish an empty cell instead. These rules
 do not add runtime occupancy bits or branches.
 
+Checked helper summaries keep byte writes separate from loan retirement. A
+helper may publish an empty constructor, retire that cell's metadata, and
+forward the unchanged constructor fact to its caller. Metadata-only forwarding
+does not recreate an occupied cell's references. Later numeric, raw or unknown
+writes invalidate the constructor promise; branch joins retain only facts true
+on every returning path. The distinction is preserved in semantic caches.
+
 An ordinary helper can require loans in a borrowed word slice. The compiler
 infers those entry requirements and checks the actual stored origins at every
 call, including through forwarding helpers and cached imports. Returning only

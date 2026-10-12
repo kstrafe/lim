@@ -20,7 +20,7 @@ use crate::{
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v15\0";
+const MAGIC: &[u8] = b"lim-semantic-v16\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -536,6 +536,7 @@ record_codec!(
     destination,
     sources,
     definitely_written,
+    preserves_bytes,
     variants_definitely_written,
     variants
 );

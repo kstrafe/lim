@@ -676,6 +676,7 @@ pub(crate) struct LoanStore {
     pub destination: LoanOrigin,
     pub incoming: Vec<LoanOrigin>,
     pub definitely_written: bool,
+    pub preserves_bytes: bool,
     /// Physical constructor certainty only; this must not authorize replacing
     /// stored loans when their incoming provenance is incomplete.
     pub variants_definitely_written: bool,
@@ -1711,6 +1712,7 @@ impl FlowLoanOrigins {
                 destination,
                 incoming: incoming.clone(),
                 definitely_written,
+                preserves_bytes: false,
                 variants_definitely_written: definitely_written,
                 variants: HashMap::new(),
             })
@@ -2876,7 +2878,15 @@ impl FlowGraph {
                         apply_store_variant_facts(&mut state, &store);
                     }
                 }
-                FlowAction::Write { .. } => state.clear(),
+                FlowAction::Write { place, .. } => {
+                    if let Some(targets) = physical_write_places(body, origins, event, place) {
+                        state.retain(|known, _| {
+                            !targets.iter().any(|target| target.overlaps(known))
+                        });
+                    } else {
+                        state.clear();
+                    }
+                }
                 FlowAction::Evaluate(value)
                     if matches!(&body.nodes[value.0].kind,
                     NodeKind::Form { head, children, callee: None, .. } if head == "pin-read" && children.len() == 2) =>
@@ -4332,6 +4342,7 @@ impl FlowGraph {
                 destination: destination.clone(),
                 sources: Vec::new(),
                 definitely_written: false,
+                preserves_bytes: true,
                 variants_definitely_written: false,
                 variants: HashMap::new(),
             })
@@ -4345,6 +4356,10 @@ impl FlowGraph {
                 changed |= count != held.variants.len();
                 if held.definitely_written && !incoming.definitely_written {
                     held.definitely_written = false;
+                    changed = true;
+                }
+                if held.preserves_bytes && !incoming.preserves_bytes {
+                    held.preserves_bytes = false;
                     changed = true;
                 }
                 if held.variants_definitely_written && !incoming.variants_definitely_written {
@@ -4368,6 +4383,58 @@ impl FlowGraph {
         while let Some(event) = pending.pop_front() {
             queued[event.0] = false;
             let mut state = before[event.0].as_ref().unwrap().clone();
+            // Metadata stores do not certify unrelated effects as byte-pure.
+            // Unknown calls and custom clones must remain conservative.
+            let unrepresented_write = match &self.nodes[event.0].action {
+                FlowAction::Write { place, .. } if events[event.0].is_empty() => {
+                    Some(physical_write_places(body, origins, event, place))
+                }
+                FlowAction::Clone { .. } => Some(None),
+                FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
+                    NodeKind::Form {
+                        callee: Some(callee),
+                        ..
+                    } => {
+                        let metadata_only = body
+                            .call_tag_mutations
+                            .get(callee)
+                            .is_some_and(Vec::is_empty)
+                            && events[event.0].iter().all(|store| store.preserves_bytes);
+                        (!metadata_only).then(|| {
+                            origins
+                                .call_tag_mutations(body, self, event, *value)
+                                .map(|targets| {
+                                    targets
+                                        .into_iter()
+                                        .map(|target| target.referent_place())
+                                        .collect()
+                                })
+                        })
+                    }
+                    NodeKind::Form {
+                        head, callee: None, ..
+                    } if matches!(head.as_str(), "pin-read" | "ptr-borrow" | "ptr-borrow-mut") => {
+                        None
+                    }
+                    _ if !tag_preserving_evaluation(body, *value, &HashSet::new())
+                        && events[event.0].is_empty() =>
+                    {
+                        Some(None)
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(targets) = unrepresented_write {
+                for ((candidate, _), held) in destinations.iter().zip(&mut state) {
+                    if targets.as_ref().is_none_or(|targets| {
+                        targets.iter().any(|target| target.overlaps(candidate))
+                    }) {
+                        held.preserves_bytes = false;
+                        held.variants.clear();
+                    }
+                }
+            }
             for store in &events[event.0] {
                 let place = store.destination.referent_place();
                 let incoming = store
@@ -4379,6 +4446,7 @@ impl FlowGraph {
                     if !place.overlaps(candidate) {
                         continue;
                     }
+                    held.preserves_bytes &= store.preserves_bytes;
                     if candidate.segments.len() >= place.segments.len() {
                         let relative = &candidate.segments[place.segments.len()..];
                         let selected_variants = store
@@ -4389,7 +4457,10 @@ impl FlowGraph {
                                     .map(|path| (path.to_vec(), *variant))
                             })
                             .collect::<HashMap<_, _>>();
-                        if store.variants_definitely_written {
+                        if store.preserves_bytes {
+                            // Retirement must not erase an earlier byte write's
+                            // constructor certainty for the same physical cell.
+                        } else if store.variants_definitely_written {
                             held.variants = selected_variants;
                             held.variants_definitely_written = true;
                         } else {
@@ -4429,13 +4500,15 @@ impl FlowGraph {
                             root: candidate.root.clone(),
                             segments: relative.to_vec(),
                         };
-                        held.variants.retain(|path, _| {
-                            !target.overlaps(&Place {
-                                root: candidate.root.clone(),
-                                segments: path.clone(),
-                            })
-                        });
-                        if store.variants_definitely_written {
+                        if !store.preserves_bytes {
+                            held.variants.retain(|path, _| {
+                                !target.overlaps(&Place {
+                                    root: candidate.root.clone(),
+                                    segments: path.clone(),
+                                })
+                            });
+                        }
+                        if !store.preserves_bytes && store.variants_definitely_written {
                             for (path, variant) in &store.variants {
                                 let mut selected = relative.to_vec();
                                 selected.extend_from_slice(path);
@@ -12407,6 +12480,9 @@ fn apply_return_loan_summary(
 }
 
 fn apply_store_variant_facts(state: &mut HashMap<Place, VariantId>, store: &LoanStore) {
+    if store.preserves_bytes {
+        return;
+    }
     let destination = store.destination.referent_place();
     state.retain(|place, _| !destination.overlaps(place));
     if !store.variants_definitely_written || store.destination.lifetime_only {
@@ -12663,6 +12739,36 @@ fn call_loan_stores(
     substitute_call_stores(body, flow, before, value, state, stores)
 }
 
+/// Resolve writes through actual reference origins, never lifetime-only anchors.
+fn physical_write_places(
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    place: &Place,
+) -> Option<Vec<Place>> {
+    match place.root {
+        PlaceRoot::Local(binding)
+            if place.segments.contains(&Segment::Dereference)
+                || matches!(
+                    body.bindings[binding.0].ty,
+                    Type::Reference { .. } | Type::PinnedReference { .. }
+                ) =>
+        {
+            let targets = origins.projected_origins(event, binding, &place.segments);
+            if targets.is_empty() || targets.iter().any(|target| target.lifetime_only) {
+                return None;
+            }
+            Some(
+                targets
+                    .into_iter()
+                    .map(|target| target.referent_place())
+                    .collect(),
+            )
+        }
+        _ => Some(vec![place.clone()]),
+    }
+}
+
 /// A tag guard is an entry contract only if no reaching execution has changed
 /// its bytes before the guarded read. Metadata-only retirement is not a write.
 fn word_entry_tag_unchanged(
@@ -12686,17 +12792,8 @@ fn word_entry_tag_unchanged(
         }
         let action = &flow.nodes[previous.0].action;
         if let FlowAction::Write { place, .. } = action {
-            let targets = match place.root {
-                PlaceRoot::Local(binding)
-                    if place.segments.contains(&Segment::Dereference)
-                        || matches!(
-                            body.bindings[binding.0].ty,
-                            Type::Reference { .. } | Type::PinnedReference { .. }
-                        ) =>
-                {
-                    origins.projected_referents(previous, binding, &place.segments)
-                }
-                _ => vec![place.clone()],
+            let Some(targets) = physical_write_places(body, origins, previous, place) else {
+                return false;
             };
             if targets.is_empty() || targets.iter().any(|target| target.overlaps(tag)) {
                 return false;
@@ -12729,7 +12826,9 @@ fn word_entry_tag_unchanged(
             .stores_before(body, flow, previous)
             .iter()
             .any(|store| {
-                store.destination.lifetime_only || store.destination.referent_place().overlaps(tag)
+                !store.preserves_bytes
+                    && (store.destination.lifetime_only
+                        || store.destination.referent_place().overlaps(tag))
             })
         {
             return false;
@@ -13161,7 +13260,7 @@ fn word_loan_stores(
     let Some(layout) = body.word_layouts.get(&value) else {
         return Vec::new();
     };
-    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
         return Vec::new();
     };
     let incoming = if children.len() == 4 {
@@ -13199,6 +13298,7 @@ fn word_loan_stores(
                 destination,
                 incoming: sources,
                 definitely_written: strong,
+                preserves_bytes: matches!(head.as_str(), "word-forget" | "word-take"),
                 variants_definitely_written: false,
                 variants: HashMap::new(),
             });
@@ -13419,6 +13519,7 @@ fn word_view_store_effects(
                 destination,
                 incoming: selected,
                 definitely_written: store.definitely_written && complete && strong,
+                preserves_bytes: store.preserves_bytes,
                 variants_definitely_written: store.variants_definitely_written && strong,
                 variants: tags
                     .get(&offset)
@@ -13534,6 +13635,7 @@ fn substitute_call_stores(
                 destination,
                 incoming: incoming.clone(),
                 definitely_written,
+                preserves_bytes: store.preserves_bytes,
                 variants_definitely_written,
                 variants: store.variants.clone(),
             });
@@ -15921,6 +16023,10 @@ fn tag_preserving_evaluation(
                         | "unsafe"
                         | "atomic-load"
                         | "atomic-fence"
+                        | "word-read"
+                        | "word-view"
+                        | "word-take"
+                        | "word-forget"
                 )
         }
         NodeKind::Literal(_)

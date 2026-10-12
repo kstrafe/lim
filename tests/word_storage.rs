@@ -158,6 +158,66 @@ fn typed_view_writes_through_stored_references_do_not_overwrite_pointer_words() 
 }
 
 #[test]
+fn metadata_only_helpers_preserve_tags_but_never_restore_retired_loans() {
+    let source = OPTIONAL_WORD_READER
+        .replace(
+            "(#fn main",
+            "(#fn retire (: words (#slice-mut #u64)) ()
+           (#unsafe (#word-forget Cell words)) (#return ()))
+         (#fn forward-retire (: words (#slice-mut #u64)) ()
+           (#call retire (: words words)) (#return ()))
+         (#fn main",
+        )
+        .replace(
+            "(#let answer",
+            "(#call forward-retire (: words (#borrow-slice-mut words))) (#let answer",
+        );
+    run(&source);
+    for invalid in [
+        source.replace("(Vacant)))\n  (#call", "(Occupied (#borrow amount))))\n  (#call"),
+        source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))", ""),
+        source.replace("(#call forward-retire", "(#unsafe (#word-write #u64 (#borrow-slice-mut words 0usize 1usize) 0u64)) (#call forward-retire"),
+    ] {
+        assert_ne!(invalid, source);
+        let error = compile(&invalid).unwrap_err();
+        assert!(error.message.contains("missing required input loan") || error.message.contains("unresolved call inputs"), "{error:?}");
+    }
+}
+
+#[test]
+fn helper_retirement_does_not_hide_later_byte_mutations() {
+    let source = OPTIONAL_WORD_READER
+        .replace(
+            "(#fn main",
+            "(#fn prepare (: words (#slice-mut #u64)) ()
+           (#unsafe (#word-write Cell (#slice-mut-range words 0usize 2usize) (Vacant)))
+           (#unsafe (#word-forget Cell words)) (#return ()))
+         (#fn main",
+        )
+        .replace(
+            "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))",
+            "(#call prepare (: words (#borrow-slice-mut words)))",
+        );
+    run(&source);
+    for mutation in [
+        "(#unsafe (#word-write #u64 (#slice-mut-range words 0usize 1usize) 0u64))",
+        "(#if #true (#unsafe (#word-write #u64 (#slice-mut-range words 0usize 1usize) 0u64)) ())",
+        "(#let pointer (#ptr-mut #u64) (#ref-ptr (#slice-mut-idx words 0usize))) (#unsafe (#ptr-write pointer 0u64))",
+    ] {
+        let invalid = source.replace(
+            "(#unsafe (#word-forget Cell words))",
+            &format!("{mutation} (#unsafe (#word-forget Cell words))"),
+        );
+        let error = compile(&invalid).unwrap_err();
+        assert!(
+            error.message.contains("missing required input loan")
+                || error.message.contains("unresolved call inputs"),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
 fn word_reader_entry_loans_are_conditional_on_actual_payload_tags() {
     run(OPTIONAL_WORD_READER);
     let occupied = OPTIONAL_WORD_READER.replace(

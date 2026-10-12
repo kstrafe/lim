@@ -58,6 +58,7 @@ fn imported_typed_word_view_cleanup_exports_physical_tags_and_loans() {
         (#unsafe (#pin-write slot (Vacant))) (#return ()))
       (#fn clear-storage (: storage (#ref-mut Storage)) ()
         (#call clear (: slot (#unsafe (#word-view (#pin-ref-mut Cell) (#borrow-slice-mut (#get storage words) 1usize 3usize)))))
+        (#unsafe (#word-forget (#array #u64 2) (#borrow-slice-mut (#get storage words) 1usize 3usize)))
         (#return ()))
       (#fn forward (: storage (#ref-mut Storage)) ()
         (#call clear-storage (: storage storage)) (#return ()))").unwrap();

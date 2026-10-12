@@ -1661,3 +1661,40 @@ erase a previously established empty constructor or be classified as arbitrary
 byte writes. This needs an explicit effect distinction, not a general exemption
 for unsafe code or scalar writes. The emitter experiment, exclusive state joins,
 remaining cancellation work and uncommitted HTML deliverable are still open.
+
+### Separate metadata retirement from physical byte writes
+
+Loan stores and checked helper summaries now carry an explicit byte-preservation
+fact. Word-forget and word-take retire provenance without changing backing
+bytes. Their effects no longer erase an already established empty constructor,
+including through forwarding helpers and imported semantic-cache hits. Real
+writes still invalidate constructor facts and retire replaced loans. Unknown
+effects and custom clones cannot certify byte preservation. Semantic cache
+version sixteen includes the new summary field.
+
+Two native regressions cover metadata-only forwarding, occupied and unknown
+cells after retirement, and typed empty writes followed by numeric, conditional
+or raw mutations. The imported typed-view cleanup regression now includes the
+previously failing explicit word-forget probe and verifies identical cold/warm
+assembly, actual cache hits and escaped-loan rejection.
+
+An initial conservative invalidation treated pin-read and pointer-to-reference
+construction as arbitrary byte writes, regressing seven movable cancellation
+tests. These operations do not modify backing bytes; explicit classification
+restores the prior gate without weakening raw-write checks. The final word/cache
+gate passes all 58 word-storage and twenty semantic-cache tests. Three UI and
+ten owner-entry tests pass. The full experimental library has 1,413 passes,
+the same two exclusive-input failures and eight ignored tests (79.80 seconds).
+Dependent cancellation remains eleven passes and three failures on repeated
+pinned-child destruction. Logs are /tmp/lim-retirement-library.log,
+/tmp/lim-retirement-cancellation-byte-pure.log and
+/tmp/lim-retirement-word-cache-byte-pure.log; the added raw-mutation probe passes
+in /tmp/lim-retirement-raw-write.log.
+
+The next distinction is entry-contract propagation through nested pinned child
+cleanup: retirement preserves bytes but cannot by itself make an occupied child
+reference slot inactive. The generator must publish the checked empty state, or
+the ordinary entry analysis must preserve a valid control-flow condition for
+the read. Neither pinning nor an opaque unsafe pointer grants a missing loan.
+The emitter experiment, two exclusive state joins, three pinned cancellation
+cases and final uncommitted HTML deliverable remain open.
