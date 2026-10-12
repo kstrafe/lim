@@ -1195,3 +1195,28 @@ identical rejection after a scalar overwrite retires the required reference
 slot. These contracts are not a general raw-byte ownership transport mechanism.
 Arbitrary unsafe representations still require their author's validity and
 ownership proof.
+
+### Direct cleanup of contiguous reference-bearing partial owners
+
+Partially moved aggregate owners now use contiguous word regions even when a
+leaf contains an exclusive or otherwise non-Copy reference. The earlier typed
+leaf fallback is removed for these layouts. Ordinary typed reads request a
+mutable slice when the value contains an exclusive capability, while shared
+reads retain their shared permissions.
+
+Cleanup extracts initialized typed values directly from the original pinned
+frame's word regions, selected by the saved program counter. It no longer copies
+raw numeric buffers into a temporary cleanup struct and then tries to recover
+concealed reference loans there. Non-word cells still use their existing typed
+transfer. This is not yet removal of every frame cell tag, nor completion of
+the guard, selected-anchor or whole async goal.
+
+Verification passes all 236 async integration tests, 1,412 library tests (eight
+existing ignored), 33 word-storage tests, sixteen contiguous-storage tests,
+thirteen semantic-cache tests, fourteen dependent-cancellation tests, 26
+self-borrow tests, six kernel-thread tests (two existing ignored), and three UI
+tests. The added exclusive-reference partial-owner test runs cold and warm and
+checks the retained field address after sibling restoration. The previously
+failing aggregate-clone cleanup regression passes without a raw numeric snapshot.
+Formatting and diff checks pass; the compiler binary remained stable throughout
+the full async integration run.

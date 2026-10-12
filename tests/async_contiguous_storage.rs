@@ -263,6 +263,16 @@ fn reference_field_keeps_address_and_provenance_after_sibling_restoration() {
 }
 
 #[test]
+fn exclusive_reference_field_keeps_address_after_sibling_restoration() {
+    let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim")
+        .replace("(#ref #u64)", "(#ref-mut #u64)")
+        .replace("waker (#ref-mut #u64)", "waker (#ref #u64)")
+        .replace("(#let seed #u64", "(#let-mut seed #u64")
+        .replace("seed (#borrow seed)", "seed (#borrow-mut seed)");
+    run(&source);
+}
+
+#[test]
 fn incomplete_reference_owner_whole_view_fails_at_the_source_borrow() {
     let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim").replace(
         "(#set-field owner item (#struct-literal Token (: value 2u64)))",

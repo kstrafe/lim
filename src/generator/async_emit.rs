@@ -438,32 +438,22 @@ impl<'a> Emitter<'a> {
         )
         .map_err(|message| fail(function, message))?
         {
-            // Owned reference-bearing leaves still need a typed cleanup
-            // transfer. Raw buffer snapshots do not yet export their slot
-            // provenance into the separately checked cleanup function.
-            // Preserve that representation until its transfer is supported;
-            // Copy references can stay in a contiguous owner word region.
-            let word_buffer =
-                if layout.fields.iter().all(|field| {
-                    !types.contains_reference(&field.ty) || types.can_repeat(&field.ty)
-                }) {
-                    let capacity = crate::codegen::storage_word_count(
-                        &layout.shape.ty,
-                        &planning.declarations.structs,
-                        &planning.declarations.enums,
-                    )
-                    .map_err(|message| fail(function, message))?;
-                    Some(WordRegion {
-                        field: emitter.fresh("aggregate-words"),
-                        marker: emitter.fresh("aggregate-type"),
-                        owner: layout.shape.ty.clone(),
-                        capacity,
-                        start: 0,
-                        length: capacity,
-                    })
-                } else {
-                    None
-                };
+            let word_buffer = {
+                let capacity = crate::codegen::storage_word_count(
+                    &layout.shape.ty,
+                    &planning.declarations.structs,
+                    &planning.declarations.enums,
+                )
+                .map_err(|message| fail(function, message))?;
+                Some(WordRegion {
+                    field: emitter.fresh("aggregate-words"),
+                    marker: emitter.fresh("aggregate-type"),
+                    owner: layout.shape.ty.clone(),
+                    capacity,
+                    start: 0,
+                    length: capacity,
+                })
+            };
             if let Some(region) = &word_buffer {
                 emitter.slots[emitter.bindings[&layout.binding]].words = Some(region.clone());
             }
@@ -1878,7 +1868,14 @@ impl<'a> Emitter<'a> {
             return format!(
                 "(#unsafe (#word-read {} {}))",
                 crate::type_source(&slot.ty),
-                self.word_slice(region, false)
+                self.word_slice(
+                    region,
+                    self.planning
+                        .declarations
+                        .reference_storage_slots(&slot.ty)
+                        .iter()
+                        .any(|loan| loan.mutable)
+                )
             );
         }
         if slot.raw {
@@ -6362,14 +6359,36 @@ impl<'a> Emitter<'a> {
             } else if let Some(region) = &slot.words {
                 let plan = self.initialization.as_ref().unwrap();
                 let physical_start = plan.states[0].before.len() - self.slots.len();
-                let mut cases = self.cancellation_states().into_iter().map(|state| {
-                    let value = if plan.states[state].before[physical_start + index] {
-                        slot.constant.as_ref().map_or_else(|| format!("({full} (#unsafe (#word-read {} (#borrow-slice (#get state {}) {}usize {}usize))))",
-                            crate::type_source(&slot.ty), region.field, region.start, region.start + region.length),
-                            |value| format!("({full} {value})"))
-                    } else { format!("({empty})") };
-                    format!("(#case {state}u32 {value})")
-                }).collect::<Vec<_>>();
+                let slice = if self.pinned {
+                    self.word_slice(region, true)
+                } else {
+                    format!(
+                        "(#borrow-slice-mut (#get state {}) {}usize {}usize)",
+                        region.field,
+                        region.start,
+                        region.start + region.length
+                    )
+                };
+                let mut cases = self
+                    .cancellation_states()
+                    .into_iter()
+                    .map(|state| {
+                        let value = if plan.states[state].before[physical_start + index] {
+                            slot.constant.as_ref().map_or_else(
+                                || {
+                                    format!(
+                                        "({full} (#unsafe (#word-read {} {slice})))",
+                                        crate::type_source(&slot.ty)
+                                    )
+                                },
+                                |value| format!("({full} {value})"),
+                            )
+                        } else {
+                            format!("({empty})")
+                        };
+                        format!("(#case {state}u32 {value})")
+                    })
+                    .collect::<Vec<_>>();
                 cases.push(format!("(#case {}u32 ({empty}))", u32::MAX));
                 cases.push("(#case _ (#unreachable))".into());
                 transfers.push(format!(
@@ -6390,7 +6409,13 @@ impl<'a> Emitter<'a> {
         }
         let state_type = if self.pinned {
             let name = self.fresh("cleanup-state-type");
-            let fields = self.frame_fields();
+            let fields = self
+                .slots
+                .iter()
+                .filter(|slot| slot.words.is_none())
+                .map(|slot| format!("({} {})", slot.field, slot.name))
+                .collect::<Vec<_>>()
+                .join(" ");
             definitions.push(format!(
                 "(#struct {name} ((pc #u32) {fields}))\n(#linear {name})"
             ));
@@ -6417,27 +6442,6 @@ impl<'a> Emitter<'a> {
                 ));
                 captures.push(format!("({} {value})", slot.field));
             }
-            for region in self.word_buffers() {
-                let buffer = WordRegion {
-                    start: 0,
-                    length: region.capacity,
-                    ..region.clone()
-                };
-                // Every backing word is initialized by the factory. Copy raw
-                // words, not a possibly oversized typed field through a pin.
-                // Ownership is exported separately from specialized PC facts.
-                captures.push(format!(
-                    "({} (#unsafe (#word-read (#array #u64 {}) {})))",
-                    region.field,
-                    region.capacity,
-                    self.word_slice(&buffer, false)
-                ));
-                captures.push(format!(
-                    "({} (#array-of (#array {} 0)))",
-                    region.marker,
-                    crate::type_source(&region.owner)
-                ));
-            }
             format!(
                 "{clear}\n{}\n{}\n(#let state {state_type} (#struct-literal {state_type} ({})))",
                 takes.join("\n"),
@@ -6445,7 +6449,7 @@ impl<'a> Emitter<'a> {
                 captures.join(" ")
             )
         } else {
-            format!("(#let state {} task)", self.frame)
+            format!("(#let-mut state {} task)", self.frame)
         };
         let mut source = format!(
             "{}\n(#struct {cleanup} ({}))\n(#linear {cleanup})\n\
