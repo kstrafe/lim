@@ -6,7 +6,6 @@ fn ordinary_typed_contiguous_payload_preserves_reference_field_address_natively(
 }
 
 #[test]
-#[ignore = "heap partial-field restoration has unresolved referent call inputs"]
 fn heap_typed_contiguous_payload_preserves_reference_field_address_natively() {
     run_ordinary_typed_payload(true);
 }

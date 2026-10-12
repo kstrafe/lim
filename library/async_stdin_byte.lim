@@ -106,7 +106,7 @@
     (#case (AsyncPoll4Failed error) (AsyncByteReadWaitFailed1 error)))))
 
 (#fn async-byte-read1-poll
-  ((task (#ref AsyncByteRead1))) AsyncByteReadPoll1
+  ((task (#ref-mut AsyncByteRead1))) AsyncByteReadPoll1
   (#return (#if (#call wake-ready4-take
                 (: queue (#borrow (#get task queue)) : token (#get task token)))
     (#block

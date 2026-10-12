@@ -1266,6 +1266,30 @@ impl<'a> Emitter<'a> {
         let mut anchor = self.payload_ref(owner, mutable);
         if external {
             anchor = format!("(#deref {anchor})");
+            if !mutable {
+                // Geometry probes borrow the target immutably; reading an
+                // exclusive handle out of a shared holder cannot transfer its
+                // exclusive permission to a helper.
+                let shared = self.fresh("external-shared-anchor");
+                let target = crate::generator::async_array_anchor::target_type(
+                    place,
+                    0,
+                    &self.function.graph,
+                    &self.planning.declarations,
+                );
+                anchor = if matches!(
+                    self.function.graph.bindings[binding.0].ty,
+                    Type::PinnedReference { .. }
+                ) {
+                    format!("(#borrow (#deref {anchor}))")
+                } else {
+                    format!(
+                        "(#block (#let {shared} (#pin-ref {}) (#borrow (#deref {anchor})))
+                     (#unsafe (#ptr-borrow {shared} (#ref-ptr {shared}))))",
+                        crate::type_source(&target)
+                    )
+                };
+            }
         }
         if let Some(projected) = (skip == 0)
             .then(|| {
@@ -1296,7 +1320,30 @@ impl<'a> Emitter<'a> {
                 }
                 return format!(
                     "(#block (#let {base} {} {anchor}) (#borrow{suffix} {projected}))",
-                    crate::type_source(&self.function.graph.bindings[binding.0].ty)
+                    crate::type_source(&if matches!(
+                        self.function.graph.bindings[binding.0].ty,
+                        Type::PinnedReference { .. }
+                    ) {
+                        Type::PinnedReference {
+                            mutable,
+                            target: Box::new(crate::generator::async_array_anchor::target_type(
+                                place,
+                                0,
+                                &self.function.graph,
+                                &self.planning.declarations,
+                            )),
+                        }
+                    } else {
+                        Type::Reference {
+                            mutable,
+                            target: Box::new(crate::generator::async_array_anchor::target_type(
+                                place,
+                                0,
+                                &self.function.graph,
+                                &self.planning.declarations,
+                            )),
+                        }
+                    })
                 );
             }
         }
@@ -1369,7 +1416,9 @@ impl<'a> Emitter<'a> {
         let mut skip = 0;
         if external {
             ty = match ty {
-                Type::Reference { target, .. } => resolve(&target),
+                Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                    resolve(&target)
+                }
                 Type::Slice(target) | Type::MutableSlice(target) => {
                     // Runtime slice bounds are checked by the slice recipe.
                     // Its static suffix still has ordinary aggregate bounds;
@@ -6690,7 +6739,7 @@ impl<'a> Emitter<'a> {
                     "poll-only context references cannot be retained in a selected async anchor",
                 )
             })?;
-            let Type::Reference { mutable, .. } =
+            let (Type::Reference { mutable, .. } | Type::PinnedReference { mutable, .. }) =
                 crate::typed_ir::resolve_type(&parameter.ty, &self.planning.declarations.aliases)
                     .map_err(|message| fail(self.function, message))?
             else {

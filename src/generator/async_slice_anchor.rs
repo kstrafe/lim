@@ -36,6 +36,13 @@ impl Nested {
         base: &str,
         indices: &HashMap<usize, String>,
     ) -> String {
+        let shared;
+        let base = if !mutable {
+            shared = format!("(#borrow (#deref {base}))");
+            shared.as_str()
+        } else {
+            base
+        };
         if prefix == 0 {
             return base.into();
         }

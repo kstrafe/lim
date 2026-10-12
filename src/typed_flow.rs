@@ -8982,7 +8982,14 @@ impl FlowGraph {
                     continue;
                 }
                 if !alternative_origins.iter().any(|origin| {
-                    origin.storage.len() == slot.storage.len()
+                    // Contents behind another reference boundary describe its
+                    // stored type, not permission granted by this outer view.
+                    // Directly transferred exclusive handles must still carry
+                    // exclusive access to their actual pointees.
+                    (!slot.mutable
+                        || slot.storage.contains(&Segment::Dereference)
+                        || origin.mutable)
+                        && origin.storage.len() == slot.storage.len()
                         && slot
                             .storage
                             .iter()
@@ -11301,6 +11308,9 @@ fn refresh_allocation_origins(
                 let mut loan = loan.clone();
                 loan.drain_storage(address.place.segments.len());
                 loan.prepend_storage(&path);
+                // Loading contents must not restore exclusive permission
+                // suppressed by a shared view of the allocation.
+                loan.mutable &= address.mutable;
                 merge_loan_origins(origins, &[loan]);
             }
         }
@@ -12554,6 +12564,87 @@ mod identity_pointer_borrow_tests {
     }
 }
 
+#[cfg(test)]
+mod pinned_payload_projection_tests {
+    #[test]
+    fn heap_payload_views_retain_addresses_and_actual_nested_reference_sources() {
+        for (operator, result) in [
+            ("pin-get-payload", "#pin-ref"),
+            ("pin-get-payload-mut", "#pin-ref-mut"),
+            ("pin-get-payload-unchecked", "#pin-ref"),
+            ("pin-get-payload-unchecked-mut", "#pin-ref-mut"),
+        ] {
+            let source = format!(
+                "(#struct Owner (: view (#ref #u64)))
+              (#enum Storage (Empty (Full Owner)))
+              (#unsafe-fn work (: seed (#ref #u64) : pointer (#ptr-mut Storage)) (#ref #u64)
+                (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of pointer
+                  (Full (#struct-literal Owner (: view seed))))))
+                (#let owner ({result} Owner) (#unsafe (#{operator}
+                  (#pin-own-borrow-mut storage) Full 0)))
+                (#let holder (#pin-ref (#ref #u64)) (#pin-borrow (#get owner view)))
+                (#let value (#ref #u64) (#deref holder))
+                (#forget holder) (#forget owner) (#forget storage) (#return value))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            crate::check_types(&program).unwrap();
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+            let body = &declarations.bodies["work"];
+            let flow = &declarations.flows["work"];
+            for origins in [
+                flow.loan_origins(body),
+                flow.staged_parameter_store_loan_origins(body),
+            ] {
+                let union = origins.binding_origin_union(body.bindings.len());
+                let held = |name| {
+                    &union[body
+                        .bindings
+                        .iter()
+                        .position(|binding| binding.name == name)
+                        .unwrap()]
+                };
+                assert!(
+                    held("owner").iter().any(|origin| matches!(
+                        origin.place.root,
+                        super::PlaceRoot::Allocation(..)
+                    ) && origin.storage.is_empty()),
+                    "{operator}: {:?}",
+                    held("owner")
+                );
+                assert!(!held("value").is_empty());
+                assert!(
+                    held("value").iter().all(|origin| origin.place.root
+                        == super::PlaceRoot::Parameter(super::BindingId(0))
+                        && origin.place.segments.is_empty()
+                        && origin.storage.is_empty()),
+                    "{operator}: {:?}",
+                    held("value")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shared_heap_payload_views_cannot_lend_exclusive_nested_references() {
+        let source = "(#struct Owner (: view (#ref-mut #u64)))
+          (#enum Storage (Empty (Full Owner)))
+          (#fn touch (: value (#ref-mut #u64)) () (#deref-set value 0u64) (#return ()))
+          (#unsafe-fn work (: seed (#ref-mut #u64) : pointer (#ptr-mut Storage)) ()
+            (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of pointer
+              (Full (#struct-literal Owner (: view seed))))))
+            (#let owner (#pin-ref Owner) (#pin-get-payload (#pin-own-borrow-mut storage) Full 0))
+            (#call touch (: value (#get owner view)))
+            (#forget owner) (#forget storage) (#return ()))";
+        let error = crate::check_types(&crate::parse_program(source).unwrap()).unwrap_err();
+        assert!(error.contains("provenance"), "{error}");
+        let exclusive = source
+            .replace("(#pin-ref Owner)", "(#pin-ref-mut Owner)")
+            .replace("(#pin-get-payload ", "(#pin-get-payload-mut ");
+        crate::check_types(&crate::parse_program(&exclusive).unwrap()).unwrap();
+    }
+}
+
 fn set_slice_reborrow_parent(body: &Body, source: NodeId, ranged: bool, origin: &mut LoanOrigin) {
     if ranged || matches!(body.nodes[source.0].ty, Some(Type::MutableSlice(_))) {
         if let Some(place) = Place::from_expression(body, source) {
@@ -12570,6 +12661,21 @@ fn set_slice_reborrow_parent(body: &Body, source: NodeId, ranged: bool, origin: 
         origin.reborrow_slot = None;
         origin.call_reborrow = false;
     }
+}
+
+fn payload_reborrow_parent(body: &Body, value: NodeId) -> Option<BindingId> {
+    let place = Place::from_expression(body, value)?;
+    let PlaceRoot::Local(binding) = place.root else {
+        return None;
+    };
+    matches!(
+        body.bindings[binding.0].ty,
+        Type::Reference { .. }
+            | Type::PinnedReference { .. }
+            | Type::Slice(_)
+            | Type::MutableSlice(_)
+    )
+    .then_some(binding)
 }
 
 /// A borrowed container's address is not the referent of a reference stored
@@ -13264,7 +13370,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 state,
             )
         }
-        NodeKind::Form { head, .. }
+        NodeKind::Form { head, children, .. }
             if matches!(
                 head.as_str(),
                 "pin-get-payload"
@@ -13273,32 +13379,36 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     | "pin-get-payload-unchecked-mut"
             ) =>
         {
-            let Some(place) = Place::from_expression(body, id) else {
-                return Vec::new();
-            };
-            let borrowed_from = match &place.root {
-                PlaceRoot::Local(binding)
-                    if matches!(
-                        body.bindings[binding.0].ty,
-                        Type::Reference { .. }
-                            | Type::PinnedReference { .. }
-                            | Type::Slice(_)
-                            | Type::MutableSlice(_)
-                    ) =>
-                {
-                    Some(*binding)
-                }
-                _ => None,
-            };
-            reborrow_source_origins(&place, state, &mut HashSet::new())
+            if let Some(place) = Place::from_expression(body, id) {
+                let borrowed_from = payload_reborrow_parent(body, id);
+                return reborrow_source_origins(&place, state, &mut HashSet::new())
+                    .into_iter()
+                    .map(|mut origin| {
+                        origin.borrowed_from = borrowed_from;
+                        origin.call_reborrow = false;
+                        origin.mutable =
+                            matches!(node.ty, Some(Type::PinnedReference { mutable: true, .. }));
+                        origin.pinned = true;
+                        origin.span = node.span;
+                        origin
+                    })
+                    .collect();
+            }
+            let borrowed_from = reference_binding(body, children[1]);
+            borrow_address_origins(body, id, state, None)
                 .into_iter()
                 .map(|mut origin| {
-                    origin.borrowed_from = borrowed_from;
-                    origin.call_reborrow = false;
-                    origin.mutable =
-                        matches!(node.ty, Some(Type::PinnedReference { mutable: true, .. }));
-                    origin.pinned = true;
-                    origin.span = node.span;
+                    if origin.storage.is_empty() {
+                        origin.borrowed_from = borrowed_from.or(origin.borrowed_from);
+                        origin.call_reborrow = false;
+                        origin.mutable =
+                            matches!(node.ty, Some(Type::PinnedReference { mutable: true, .. }));
+                        origin.pinned = true;
+                        origin.span = node.span;
+                    } else {
+                        origin.mutable &=
+                            matches!(node.ty, Some(Type::PinnedReference { mutable: true, .. }));
+                    }
                     origin
                 })
                 .collect()
@@ -13448,7 +13558,11 @@ fn value_projection(body: &Body, value: NodeId) -> Option<Segment> {
             }
             _ => None,
         },
-        "get-payload" => {
+        "get-payload"
+        | "pin-get-payload"
+        | "pin-get-payload-mut"
+        | "pin-get-payload-unchecked"
+        | "pin-get-payload-unchecked-mut" => {
             let NodeKind::Declaration(DeclarationId::Variant(variant)) =
                 body.nodes[children.get(2)?.0].kind
             else {
@@ -13744,6 +13858,39 @@ fn value_loan_origins_at_events(
             }
             return result;
         }
+        if matches!(
+            head.as_str(),
+            "pin-get-payload"
+                | "pin-get-payload-mut"
+                | "pin-get-payload-unchecked"
+                | "pin-get-payload-unchecked-mut"
+        ) {
+            if Place::from_expression(body, value).is_some() {
+                return value_loan_origins(body, value, state);
+            }
+            let borrowed_from = reference_binding(body, children[1]);
+            return borrow_address_origins(body, value, state, Some((flow, before)))
+                .into_iter()
+                .map(|mut origin| {
+                    if origin.storage.is_empty() {
+                        origin.borrowed_from = borrowed_from.or(origin.borrowed_from);
+                        origin.call_reborrow = false;
+                        origin.mutable = matches!(
+                            body.nodes[value.0].ty,
+                            Some(Type::PinnedReference { mutable: true, .. })
+                        );
+                        origin.pinned = true;
+                        origin.span = body.nodes[value.0].span;
+                    } else {
+                        origin.mutable &= matches!(
+                            body.nodes[value.0].ty,
+                            Some(Type::PinnedReference { mutable: true, .. })
+                        );
+                    }
+                    origin
+                })
+                .collect();
+        }
         if matches!(head.as_str(), "get" | "get-payload" | "index") {
             let Some(base) = children.get(1) else {
                 return Vec::new();
@@ -13954,7 +14101,27 @@ fn borrow_address_origins(
         if head == "deref" && children.len() == 2 {
             return pointer_value(children[1]);
         }
-        if matches!(head.as_str(), "get" | "get-payload" | "index") {
+        if matches!(
+            head.as_str(),
+            "pin-get-payload"
+                | "pin-get-payload-mut"
+                | "pin-get-payload-unchecked"
+                | "pin-get-payload-unchecked-mut"
+        ) {
+            if let Some(place) = Place::from_expression(body, value) {
+                return reborrow_source_origins(&place, state, &mut HashSet::new());
+            }
+        }
+        if matches!(
+            head.as_str(),
+            "get"
+                | "get-payload"
+                | "index"
+                | "pin-get-payload"
+                | "pin-get-payload-mut"
+                | "pin-get-payload-unchecked"
+                | "pin-get-payload-unchecked-mut"
+        ) {
             if let Some(slot) = value_projection(body, value) {
                 let base = children[1];
                 // Projection through a reference loads that pointer. Its
@@ -13969,10 +14136,45 @@ fn borrow_address_origins(
                 } else {
                     borrow_address_origins(body, base, state, events)
                 };
-                for origin in &mut origins {
-                    origin.place.segments.push(slot.clone());
+                if !origins
+                    .iter()
+                    .any(|origin| matches!(origin.place.root, PlaceRoot::Allocation(..)))
+                {
+                    for origin in &mut origins {
+                        origin.place.segments.push(slot.clone());
+                    }
+                    return origins;
                 }
-                return origins;
+                return origins
+                    .into_iter()
+                    .filter_map(|mut origin| {
+                        if origin.storage.is_empty() {
+                            origin.place.segments.push(slot.clone());
+                        } else if origin.storage.first() == Some(&Segment::Dereference)
+                            && origin
+                                .storage
+                                .get(1)
+                                .is_some_and(|held| storage_slot_matches(&slot, held))
+                        {
+                            // A projected address carries only that field's known
+                            // pointee contents. Retained loans keep their actual
+                            // referents; the field offset belongs to the address,
+                            // not to those external pointees.
+                            origin.drain_storage(2);
+                            origin.prepend_storage(&[Segment::Dereference]);
+                            if let Some(
+                                Type::Reference { mutable, .. }
+                                | Type::PinnedReference { mutable, .. },
+                            ) = &body.nodes[base.0].ty
+                            {
+                                origin.mutable &= *mutable;
+                            }
+                        } else {
+                            return None;
+                        }
+                        Some(origin)
+                    })
+                    .collect();
             }
         }
     }

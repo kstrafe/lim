@@ -78,7 +78,7 @@ pub(crate) fn target_type(
     };
     let mut ty = resolve(&graph.bindings[binding.0].ty);
     if external {
-        let Type::Reference { target, .. } = ty else {
+        let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) = ty else {
             unreachable!("external anchors are thin reference parameters");
         };
         ty = resolve(&target);
@@ -119,7 +119,10 @@ impl Recipes {
                         {
                             continue;
                         }
-                        let pinned = matches!(place.root, PlaceRoot::Local(_));
+                        let pinned = matches!(place.root, PlaceRoot::Local(_))
+                            || matches!(place.root, PlaceRoot::Parameter(binding)
+                                if matches!(crate::typed_ir::resolve_type(&graph.bindings[binding.0].ty, &declarations.aliases),
+                                    Ok(Type::PinnedReference { .. })));
                         let reference = |target| {
                             if pinned {
                                 Type::PinnedReference {
@@ -133,18 +136,23 @@ impl Recipes {
                                 }
                             }
                         };
-                        let input = if let PlaceRoot::Parameter(binding) = place.root {
-                            crate::typed_ir::resolve_type(
+                        let input = reference(target_type(&place, 0, graph, declarations));
+                        if let PlaceRoot::Parameter(binding) = place.root {
+                            let source = crate::typed_ir::resolve_type(
                                 &graph.bindings[binding.0].ty,
                                 &declarations.aliases,
                             )
-                            .expect("external anchor reference was resolved")
-                        } else {
-                            reference(target_type(&place, 0, graph, declarations))
-                        };
-                        // An immutable parameter cannot grant an exclusive projection.
-                        if mutable && matches!(input, Type::Reference { mutable: false, .. }) {
-                            continue;
+                            .expect("external anchor reference was resolved");
+                            // An immutable parameter cannot grant an exclusive projection.
+                            if mutable
+                                && matches!(
+                                    source,
+                                    Type::Reference { mutable: false, .. }
+                                        | Type::PinnedReference { mutable: false, .. }
+                                )
+                            {
+                                continue;
+                            }
                         }
                         let owner = fresh("array-project-owner");
                         let name = fresh("array-project");
@@ -219,17 +227,11 @@ impl Recipes {
                 let Type::Array(_, length) = &array else {
                     unreachable!("dynamic array projection requires an array");
                 };
-                let pinned = matches!(place.root, PlaceRoot::Local(_));
-                let input = if matches!(place.root, PlaceRoot::Parameter(_)) && position == 0 {
-                    let PlaceRoot::Parameter(binding) = place.root else {
-                        unreachable!()
-                    };
-                    crate::typed_ir::resolve_type(
-                        &graph.bindings[binding.0].ty,
-                        &declarations.aliases,
-                    )
-                    .expect("external anchor reference was resolved")
-                } else if pinned {
+                let pinned = matches!(place.root, PlaceRoot::Local(_))
+                    || matches!(place.root, PlaceRoot::Parameter(binding)
+                        if matches!(crate::typed_ir::resolve_type(&graph.bindings[binding.0].ty, &declarations.aliases),
+                            Ok(Type::PinnedReference { .. })));
+                let input = if pinned {
                     Type::PinnedReference {
                         mutable: false,
                         target: Box::new(array.clone()),

@@ -10,20 +10,21 @@
   (#let created AsyncByteReadCreate1
     (#call async-byte-read1-create
       (: fd 0i64 : destination (#borrow-mut byte))))
-  (#let-else (AsyncByteReadCreated1 task) AsyncByteReadCreate1 created
+  (#let-else (AsyncByteReadCreated1 initial-task) AsyncByteReadCreate1 created
     (#unreachable))
+  (#let-mut task AsyncByteRead1 initial-task)
   (#let first AsyncByteReadPoll1
-    (#call async-byte-read1-poll (: task (#borrow task))))
+    (#call async-byte-read1-poll (: task (#borrow-mut task))))
   (#let first-wait AsyncByteReadWait1
     (#call async-byte-read1-wait (: task (#borrow task))))
   (#let stolen-count #i64
     (#call linux-read-byte-from (: fd 0i64 : destination (#borrow-mut stolen))))
   (#let raced AsyncByteReadPoll1
-    (#call async-byte-read1-poll (: task (#borrow task))))
+    (#call async-byte-read1-poll (: task (#borrow-mut task))))
   (#let second-wait AsyncByteReadWait1
     (#call async-byte-read1-wait (: task (#borrow task))))
   (#let second AsyncByteReadPoll1
-    (#call async-byte-read1-poll (: task (#borrow task))))
+    (#call async-byte-read1-poll (: task (#borrow-mut task))))
   (#let destroyed #i64 (#call async-byte-read1-destroy (: task task)))
   (#let read-second #bool (#match second
     (#case (AsyncByteReadReady1 value) (#bool.&& (#u8.== value 66u8)

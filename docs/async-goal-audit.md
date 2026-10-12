@@ -795,6 +795,64 @@ it is not a new paired whole-compiler speedup measurement.
 
 ## Historical migration verification record
 
+### Heap payload provenance and exclusive transfer permissions
+
+Pinned payload getters now project the evaluated receiver's address rather than
+requiring a lexical place. This covers a computed `#pin-own-borrow-mut` receiver
+and all four checked/unchecked shared/exclusive payload getters. Event-sensitive
+analysis uses the receiver's recorded evaluation snapshot. Selected retained
+reference slots keep their real external pointees; payload offsets belong to
+the container address, not to those pointees. Unrelated sibling slots are not
+carried into the selected payload.
+
+The previously ignored ordinary heap partial-restoration test is enabled. Like
+its stack counterpart, it consumes and restores a linear sibling while retaining
+a reference-bearing field's storage address, then compares that address and
+reads the original caller reference. Cold and warm native runs return 42 with
+identical assembly. Both provenance solvers have direct origin-identity tests.
+This establishes the ordinary heap foundation, not contiguous async storage.
+
+Shared views now clamp the permissions of loaded allocation contents. Transfer
+validation also requires exclusive permission for directly transferred mutable
+reference slots; a matching lifetime or storage path alone is insufficient.
+Slots behind another reference boundary describe stored contents, not permission
+granted by the outer handle. Lifetime-only anchors receive no new exception.
+A regression rejects lending an exclusive nested reference through a shared
+heap payload and accepts the equivalent exclusive payload projection.
+
+This check exposed stdin polling through a shared task holder. The library poll
+API now requires `(#ref-mut AsyncByteRead1)`, and all four affected examples use
+explicit mutable task locals and mutable polling borrows. Read-only generated
+array/address probes likewise no longer require the original parameter's
+exclusive handle: shared reborrows and shared helper signatures express their
+actual geometry-only access. Writable projection helpers remain exclusive.
+
+Pinned external captures retain their pinned type in projection, bounds and
+factory recipes. Nested slice probes take shared reborrows even when their
+source descriptor is exclusive. Lexical payload projections retain their
+existing place-based reborrow contract; computed heap receivers use evaluated
+address provenance rather than inventing a lexical holder.
+
+Verification: all 1,408 library tests pass (eight existing ignored tests), as do
+all-target checking, formatting and whitespace checks. The broad async run
+passes 234 tests with two explicitly filtered failures: loop-body restoration
+through borrowed places and deep-field borrow permissions. Both failures were
+reproduced unchanged in an isolated copy of committed HEAD, so they remain
+separate follow-up work rather than being hidden by this milestone. A frame
+restoration test also fails in that baseline because it still searches for the
+old tagged Owner cell after the word-storage conversion.
+
+All 26 self-borrow tests and the generator-boundary, heap-contents, nested-field,
+reference-release, contiguous-storage, dependent-cancellation, graph-production,
+checked-expansion, native I/O, syscall coverage, timer, waker, raw-reference,
+heap-reference and unchecked-payload suites pass. All seventeen word-storage
+tests pass serially; a parallel launch encountered `ETXTBSY`. A heavily parallel
+async run also hit launch races and bounded harness timeouts; the four-thread
+234-test rerun above passed. This is not a claim that the whole test suite or
+async goal is complete.
+
+The reference-bearing contiguous async completion gate below remains open.
+
 ### Preserve exclusive parentage through exact pointer round trips
 
 An exact pointer round trip from an exclusive reference now records that named

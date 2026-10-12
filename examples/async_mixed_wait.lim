@@ -13,8 +13,9 @@
   (#let read-created AsyncByteReadCreate1
     (#call async-byte-read1-create
       (: fd 0i64 : destination (#borrow-mut byte))))
-  (#let-else (AsyncByteReadCreated1 read-task) AsyncByteReadCreate1
+  (#let-else (AsyncByteReadCreated1 initial-read-task) AsyncByteReadCreate1
     read-created (#unreachable))
+  (#let-mut read-task AsyncByteRead1 initial-read-task)
 
   (#let timer-source AsyncPollSource4
     (#call timer-reactor1-source (: timer (#borrow timer))))
@@ -60,7 +61,7 @@
 
   (#let read-ready AsyncByteReadPoll1
     (#if (#u32.!= (#u32.& first-mask 2u32) 0u32)
-      (#call async-byte-read1-poll (: task (#borrow read-task)))
+      (#call async-byte-read1-poll (: task (#borrow-mut read-task)))
       (#block
         (#let read-array (#array AsyncPollSource4 1)
           (#array-of (#array AsyncPollSource4 1) (#clone read-source)))
@@ -69,7 +70,7 @@
         (#let read-wait AsyncPoll4Result
           (#call async-poll4-wait
             (: sources read-sources : timeout-ms -1i32)))
-        (#call async-byte-read1-poll (: task (#borrow read-task))))))
+        (#call async-byte-read1-poll (: task (#borrow-mut read-task))))))
 
   (#let timer-ok #bool (#match timer-ready
     (#case (TimerReady1 count) (#u64.>= count 1u64))
