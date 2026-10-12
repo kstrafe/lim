@@ -1307,3 +1307,37 @@ the verified compiler unchanged rather than accepting the regressions or
 weakening permission checks. Returning the contained reference after projecting
 inside a helper works; returning the projected holder for a caller to load later
 remains an explicit unfinished case.
+
+### Projected holder returns preserve existing caller contents
+
+The returned-holder case above is now supported without expanding unknown
+parameter contents at every borrow. Applying an address-return summary selects
+matching slots from the caller's existing contained-reference metadata. It
+removes the selected container prefix while preserving each external pointee's
+own identity, permissions and pin flag. It discards contents of unselected
+fields instead of appending the holder's physical field offsets to those
+pointees. Ordinary referent read/write and restoration contracts remain unchanged.
+
+The imported nested word-view regression now covers both a helper returning the
+contained reference and one returning the projected holder for a subsequent
+caller-side load. Cold and warm assemblies match and both variants reject caller
+mutation while the restored loan remains live. A native two-helper forwarding
+chain returns 42, rejects mutation of the pointee and still refuses to recover a
+reference from numeric words without known reference contents. Semantic-cache
+version eight invalidates earlier summary application results.
+
+Re-enabling whole reference-bearing holder word conversion now gets past the
+previous malformed self-loan field projection in the local-self-reference test,
+but still fails at the caller's first poll with unresolved referent entry inputs.
+The conversion remains disabled, and its failed focused run is not verification.
+Caller entry requirements and state-dependent numeric slot initialization remain
+the next storage-contract issue; the passing returned-holder fix does not prove
+that broader conversion, guard/cancellation coverage or the whole async goal.
+
+Verification passes 1,413 library tests (eight existing ignored), all 236 async
+integration tests, seventeen contiguous-storage tests, fourteen dependent
+cancellation tests, 26 self-borrow tests, fourteen semantic-cache tests, 34
+word-storage tests and three UI tests. All-target checking, formatting and diff
+checks pass. The full async integration run completed with a stable compiler
+binary; the focused failed broader-conversion experiment was removed before the
+final integration builds.

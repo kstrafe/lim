@@ -11865,6 +11865,31 @@ fn apply_return_loan_summary(
     state: &LoanState,
     events: Option<(&FlowGraph, LoanSnapshots<'_>)>,
 ) -> Vec<LoanOrigin> {
+    if summary.input_storage.is_empty()
+        && !summary.referent_projection.is_empty()
+        && origin.storage.first() == Some(&Segment::Dereference)
+    {
+        // A return projecting the argument's address selects its contained
+        // reference slots. The same field offsets are not projections from
+        // those references' external pointees.
+        let mut contents = origin;
+        contents.drain_storage(1);
+        for projection in &summary.referent_projection {
+            if !contents
+                .storage
+                .first()
+                .is_some_and(|held| storage_slot_matches(projection, held))
+            {
+                return Vec::new();
+            }
+            contents.project_storage(projection);
+        }
+        contents.prepend_storage(&[Segment::Dereference]);
+        contents.mutable &= summary.mutable;
+        let mut selected = summary.clone();
+        selected.referent_projection.clear();
+        return apply_parameter_loan_summary(contents, &selected, state);
+    }
     if summary.mutable
         && origin.mutable
         && summary.input_storage.is_empty()

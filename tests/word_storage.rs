@@ -195,6 +195,28 @@ fn nested_word_view_field_addresses_keep_external_pointees_separate() {
         (#forget restored) (#forget slot) (#forget field) (#forget owner)
         (#forget words) (#return answer))";
     run(source);
+    let helpers = "(#fn field (: owner (#pin-ref Outer)) (#pin-ref Inner)
+        (#return (#pin-borrow (#get owner inner))))
+      (#fn forwarded (: owner (#pin-ref Outer)) (#pin-ref Inner)
+        (#return (#call field (: owner owner))))";
+    let forwarded = format!("{helpers}\n{source}").replace(
+        "(#pin-borrow (#get owner inner)))\n        (#let slot",
+        "(#call forwarded (: owner owner)))\n        (#let slot",
+    );
+    assert_ne!(forwarded, format!("{helpers}\n{source}"));
+    run(&forwarded);
+    let invalid = forwarded.replace("(#let answer", "(#set seed 0u64) (#let answer");
+    assert_eq!(compile(&invalid).unwrap_err().code, DiagnosticCode::Borrow);
+    let untracked_forwarded = forwarded.replace(
+        "(#unsafe (#word-write Outer (#borrow-slice-mut words)
+          (#struct-literal Outer (: inner
+            (#struct-literal Inner (: value (#borrow seed)))))))",
+        "(#unsafe (#word-write #u64 (#borrow-slice-mut words) 0u64))",
+    );
+    assert_eq!(
+        compile(&untracked_forwarded).unwrap_err().code,
+        DiagnosticCode::Linear
+    );
     for invalid in [
         source.replace("(#let answer", "(#set seed 0u64) (#let answer"),
         source

@@ -189,7 +189,9 @@ fn imported_nested_word_view_projection_preserves_loans_after_cache_hits() {
            (#let projected (#pin-ref Inner) (#pin-borrow (#get owner inner)))
            (#let slot (#pin-ref (#ref #u64)) (#pin-borrow (#get projected value)))
            (#let result (#ref #u64) (#deref slot))
-           (#forget slot) (#forget projected) (#return result))",
+           (#forget slot) (#forget projected) (#return result))
+         (#fn field (: owner (#pin-ref Outer)) (#pin-ref Inner)
+           (#return (#pin-borrow (#get owner inner))))",
     )
     .unwrap();
     let source = "(#import \"lib.lim\")
@@ -206,15 +208,28 @@ fn imported_nested_word_view_projection_preserves_loans_after_cache_hits() {
         (#forget restored) (#forget owner)
         (#forget words) (#return answer))";
     let config = CompileConfig::default();
-    let (cold, _) = compile(dir, source, &config);
-    let (warm, report) = compile(dir, source, &config);
-    assert_eq!(cold.unwrap(), warm.unwrap());
-    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
-    let invalid = source.replace("(#let answer", "(#set seed 0u64) (#let answer");
-    let cold_error = compile(dir, &invalid, &config).0.unwrap_err();
-    let warm_error = compile(dir, &invalid, &config).0.unwrap_err();
-    assert_eq!(cold_error, warm_error);
-    assert_eq!(cold_error.code, lim::DiagnosticCode::Borrow);
+    let holder = source
+        .replace(
+            "(#let restored (#ref #u64) (#call read (: owner owner)))",
+            "(#let projected (#pin-ref Inner) (#call field (: owner owner)))
+             (#let slot (#pin-ref (#ref #u64)) (#pin-borrow (#get projected value)))
+             (#let restored (#ref #u64) (#deref slot))",
+        )
+        .replace(
+            "(#forget owner)",
+            "(#forget slot) (#forget projected) (#forget owner)",
+        );
+    for source in [source, holder.as_str()] {
+        let (cold, _) = compile(dir, source, &config);
+        let (warm, report) = compile(dir, source, &config);
+        assert_eq!(cold.unwrap(), warm.unwrap());
+        assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+        let invalid = source.replace("(#let answer", "(#set seed 0u64) (#let answer");
+        let cold_error = compile(dir, &invalid, &config).0.unwrap_err();
+        let warm_error = compile(dir, &invalid, &config).0.unwrap_err();
+        assert_eq!(cold_error, warm_error);
+        assert_eq!(cold_error.code, lim::DiagnosticCode::Borrow);
+    }
 }
 
 #[test]
