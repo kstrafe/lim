@@ -1254,3 +1254,32 @@ word-storage tests and three UI tests. The UI case checks exact underline width
 and alignment for the offending reference write. All-target checking, formatting
 and diff checks pass. Two word-storage launches in an additional parallel run
 hit Linux ETXTBSY; the unchanged entire word-storage suite passes serially.
+
+### Nested word-view addresses and retained pointees
+
+Address projection now distinguishes an inline field address from reference
+contents carried alongside that address for local and parameter roots, not only
+heap allocations. Selecting a nested field advances the address's physical path;
+the selected field's retained external pointees keep their own paths. Neighboring
+field contents are discarded. Borrowing the projected container also cannot
+upgrade a stored ordinary reference into a pinned reference or increase its
+mutability.
+
+A native nested-struct word-view regression reads 42 through two separately
+borrowed field addresses. Its negative controls reject mutation of the retained
+pointee, destruction of backing words before loading the reference, reference
+recovery from untracked numeric bytes, and a pinned type substituted for the
+stored ordinary reference. An imported helper performs the nested projections
+and returns the contained reference; cold and warm semantic-cache compilations
+produce identical assembly and reject the same pointee mutation. Semantic-cache
+version seven invalidates summaries built with the earlier address rule.
+
+Re-enabling whole reference-bearing holder conversion exposed further issues:
+returning a projected holder address from a helper can lose contained-slot
+metadata, while an attempted symbolic-content expansion duplicates return
+summaries and can attach aggregate field paths beyond an external scalar
+reference. Treating that metadata as additional pin-read/write destinations also
+confuses move/restore tracking. The broad conversion and speculative summary
+changes were removed; these failures remain work, not supported cases or
+completion of the async goal. The fix above does not invent initialized
+references from type shape or weaken the ordinary self-loan validator.

@@ -178,6 +178,46 @@ fn imported_by_value_word_reader_preserves_requirements_after_cache_hits() {
 }
 
 #[test]
+fn imported_nested_word_view_projection_preserves_loans_after_cache_hits() {
+    let scratch = support::Scratch::new("semantic-word-view-projection");
+    let dir = scratch.path();
+    fs::write(
+        dir.join("lib.lim"),
+        "(#struct Inner (: value (#ref #u64)))
+         (#struct Outer (: inner Inner))
+         (#fn read (: owner (#pin-ref Outer)) (#ref #u64)
+           (#let projected (#pin-ref Inner) (#pin-borrow (#get owner inner)))
+           (#let slot (#pin-ref (#ref #u64)) (#pin-borrow (#get projected value)))
+           (#let result (#ref #u64) (#deref slot))
+           (#forget slot) (#forget projected) (#return result))",
+    )
+    .unwrap();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut seed #u64 42u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Outer (#borrow-slice-mut words)
+          (#struct-literal Outer (: inner
+            (#struct-literal Inner (: value (#borrow seed)))))))
+        (#let owner (#pin-ref Outer) (#unsafe
+          (#word-view (#pin-ref Outer) (#borrow-slice words))))
+        (#let restored (#ref #u64) (#call read (: owner owner)))
+        (#let answer #u64 (#deref restored))
+        (#forget restored) (#forget owner)
+        (#forget words) (#return answer))";
+    let config = CompileConfig::default();
+    let (cold, _) = compile(dir, source, &config);
+    let (warm, report) = compile(dir, source, &config);
+    assert_eq!(cold.unwrap(), warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+    let invalid = source.replace("(#let answer", "(#set seed 0u64) (#let answer");
+    let cold_error = compile(dir, &invalid, &config).0.unwrap_err();
+    let warm_error = compile(dir, &invalid, &config).0.unwrap_err();
+    assert_eq!(cold_error, warm_error);
+    assert_eq!(cold_error.code, lim::DiagnosticCode::Borrow);
+}
+
+#[test]
 fn transitive_dependency_root_cfg_and_type_changes_invalidate() {
     let scratch = support::Scratch::new("semantic-invalidation");
     let dir = scratch.path();

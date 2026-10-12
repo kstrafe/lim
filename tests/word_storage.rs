@@ -177,6 +177,52 @@ fn zero_word_markers_do_not_exhaust_native_return_registers() {
 }
 
 #[test]
+fn nested_word_view_field_addresses_keep_external_pointees_separate() {
+    let source = "(#struct Inner (: value (#ref #u64)))
+      (#struct Outer (: inner Inner))
+      (#fn main () #u64
+        (#let-mut seed #u64 42u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Outer (#borrow-slice-mut words)
+          (#struct-literal Outer (: inner
+            (#struct-literal Inner (: value (#borrow seed)))))))
+        (#let owner (#pin-ref Outer) (#unsafe
+          (#word-view (#pin-ref Outer) (#borrow-slice words))))
+        (#let field (#pin-ref Inner) (#pin-borrow (#get owner inner)))
+        (#let slot (#pin-ref (#ref #u64)) (#pin-borrow (#get field value)))
+        (#let restored (#ref #u64) (#deref slot))
+        (#let answer #u64 (#deref restored))
+        (#forget restored) (#forget slot) (#forget field) (#forget owner)
+        (#forget words) (#return answer))";
+    run(source);
+    for invalid in [
+        source.replace("(#let answer", "(#set seed 0u64) (#let answer"),
+        source
+            .replace("(#let restored", "(#forget words) (#let restored")
+            .replace("(#forget words) (#return answer)", "(#return answer)"),
+    ] {
+        let error = compile(&invalid).unwrap_err();
+        assert_eq!(error.code, DiagnosticCode::Borrow, "{error:?}");
+    }
+    let untracked = source.replace(
+        "(#unsafe (#word-write Outer (#borrow-slice-mut words)
+          (#struct-literal Outer (: inner
+            (#struct-literal Inner (: value (#borrow seed)))))))",
+        "(#unsafe (#word-write #u64 (#borrow-slice-mut words) 0u64))",
+    );
+    let error = compile(&untracked).unwrap_err();
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+    assert!(error.message.contains("provenance"), "{error:?}");
+
+    // Pinning the container does not pin its stored ordinary reference.
+    let upgraded = source.replace(
+        "(#let restored (#ref #u64)",
+        "(#let restored (#pin-ref #u64)",
+    );
+    assert_eq!(compile(&upgraded).unwrap_err().code, DiagnosticCode::Type);
+}
+
+#[test]
 fn typed_reference_holder_lends_its_word_view_without_duplicating_the_loan() {
     let source = "(#struct Holder (: view (#ref-mut #u64)))
       (#fn touch (: target (#ref-mut #u64)) ()

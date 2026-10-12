@@ -13709,15 +13709,22 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 places
                     .into_iter()
                     .map(|mut origin| {
-                        origin.borrowed_from = borrowed_from;
-                        origin.call_reborrow = false;
-                        origin.mutable =
-                            matches!(head.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut");
-                        origin.pinned |= matches!(
-                            head.as_str(),
-                            "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
-                        );
-                        origin.span = node.span;
+                        if origin.storage.is_empty() {
+                            origin.borrowed_from = borrowed_from;
+                            origin.call_reborrow = false;
+                            origin.mutable =
+                                matches!(head.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut");
+                            origin.pinned |= matches!(
+                                head.as_str(),
+                                "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
+                            );
+                            origin.span = node.span;
+                        } else {
+                            // Borrowing this container cannot upgrade the
+                            // mutability or pinning of a stored pointee.
+                            origin.mutable &=
+                                matches!(head.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut");
+                        }
                         origin
                     })
                     .collect()
@@ -14304,15 +14311,20 @@ fn value_loan_origins_at_events(
             return borrow_address_origins(body, children[1], state, Some((flow, before)))
                 .into_iter()
                 .map(|mut origin| {
-                    origin.borrowed_from = borrowed_from;
-                    origin.call_reborrow = false;
-                    origin.mutable =
-                        matches!(head.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut");
-                    origin.pinned |= matches!(
-                        head.as_str(),
-                        "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
-                    );
-                    origin.span = body.nodes[value.0].span;
+                    if origin.storage.is_empty() {
+                        origin.borrowed_from = borrowed_from;
+                        origin.call_reborrow = false;
+                        origin.mutable =
+                            matches!(head.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut");
+                        origin.pinned |= matches!(
+                            head.as_str(),
+                            "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
+                        );
+                        origin.span = body.nodes[value.0].span;
+                    } else {
+                        origin.mutable &=
+                            matches!(head.as_str(), "pin" | "borrow-mut" | "pin-borrow-mut");
+                    }
                     origin
                 })
                 .collect();
@@ -14719,7 +14731,7 @@ fn borrow_address_origins(
                 // containing field is not a physical prefix of its pointee.
                 // Projecting owned inline storage instead preserves its
                 // address, including a field holding a reference handle.
-                let mut origins = if matches!(
+                let origins = if matches!(
                     body.nodes[base.0].ty,
                     Some(Type::Reference { .. } | Type::PinnedReference { .. })
                 ) {
@@ -14727,15 +14739,6 @@ fn borrow_address_origins(
                 } else {
                     borrow_address_origins(body, base, state, events)
                 };
-                if !origins
-                    .iter()
-                    .any(|origin| matches!(origin.place.root, PlaceRoot::Allocation(..)))
-                {
-                    for origin in &mut origins {
-                        origin.place.segments.push(slot.clone());
-                    }
-                    return origins;
-                }
                 return origins
                     .into_iter()
                     .filter_map(|mut origin| {
