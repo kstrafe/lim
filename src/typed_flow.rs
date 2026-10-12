@@ -3295,6 +3295,8 @@ impl FlowGraph {
                     | "get-payload"
                     | "pin-get-payload"
                     | "pin-get-payload-mut"
+                    | "pin-get-payload-unchecked"
+                    | "pin-get-payload-unchecked-mut"
                     | "index"
                     | "borrow"
                     | "borrow-mut"
@@ -7112,6 +7114,8 @@ impl FlowGraph {
                         | "get-payload"
                         | "pin-get-payload"
                         | "pin-get-payload-mut"
+                        | "pin-get-payload-unchecked"
+                        | "pin-get-payload-unchecked-mut"
                         | "index"
                         | "borrow"
                         | "borrow-mut"
@@ -10064,10 +10068,14 @@ impl FlowGraph {
                             head.as_str(),
                             "pin" | "borrow-mut" | "pin-borrow-mut" | "pin-own-borrow-mut"
                         ) == *mutable;
-                    let pinned_payload_form =
-                        matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut")
-                            && children.len() == 4
-                            && (head == "pin-get-payload-mut") == *mutable;
+                    let pinned_payload_form = matches!(
+                        head.as_str(),
+                        "pin-get-payload"
+                            | "pin-get-payload-mut"
+                            | "pin-get-payload-unchecked"
+                            | "pin-get-payload-unchecked-mut"
+                    ) && children.len() == 4
+                        && head.ends_with("-mut") == *mutable;
                     let slice_form = (matches!(head.as_str(), "slice-idx" | "slice-mut-idx")
                         && children.len() == 3
                         || matches!(head.as_str(), "borrow-slice" | "borrow-slice-mut")
@@ -13014,7 +13022,13 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             )
         }
         NodeKind::Form { head, .. }
-            if matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut") =>
+            if matches!(
+                head.as_str(),
+                "pin-get-payload"
+                    | "pin-get-payload-mut"
+                    | "pin-get-payload-unchecked"
+                    | "pin-get-payload-unchecked-mut"
+            ) =>
         {
             let Some(place) = Place::from_expression(body, id) else {
                 return Vec::new();
@@ -13862,6 +13876,8 @@ fn tag_preserving_evaluation(
                         | "get-payload"
                         | "pin-get-payload"
                         | "pin-get-payload-mut"
+                        | "pin-get-payload-unchecked"
+                        | "pin-get-payload-unchecked-mut"
                         | "index"
                         | "assert"
                         | "borrow"
@@ -15391,8 +15407,13 @@ impl Builder<'_> {
                 Ok(self.push(FlowAction::Diverge, span, vec![]))
             }
             NodeKind::Form { head, children, .. }
-                if matches!(head.as_str(), "pin-get-payload" | "pin-get-payload-mut")
-                    && children.len() == 4 =>
+                if matches!(
+                    head.as_str(),
+                    "pin-get-payload"
+                        | "pin-get-payload-mut"
+                        | "pin-get-payload-unchecked"
+                        | "pin-get-payload-unchecked-mut"
+                ) && children.len() == 4 =>
             {
                 let action = Place::from_expression(self.body, id).map_or(
                     FlowAction::Evaluate(id),

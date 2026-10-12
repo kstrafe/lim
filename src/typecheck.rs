@@ -7035,6 +7035,9 @@ fn list_expression(
                 | "get-payload"
                 | "#variant-is"
                 | "pin-get-payload"
+                | "pin-get-payload-mut"
+                | "pin-get-payload-unchecked"
+                | "pin-get-payload-unchecked-mut"
                 | "index"
                 | "match"
                 | "clone"
@@ -8993,7 +8996,10 @@ fn list_expression(
                 .at(ErrorSite::Argument("get-payload".into(), 3))
             })
         }
-        "pin-get-payload" | "pin-get-payload-mut" => {
+        "pin-get-payload"
+        | "pin-get-payload-mut"
+        | "pin-get-payload-unchecked"
+        | "pin-get-payload-unchecked-mut" => {
             require_arity(operator, items, 4)?;
             let base = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
@@ -9003,26 +9009,26 @@ fn list_expression(
                 target,
             } = base
             else {
-                return Err("pin-get-payload requires a pinned enum reference".into());
+                return Err(format!("{operator} requires a pinned enum reference").into());
             };
             let Type::Named(enum_name) = *target else {
-                return Err("pin-get-payload requires a pinned reference to an enum".into());
+                return Err(format!("{operator} requires a pinned reference to an enum").into());
             };
-            let mutable = operator == "pin-get-payload-mut";
+            let mutable = operator.ends_with("-mut");
             if mutable && !base_mutable {
-                return Err(borrow_error(
-                    "pin-get-payload-mut requires a mutable pinned enum reference",
-                ));
+                return Err(borrow_error(&format!(
+                    "{operator} requires a mutable pinned enum reference",
+                )));
             }
             let Expr::Symbol(variant_name) = &items[2] else {
-                return Err("pin-get-payload requires a variant name".into());
+                return Err(format!("{operator} requires a variant name").into());
             };
             let index = match &items[3] {
                 Expr::Integer(index) if *index >= 0 => usize::try_from(*index)
                     .map_err(|_| "enum payload index is too large".to_owned())?,
                 Expr::UnsignedInteger(index) => usize::try_from(*index)
                     .map_err(|_| "enum payload index is too large".to_owned())?,
-                _ => return Err("pin-get-payload requires a non-negative integer index".into()),
+                _ => return Err(format!("{operator} requires a non-negative integer index").into()),
             };
             let field_type = enums
                 .get(&enum_name)
@@ -9035,7 +9041,7 @@ fn list_expression(
                     )
                 })?;
             if !is_reference_target(&field_type) {
-                return Err("pin-get-payload cannot borrow a unit or never value".into());
+                return Err(format!("{operator} cannot borrow a unit or never value").into());
             }
             Ok(Type::PinnedReference {
                 mutable,
@@ -9229,7 +9235,7 @@ fn projection_root(expression: &Expr) -> Option<&Expr> {
         // field instead of walking through the enum's by-value owner.
         Expr::List(items)
             if items.len() == 4
-                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "pin-get-payload" | "pin-get-payload-mut")) =>
+                && matches!(items.first(), Some(Expr::Symbol(name)) if matches!(name.as_str(), "pin-get-payload" | "pin-get-payload-mut" | "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut")) =>
         {
             Some(expression)
         }

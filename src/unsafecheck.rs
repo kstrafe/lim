@@ -207,6 +207,8 @@ fn check_expression(
                         | "pin-ptr-borrow"
                         | "pin-ptr-borrow-mut"
                         | "pin-read"
+                        | "pin-get-payload-unchecked"
+                        | "pin-get-payload-unchecked-mut"
                         | "pin-write"
                         | "pin-own-of"
                         | "pin-release"

@@ -182,6 +182,18 @@ repeated cancellation, exact address identity, and invalid accesses/escapes.
 This proposal added no keywords. The selected direction above instead relies
 on checked async lowering to justify unsafe implementation operations.
 
+The first implementation step introduces general unsafe
+`#pin-get-payload-unchecked` and `#pin-get-payload-unchecked-mut` projections.
+They preserve actual projected loan origins and native stack/heap reference
+layout, but omit the active-variant guard. The caller must prove the variant
+and payload initialization; unsafe does not bypass borrowing or lifetimes.
+Generated Copy/raw slot peek helpers now use these projections and are
+explicitly unsafe functions called from generated unsafe blocks. Original
+source validation still runs on cold and warm expansion. Generated frames
+are opaque so safe clients cannot modify the fields that establish this proof.
+Empty/Full cell tags, guarded transfers and conditional cleanup still exist:
+this step does not complete contiguous payload storage or state specialization.
+
 Deep scalar borrows within independently stored aggregate leaves now lower to
 references rooted in their actual field cells. Field/tuple/static-index/runtime-
 index tests cover shared/exclusive ordinary and pinned references, disjoint

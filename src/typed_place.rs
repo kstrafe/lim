@@ -87,7 +87,11 @@ impl Place {
                             usize::try_from(literal_index(body, children[2])?).ok()?,
                         )),
                     },
-                    "get-payload" | "pin-get-payload" | "pin-get-payload-mut"
+                    "get-payload"
+                    | "pin-get-payload"
+                    | "pin-get-payload-mut"
+                    | "pin-get-payload-unchecked"
+                    | "pin-get-payload-unchecked-mut"
                         if children.len() == 4 =>
                     {
                         let NodeKind::Declaration(DeclarationId::Variant(variant)) =
@@ -270,7 +274,13 @@ pub(crate) fn reads_through_reference(body: &Body, value: NodeId) -> bool {
         NodeKind::Form { head, children, .. }
             if matches!(
                 head.as_str(),
-                "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
+                "get"
+                    | "get-payload"
+                    | "pin-get-payload"
+                    | "pin-get-payload-mut"
+                    | "pin-get-payload-unchecked"
+                    | "pin-get-payload-unchecked-mut"
+                    | "index"
             ) =>
         {
             children

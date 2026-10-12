@@ -1846,7 +1846,13 @@ fn returned_borrows_with_bindings(
         NodeKind::Form { head, children, .. }
             if matches!(
                 head.as_str(),
-                "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
+                "get"
+                    | "get-payload"
+                    | "pin-get-payload"
+                    | "pin-get-payload-mut"
+                    | "pin-get-payload-unchecked"
+                    | "pin-get-payload-unchecked-mut"
+                    | "index"
             ) =>
         {
             let Some(slot) =

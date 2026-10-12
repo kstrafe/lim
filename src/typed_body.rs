@@ -2346,6 +2346,8 @@ impl Builder<'_> {
                 | "get-payload"
                 | "pin-get-payload"
                 | "pin-get-payload-mut"
+                | "pin-get-payload-unchecked"
+                | "pin-get-payload-unchecked-mut"
                 | "pin-set-field"
                 | "#variant-is"
         ) {
@@ -2355,7 +2357,11 @@ impl Builder<'_> {
                 .and_then(|owner| {
                     if matches!(
                         head.as_str(),
-                        "pin-get-payload" | "pin-get-payload-mut" | "#variant-is"
+                        "pin-get-payload"
+                            | "pin-get-payload-mut"
+                            | "pin-get-payload-unchecked"
+                            | "pin-get-payload-unchecked-mut"
+                            | "#variant-is"
                     ) {
                         match owner {
                             Type::PinnedReference { target, .. } => Some(target.as_ref()),

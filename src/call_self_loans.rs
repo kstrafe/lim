@@ -760,7 +760,7 @@ fn access_uses_alias_storage(body: &Body, alias: &Alias, access: &LoanOrigin) ->
     if !matches!(
         node.kind,
         NodeKind::Form { head: ref name, .. }
-            if matches!(name.as_str(), "pin-get-payload" | "pin-get-payload-mut")
+            if matches!(name.as_str(), "pin-get-payload" | "pin-get-payload-mut" | "pin-get-payload-unchecked" | "pin-get-payload-unchecked-mut")
     ) {
         return false;
     }

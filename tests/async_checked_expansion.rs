@@ -92,3 +92,74 @@ fn cached_generator_output_never_certifies_changed_user_code() {
         assert!(invalid[span.start..span.end].contains("true"));
     }
 }
+
+#[test]
+fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
+    let scratch = support::Scratch::new("checked-expansion-private");
+    let path = scratch.path().join("input.lim");
+    let cache = scratch.path().join("cache");
+    let compile = |source: &str| {
+        lim::compile_source_to_assembly(
+            source,
+            &path,
+            &config(),
+            &cache,
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+    };
+    let generated = scratch.path().join("generated");
+    let invocation = lim::parse(SOURCE)
+        .unwrap()
+        .into_iter()
+        .find(|node| SOURCE[node.span.start..node.span.end].starts_with("(@#async-fn"))
+        .unwrap();
+    // Also import the inspectable output as ordinary Lim: source planning must
+    // not be the only thing preventing edits to the generated representation.
+    for _ in 0..2 {
+        lim::write_generated_sources_from_path_with_config_and_cache(
+            SOURCE,
+            &path,
+            &generated,
+            &config(),
+            &cache,
+        )
+        .unwrap();
+        let artifact = fs::read_dir(&generated)
+            .unwrap()
+            .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+            .find(|text| text.contains("(#fn work-poll "))
+            .unwrap();
+        let module = format!("{}\n{artifact}", &SOURCE[..invocation.span.start]);
+        assert!(lim::parse_program(&module).unwrap().items.iter().any(|item|
+            matches!(item, lim::Item::OpaqueAnnotation { type_name } if type_name == "Work-task")
+        ), "{artifact}");
+        assert!(artifact.contains("#pin-get-payload-unchecked"));
+        fs::write(scratch.path().join("frame.lim"), module).unwrap();
+        let caller = format!(
+            "(#import \"frame.lim\")\n{}",
+            &SOURCE[invocation.span.end..]
+        );
+        compile(&caller).unwrap();
+        for (edit, receiver, offending) in [
+            ("(#let pc #u32 (#get next pc)) (#forget pc)", "next", "pc"),
+            (
+                "(#let-mut modified Work-task next) (#set-field modified pc 0u32)",
+                "modified",
+                "(#set-field modified pc 0u32)",
+            ),
+        ] {
+            let invalid = caller
+                .replace(
+                    "(#let-else (work-pending next) Work-poll-result first (#unreachable))",
+                    &format!(
+                    "(#let-else (work-pending next) Work-poll-result first (#unreachable)) {edit}"
+                ),
+                )
+                .replace(": task next", &format!(": task {receiver}"));
+            let diagnostic = compile(&invalid).unwrap_err();
+            assert!(diagnostic.message.contains("opaque"), "{diagnostic:?}");
+            let span = diagnostic.span.expect("opaque field span");
+            assert_eq!(&invalid[span.start..span.end], offending);
+        }
+    }
+}

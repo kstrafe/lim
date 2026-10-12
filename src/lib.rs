@@ -4594,6 +4594,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "variant-is"
             | "pin-get-payload"
             | "pin-get-payload-mut"
+            | "pin-get-payload-unchecked"
+            | "pin-get-payload-unchecked-mut"
             | "size-of"
             | "align-of"
             | "offset-of"

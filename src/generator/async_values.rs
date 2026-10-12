@@ -541,12 +541,24 @@ impl Walker<'_> {
     ) -> Result<(), Error> {
         match head {
             "literal" | "size-of" | "align-of" | "offset-of" | "panic" | "unreachable" => Ok(()),
-            "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "index"
+            "get"
+            | "get-payload"
+            | "pin-get-payload"
+            | "pin-get-payload-mut"
+            | "pin-get-payload-unchecked"
+            | "pin-get-payload-unchecked-mut"
+            | "index"
                 if Place::from_expression(self.body, value).is_some() =>
             {
                 self.place(value, &mut held.to_vec(), true)
             }
-            "get" | "get-payload" | "pin-get-payload" | "pin-get-payload-mut" | "as"
+            "get"
+            | "get-payload"
+            | "pin-get-payload"
+            | "pin-get-payload-mut"
+            | "pin-get-payload-unchecked"
+            | "pin-get-payload-unchecked-mut"
+            | "as"
                 if children.len() >= 2 =>
             {
                 self.expression(children[1], held)
@@ -621,6 +633,8 @@ impl Walker<'_> {
                         | "get-payload"
                         | "pin-get-payload"
                         | "pin-get-payload-mut"
+                        | "pin-get-payload-unchecked"
+                        | "pin-get-payload-unchecked-mut"
                         | "index"
                         | "slice-idx"
                         | "slice-mut-idx"

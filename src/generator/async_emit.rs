@@ -1176,7 +1176,7 @@ impl<'a> Emitter<'a> {
                 )
             } else {
                 format!(
-                    "(#call {} (: slot {}))",
+                    "(#unsafe (#call {} (: slot {})))",
                     slot.peek,
                     Self::slot_ref(slot, false)
                 )
@@ -1194,7 +1194,7 @@ impl<'a> Emitter<'a> {
         }
         if slot.copy && (!transfer || self.types.contains_reference(&slot.ty)) {
             format!(
-                "(#call {} (: slot {}))",
+                "(#unsafe (#call {} (: slot {})))",
                 slot.peek,
                 Self::slot_ref(slot, false)
             )
@@ -1728,9 +1728,12 @@ impl<'a> Emitter<'a> {
                 format!("(#assert (#variant-is slot {}))", slot.empty)
             } else { String::new() };
             let peek = if slot.copy || slot.raw {
-                let read = format!("(#deref (#pin-get-payload slot {} 0))", slot.full);
+                // Source ownership and graph initialization justify this
+                // unchecked access; frame opacity protects those invariants
+                // at the safe public poll boundary. Pinning alone does not.
+                let read = format!("(#deref (#pin-get-payload-unchecked slot {} 0))", slot.full);
                 let read = if slot.raw { format!("(#clone {read})") } else { read };
-                format!("(#fn {} ((slot (#pin-ref {}))) {ty}\n  (#return {read}))", slot.peek, slot.name)
+                format!("; Caller proves this cell Full through checked async flow.\n(#unsafe-fn {} ((slot (#pin-ref {}))) {ty}\n  (#return (#unsafe {read})))", slot.peek, slot.name)
             } else { String::new() };
             if slot.copy && self.types.contains_reference(&slot.storage) {
                 // A shared handle is copied, not extracted through a moving
@@ -5356,7 +5359,7 @@ impl<'a> Emitter<'a> {
         };
         let source = format!(
             "{}\n\
-          (#struct {} ((pc #u32) {fields}))\n(#linear {})\n\
+          (#struct {} ((pc #u32) {fields}))\n(#linear {})\n(#opaque {})\n\
           (#enum {} (({} {}) ({} {})))\n\
           (#fn {} ({signature}) {}\n\
             {}\n\
@@ -5367,6 +5370,7 @@ impl<'a> Emitter<'a> {
             (#loop (#match (#get task pc) {} (#case _ (#unreachable))))\n\
             (#return (#unreachable)))\n",
             self.slot_definitions(),
+            self.frame,
             self.frame,
             self.frame,
             self.poll_type,
@@ -7643,7 +7647,6 @@ mod tests {
                 (#call cancel-state (: state state : count (#borrow destroyed)))
                 (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {constructed}u64))
                 (#let again Work-frame-cleanup (#call work-poll-cleanup (: task (#pin-borrow-mut task))))
-                (#assert (#u32.== (#get task pc) 4294967295u32))
                 (#call cancel-state (: state again : count (#borrow destroyed)))
                 (#assert (#u64.== (#call read-counter (: count (#borrow destroyed))) {constructed}u64))
                 (#forget task) (#forget created) (#forget destroyed) (#return 42u64))");

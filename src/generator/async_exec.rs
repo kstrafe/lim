@@ -1570,7 +1570,12 @@ impl Builder<'_> {
                     Ok((Some(end), dst))
                 }
             }
-            "slice-idx" | "slice-mut-idx" | "pin-get-payload" | "pin-get-payload-mut" => {
+            "slice-idx"
+            | "slice-mut-idx"
+            | "pin-get-payload"
+            | "pin-get-payload-mut"
+            | "pin-get-payload-unchecked"
+            | "pin-get-payload-unchecked-mut" => {
                 let target = match self.ty(source)? {
                     Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
                         *target
@@ -1590,7 +1595,12 @@ impl Builder<'_> {
                         Action::Borrow {
                             dst: Some(dst),
                             place,
-                            mutable: matches!(head, "slice-mut-idx" | "pin-get-payload-mut"),
+                            mutable: matches!(
+                                head,
+                                "slice-mut-idx"
+                                    | "pin-get-payload-mut"
+                                    | "pin-get-payload-unchecked-mut"
+                            ),
                             pinned: head.starts_with("pin-"),
                             scope: None,
                         },
@@ -1899,7 +1909,13 @@ impl Builder<'_> {
                 descriptor.projections.push(projection);
                 self.metadata(children[2])?;
             }
-            "get-payload" | "pin-get-payload" | "pin-get-payload-mut" if children.len() == 4 => {
+            "get-payload"
+            | "pin-get-payload"
+            | "pin-get-payload-mut"
+            | "pin-get-payload-unchecked"
+            | "pin-get-payload-unchecked-mut"
+                if children.len() == 4 =>
+            {
                 let NodeKind::Declaration(DeclarationId::Variant(variant)) =
                     self.node(children[2])?.kind
                 else {
