@@ -1506,3 +1506,38 @@ The wider experimental library still has 1,412 passes, two overlapping-exclusive
 input failures and eight ignored tests. Word retirement's ordinary foundation
 is verified separately; its async integration remains uncommitted pending the
 physical view/consumption contract work.
+
+### Physical effect geometry for direct word views
+
+Ordinary call-effect substitution now maps owned projections of a direct
+`#word-view` to the tracked backing slice's physical word range. This applies
+to reads, consumption and restoration without treating an opaque lifetime
+anchor as a typed ownership witness. The mapper requires an actual non-opaque
+source capability, exact static coordinates, sufficient known extent, and a
+checked layout projection. It does not cross stored-reference dereferences or
+map zero-width resource identities to an invented physical location.
+
+Flat layout geometry carries exact field/variant declaration identities,
+tuple positions and array strides. Array shapes retain one element shape rather
+than enumerating indices; a billion-element projection test completes without
+expansion. Shapes are shared across body clones. Geometry does not establish
+initialization, reference-slot provenance or enum constructor facts. Cache
+version twelve invalidates summaries inferred with the previous mapping.
+
+The non-async native regression consumes and replaces a linear enum cell inside
+a struct view at a nonzero backing offset, verifies the empty tag, preserves both
+neighboring words and returns 42. Known-short slices, dynamic coordinates and an
+opaque pointer-derived source remain unresolved consumption errors. An imported
+two-helper consumer produces identical cold/warm assembly with actual cache hits.
+All 39 word-storage, seventeen cache, three UI and two word-layout unit tests
+pass. Formatting, all-target and diff checks also pass.
+
+The experimental full library still has 1,413 passes, the same two exclusive
+input failures and eight ignored tests. Child cancellation now gets past the
+unresolved consuming-access contract and reaches final stored-reference checking:
+the numeric-backed child view is rejected for missing slot provenance. Its
+optional reference cells need constructor facts established by real typed word
+writes, so inactive cells do not require a nonexistent loan. These facts must not
+be synthesized from zero bytes, a type's slot schema, or an unsafe lifetime
+anchor. This is the next general tagged-word-memory gate, not permission to
+skip final checking. Broader lowering and the HTML deliverable remain unfinished.

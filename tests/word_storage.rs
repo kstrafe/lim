@@ -526,6 +526,66 @@ fn returned_views_retain_their_callers_storage_lifetime() {
 }
 
 #[test]
+fn typed_word_view_maps_callee_consumption_to_actual_backing_regions() {
+    let source = "(#struct Token (: amount #u64)) (#linear Token)
+      (#enum Slot ((Empty) (Full Token))) (#linear Slot)
+      (#struct Buffer (: prefix #u64 : slot Slot : suffix #u64))
+      (#fn clear (: slot (#pin-ref-mut Slot)) ()
+        (#unsafe (#forget (#pin-read slot)))
+        (#unsafe (#pin-write slot (Empty))) (#return ()))
+      (#fn clear-buffer (: buffer (#pin-ref-mut Buffer)) ()
+        (#call clear (: slot (#pin-borrow-mut (#get buffer slot)))) (#return ()))
+      (#fn main () #u64
+        (#let-mut words (#array #u64 6) (#array-repeat 0u64))
+        (#unsafe (#word-write Buffer (#borrow-slice-mut words 1usize 5usize)
+          (#struct-literal Buffer (: prefix 40u64 : slot (Full (#struct-literal Token (: amount 7u64))) : suffix 2u64))))
+        (#call clear-buffer (: buffer (#unsafe (#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words 1usize 5usize)))))
+        (#let prefix #u64 (#unsafe (#word-read #u64 (#borrow-slice words 1usize 2usize))))
+        (#let suffix #u64 (#unsafe (#word-read #u64 (#borrow-slice words 4usize 5usize))))
+        (#assert (#u64.== (#unsafe (#word-read #u64 (#borrow-slice words 2usize 3usize))) 0u64))
+        (#forget words) (#return (#u64.+.wrap prefix suffix)))";
+    run(source);
+    let short = source.replace(
+        "#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words 1usize 5usize)",
+        "#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words 1usize 3usize)",
+    );
+    assert!(compile(&short)
+        .unwrap_err()
+        .message
+        .contains("unresolved call inputs"));
+    let dynamic = source
+        .replace(
+            "(#call clear-buffer",
+            "(#let start #usize 1usize) (#call clear-buffer",
+        )
+        .replace(
+            "#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words 1usize 5usize)",
+            "#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words start 5usize)",
+        );
+    assert!(compile(&dynamic)
+        .unwrap_err()
+        .message
+        .contains("unresolved call inputs"));
+    let opaque = source
+        .replace(
+            "(#call clear-buffer",
+            "(#let anchor (#ref-mut (#array #u64 6)) (#borrow-mut words))
+         (#let pointer (#ptr-mut (#array #u64 6)) (#unsafe (#ptr-offset (#ref-ptr anchor) 0usize)))
+         (#let opaque (#ref-mut (#array #u64 6)) (#unsafe (#ptr-borrow-mut anchor pointer)))
+         (#drop anchor) (#call clear-buffer",
+        )
+        .replace(
+            "#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words 1usize 5usize)",
+            "#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut (#deref opaque) 1usize 5usize)",
+        );
+    let error = compile(&opaque).unwrap_err();
+    assert!(
+        error.message.contains("unresolved call inputs"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn word_forget_retires_loans_without_loading_or_zeroing_memory() {
     let source = "(#fn main () #u64
       (#let-mut seed #u64 0u64)

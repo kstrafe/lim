@@ -47,6 +47,37 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 }
 
 #[test]
+fn imported_typed_word_view_consumer_maps_geometry_on_cache_hits() {
+    let scratch = support::Scratch::new("semantic-word-view-consumer");
+    let directory = scratch.path();
+    fs::write(
+        directory.join("lib.lim"),
+        "(#struct Token (: amount #u64)) (#linear Token)
+         (#enum Slot ((Empty) (Full Token))) (#linear Slot)
+         (#struct Buffer (: prefix #u64 : slot Slot : suffix #u64))
+         (#fn clear (: slot (#pin-ref-mut Slot)) ()
+           (#unsafe (#forget (#pin-read slot)))
+           (#unsafe (#pin-write slot (Empty))) (#return ()))
+         (#fn clear-buffer (: buffer (#pin-ref-mut Buffer)) ()
+           (#call clear (: slot (#pin-borrow-mut (#get buffer slot)))) (#return ()))",
+    )
+    .unwrap();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut words (#array #u64 4) (#array-repeat 0u64))
+        (#unsafe (#word-write Buffer (#borrow-slice-mut words)
+          (#struct-literal Buffer (: prefix 40u64 : slot (Full (#struct-literal Token (: amount 7u64))) : suffix 2u64))))
+        (#call clear-buffer (: buffer (#unsafe (#word-view (#pin-ref-mut Buffer) (#borrow-slice-mut words)))))
+        (#let value #u64 (#unsafe (#word-read #u64 (#borrow-slice words 2usize 3usize))))
+        (#assert (#u64.== value 0u64)) (#forget words) (#return 42u64))";
+    let config = CompileConfig::default();
+    let cold = compile(directory, source, &config).0.unwrap();
+    let (warm, report) = compile(directory, source, &config);
+    assert_eq!(cold, warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+}
+
+#[test]
 fn imported_word_forget_retires_numeric_slot_loans_on_cache_hits() {
     let scratch = support::Scratch::new("semantic-word-forget");
     let directory = scratch.path();

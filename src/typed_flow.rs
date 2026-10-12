@@ -6496,6 +6496,22 @@ impl FlowGraph {
                                 inactive = true;
                                 continue;
                             }
+                            if selected_slot.is_empty() {
+                                if let Some(physical) = self.word_view_effect_places(
+                                    body,
+                                    origins,
+                                    event,
+                                    alternative,
+                                    &effect.referent_projection,
+                                ) {
+                                    for place in physical {
+                                        if !places.contains(&place) {
+                                            places.push(place);
+                                        }
+                                    }
+                                    continue;
+                                }
+                            }
                             let mut selected_alternative = false;
                             let mut inactive_alternative = false;
                             for source in sources {
@@ -6629,6 +6645,105 @@ impl FlowGraph {
             }
         }
         (mapped, unknown)
+    }
+
+    /// A direct flat-word view has known numeric backing geometry even though
+    /// its primary typed address is not an initialized typed-value witness.
+    /// Map owned projections only; crossing a stored reference still requires
+    /// actual slot provenance through the ordinary substitution path.
+    fn word_view_effect_places(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        event: FlowNodeId,
+        mut value: NodeId,
+        projection: &[Segment],
+    ) -> Option<Vec<Place>> {
+        loop {
+            match &body.nodes[value.0].kind {
+                NodeKind::Form {
+                    head,
+                    children,
+                    callee: None,
+                    ..
+                } if head == "unsafe" && children.len() == 2 => value = children[1],
+                NodeKind::Block(instructions) => {
+                    let Control::Evaluate(last) = instructions.last()?.control else {
+                        return None;
+                    };
+                    value = last;
+                }
+                _ => break,
+            }
+        }
+        let NodeKind::Form {
+            head,
+            children,
+            callee: None,
+            ..
+        } = &body.nodes[value.0].kind
+        else {
+            return None;
+        };
+        if head != "word-view" || children.len() != 3 {
+            return None;
+        }
+        let layout = body.word_layouts.get(&value)?;
+        let (offset, length) = layout.shape.as_ref()?.project(projection)?;
+        if length == 0 {
+            return None;
+        }
+        let addresses = origins
+            .value_before(body, self, event, children[2])
+            .into_iter()
+            .filter(|loan| loan.storage.is_empty())
+            .collect::<Vec<_>>();
+        if addresses.is_empty() {
+            return None;
+        }
+        let mut result = Vec::new();
+        for address in addresses {
+            if address.lifetime_only {
+                return None;
+            }
+            let mut place = address.referent_place();
+            if place.segments.iter().any(|segment| {
+                matches!(
+                    segment,
+                    Segment::DynamicIndex | Segment::SliceDynamicIndex | Segment::SliceRangeUnknown
+                )
+            }) {
+                return None;
+            }
+            let offset = offset as u128;
+            let length = length as u128;
+            let range =
+                if let Some(Segment::SliceRange { start, end }) = place.segments.last().cloned() {
+                    if end.checked_sub(start)? < layout.words as u128 {
+                        return None;
+                    }
+                    let selected = start.checked_add(offset)?;
+                    let limit = selected.checked_add(length)?;
+                    if limit > end {
+                        return None;
+                    }
+                    place.segments.pop();
+                    Segment::SliceRange {
+                        start: selected,
+                        end: limit,
+                    }
+                } else {
+                    Segment::SliceRange {
+                        start: offset,
+                        end: offset.checked_add(length)?,
+                    }
+                };
+            place.segments.push(range);
+            if !result.contains(&place) {
+                result.push(place);
+            }
+        }
+        Some(result)
     }
 
     pub fn referent_consumptions_with_calls(

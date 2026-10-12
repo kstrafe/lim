@@ -101,6 +101,97 @@ pub(crate) struct Slot {
 pub(crate) struct Layout {
     pub words: usize,
     pub slots: Vec<Slot>,
+    pub shape: Option<std::sync::Arc<Shape>>,
+}
+
+/// Flat value-word geometry, not an initialization or reference-provenance
+/// witness. Arrays share one element shape rather than expanding their indices.
+#[derive(Clone, Debug)]
+pub(crate) struct Shape {
+    words: usize,
+    fields: Vec<(Segment, Shape)>,
+    array: Option<(Box<Shape>, usize)>,
+}
+
+impl Shape {
+    fn build(ty: &Type, declarations: &Declarations) -> Result<Self, String> {
+        let ty = crate::typed_ir::resolve_type(ty, &declarations.aliases)?;
+        let mut shape = Self {
+            words: crate::codegen::storage_word_count(
+                &ty,
+                &declarations.structs,
+                &declarations.enums,
+            )?,
+            fields: Vec::new(),
+            array: None,
+        };
+        match &ty {
+            Type::Named(name) if declarations.structs.contains_key(name) => {
+                for field in &declarations.structs[name] {
+                    shape.fields.push((
+                        Segment::Field(declarations.field_id(&ty, &field.name).unwrap()),
+                        Self::build(&field.ty, declarations)?,
+                    ));
+                }
+            }
+            Type::Named(name) if declarations.enums.contains_key(name) => {
+                for variant in &declarations.enums[name] {
+                    for (index, field) in variant.fields.iter().enumerate() {
+                        shape.fields.push((
+                            Segment::Payload(
+                                declarations.variant_id(&ty, &variant.name).unwrap(),
+                                index,
+                            ),
+                            Self::build(field, declarations)?,
+                        ));
+                    }
+                }
+            }
+            Type::Tuple(fields) => {
+                for (index, field) in fields.iter().enumerate() {
+                    shape
+                        .fields
+                        .push((Segment::Tuple(index), Self::build(field, declarations)?));
+                }
+            }
+            Type::Array(element, length) => {
+                shape.array = Some((Box::new(Self::build(element, declarations)?), *length));
+            }
+            _ => {}
+        }
+        Ok(shape)
+    }
+
+    pub fn project(&self, path: &[Segment]) -> Option<(usize, usize)> {
+        let Some((first, tail)) = path.split_first() else {
+            return Some((0, self.words));
+        };
+        if let (Some((element, length)), Segment::Index(index)) = (&self.array, first) {
+            let index = usize::try_from(*index).ok()?;
+            if index >= *length {
+                return None;
+            }
+            let (offset, words) = element.project(tail)?;
+            return Some((
+                index.checked_mul(element.words)?.checked_add(offset)?,
+                words,
+            ));
+        }
+        let mut start = usize::from(matches!(first, Segment::Payload(_, _)));
+        for (segment, child) in &self.fields {
+            if segment == first {
+                let (offset, words) = child.project(tail)?;
+                return Some((start.checked_add(offset)?, words));
+            }
+            if let (Segment::Payload(wanted, _), Segment::Payload(actual, _)) = (first, segment) {
+                if wanted != actual {
+                    continue;
+                }
+            }
+            start = start.checked_add(child.words)?;
+        }
+        None
+    }
 }
 
 pub(crate) fn layouts(body: &Body, declarations: &Declarations) -> HashMap<NodeId, Layout> {
@@ -141,7 +232,18 @@ pub(crate) fn layouts(body: &Body, declarations: &Declarations) -> HashMap<NodeI
             } else {
                 collect(ty, declarations, &mut Vec::new(), 0, &mut slots).ok()?
             };
-            Some((NodeId(index), Layout { words, slots }))
+            let shape = (head == "word-view")
+                .then(|| Shape::build(ty, declarations).map(std::sync::Arc::new))
+                .transpose()
+                .ok()?;
+            Some((
+                NodeId(index),
+                Layout {
+                    words,
+                    slots,
+                    shape,
+                },
+            ))
         })
         .collect()
 }
@@ -226,6 +328,52 @@ fn collect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flat_shape_projects_owned_fields_and_keeps_large_arrays_compact() {
+        let source = "(#struct Pair (: left #u64 : right (#tuple #u64 #u64)))
+          (#struct Other (: left #u64))
+          (#enum Choice ((First (#tuple #u64 #u64)) (Second #u64)))
+          (#fn main () #u64 (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let pair = Type::Named("Pair".into());
+        let shape = Shape::build(&pair, declarations).unwrap();
+        let right = declarations.field_id(&pair, "right").unwrap();
+        assert_eq!(
+            shape.project(&[Segment::Field(right), Segment::Tuple(1)]),
+            Some((2, 1))
+        );
+        let wrong = declarations
+            .field_id(&Type::Named("Other".into()), "left")
+            .unwrap();
+        assert_eq!(shape.project(&[Segment::Field(wrong)]), None);
+        assert_eq!(shape.project(&[Segment::Dereference]), None);
+        let choice = Type::Named("Choice".into());
+        let shape = Shape::build(&choice, declarations).unwrap();
+        let first = declarations.variant_id(&choice, "First").unwrap();
+        let second = declarations.variant_id(&choice, "Second").unwrap();
+        assert_eq!(
+            shape.project(&[Segment::Payload(first, 0), Segment::Tuple(1)]),
+            Some((2, 1))
+        );
+        assert_eq!(shape.project(&[Segment::Payload(second, 0)]), Some((1, 1)));
+        let array =
+            Shape::build(&Type::Array(Box::new(pair), 1_000_000_000), declarations).unwrap();
+        assert!(array.fields.is_empty());
+        assert_eq!(array.array.as_ref().unwrap().0.fields.len(), 2);
+        assert_eq!(
+            array.project(&[
+                Segment::Index(999_999_999),
+                Segment::Field(right),
+                Segment::Tuple(1)
+            ]),
+            Some((2_999_999_999, 1))
+        );
+        assert_eq!(array.project(&[Segment::Index(1_000_000_000)]), None);
+        assert_eq!(array.project(&[Segment::DynamicIndex]), None);
+    }
 
     #[test]
     fn large_numeric_input_uses_one_symbolic_candidate_and_one_exact_requirement() {

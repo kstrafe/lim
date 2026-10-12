@@ -2891,6 +2891,14 @@ requires `#unsafe`.
 
 ### Typed word-memory loan inputs
 
+A direct `#word-view` passed to a checked function has
+physical layout geometry for owned field, tuple, array-index and enum-payload
+projections. Consuming and restoring those values maps to the selected backing
+word range rather than an opaque lifetime anchor. This does not establish
+stored-reference provenance or permit a dereference through an untracked
+reference. Unknown runtime coordinates, insufficient known slice extents and
+opaque pointer anchors still cannot supply a physical consumption contract.
+
 `#word-write` records a value's actual contained-reference loans at their flat
 word offsets. Reference-bearing `#word-read` and `#word-view` recover those
 loans; numeric bytes and layout types alone never establish reference provenance.
