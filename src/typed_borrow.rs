@@ -1971,6 +1971,9 @@ fn returned_borrows_with_bindings(
         NodeKind::Form { head, children, .. } if head == "clone" && children.len() == 2 => {
             returned_borrows_with_bindings(body, children[1], callee, bindings)
         }
+        NodeKind::Form { head, children, .. } if head == "word-view" && children.len() == 3 => {
+            returned_borrows_with_bindings(body, children[2], callee, bindings)
+        }
         NodeKind::Form {
             children,
             callee: Some(_),

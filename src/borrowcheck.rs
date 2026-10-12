@@ -3772,6 +3772,9 @@ fn reference_origins(
             if operator == "get" && items.len() == 3 {
                 return reference_origins(&items[1], context, true);
             }
+            if operator == "word-view" && items.len() == 3 {
+                return reference_origins(&items[2], context, true);
+            }
             if operator == "clone" && items.len() == 2 {
                 return reference_origins(&items[1], context, true);
             }

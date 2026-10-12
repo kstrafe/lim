@@ -12993,6 +12993,16 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     .collect()
             })
         }
+        NodeKind::Form { head, children, .. } if head == "word-view" && children.len() == 3 => {
+            let mut origins = value_loan_origins(body, children[2], state);
+            for origin in &mut origins {
+                // An unsafe typed view retains its slice range as an alias
+                // and lifetime anchor, not as initialized typed storage.
+                origin.lifetime_only = true;
+                origin.pinned = false;
+            }
+            origins
+        }
         NodeKind::Form { head, children, .. }
             if matches!(
                 head.as_str(),
@@ -13549,6 +13559,14 @@ fn value_loan_origins_at_events(
             };
             let incoming = value_loan_origins_at_events(body, flow, before, children[1], state);
             return dereference_value_origins(body, incoming, state);
+        }
+        if head == "word-view" && children.len() == 3 {
+            let mut origins = value_loan_origins_at_events(body, flow, before, children[2], state);
+            for origin in &mut origins {
+                origin.lifetime_only = true;
+                origin.pinned = false;
+            }
+            return origins;
         }
         if matches!(
             head.as_str(),

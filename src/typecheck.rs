@@ -8333,6 +8333,59 @@ fn list_expression(
                 }
             })
         }
+        "word-read" | "word-write" | "word-view" => {
+            require_arity(
+                operator,
+                items,
+                if operator == "word-write" { 4 } else { 3 },
+            )?;
+            let result = resolve_type(&parse_type(items.get(1))?, aliases)?;
+            let (target, writable) = if operator == "word-view" {
+                match &result {
+                    Type::Reference { mutable, target }
+                    | Type::PinnedReference { mutable, target } => (target.as_ref(), *mutable),
+                    _ => return Err("word-view requires an explicit reference result type".into()),
+                }
+            } else {
+                (&result, operator == "word-write")
+            };
+            validate_layout_type(target, structs, enums)?;
+            if !is_reference_target(target) {
+                return Err(
+                    format!("{operator} requires a value type other than () or #never").into(),
+                );
+            }
+            let source = expression(
+                &items[2], variables, functions, structs, enums, mutable, aliases, None,
+            )?;
+            let (element, source_mutable) = match source {
+                Type::Slice(element) => (element, false),
+                Type::MutableSlice(element) => (element, true),
+                _ => return Err(format!("{operator} requires a slice of #u64 words").into()),
+            };
+            require_type(&element, &Type::U64, "word storage element")?;
+            if writable && !source_mutable {
+                return Err(borrow_error(&format!(
+                    "{operator} requires a mutable word slice"
+                )));
+            }
+            if operator == "word-write" {
+                let value = expression(
+                    &items[3],
+                    variables,
+                    functions,
+                    structs,
+                    enums,
+                    mutable,
+                    aliases,
+                    Some(target),
+                )?;
+                require_type(&value, target, "word-write value")?;
+                Ok(Type::Unit)
+            } else {
+                Ok(result)
+            }
+        }
         "ptr-read" => {
             require_arity(operator, items, 2)?;
             let actual = expression(

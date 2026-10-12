@@ -13,6 +13,9 @@ use crate::typecheck::function_call_depths;
 use crate::typed_ir::resolve_type;
 use crate::{parse_type, EnumVariant, Expr, Field, Function, Item, Program, Statement, Type};
 
+#[path = "codegen/word_storage.rs"]
+mod word_storage;
+
 const ARGUMENT_REGISTERS: [&str; 6] = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 const VALUE_REGISTERS: [&str; 6] = ["rax", "rdx", "rcx", "r8", "r9", "rdi"];
 // Linux x86-64 user addresses occupy at most 57 bits. Reserve bit 63 for
@@ -7603,6 +7606,13 @@ impl FunctionContext<'_> {
                             target: Box::new(target),
                         })
                 }
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "word-read" | "word-view")
+                        && items.len() == 3 =>
+                {
+                    resolve_type(&parse_type(items.get(1)).ok()?, &self.aliases).ok()
+                }
+                Some(Expr::Symbol(operator)) if operator == "word-write" => Some(Type::Unit),
                 Some(Expr::Symbol(operator)) if operator == "ptr-read" && items.len() == 2 => {
                     match self.expression_type(&items[1])? {
                         Type::RawPointer { target, .. } => Some(*target),
@@ -11006,6 +11016,9 @@ impl FunctionContext<'_> {
                 Ok(())
             }
             "addr-of" | "addr-of-mut" => self.borrow_expression(items),
+            "word-read" | "word-write" | "word-view" => {
+                self.word_storage_expression(operator, items)
+            }
             "ptr-read" => {
                 if items.len() != 2 {
                     return Err("ptr-read requires a raw pointer".into());
@@ -15605,6 +15618,12 @@ impl FunctionContext<'_> {
         }
         if words > VALUE_REGISTERS.len() {
             if let Expr::List(items) = value {
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "word-read")
+                    && items.len() == 3
+                {
+                    self.word_storage_address(&items[2])?;
+                    return self.copy_reference_address_to_slots(slots);
+                }
                 if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "deref" | "pin-read"))
                     && items.len() == 2
                 {
@@ -16121,6 +16140,10 @@ impl FunctionContext<'_> {
 
     fn copy_reference_to_slots(&mut self, reference: &Expr, slots: &[usize]) -> Result<(), String> {
         self.expression(reference)?;
+        self.copy_reference_address_to_slots(slots)
+    }
+
+    fn copy_reference_address_to_slots(&mut self, slots: &[usize]) -> Result<(), String> {
         let global_layout = self.label("reference_copy_global_layout");
         let done = self.label("reference_copy_done");
         self.output.push_str(&format!(

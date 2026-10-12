@@ -28,6 +28,33 @@ an option. Native address recipes must also respect actual stack versus
 heap/global layouts. Casting an untagged address to an ascending payload is not
 valid for descending stack storage, even when the frame is pinned.
 
+The generic unsafe implementation foundation now includes `#word-read`,
+`#word-write` and `#word-view`. They operate on slices of flat Lim `#u64`
+value words, preserving descending-stack address metadata and explicitly
+discarding packed-native-byte metadata. Owned reads and writes add no occupancy
+tags or initialization sidecar. The caller must prove capacity, initialized
+representation, ownership and, for pinned views, permanent address stability.
+Views retain the source slice range's alias and lifetime anchor, including
+through helper returns and heap-owner release. Numeric words cannot supply
+missing provenance for reference-bearing fields. These operations currently
+have x86-64 native emission; AArch64 still rejects slice types rather than
+silently lowering them incorrectly.
+
+Native regression coverage includes scalar/floating/wide values, oversized
+aggregates, packed heap versus descending stack layouts, overlapping and
+disjoint ranges, helper-returned views, rejected local escapes and heap release,
+and rejected invented reference provenance. A contiguous partial-ownership test
+consumes one field, restores it while a sibling reference is retained, then
+checks that a whole-aggregate view projects the very same sibling address.
+This demonstrates the storage primitive, not an async conversion: the async
+emitter still uses its existing tagged cells, and the desired async whole-owner
+fixture remains a follow-up requirement. No goal-completion claim is made.
+
+Verification for this foundation: 1,383 library tests pass with seven existing
+ignored tests; the focused async module run passes 243 tests with four existing
+ignored tests. All 50 word-storage/documentation/slice/pin integration tests,
+all-target checking and whitespace checks pass.
+
 Initialization analysis is separate from cell emission. Production now
 specializes the dispatcher by `(source block, source and physical initialization)`.
 Distinct incoming field histories remain distinct states; both Ready and
