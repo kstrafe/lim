@@ -13000,6 +13000,21 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 // and lifetime anchor, not as initialized typed storage.
                 origin.lifetime_only = true;
                 origin.pinned = false;
+                origin.mutable = matches!(
+                    node.ty,
+                    Some(
+                        Type::Reference { mutable: true, .. }
+                            | Type::PinnedReference { mutable: true, .. }
+                    )
+                );
+                if let PlaceRoot::Parameter(binding) = origin.place.root {
+                    if matches!(
+                        body.bindings[binding.0].ty,
+                        Type::Reference { .. } | Type::PinnedReference { .. }
+                    ) {
+                        origin.borrowed_from = Some(binding);
+                    }
+                }
             }
             origins
         }
@@ -13565,6 +13580,21 @@ fn value_loan_origins_at_events(
             for origin in &mut origins {
                 origin.lifetime_only = true;
                 origin.pinned = false;
+                origin.mutable = matches!(
+                    body.nodes[value.0].ty,
+                    Some(
+                        Type::Reference { mutable: true, .. }
+                            | Type::PinnedReference { mutable: true, .. }
+                    )
+                );
+                if let PlaceRoot::Parameter(binding) = origin.place.root {
+                    if matches!(
+                        body.bindings[binding.0].ty,
+                        Type::Reference { .. } | Type::PinnedReference { .. }
+                    ) {
+                        origin.borrowed_from = Some(binding);
+                    }
+                }
             }
             return origins;
         }

@@ -8368,6 +8368,12 @@ impl FunctionContext<'_> {
         }
         let words = storage_word_count(ty, &self.structs, &self.enums)?;
         if words == 0 {
+            if matches!(ty, Type::Array(_, 0))
+                && matches!(value, Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head)) if head == "array")
+                    && items.len() == self.array_value_start(items))
+            {
+                return Ok(());
+            }
             self.expression(value)?;
             return Ok(());
         }

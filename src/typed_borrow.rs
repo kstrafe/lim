@@ -1972,7 +1972,21 @@ fn returned_borrows_with_bindings(
             returned_borrows_with_bindings(body, children[1], callee, bindings)
         }
         NodeKind::Form { head, children, .. } if head == "word-view" && children.len() == 3 => {
-            returned_borrows_with_bindings(body, children[2], callee, bindings)
+            let mut alternatives =
+                returned_borrows_with_bindings(body, children[2], callee, bindings)?;
+            let mutable = matches!(
+                node.ty,
+                Some(
+                    Type::Reference { mutable: true, .. }
+                        | Type::PinnedReference { mutable: true, .. }
+                )
+            );
+            for alternative in &mut alternatives {
+                for borrow in alternative {
+                    borrow.mutable = mutable;
+                }
+            }
+            Ok(alternatives)
         }
         NodeKind::Form {
             children,

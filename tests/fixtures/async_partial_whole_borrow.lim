@@ -1,6 +1,6 @@
-; Desired positive storage regression, currently rejected at the whole borrow.
+; Positive contiguous async storage regression.
 ; Its ordinary counterpart is partial_aggregate_whole_borrow.lim.
-; Once contiguous partial storage is implemented, this must return 42 and
+; This returns 42 and
 ; retain the exact address of the sibling across suspension and restoration.
 (#struct Token (: value #u64))
 (#linear Token)

@@ -34,6 +34,8 @@ pub(crate) struct Generated {
 }
 
 struct Slot {
+    words: Option<WordRegion>,
+    constant: Option<String>,
     field: String,
     name: String,
     empty: String,
@@ -55,6 +57,49 @@ struct Slot {
     copy: bool,
     linear: bool,
     borrowed_slice_snapshot: bool,
+}
+
+#[derive(Clone)]
+struct WordRegion {
+    field: String,
+    marker: String,
+    owner: Type,
+    capacity: usize,
+    start: usize,
+    length: usize,
+}
+
+impl WordRegion {
+    fn slice(&self, mutable: bool, anchor: &str, view: &str) -> String {
+        self.slice_bounds(
+            mutable,
+            anchor,
+            view,
+            &format!("{}usize", self.start),
+            &format!("{}usize", self.start + self.length),
+        )
+    }
+
+    fn slice_bounds(
+        &self,
+        mutable: bool,
+        anchor: &str,
+        view: &str,
+        start: &str,
+        end: &str,
+    ) -> String {
+        let suffix = if mutable { "-mut" } else { "" };
+        format!(
+            "(#block
+          (#let {anchor} (#pin-ref{suffix} (#array #u64 {}))
+            (#pin-borrow{suffix} (#get task {})))
+          (#let {view} (#ref{suffix} (#array #u64 {}))
+            (#unsafe (#ptr-borrow{suffix} {anchor} (#ref-ptr {anchor}))))
+          (#borrow-slice{suffix} (#deref {view})
+            {start} {end}))",
+            self.capacity, self.field, self.capacity
+        )
+    }
 }
 
 struct OwnedIndex {
@@ -155,6 +200,7 @@ struct Emitter<'a> {
     initialization: Option<crate::generator::async_initialization::Specialization>,
     current_state: usize,
     occupancy_trace: RefCell<Option<OccupancyTrace>>,
+    physical_current: RefCell<Option<Vec<bool>>>,
 }
 
 fn atom(name: &str) -> Expr {
@@ -270,6 +316,7 @@ impl<'a> Emitter<'a> {
             next: Cell::new(0),
             initialization: None,
             occupancy_trace: RefCell::new(None),
+            physical_current: RefCell::new(None),
             current_state: 0,
             types,
             render: crate::generator::async_render::RenderContext::new(
@@ -335,7 +382,29 @@ impl<'a> Emitter<'a> {
         )
         .map_err(|message| fail(function, message))?
         {
+            let word_buffer = if !types.contains_reference(&layout.shape.ty) {
+                let capacity = crate::codegen::storage_word_count(
+                    &layout.shape.ty,
+                    &planning.declarations.structs,
+                    &planning.declarations.enums,
+                )
+                .map_err(|message| fail(function, message))?;
+                Some(WordRegion {
+                    field: emitter.fresh("aggregate-words"),
+                    marker: emitter.fresh("aggregate-type"),
+                    owner: layout.shape.ty.clone(),
+                    capacity,
+                    start: 0,
+                    length: capacity,
+                })
+            } else {
+                None
+            };
+            if let Some(region) = &word_buffer {
+                emitter.slots[emitter.bindings[&layout.binding]].words = Some(region.clone());
+            }
             let mut fields = Vec::new();
+            let mut offset = 0;
             for field in layout.fields {
                 let slot = emitter.add_slot(
                     format!(
@@ -350,6 +419,20 @@ impl<'a> Emitter<'a> {
                     ),
                     field.ty,
                 );
+                if let Some(region) = &word_buffer {
+                    let length = crate::codegen::storage_word_count(
+                        &emitter.slots[slot].ty,
+                        &planning.declarations.structs,
+                        &planning.declarations.enums,
+                    )
+                    .map_err(|message| fail(function, message))?;
+                    emitter.slots[slot].words = Some(WordRegion {
+                        start: offset,
+                        length,
+                        ..region.clone()
+                    });
+                    offset += length;
+                }
                 if types.contains_reference(&emitter.slots[slot].ty) {
                     emitter.slots[slot].dependencies = emitter.slots
                         [emitter.bindings[&layout.binding]]
@@ -362,7 +445,25 @@ impl<'a> Emitter<'a> {
                     slot,
                 });
             }
+            if word_buffer
+                .as_ref()
+                .is_some_and(|region| offset != region.capacity)
+            {
+                return Err(fail(
+                    function,
+                    "aggregate leaves disagree with their contiguous layout",
+                ));
+            }
             let shells = emitter.aggregate_shells(layout.binding, &layout.shape)?;
+            if let Some(region) = &word_buffer {
+                for shell in &shells {
+                    emitter.slots[shell.slot].words = Some(WordRegion {
+                        length: 0,
+                        ..region.clone()
+                    });
+                    emitter.slots[shell.slot].constant = Some(format!("({})", shell.alive));
+                }
+            }
             emitter.aggregates.insert(
                 layout.binding,
                 Aggregate {
@@ -719,6 +820,8 @@ impl<'a> Emitter<'a> {
     fn add_slot(&mut self, field: String, ty: Type) -> usize {
         self.cleanup_occupied_cache.take();
         let slot = Slot {
+            words: None,
+            constant: None,
             field,
             name: self.fresh("Slot"),
             empty: self.fresh("Empty"),
@@ -884,6 +987,102 @@ impl<'a> Emitter<'a> {
             crate::typed_body::PlaceRoot::Parameter(binding) => (binding, true),
             _ => unreachable!(),
         };
+        if !external {
+            let root = &self.slots[self.bindings[&binding]];
+            if let Some(region) = &root.words {
+                // Form only the initialized selected referent, never a typed
+                // reference to an ancestor with a moved-out sibling.
+                let resolve = |ty: &Type| {
+                    crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases)
+                        .expect("checked anchor type")
+                };
+                let count = |ty: &Type| {
+                    crate::codegen::storage_word_count(
+                        ty,
+                        &self.planning.declarations.structs,
+                        &self.planning.declarations.enums,
+                    )
+                    .expect("checked anchor layout")
+                };
+                let mut ty = resolve(&root.ty);
+                let mut offset = region.start;
+                let mut terms = Vec::new();
+                for (position, segment) in place.segments[..prefix].iter().enumerate() {
+                    ty = match segment {
+                        Segment::Field(field) => {
+                            let Type::Named(name) = &ty else {
+                                unreachable!()
+                            };
+                            for sibling in self.planning.declarations.structs[name]
+                                .iter()
+                                .take(field.index)
+                            {
+                                offset += count(&resolve(&sibling.ty));
+                            }
+                            resolve(&self.planning.declarations.field(*field).ty)
+                        }
+                        Segment::Tuple(index) => {
+                            let Type::Tuple(fields) = &ty else {
+                                unreachable!()
+                            };
+                            for sibling in fields.iter().take(*index) {
+                                offset += count(&resolve(sibling));
+                            }
+                            resolve(&fields[*index])
+                        }
+                        Segment::Index(_) | Segment::DynamicIndex => {
+                            let Type::Array(element, _) = &ty else {
+                                unreachable!()
+                            };
+                            let element = resolve(element);
+                            let stride = count(&element);
+                            if let Segment::Index(index) = segment {
+                                offset += usize::try_from(*index)
+                                    .expect("checked array index fits usize")
+                                    * stride;
+                            } else {
+                                terms.push(format!(
+                                    "(#usize.*.wrap {} {stride}usize)",
+                                    indices[&position]
+                                ));
+                            }
+                            element
+                        }
+                        _ => unreachable!("checked word anchor projection"),
+                    };
+                }
+                let length = count(&ty);
+                let slice = if terms.is_empty() {
+                    self.word_slice(
+                        &WordRegion {
+                            start: offset,
+                            length,
+                            ..region.clone()
+                        },
+                        mutable,
+                    )
+                } else {
+                    let mut expression = format!("{offset}usize");
+                    for term in terms {
+                        expression = format!("(#usize.+.wrap {expression} {term})");
+                    }
+                    let start = self.fresh("anchor-offset");
+                    let slice = region.slice_bounds(
+                        mutable,
+                        &self.fresh("word-anchor"),
+                        &self.fresh("word-view"),
+                        &start,
+                        &format!("(#usize.+.wrap {start} {length}usize)"),
+                    );
+                    format!("(#block (#let {start} #usize {expression}) {slice})")
+                };
+                return format!(
+                    "(#unsafe (#word-view (#pin-ref{} {}) {slice}))",
+                    if mutable { "-mut" } else { "" },
+                    crate::type_source(&ty)
+                );
+            }
+        }
         let part = if !external && prefix > 0 {
             self.anchor_field(binding, &place.segments[..prefix])
         } else {
@@ -898,11 +1097,7 @@ impl<'a> Emitter<'a> {
             self.bindings[&binding]
         }];
         let suffix = if mutable { "-mut" } else { "" };
-        let mut anchor = format!(
-            "(#pin-get-payload{suffix} {} {} 0)",
-            Self::slot_ref(owner, mutable),
-            owner.full
-        );
+        let mut anchor = self.payload_ref(owner, mutable);
         if external {
             anchor = format!("(#deref {anchor})");
         }
@@ -1131,6 +1326,78 @@ impl<'a> Emitter<'a> {
                 _ => unreachable!(),
             };
             let owner = &self.slots[index];
+            if owner.words.is_some() {
+                let selected_cells =
+                    if let crate::typed_body::PlaceRoot::Local(binding) = place.root {
+                        if self.anchor_field(binding, &place.segments).is_none() {
+                            let path = place
+                                .segments
+                                .iter()
+                                .map(|segment| match segment {
+                                    crate::typed_place::Segment::Field(field) => *field,
+                                    _ => unreachable!(
+                                        "whole word anchor has checked struct projections"
+                                    ),
+                                })
+                                .collect::<Vec<_>>();
+                            let aggregate = &self.aggregates[&binding];
+                            aggregate
+                                .fields
+                                .iter()
+                                .filter(|field| field.path.starts_with(&path))
+                                .map(|field| field.slot)
+                                .chain(
+                                    aggregate
+                                        .shells
+                                        .iter()
+                                        .filter(|shell| shell.path.starts_with(&path))
+                                        .map(|shell| shell.slot),
+                                )
+                                .collect::<Vec<_>>()
+                        } else {
+                            vec![index]
+                        }
+                    } else {
+                        vec![index]
+                    };
+                let current = self.physical_current.borrow();
+                if current
+                    .as_ref()
+                    .is_some_and(|cells| selected_cells.iter().any(|index| !cells[*index]))
+                {
+                    continue;
+                }
+                let guard = if current.is_some() || self.occupancy_trace.borrow().is_some() {
+                    "true".into()
+                } else {
+                    let states = &self
+                        .initialization
+                        .as_ref()
+                        .expect("production word view requires state facts")
+                        .states;
+                    let cases = states
+                        .iter()
+                        .enumerate()
+                        .map(|(pc, state)| {
+                            let start = state.before.len() - self.slots.len();
+                            format!(
+                                "(#case {pc}u32 {})",
+                                selected_cells
+                                    .iter()
+                                    .all(|index| state.before[start + index])
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    format!("(#match (#get task pc) {cases} (#case _ false))")
+                };
+                selected = format!(
+                    "(#if (#bool.&& {guard} {}) {} {selected})",
+                    self.anchor_probe(place, pointer),
+                    materialize(place)
+                );
+                continue;
+            }
             selected = format!(
                 "(#if (#bool.&& (#variant-is {} {})
                 {})
@@ -1164,6 +1431,58 @@ impl<'a> Emitter<'a> {
         )
     }
 
+    fn word_slice(&self, region: &WordRegion, mutable: bool) -> String {
+        region.slice(
+            mutable,
+            &self.fresh("word-anchor"),
+            &self.fresh("word-view"),
+        )
+    }
+
+    fn payload_ref(&self, slot: &Slot, mutable: bool) -> String {
+        if let Some(region) = &slot.words {
+            let ty = crate::type_source(&slot.ty);
+            return format!(
+                "(#unsafe (#word-view (#pin-ref{} {ty}) {}))",
+                if mutable { "-mut" } else { "" },
+                self.word_slice(region, mutable)
+            );
+        }
+        format!(
+            "(#pin-get-payload{} {} {} 0)",
+            if mutable { "-mut" } else { "" },
+            Self::slot_ref(slot, mutable),
+            slot.full
+        )
+    }
+
+    fn word_buffers(&self) -> Vec<&WordRegion> {
+        let mut seen = HashSet::new();
+        self.slots
+            .iter()
+            .filter_map(|slot| slot.words.as_ref())
+            .filter(|region| seen.insert(region.field.clone()))
+            .collect()
+    }
+
+    fn frame_fields(&self) -> String {
+        self.slots
+            .iter()
+            .filter(|slot| slot.words.is_none())
+            .map(|slot| format!("({} {})", slot.field, slot.name))
+            .chain(self.word_buffers().into_iter().map(|region| {
+                format!(
+                    "({} (#array #u64 {})) ({} (#array {} 0))",
+                    region.field,
+                    region.capacity,
+                    region.marker,
+                    crate::type_source(&region.owner)
+                )
+            }))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     fn slice_holder(&self, binding: BindingId) -> String {
         let slot = &self.slots[self.bindings[&binding]];
         let mutable = matches!(
@@ -1179,6 +1498,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn occupancy_write(&self, slot: usize, initialized: bool) {
+        if let Some(cells) = self.physical_current.borrow_mut().as_mut() {
+            cells[slot] = initialized;
+        }
         if let Some(trace) = self.occupancy_trace.borrow_mut().as_mut() {
             trace.writes.push((slot, initialized));
         }
@@ -1211,6 +1533,19 @@ impl<'a> Emitter<'a> {
             self.occupancy_write(slot, false);
         }
         let slot = &self.slots[slot];
+        if let Some(value) = &slot.constant {
+            return value.clone();
+        }
+        if let Some(region) = &slot.words {
+            if slot.ty == Type::Unit {
+                return "()".into();
+            }
+            return format!(
+                "(#unsafe (#word-read {} {}))",
+                crate::type_source(&slot.ty),
+                self.word_slice(region, false)
+            );
+        }
         if slot.raw {
             let pointer = self.fresh("self-pointer");
             let read = if transfer && !slot.copy {
@@ -1292,11 +1627,7 @@ impl<'a> Emitter<'a> {
                     .expect("a projected lease must have a checked owning address")
                     .0;
             }
-            return format!(
-                "(#deref (#pin-get-payload-mut {} {} 0))",
-                Self::slot_ref(slot, true),
-                slot.full
-            );
+            return format!("(#deref {})", self.payload_ref(slot, true));
         }
         self.values
             .get(&value)
@@ -1306,6 +1637,21 @@ impl<'a> Emitter<'a> {
     fn put(&self, slot: usize, value: &str) -> String {
         self.occupancy_write(slot, true);
         let slot = &self.slots[slot];
+        if slot.constant.is_some() {
+            return format!("(#forget {value})");
+        }
+        if let Some(region) = &slot.words {
+            if slot.ty == Type::Unit {
+                return format!("(#forget {value})");
+            }
+            let incoming = self.fresh("word-value");
+            let ty = crate::type_source(&slot.ty);
+            return format!(
+                "(#block (#let {incoming} {ty} {value})
+                (#unsafe (#word-write {ty} {} {incoming})))",
+                self.word_slice(region, true)
+            );
+        }
         if slot.raw {
             let pointer = self.fresh("stored-self-pointer");
             // Evaluate and erase the incoming temporary loan before obtaining
@@ -1654,6 +2000,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn snapshot_cell(&mut self, index: usize) -> Result<String, Error> {
+        if self.slots[index].words.is_some() {
+            return Ok(self.read(index, false));
+        }
         if self.slots[index].copy || self.slots[index].raw {
             return Ok(self.read(index, false));
         }
@@ -1749,7 +2098,7 @@ impl<'a> Emitter<'a> {
                 self.leases.projected_snapshot(*value).map(|_| *index)
             }),
         );
-        self.slots.iter().enumerate().map(|(index, slot)| {
+        self.slots.iter().enumerate().filter(|(_, slot)| slot.words.is_none()).map(|(index, slot)| {
             let ty = crate::type_source(&slot.storage);
             let mut lend = if lenders.contains(&index) {
                 if matches!(crate::typed_ir::resolve_type(&slot.storage, &self.planning.declarations.aliases), Ok(Type::MutableSlice(_))) {
@@ -1872,6 +2221,9 @@ impl<'a> Emitter<'a> {
                 .map(|index| {
                     self.occupancy_write(index, false);
                     let slot = &self.slots[index];
+                    if slot.words.is_some() {
+                        return String::new();
+                    }
                     format!(
                         "(#call {} (: slot {}))",
                         slot.clear,
@@ -1943,6 +2295,9 @@ impl<'a> Emitter<'a> {
         let mut clears = Vec::new();
         for &index in slots {
             self.occupancy_write(index, false);
+            if self.slots[index].words.is_some() {
+                continue;
+            }
             let handle = self.fresh("retired-handle");
             let reference = self.fresh("retired-cell");
             let previous = self.fresh("retired-storage");
@@ -2047,6 +2402,7 @@ impl<'a> Emitter<'a> {
         // definite Empty store to callers' retained-contents contracts.
         let assertions = slots
             .iter()
+            .filter(|index| self.slots[**index].words.is_none())
             .map(|index| {
                 let slot = &self.slots[*index];
                 format!(
@@ -2298,6 +2654,16 @@ impl<'a> Emitter<'a> {
                 self.slots[self.addresses[&parent]].ty.clone(),
                 descriptor.checked_prefix,
             )
+        } else if self.is_word_place(place) {
+            let (reference, target) = self.owned_projection_address(place, mutable)?;
+            (
+                reference,
+                Type::PinnedReference {
+                    mutable,
+                    target: Box::new(target),
+                },
+                descriptor.projections.len(),
+            )
         } else {
             match descriptor.root {
                 AddressRoot::Local(binding) => {
@@ -2305,12 +2671,7 @@ impl<'a> Emitter<'a> {
                     let owner =
                         &self.slots[field.map_or(self.bindings[&binding], |field| field.slot)];
                     (
-                        format!(
-                            "(#pin-get-payload{} {} {} 0)",
-                            if mutable { "-mut" } else { "" },
-                            Self::slot_ref(owner, mutable),
-                            owner.full
-                        ),
+                        self.payload_ref(owner, mutable),
                         Type::PinnedReference {
                             mutable,
                             target: Box::new(owner.ty.clone()),
@@ -2620,11 +2981,158 @@ impl<'a> Emitter<'a> {
         })
     }
 
+    fn word_owned_address(
+        &self,
+        id: PlaceId,
+        mutable: bool,
+    ) -> Result<Option<(String, Type)>, Error> {
+        let descriptor = &self.function.graph.places[id.0];
+        let AddressRoot::Local(binding) = descriptor.root else {
+            return Ok(None);
+        };
+        let Some(root) = self.bindings.get(&binding).map(|slot| &self.slots[*slot]) else {
+            return Ok(None);
+        };
+        let Some(region) = &root.words else {
+            return Ok(None);
+        };
+        let reject = |message: &str| fail(self.function, message);
+        let count = |ty: &Type| {
+            crate::codegen::storage_word_count(
+                ty,
+                &self.planning.declarations.structs,
+                &self.planning.declarations.enums,
+            )
+            .map_err(|message| fail(self.function, message))
+        };
+        let resolve = |ty: &Type| {
+            crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases)
+                .map_err(|message| fail(self.function, message))
+        };
+        let mut ty = resolve(&root.ty)?;
+        let mut offset = region.start;
+        let mut dynamic = Vec::new();
+        for (position, projection) in descriptor.projections.iter().enumerate() {
+            let next = match projection {
+                AddressProjection::Field(field) => {
+                    let declaration = self.planning.declarations.field(*field);
+                    if self.planning.declarations.field_id(&ty, &declaration.name) != Some(*field) {
+                        return Err(reject("word projection lost its checked field identity"));
+                    }
+                    let Type::Named(name) = &ty else {
+                        return Err(reject("word field projection requires a struct"));
+                    };
+                    let fields = &self.planning.declarations.structs[name];
+                    for sibling in fields.iter().take(field.index) {
+                        offset += count(&resolve(&sibling.ty)?)?;
+                    }
+                    resolve(&declaration.ty)?
+                }
+                AddressProjection::Tuple(index) => {
+                    let Type::Tuple(fields) = &ty else {
+                        return Err(reject("word tuple projection lost its type"));
+                    };
+                    for sibling in fields.iter().take(*index) {
+                        offset += count(&resolve(sibling)?)?;
+                    }
+                    resolve(
+                        fields
+                            .get(*index)
+                            .ok_or_else(|| reject("word tuple index is invalid"))?,
+                    )?
+                }
+                AddressProjection::Index(value) => {
+                    let Type::Array(element, bound) = &ty else {
+                        return Err(reject("word index projection lost its array"));
+                    };
+                    let element = resolve(element)?;
+                    let stride = count(&element)?;
+                    if let Some(index) = self.owned_indices.get(&id).and_then(|indices| {
+                        indices.iter().find(|index| index.projection == position)
+                    }) {
+                        dynamic.push(format!(
+                            "(#usize.*.wrap {} {stride}usize)",
+                            self.read(index.slot, false)
+                        ));
+                    } else if let Some(index) =
+                        self.literal_index(*value).filter(|index| index < bound)
+                    {
+                        offset += index * stride;
+                    } else {
+                        // Selection evaluates an index before it has a frozen
+                        // recipe. Check the source array, not just the buffer.
+                        let index = self.fresh("selected-word-index");
+                        dynamic.push(format!(
+                            "(#block (#let {index} #usize {})
+                            (#assert (#usize.< {index} {bound}usize))
+                            (#usize.*.wrap {index} {stride}usize))",
+                            self.value(*value, false)
+                        ));
+                    }
+                    element
+                }
+                _ => {
+                    return Err(reject(
+                        "word projection requires an owned field, tuple or checked array index",
+                    ))
+                }
+            };
+            ty = next;
+        }
+        if ty != descriptor.ty {
+            return Err(reject("word projection disagrees with its checked target"));
+        }
+        if ty == Type::Unit {
+            return Ok(Some(("()".into(), ty)));
+        }
+        let length = count(&ty)?;
+        let slice = if dynamic.is_empty() {
+            self.word_slice(
+                &WordRegion {
+                    start: offset,
+                    length,
+                    ..region.clone()
+                },
+                mutable,
+            )
+        } else {
+            let mut expression = format!("{offset}usize");
+            for term in dynamic {
+                expression = format!("(#usize.+.wrap {expression} {term})");
+            }
+            let start = self.fresh("word-offset");
+            let slice = region.slice_bounds(
+                mutable,
+                &self.fresh("word-anchor"),
+                &self.fresh("word-view"),
+                &start,
+                &format!("(#usize.+.wrap {start} {length}usize)"),
+            );
+            format!("(#block (#let {start} #usize {expression}) {slice})")
+        };
+        Ok(Some((
+            format!(
+                "(#unsafe (#word-view (#pin-ref{} {}) {slice}))",
+                if mutable { "-mut" } else { "" },
+                crate::type_source(&ty)
+            ),
+            ty,
+        )))
+    }
+
+    fn is_word_place(&self, id: PlaceId) -> bool {
+        matches!(self.function.graph.places[id.0].root, AddressRoot::Local(binding)
+            if self.bindings.get(&binding).is_some_and(|slot| self.slots[*slot].words.is_some()))
+    }
+
     fn owned_projection_address(
         &self,
         id: PlaceId,
         mutable: bool,
     ) -> Result<(String, Type), Error> {
+        if let Some(address) = self.word_owned_address(id, mutable)? {
+            return Ok(address);
+        }
         let descriptor = &self.function.graph.places[id.0];
         let reject = |message: &str| fail(self.function, message);
         let AddressRoot::Local(binding) = descriptor.root else {
@@ -2638,7 +3146,7 @@ impl<'a> Emitter<'a> {
         let (slot, skip) = part.map_or((root_slot, 0), |field| {
             (&self.slots[field.slot], field.path.len())
         });
-        if part.is_none() && self.aggregates.contains_key(&binding) {
+        if part.is_none() && self.aggregates.contains_key(&binding) && root_slot.words.is_none() {
             return Err(reject(
                 "whole aggregate borrowing requires contiguous owning storage",
             ));
@@ -2647,12 +3155,7 @@ impl<'a> Emitter<'a> {
             .map_err(|message| fail(self.function, message))?;
         // This reference exists only during the immediate leaf read. It is
         // neither a captured address nor an independently copied owner.
-        let mut place = format!(
-            "(#pin-get-payload{} {} {} 0)",
-            if mutable { "-mut" } else { "" },
-            Self::slot_ref(slot, mutable),
-            slot.full
-        );
+        let mut place = self.payload_ref(slot, mutable);
         for (position, projection) in descriptor.projections.iter().enumerate().skip(skip) {
             match projection {
                 AddressProjection::Field(field) => {
@@ -2739,7 +3242,11 @@ impl<'a> Emitter<'a> {
             // owned field/tuple path above is still structurally validated.
             return Ok("()".into());
         }
-        Ok(format!("(#deref (#pin-borrow {place}))"))
+        Ok(if self.is_word_place(id) {
+            format!("(#deref {place})")
+        } else {
+            format!("(#deref (#pin-borrow {place}))")
+        })
     }
 
     fn handle_leaf_read(&mut self, descriptor: &PlaceDescriptor) -> Result<String, Error> {
@@ -2926,7 +3433,10 @@ impl<'a> Emitter<'a> {
         let (mut place, target) = self.owned_projection_address(id, mutable)?;
         // An exact leaf cell supplies a pinned payload reference. A deeper
         // field/tuple/index suffix is a place, not the value of that place.
-        if self.aggregate_exact_field(descriptor).is_none() {
+        if !self.is_word_place(id)
+            && self.aggregate_exact_field(descriptor).is_none()
+            && !descriptor.projections.is_empty()
+        {
             place = format!("(#pin-borrow{} {place})", if mutable { "-mut" } else { "" });
         }
         if pinned {
@@ -2974,9 +3484,12 @@ impl<'a> Emitter<'a> {
             crate::type_source(&input),
             crate::type_source(&output),
         ));
-        Ok(format!(
-            "(#call {name} (: {argument} (#pin-borrow{suffix} {place})))"
-        ))
+        let input = if self.is_word_place(id) {
+            place
+        } else {
+            format!("(#pin-borrow{suffix} {place})")
+        };
+        Ok(format!("(#call {name} (: {argument} {input}))"))
     }
 
     fn immediate_reference(&mut self, value: ValueId) -> Result<String, Error> {
@@ -3005,7 +3518,7 @@ impl<'a> Emitter<'a> {
         if self.aggregate_field(descriptor).is_some() {
             return self.aggregate_borrow(borrow.place, borrow.mutable, false);
         }
-        if matches!(descriptor.root, AddressRoot::Local(binding) if self.aggregates.contains_key(&binding))
+        if matches!(descriptor.root, AddressRoot::Local(binding) if self.aggregates.contains_key(&binding) && self.slots[self.bindings[&binding]].words.is_none())
         {
             return Err(fail(
                 self.function,
@@ -3045,12 +3558,7 @@ impl<'a> Emitter<'a> {
             .bindings
             .get(&owner.binding)
             .ok_or_else(|| fail(self.function, "immediate borrow has no owner cell"))?];
-        let input = format!(
-            "(#pin-get-payload{} {} {} 0)",
-            if borrow.mutable { "-mut" } else { "" },
-            Self::slot_ref(slot, borrow.mutable),
-            slot.full
-        );
+        let input = self.payload_ref(slot, borrow.mutable);
         let name = self.fresh("immediate-owner-project");
         let argument = self.fresh("immediate-owner-input");
         let input = if self.pinned || borrow.mutable {
@@ -3088,7 +3596,7 @@ impl<'a> Emitter<'a> {
                 let value = self.aggregate_borrow(place, mutable, pinned)?;
                 return Ok(self.put(dst, &value));
             }
-            if matches!(descriptor.root, AddressRoot::Local(binding) if self.aggregates.contains_key(&binding))
+            if matches!(descriptor.root, AddressRoot::Local(binding) if self.aggregates.contains_key(&binding) && self.slots[self.bindings[&binding]].words.is_none())
             {
                 return Err(fail(
                     self.function,
@@ -3134,12 +3642,7 @@ impl<'a> Emitter<'a> {
                 )
             })?;
             let slot = &self.slots[*slot];
-            let input = format!(
-                "(#pin-get-payload{} {} {} 0)",
-                if mutable { "-mut" } else { "" },
-                Self::slot_ref(slot, mutable),
-                slot.full
-            );
+            let input = self.payload_ref(slot, mutable);
             let name = self.fresh("owner-project");
             let argument = self.fresh("owner-project-input");
             self.projections.push(owner.declaration(&name, &argument));
@@ -4262,7 +4765,12 @@ impl<'a> Emitter<'a> {
                     } else {
                         // Only Copy, reference-free leaves reach this point.
                         // No owner or borrowed handle is moved or captured.
-                        format!("(#unsafe (#pin-write (#pin-borrow-mut {target}) {value}))")
+                        let reference = if self.is_word_place(*place) {
+                            target
+                        } else {
+                            format!("(#pin-borrow-mut {target})")
+                        };
+                        format!("(#unsafe (#pin-write {reference} {value}))")
                     });
                 }
                 Ok(self.put_binding(binding, &self.value(*value, true)))
@@ -4287,7 +4795,11 @@ impl<'a> Emitter<'a> {
                     } else if let Some(field) = self.aggregate_exact_field(descriptor) {
                         self.read(field.slot, false)
                     } else {
-                        self.owned_projection_place(*place, false)?.0
+                        if self.is_word_place(*place) {
+                            self.owned_projection_read(*place)?
+                        } else {
+                            self.owned_projection_place(*place, false)?.0
+                        }
                     };
                     return Ok(format!(
                         "(#{} {value})",
@@ -4686,7 +5198,7 @@ impl<'a> Emitter<'a> {
                     let owners = self
                         .slots
                         .iter()
-                        .filter(|slot| slot.linear)
+                        .filter(|slot| slot.linear && slot.words.is_none())
                         .map(|slot| {
                             format!(
                                 "(#assert (#variant-is {} {}))",
@@ -5120,14 +5632,19 @@ impl<'a> Emitter<'a> {
         // Later cleanup calls can invalidate earlier stored-variant facts.
         // Independently check and publish the complete cleared state before
         // any field extraction or returned cleanup aggregate is assembled.
-        output.extend(emptied.into_iter().map(|index| {
-            let slot = &self.slots[index];
-            format!(
-                "(#assert (#variant-is {} {}))",
-                Self::slot_ref(slot, false),
-                slot.empty
-            )
-        }));
+        output.extend(
+            emptied
+                .into_iter()
+                .filter(|index| self.slots[*index].words.is_none())
+                .map(|index| {
+                    let slot = &self.slots[index];
+                    format!(
+                        "(#assert (#variant-is {} {}))",
+                        Self::slot_ref(slot, false),
+                        slot.empty
+                    )
+                }),
+        );
         Ok(output.join("\n"))
     }
 
@@ -5149,6 +5666,9 @@ impl<'a> Emitter<'a> {
             .filter(|(_, slot)| slot.linear)
         {
             if !occupied.contains(&index) {
+                if slot.words.is_some() {
+                    continue;
+                }
                 // A solver fact is made visible to independent ordinary checking.
                 transfers.push(format!(
                     "(#assert (#variant-is (#borrow (#get state {})) {}))",
@@ -5172,7 +5692,24 @@ impl<'a> Emitter<'a> {
             fields.push(format!("({field} {cell})"));
             let local = self.fresh("cleanup-slot");
             let payload = self.fresh("cleanup-payload");
-            if self.pinned && !slot.dependencies.is_empty() {
+            if let Some(region) = &slot.words {
+                let plan = self.initialization.as_ref().unwrap();
+                let physical_start = plan.states[0].before.len() - self.slots.len();
+                let mut cases = self.cancellation_states().into_iter().map(|state| {
+                    let value = if plan.states[state].before[physical_start + index] {
+                        slot.constant.as_ref().map_or_else(|| format!("({full} (#unsafe (#word-read {} (#borrow-slice (#get state {}) {}usize {}usize))))",
+                            crate::type_source(&slot.ty), region.field, region.start, region.start + region.length),
+                            |value| format!("({full} {value})"))
+                    } else { format!("({empty})") };
+                    format!("(#case {state}u32 {value})")
+                }).collect::<Vec<_>>();
+                cases.push(format!("(#case {}u32 ({empty}))", u32::MAX));
+                cases.push("(#case _ (#unreachable))".into());
+                transfers.push(format!(
+                    "(#let {local} {cell} (#match (#get state pc) {}))",
+                    cases.join(" ")
+                ));
+            } else if self.pinned && !slot.dependencies.is_empty() {
                 // These values were canceled in place before extraction. Do
                 // not advertise a fictitious Full return path retaining their
                 // old loans alongside their lenders in the cleanup result.
@@ -5191,12 +5728,7 @@ impl<'a> Emitter<'a> {
         }
         let state_type = if self.pinned {
             let name = self.fresh("cleanup-state-type");
-            let fields = self
-                .slots
-                .iter()
-                .map(|slot| format!("({} {})", slot.field, slot.name))
-                .collect::<Vec<_>>()
-                .join(" ");
+            let fields = self.frame_fields();
             definitions.push(format!(
                 "(#struct {name} ((pc #u32) {fields}))\n(#linear {name})"
             ));
@@ -5212,7 +5744,7 @@ impl<'a> Emitter<'a> {
             let pc = self.fresh("cleanup-pc");
             let mut takes = vec![format!("(#let {pc} #u32 (#get task pc))")];
             let mut captures = vec![format!("(pc {pc})")];
-            for slot in &self.slots {
+            for slot in self.slots.iter().filter(|slot| slot.words.is_none()) {
                 let value = self.fresh("cleanup-extracted");
                 takes.push(format!(
                     "(#let {value} {} (#unsafe (#pin-read {})))\n(#unsafe (#pin-write {} ({})))",
@@ -5222,6 +5754,14 @@ impl<'a> Emitter<'a> {
                     slot.empty
                 ));
                 captures.push(format!("({} {value})", slot.field));
+            }
+            for region in self.word_buffers() {
+                captures.push(format!("({} (#get task {}))", region.field, region.field));
+                captures.push(format!(
+                    "({} (#array-of (#array {} 0)))",
+                    region.marker,
+                    crate::type_source(&region.owner)
+                ));
             }
             format!(
                 "{clear}\n{}\n{}\n(#let state {state_type} (#struct-literal {state_type} ({})))",
@@ -5343,6 +5883,7 @@ impl<'a> Emitter<'a> {
             let mut guards = vec!["(#assert (#u32.== (#get task pc) 4294967295u32))".to_owned()];
             for (other_index, other) in self.slots.iter().enumerate() {
                 if Some(other_index) != slot_index
+                    && other.words.is_none()
                     && (other.linear || self.types.contains_reference(&other.ty))
                 {
                     guards.push(format!(
@@ -5408,6 +5949,9 @@ impl<'a> Emitter<'a> {
         let count = self.initialization.as_ref().unwrap().states.len();
         for state in 0..count {
             self.current_state = state;
+            let before = &self.initialization.as_ref().unwrap().states[state].before;
+            *self.physical_current.borrow_mut() =
+                Some(before[before.len() - self.slots.len()..].to_vec());
             let index = self.initialization.as_ref().unwrap().states[state].block;
             let block = &graph.blocks[index];
             let mut actions = Vec::new();
@@ -5466,6 +6010,9 @@ impl<'a> Emitter<'a> {
                         };
                         if let Some(slot) = slot {
                             let slot = &self.slots[*slot];
+                            if slot.words.is_some() {
+                                continue;
+                            }
                             actions.push(format!(
                                 "(#assert (#variant-is {} {}))",
                                 Self::slot_ref(slot, false),
@@ -5496,12 +6043,8 @@ impl<'a> Emitter<'a> {
                 actions.join("\n")
             ));
         }
-        let fields = self
-            .slots
-            .iter()
-            .map(|slot| format!("({} {})", slot.field, slot.name))
-            .collect::<Vec<_>>()
-            .join(" ");
+        *self.physical_current.borrow_mut() = None;
+        let fields = self.frame_fields();
         let start_parameters = &self
             .planning
             .interfaces
@@ -5570,6 +6113,9 @@ impl<'a> Emitter<'a> {
             }
         }
         for (index, slot) in self.slots.iter().enumerate() {
+            if slot.words.is_some() {
+                continue;
+            }
             let parameter = self.bindings.iter().find_map(|(binding, actual)| {
                 (*actual == index
                     && binding.0 < start_parameters.len()
@@ -5599,6 +6145,36 @@ impl<'a> Emitter<'a> {
             };
             initial.push(format!("({} {})", slot.field, value));
         }
+        for region in self.word_buffers() {
+            let buffer = self.fresh("initial-words");
+            factory_captures.push(format!(
+                "(#let-mut {buffer} (#array #u64 {}) (#array-repeat 0u64))",
+                region.capacity
+            ));
+            for (index, slot) in self.slots.iter().enumerate() {
+                let Some(part) = initial_parts.get(&index) else {
+                    continue;
+                };
+                let Some(word) = &slot.words else {
+                    continue;
+                };
+                if word.field != region.field {
+                    continue;
+                }
+                if slot.constant.is_some() {
+                    factory_captures.push(format!("(#forget {part})"));
+                    continue;
+                }
+                factory_captures.push(format!("(#unsafe (#word-write {} (#borrow-slice-mut {buffer} {}usize {}usize) {part}))",
+                    crate::type_source(&slot.ty), word.start, word.start + word.length));
+            }
+            initial.push(format!("({} {buffer})", region.field));
+            initial.push(format!(
+                "({} (#array-of (#array {} 0)))",
+                region.marker,
+                crate::type_source(&region.owner)
+            ));
+        }
         let signature = start_parameters
             .iter()
             .map(|parameter| format!("({} {})", parameter.name, crate::type_source(&parameter.ty)))
@@ -5607,6 +6183,7 @@ impl<'a> Emitter<'a> {
         let finish_fields = self
             .slots
             .iter()
+            .filter(|slot| slot.words.is_none())
             .map(|slot| {
                 format!(
                     "(#call {} (: slot (#get task {})))",
@@ -5963,6 +6540,33 @@ mod tests {
     }
 
     #[test]
+    fn contiguous_erasure_preserves_structural_thread_properties() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let-mut owner Owner (#struct-literal Owner (: kept seed
+            : pointer (#ptr-null (#ptr #u64)) : item (#struct-literal Token (: value 1u64)))))
+          (#let kept (#ref #u64) (#borrow (#get owner kept)))
+          (#let moved Token (#get owner item)) (#forget moved)
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#set-field owner item (#struct-literal Token (: value extra)))
+          (#let answer #u64 (#deref kept)) (#forget kept) (#forget owner) (#return answer))";
+        let main = "(#struct Token (: value #u64)) (#linear Token)
+          (#struct Owner (: kept #u64 : pointer (#ptr #u64) : item Token))";
+        let planning = prepare_generator("#async-fn-pinned", function, main);
+        let generated = generate(&planning).unwrap();
+        assert!(generated[0].source.contains("(#array Owner 0)"));
+        let program = program(&planning, &generated).unwrap();
+        crate::CheckedProgram::validate_with_span(&program).unwrap();
+        for property in [crate::ThreadProperty::Send, crate::ThreadProperty::Sync] {
+            assert!(!crate::type_has_thread_property(
+                &program,
+                &Type::Named(generated[0].frame.clone()),
+                property
+            )
+            .unwrap());
+        }
+    }
+
+    #[test]
     fn specialized_physical_occupancy_matches_native_pending_cell_tags() {
         let function = "(#fn work (: seed #u64) #u64
           (#let-mut owner Owner (#struct-literal Owner (: kept seed : item (#struct-literal Token (: value 1u64)))))
@@ -6013,16 +6617,42 @@ mod tests {
         assert!(
             specialization.states[await_state.successors[1]].before[physical_start + child_slot]
         );
+        let pending_states = specialization
+            .states
+            .iter()
+            .filter(|state| {
+                matches!(
+                    planning.functions[0].graph.blocks[state.block].terminator,
+                    Terminator::Await { .. }
+                )
+            })
+            .map(|state| state.successors[1])
+            .collect::<HashSet<_>>();
         let cases = specialization
             .states
             .iter()
             .enumerate()
+            .filter(|(pc, _)| pending_states.contains(pc))
             .map(|(pc, state)| {
                 let checks = emitter
                     .slots
                     .iter()
                     .enumerate()
+                    .filter(|(_, slot)| slot.words.is_none())
+                    .chain(
+                        emitter
+                            .slots
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, slot)| slot.words.is_some()),
+                    )
                     .map(|(cell, slot)| {
+                        if slot.words.is_some() {
+                            // There is no runtime initialization tag for a
+                            // word region. Native address/value parity is
+                            // checked by async_contiguous_storage instead.
+                            return String::new();
+                        }
                         format!(
                             "(#assert (#variant-is {} {}))",
                             Emitter::slot_ref(slot, false),
@@ -6039,21 +6669,13 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let oracle = format!(
-            "(#fn graph-occupancy-oracle (: task (#pin-ref-mut {})) ()
-          (#match (#get task pc) {cases} (#case _ (#unreachable))) (#return ()))",
-            emitter.frame
-        );
+        let oracle = format!("(#match (#get task pc) {cases} (#case _ (#unreachable)))");
         let mut generated = generate(&planning).unwrap();
         let pending = "(#return (work-pending task))";
         assert!(generated[0].source.contains(pending));
-        let instrumented = generated[0].source.replace(
-            pending,
-            "(#call graph-occupancy-oracle (: task task)) (#return (work-pending task))",
-        );
-        generated[0].source =
-            crate::generator::format_generated_source(&format!("{instrumented}\n{oracle}"))
-                .unwrap();
+        let uninstrumented = generated[0].source.clone();
+        let instrumented = uninstrumented.replace(pending, &format!("{oracle} {pending}"));
+        generated[0].source = crate::generator::format_generated_source(&instrumented).unwrap();
         let seed = &emitter.slots[emitter.bindings[&BindingId(0)]];
         let correct = format!(
             "(#assert (#variant-is {} {}))",
@@ -6070,9 +6692,9 @@ mod tests {
         let bad = Generated {
             frame: generated[0].frame.clone(),
             origin: generated[0].origin,
-            source: crate::generator::format_generated_source(&format!(
-                "{instrumented}\n{bad_oracle}"
-            ))
+            source: crate::generator::format_generated_source(
+                &uninstrumented.replace(pending, &format!("{bad_oracle} {pending}")),
+            )
             .unwrap(),
         };
         runtime_generated(planning, generated, 42);

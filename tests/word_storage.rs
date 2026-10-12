@@ -52,6 +52,75 @@ fn flat_word_views_preserve_stack_layout() {
 }
 
 #[test]
+fn word_view_outlives_temporary_anchor_but_not_its_parameter() {
+    let source = "(#fn read (: words (#ref-mut (#array #u64 2))) #u64
+      (#let selected (#ref #u64) (#unsafe (#word-view (#ref #u64)
+        (#block
+          (#let anchor (#ref (#array #u64 2)) (#borrow (#deref words)))
+          (#borrow-slice (#deref anchor) 0usize 1usize)))))
+      (#let again (#ref #u64) selected)
+      (#return (#u64.+.wrap (#deref selected) (#deref again))))
+      (#fn main () #u64
+        (#let-mut words (#array #u64 2) (#array-of (#array #u64 2) 21u64 0u64))
+        (#return (#call read (: words (#borrow-mut words)))))";
+    run(source);
+    let conflict = source.replace(
+        "(#let again",
+        "(#deref-set words (#array-of (#array #u64 2) 99u64 0u64)) (#let again",
+    );
+    assert_eq!(compile(&conflict).unwrap_err().code, DiagnosticCode::Borrow);
+    let exclusive = source
+        .replace(
+            "(#let selected (#ref #u64)",
+            "(#let selected (#ref-mut #u64)",
+        )
+        .replacen("#word-view (#ref #u64)", "#word-view (#ref-mut #u64)", 1)
+        .replace(
+            "(#let anchor (#ref (#array #u64 2)) (#borrow (#deref words)))",
+            "(#let anchor (#ref-mut (#array #u64 2)) (#borrow-mut (#deref words)))",
+        )
+        .replace(
+            "(#borrow-slice (#deref anchor)",
+            "(#borrow-slice-mut (#deref anchor)",
+        )
+        .replace(
+            "(#let again (#ref #u64) selected)",
+            "(#let again (#ref #u64) (#borrow (#index (#deref words) 0usize)))",
+        );
+    assert_eq!(
+        compile(&exclusive).unwrap_err().code,
+        DiagnosticCode::Borrow
+    );
+}
+
+#[test]
+fn word_view_uses_result_mutability_without_losing_alias_protection() {
+    let shared = SOURCE
+        .replace("(#borrow-slice words)", "(#borrow-slice-mut words)")
+        .replace(
+            "(#let result",
+            "(#let observed #u64 (#index words 0usize)) (#let result",
+        );
+    run(&shared);
+    let conflicting_write = shared.replace(
+        "(#let observed",
+        "(#set-index words 0usize 99u64) (#let observed",
+    );
+    assert_eq!(
+        compile(&conflicting_write).unwrap_err().code,
+        DiagnosticCode::Borrow
+    );
+    let exclusive = shared
+        .replace("(#let view (#ref Pair)", "(#let view (#ref-mut Pair)")
+        .replace("#word-view (#ref Pair)", "#word-view (#ref-mut Pair)")
+        .replace("(: pair (#ref Pair))", "(: pair (#ref-mut Pair))");
+    assert_eq!(
+        compile(&exclusive).unwrap_err().code,
+        DiagnosticCode::Borrow
+    );
+}
+
+#[test]
 fn word_access_checks_unsafe_types_aliases_and_lifetimes() {
     let missing = SOURCE.replace(
         "(#unsafe (#word-view (#ref Pair) (#borrow-slice words)))",

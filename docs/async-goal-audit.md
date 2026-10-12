@@ -46,9 +46,28 @@ disjoint ranges, helper-returned views, rejected local escapes and heap release,
 and rejected invented reference provenance. A contiguous partial-ownership test
 consumes one field, restores it while a sibling reference is retained, then
 checks that a whole-aggregate view projects the very same sibling address.
-This demonstrates the storage primitive, not an async conversion: the async
-emitter still uses its existing tagged cells, and the desired async whole-owner
-fixture remains a follow-up requirement. No goal-completion claim is made.
+The async emitter now uses this representation for decomposed reference-free
+aggregates: one contiguous word buffer per owner, with compile-time leaf and
+shell occupancy. Partial moves leave stale bytes inaccessible until restored;
+they do not change a retained sibling's address. Whole and projected typed
+views target only source-proved initialized ranges. Stack and heap cold/warm
+regressions return 42 after suspension, restoration and address comparison.
+PC-specialized cleanup exports only occupied leaves. Zero-length typed marker
+fields preserve the original owner's structural Send/Sync constraints without
+runtime payload words. Views retain their parameter capability past temporary
+implementation anchors; result mutability does not erase alias protection.
+
+Reference-bearing aggregates and nondecomposed cells still use their existing
+tagged representation. Their provenance migration, complete tag removal,
+cloning audit and performance work remain open. This is incremental progress,
+not a goal-completion claim.
+
+Verification of this conversion: 1,384 library tests pass with seven existing
+ignored tests, along with 76 focused async integration tests and 15 contiguous
+storage/word-operation tests. Cold/warm native coverage includes stack, heap,
+both branches of a selected whole-owner reference, rejected incomplete reads,
+rejected exclusive overlaps, and an executed occupancy-oracle negative control.
+All-target checking and whitespace checks pass.
 
 Verification for this foundation: 1,383 library tests pass with seven existing
 ignored tests; the focused async module run passes 243 tests with four existing
@@ -235,9 +254,9 @@ the address obtained through the whole reference and returns 42 only when
 both identity and the restored value are correct. The adversarial test also
 rejects exclusive whole and sibling borrows while the sibling remains
 borrowed, with the conflict and original-borrow spans checked. An equivalent
-pinned async body with suspension before restoration is still rejected at
-`(#borrow owner)` with the contiguous-storage diagnostic. This is an open
-representation limitation, not an unsupported ordinary source ownership pattern.
+pinned async body with suspension before restoration now passes for this
+reference-free owner, on stack and heap storage. Reference-bearing owners
+remain a representation limitation, not an unsupported ordinary source pattern.
 
 The existing two leaf cells have interleaved tags and payloads; the corresponding
 ordinary two-field struct has adjacent payload words. Treating the first cell
@@ -288,10 +307,10 @@ empty-storage capability or bypass this check with lifetime-only raw provenance.
 
 The desired positive async case is now kept in
 [`async_partial_whole_borrow.lim`](../tests/fixtures/async_partial_whole_borrow.lim),
-not only in a temporary audit directory. It must eventually return 42, preserving
-the same sibling address across Pending and field restoration. It currently
-fails with E4000 at the whole borrow; this is deliberately recorded as an open
-acceptance case, not a passing regression or completed feature.
+not only in a temporary audit directory. It now returns 42, preserving
+the same sibling address across Pending and field restoration, in
+`tests/async_contiguous_storage.rs`. That passing reference-free regression
+does not complete the broader storage and provenance goal.
 
 The proposed general `(#storage T)` type would own one aligned, contiguous
 payload with exactly T's field offsets and a separate initialization sidecar.
