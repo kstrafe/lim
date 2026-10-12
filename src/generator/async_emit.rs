@@ -3,8 +3,10 @@
 //!
 //! The dispatcher, rather than a collection of body-shape rewrites, defines
 //! execution order. Every owning storage cell has an explicit Empty/Full tag.
-//! This module proposes code; graph validation is not ownership permission.
-//! The original model and generated ordinary program must both be checked.
+//! Source ownership, loans, pinning and initialization establish the safety
+//! obligations of generated unsafe operations; pinning alone is insufficient.
+//! Graph validation is not ownership permission. Ordinary emitted-code checking
+//! remains mandatory, but cannot independently prove raw accesses sound.
 #![allow(dead_code)] // Internal emission helpers also support structural tests.
 
 use std::cell::{Cell, OnceCell, RefCell};
@@ -3197,12 +3199,6 @@ impl<'a> Emitter<'a> {
         }
         let mut live = graph.reachable().into_iter().collect::<Vec<_>>();
         live.sort_by_key(|block| block.0);
-        let mut predecessors = vec![Vec::new(); graph.blocks.len()];
-        for &block in &live {
-            for next in graph.successors(block) {
-                predecessors[next.0].push(block);
-            }
-        }
         let mut field_slots = self
             .aggregates
             .values()
@@ -3229,9 +3225,6 @@ impl<'a> Emitter<'a> {
         for index in 0..graph.parameter_count {
             set_binding(&mut initial, BindingId(index), true);
         }
-        let top = vec![true; initial.len()];
-        let mut before = vec![top.clone(); graph.blocks.len()];
-        let mut after = before.clone();
         let transfer = |located: &crate::generator::async_exec::LocatedAction,
                         full: &mut Vec<bool>| {
             match &located.action {
@@ -3328,33 +3321,31 @@ impl<'a> Emitter<'a> {
                 _ => {}
             }
         };
-        loop {
-            let mut changed = false;
-            for &block in &live {
-                let mut incoming = if block == graph.entry {
-                    initial.clone()
-                } else {
-                    top.clone()
-                };
-                for previous in &predecessors[block.0] {
-                    for (full, available) in incoming.iter_mut().zip(&after[previous.0]) {
-                        *full &= available;
-                    }
+        let successors = (0..graph.blocks.len())
+            .map(|block| {
+                graph
+                    .successors(BlockId(block))
+                    .into_iter()
+                    .map(|next| next.0)
+                    .collect()
+            })
+            .collect::<Vec<_>>();
+        let initialization = crate::generator::async_initialization::Analysis::solve(
+            graph.entry.0,
+            &successors,
+            initial,
+            |block, full| {
+                for located in &graph.blocks[block].actions {
+                    transfer(located, full);
                 }
-                let mut outgoing = incoming.clone();
-                for located in &graph.blocks[block.0].actions {
-                    transfer(located, &mut outgoing);
-                }
-                changed |= before[block.0] != incoming || after[block.0] != outgoing;
-                before[block.0] = incoming;
-                after[block.0] = outgoing;
-            }
-            if !changed {
-                break;
-            }
-        }
+            },
+        );
         for block in live {
-            let mut full = before[block.0].clone();
+            let mut full = initialization.before[block.0]
+                .as_ref()
+                .expect("reachable block has initialization facts")
+                .definitely_initialized()
+                .to_vec();
             for located in &graph.blocks[block.0].actions {
                 let descriptor = match &located.action {
                     Action::Place { descriptor, .. } => Some(descriptor),

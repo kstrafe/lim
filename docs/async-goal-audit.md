@@ -9,6 +9,39 @@ generated-program checking remain mandatory, including on cache hits.
 
 ## Current follow-up scope (2026-10-11)
 
+### Accepted direction: checked lowering with unsafe implementation details
+
+The selected approach is to justify unsafe async storage accesses through the
+original async analysis and checked lowering, not introduce a public `#storage`
+type solely to make the emitted representation independently borrow-checkable.
+Ordinary emitted-code checking remains mandatory for types, explicit unsafe
+scopes and ordinary safe operations; it does not prove raw accesses sound.
+The original source's initialization, aliasing, escaping-reference, pinning and
+cancellation obligations must remain checked on cold and warm compilations.
+Pinning establishes address stability, not any of these other permissions.
+
+Frame states should carry initialization distinctions whenever possible, rather
+than adding redundant per-field flags or runtime checks around proved accesses.
+If different paths reaching one state have different initialization, lowering
+must preserve that distinction; treating an unknown field as initialized is not
+an option. Native address recipes must also respect actual stack versus
+heap/global layouts. Casting an untagged address to an ascending payload is not
+valid for descending stack storage, even when the frame is pinned.
+
+The first implementation step separates compile-time initialization analysis
+from cell emission. `async_initialization.rs` computes must/may facts at block
+entry and exit, with no runtime state writes. Production projected-access
+validation uses its definite facts. Tests cover partial moves and restoration,
+conditional joins, unreachable blocks, loops and parity with the old definite
+solver across 256 cyclic graphs. Existing Empty/Full cells and their runtime
+operations have not yet been replaced; contiguous unsafe payload lowering and
+state-specific partial cancellation remain required follow-up work.
+Verification: all 1,374 library tests pass with seven existing ignored tests;
+23 cancellation, standalone generated-boundary, adversarial and UI integration
+tests pass. All-target and whitespace checks pass. A raw-address prototype was
+discarded after native testing exposed its incorrect stack-layout assumption;
+neither that prototype nor a pointer-from-address keyword is retained.
+
 Field-aware storage now supports partial moves and restoration of nested
 structs, stationary sibling borrows and explicit cancellation obligations.
 Owning clones preserve references for named/reused owners and computed
@@ -82,7 +115,7 @@ frame design must account for initialization at the boundary and cancellation,
 not merely physical layout. Do not reinterpret a safe pinned reference as an
 empty-storage capability or bypass this check with lifetime-only raw provenance.
 
-### Storage proposal for review (not implemented)
+### Historical storage proposal (not selected or implemented)
 
 The desired positive async case is now kept in
 [`async_partial_whole_borrow.lim`](../tests/fixtures/async_partial_whole_borrow.lim),
@@ -146,7 +179,8 @@ remain required on cold and warm caches; no async-only checker permission is
 part of this proposal. Acceptance must include shared/exclusive whole and field
 borrows, nested restoration, returned references, stack/heap pinning, early and
 repeated cancellation, exact address identity, and invalid accesses/escapes.
-This proposal has not added keywords or authorized their implementation.
+This proposal added no keywords. The selected direction above instead relies
+on checked async lowering to justify unsafe implementation operations.
 
 Deep scalar borrows within independently stored aggregate leaves now lower to
 references rooted in their actual field cells. Field/tuple/static-index/runtime-

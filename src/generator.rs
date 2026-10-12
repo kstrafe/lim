@@ -76,6 +76,7 @@ pub(crate) mod async_contract;
 pub(crate) mod async_emit;
 pub(crate) mod async_exec;
 pub(crate) mod async_immediate;
+pub(crate) mod async_initialization;
 pub(crate) mod async_interfaces;
 pub(crate) mod async_lease;
 pub(crate) mod async_lend;
