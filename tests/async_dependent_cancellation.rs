@@ -206,15 +206,65 @@ fn pinned_generated_child_is_cancelled_without_moving_its_frame() {
 }
 
 #[test]
-fn pinned_child_cancellation_preserves_heap_frame_layout() {
+fn reference_free_pinned_child_cancels_in_word_storage_exactly_once() {
     let program = pinned_source()
+        .replace("#fn child (: view (#ref Owner))", "#fn child (: amount #u64)")
+        .replace("(#get view amount)", "amount")
+        .replace("#call child (: view (#borrow owner))", "#call child (: amount (#get owner amount))")
+        .replace("(#fn cancel-step (: value Step) () (#forget value) (#return ()))",
+            "(#fn cancel-step (: value Step) () (#let byte #u8 67u8) (#assert (#i64.== (#unsafe (#linux-syscall #i64 1usize (1i64 (#borrow byte) 1usize))) 1i64)) (#forget value) (#return ()))");
+    run_with_output(&program, "async-pinned-word-child-cancellation", b"C");
+    let heap = heap_pinned_source(&program);
+    run_with_output(&heap, "async-pinned-word-heap-child-cancellation", b"C");
+}
+
+#[test]
+fn reference_free_pinned_child_rejects_moving_cancellation_handlers() {
+    let program = pinned_source()
+        .replace(
+            "#fn child (: view (#ref Owner))",
+            "#fn child (: amount #u64)",
+        )
+        .replace("(#get view amount)", "amount")
+        .replace(
+            "#call child (: view (#borrow owner))",
+            "#call child (: amount (#get owner amount))",
+        )
+        .replace("(nested child-poll-destroy)", "(nested discard-child)")
+        + "\n(#fn discard-child (: value Child-frame) () (#forget value) (#return ()))";
+    let scratch = support::Scratch::new("async-word-child-moving-cancel");
+    let error = lim::compile_source_to_assembly(
+        &program,
+        &scratch.path().join("main.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("pinned mutable reference"),
+        "{error:?}"
+    );
+    assert!(
+        !scratch.path().join("generated").exists(),
+        "no partially checked child is published"
+    );
+}
+
+fn heap_pinned_source(source: &str) -> String {
+    source
         .replace("(#call parent-poll-destroy (: task pending))",
             "(#call parent-poll-destroy (: task pending)) (#forget pending)")
         .replace("(#let-mut task Parent-frame (#call parent ()))",
             "(#let pointer (#ptr-mut Parent-frame) (#unsafe (#linux-syscall (#ptr-mut Parent-frame)\n          9usize (0usize (#size-of Parent-frame) 3usize 34usize -1i64 0usize))))\n        (#let initial Parent-frame (#call parent ()))\n        (#let-mut task (#pin-own Parent-frame) (#unsafe (#pin-own-of pointer initial)))")
         .replace("(#pin-borrow-mut task)", "(#pin-own-borrow-mut task)")
         .replace("(#forget task)",
-            "(#let raw (#ptr-mut Parent-frame) (#unsafe (#pin-release task)))\n        (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Parent-frame)))) 0i64))");
+            "(#let raw (#ptr-mut Parent-frame) (#unsafe (#pin-release task)))\n        (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Parent-frame)))) 0i64))")
+}
+
+#[test]
+fn pinned_child_cancellation_preserves_heap_frame_layout() {
+    let program = heap_pinned_source(pinned_source());
     assert!(program.contains("#pin-own-borrow-mut"));
     run(&program, "async-dependent-pinned-heap-child");
     let rejected = program.replace(" (#forget pending)", "");
@@ -299,6 +349,10 @@ fn removed_work_poll_cancel_is_an_unknown_function() {
 }
 
 fn run(source: &str, label: &str) {
+    run_with_output(source, label, b"");
+}
+
+fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
     let scratch = support::Scratch::new(label);
     let mut config = lim::CompileConfig::default();
     config.set("async-lowering", "graph");
@@ -362,7 +416,8 @@ fn run(source: &str, label: &str) {
                 assert!(
                     parts
                         .iter()
-                        .any(|part| contains(part, "#pin-get-payload-unchecked-mut")),
+                        .any(|part| contains(part, "#pin-get-payload-unchecked-mut")
+                            || contains(part, "#word-view")),
                     "{generated}"
                 );
                 assert!(
@@ -391,5 +446,6 @@ fn run(source: &str, label: &str) {
     let (status, stdout, stderr) =
         support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
     assert_eq!(status.code(), Some(42), "{status:?}: {stderr:?}");
-    assert!(stdout.is_empty() && stderr.is_empty());
+    assert_eq!(stdout, expected_stdout);
+    assert!(stderr.is_empty());
 }

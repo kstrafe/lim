@@ -696,6 +696,59 @@ impl Declarations {
         self.global_ids.get(name).copied()
     }
 
+    /// Install physical generator layouts without renumbering source IDs.
+    /// This supplies representation facts only, not checked runtime bodies.
+    pub(crate) fn install_generated_layouts(
+        &mut self,
+        items: &[crate::Item],
+    ) -> Result<(), String> {
+        for item in items {
+            if let crate::Item::TypeAlias { name, target, .. } = item {
+                self.aliases.insert(name.clone(), target.clone());
+            }
+        }
+        for item in items {
+            let name = match item {
+                crate::Item::Struct { name, fields, .. } => {
+                    let fields = fields
+                        .iter()
+                        .map(|field| {
+                            let mut field = field.clone();
+                            field.ty = resolve_type(&field.ty, &self.aliases)?;
+                            Ok(field)
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    self.structs.insert(name.clone(), fields);
+                    name
+                }
+                crate::Item::Enum { name, variants, .. } => {
+                    let variants = variants
+                        .iter()
+                        .map(|variant| {
+                            let mut variant = variant.clone();
+                            variant.fields = variant
+                                .fields
+                                .iter()
+                                .map(|ty| resolve_type(ty, &self.aliases))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            Ok(variant)
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
+                    self.enums.insert(name.clone(), variants);
+                    name
+                }
+                _ => continue,
+            };
+            if !self.aggregate_ids.contains_key(name) {
+                let id = AggregateId(self.aggregate_names.len());
+                self.aggregate_names.push(name.clone());
+                self.aggregate_ids.insert(name.clone(), id);
+            }
+            self.deferred_layouts.remove(name);
+        }
+        Ok(())
+    }
+
     pub fn set_deferred_layouts(
         &mut self,
         layouts: &HashMap<String, crate::generation_interfaces::DeferredLayout>,

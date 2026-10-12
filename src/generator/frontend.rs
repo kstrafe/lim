@@ -301,16 +301,19 @@ fn graph_generated_owned_program(
     cache_directory: Option<&Path>,
     validation_context: Option<(&CompileConfig, &str)>,
 ) -> Result<(typecheck::OwnedProgram, Vec<super::async_emit::Generated>), SourceError> {
-    let planning = super::async_prepare::prepare(prepared)?;
+    let mut planning = super::async_prepare::prepare(prepared)?;
     let invocations = prepared
         .expressions
         .iter()
         .filter(|node| is_async_invocation(node))
         .collect::<Vec<_>>();
-    let mut generated = Vec::with_capacity(invocations.len());
+    let mut outputs = (0..invocations.len()).map(|_| None).collect::<Vec<_>>();
     let mut staged = Vec::new();
     let key_context = graph_source_key_context(prepared);
-    for (function, invocation) in planning.functions.iter().zip(&invocations) {
+    let order = super::async_layout::emission_order(&planning)?;
+    for index in order {
+        let function = &planning.functions[index];
+        let invocation = invocations[index];
         let key = graph_source_key(&key_context, invocation)?;
         let origins = vec![graph_source_origin(prepared, invocation.span)];
         // Probe through the shared key/digest/parser verifier. Its callback
@@ -383,12 +386,17 @@ fn graph_generated_owned_program(
                 output.source
             );
             if cache_directory.is_some() {
-                staged.push((generated.len(), key, origins));
+                staged.push((index, key, origins));
             }
             output
         };
-        generated.push(output);
+        planning.install_generated_layouts(&output.source)?;
+        outputs[index] = Some(output);
     }
+    let generated = outputs
+        .into_iter()
+        .map(|output| output.expect("every async invocation has an emitted or cached output"))
+        .collect::<Vec<_>>();
     let mut program =
         typecheck::OwnedProgram::new(super::async_emit::program(&planning, &generated)?);
     validate_syntax_bundle_declarations(

@@ -159,8 +159,12 @@ pub(crate) enum LinearProjection {
 
 impl LinearTypes {
     pub(crate) fn from_program(program: &Program) -> Self {
+        Self::from_items(program.items.iter())
+    }
+
+    pub(crate) fn from_items<'a>(items: impl IntoIterator<Item = &'a Item>) -> Self {
         let mut types = Self::default();
-        for item in &program.items {
+        for item in items {
             match item {
                 Item::LinearAnnotation { type_name } => {
                     types.explicitly_linear.insert(type_name.clone());

@@ -5781,6 +5781,19 @@ impl<'a> Emitter<'a> {
         Ok(handlers)
     }
 
+    fn stationary_child(&self, slot: &Slot) -> bool {
+        let ty = crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases)
+            .unwrap_or_else(|_| slot.ty.clone());
+        self.planning.interfaces.functions.values().any(|interface|
+            interface.provenance == crate::generator::async_interfaces::Provenance::AsyncPoll
+                && matches!(interface.declaration.parameters.first().map(|parameter| &parameter.ty),
+                    Some(Type::PinnedReference { target, .. }) if target.as_ref() == &ty))
+    }
+
+    fn cancels_in_place(&self, slot: &Slot) -> bool {
+        !slot.dependencies.is_empty() || (self.pinned && self.stationary_child(slot))
+    }
+
     /// Cancel dependent values before extracting any referent. Cleanup and
     /// configured destruction share this sequence and cannot export a dangling child.
     fn in_place_cleanup(&self) -> Result<String, Error> {
@@ -5792,7 +5805,7 @@ impl<'a> Emitter<'a> {
             .iter()
             .enumerate()
             .filter(|(index, slot)| {
-                slot.linear && !slot.dependencies.is_empty() && occupied.contains(index)
+                slot.linear && self.cancels_in_place(slot) && occupied.contains(index)
             })
             .map(|(index, _)| index)
             .collect::<Vec<_>>();
@@ -5848,9 +5861,7 @@ impl<'a> Emitter<'a> {
                 .first()
                 .and_then(|parameter| crate::typed_ir::resolve_type(&parameter.ty, aliases).ok());
             let pinned = matches!(&parameter, Some(Type::PinnedReference { mutable: true, target }) if target.as_ref() == &expected);
-            let stationary_child = self.planning.interfaces.functions.values().any(|interface|
-                interface.provenance == crate::generator::async_interfaces::Provenance::AsyncPoll
-                    && matches!(interface.declaration.parameters.first().map(|parameter| &parameter.ty), Some(Type::PinnedReference { target, .. }) if target.as_ref() == &expected));
+            let stationary_child = self.stationary_child(slot);
             if stationary_child && !pinned {
                 return Err(fail(self.function, format!("pinned child in source slot '{name}' requires an in-place handler taking a pinned mutable reference")));
             }
@@ -5877,6 +5888,13 @@ impl<'a> Emitter<'a> {
                     let (handler, parameter, pinned) = contracts[&index];
                     let reference = Self::slot_ref(slot, true);
                     let operation = if pinned {
+                        if slot.words.is_some() {
+                            operations.push(format!(
+                                "(#call {handler} (: {parameter} {}))",
+                                self.payload_ref(slot, true)
+                            ));
+                            continue;
+                        }
                         // The externally visible PC proves this child Full.
                         // This typed projection preserves stack/heap layout;
                         // pinning alone is not initialization permission.
@@ -5908,6 +5926,9 @@ impl<'a> Emitter<'a> {
         // by ordinary stored-internal-loan checking at that access boundary.
         output.extend(order.iter().map(|index| {
             let slot = &self.slots[*index];
+            if slot.words.is_some() {
+                return String::new();
+            }
             format!(
                 "(#assert (#variant-is {} {}))",
                 Self::slot_ref(slot, false),
@@ -5978,7 +5999,19 @@ impl<'a> Emitter<'a> {
             fields.push(format!("({field} {cell})"));
             let local = self.fresh("cleanup-slot");
             let payload = self.fresh("cleanup-payload");
-            if let Some(region) = &slot.words {
+            if self.pinned && self.cancels_in_place(slot) {
+                // This owner was destroyed at its stationary address. Its
+                // stale words must never be exported as another live owner.
+                let guard = if slot.words.is_none() {
+                    format!(
+                        "(#assert (#variant-is (#borrow (#get state {})) {}))",
+                        slot.field, slot.empty
+                    )
+                } else {
+                    String::new()
+                };
+                transfers.push(format!("{guard}\n(#let {local} {cell} ({empty}))"));
+            } else if let Some(region) = &slot.words {
                 let plan = self.initialization.as_ref().unwrap();
                 let physical_start = plan.states[0].before.len() - self.slots.len();
                 let mut cases = self.cancellation_states().into_iter().map(|state| {
@@ -5995,11 +6028,6 @@ impl<'a> Emitter<'a> {
                     "(#let {local} {cell} (#match (#get state pc) {}))",
                     cases.join(" ")
                 ));
-            } else if self.pinned && !slot.dependencies.is_empty() {
-                // These values were canceled in place before extraction. Do
-                // not advertise a fictitious Full return path retaining their
-                // old loans alongside their lenders in the cleanup result.
-                transfers.push(format!("(#assert (#variant-is (#borrow (#get state {})) {}))\n(#let {local} {cell} ({empty}))", slot.field, slot.empty));
             } else {
                 transfers.push(format!("(#let {local} {cell} (#match (#get state {}) (#case {} ({empty})) (#case ({} {payload}) ({full} {payload}))))", slot.field, slot.empty, slot.full));
             }
@@ -6009,7 +6037,7 @@ impl<'a> Emitter<'a> {
                 empty,
                 full,
                 slot.ty.clone(),
-                !slot.dependencies.is_empty(),
+                self.cancels_in_place(slot),
             ));
         }
         let state_type = if self.pinned {

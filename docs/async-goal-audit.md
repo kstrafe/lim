@@ -731,6 +731,31 @@ it is not a new paired whole-compiler speedup measurement.
 
 ## Historical migration verification record
 
+### Concrete generated child layouts and stationary cancellation
+
+Generated children are now emitted in dependency order before their parent
+storage is classified. The planner installs actual struct, enum and alias
+declarations from the emitted Lim source without renumbering original source
+identities or duplicating declarations in the final program. Cached child
+sources supply the same layout facts. Owning pinned descriptors also require
+their child layout: fixed descriptor width does not imply that the payload
+contains no retained references. Public output remains in invocation order.
+
+Reference-free nested frames can consequently share untagged parent storage.
+Pinned children cancel at their stationary address even when they retain no
+parent borrow. Their cleanup slot is exported empty after cancellation, so a
+subsequent cleanup cannot cancel the child again or move stale child bytes.
+By-value cancellation handlers for these children are rejected before cache
+publication. Stack and heap cold/warm regressions observe exactly one cancel.
+Zero-length structural markers no longer require the element's physical layout.
+
+Verification passed 1,396 library tests (eight ignored), five native-example
+tests, fourteen dependent-cancellation tests, the new forward-layout cold/warm
+integration, and the contiguous, dynamic-array, boundary, graph-production and
+self-borrow suites. All seventeen generic word-storage tests passed serially;
+one parallel executable launch had `ETXTBSY`, not a semantic failure. This
+milestone does not complete reference-bearing aggregate storage migration.
+
 After the whole-element fix, 1,350 library tests, ten dependent-cancellation
 tests, six dynamic-array tests, all 229 async tests, and five independent
 generated-code boundary tests passed. All 32 graph-production tests passed,

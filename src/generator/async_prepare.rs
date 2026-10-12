@@ -28,6 +28,7 @@ pub(crate) struct Planning {
     pub interfaces: Registry,
     pub declarations: crate::typed_ir::Declarations,
     pub functions: Vec<Function>,
+    pub(crate) layout_items: Vec<Item>,
     linear_types: OnceCell<crate::linearcheck::LinearTypes>,
 }
 
@@ -64,8 +65,19 @@ impl Planning {
     /// every emitter in this planning arena. Classification alone is not an
     /// ownership proof; source validation also runs on generated cache hits.
     pub(crate) fn linear_types(&self) -> &crate::linearcheck::LinearTypes {
-        self.linear_types
-            .get_or_init(|| crate::linearcheck::LinearTypes::from_program(&self.program))
+        self.linear_types.get_or_init(|| {
+            crate::linearcheck::LinearTypes::from_items(
+                self.program.items.iter().chain(&self.layout_items),
+            )
+        })
+    }
+
+    pub(crate) fn install_generated_layouts(&mut self, source: &str) -> Result<(), String> {
+        let items = super::async_layout::declarations(source)?;
+        self.declarations.install_generated_layouts(&items)?;
+        self.layout_items.extend(items);
+        self.linear_types.take();
+        Ok(())
     }
 
     /// Check source discards before emission or a generated-source cache hit.
@@ -293,6 +305,7 @@ pub(crate) fn prepare(prepared: &PreparedProgramSyntax) -> Result<Planning, Sour
         interfaces,
         declarations,
         functions,
+        layout_items: Vec::new(),
         linear_types: OnceCell::new(),
     };
     planning.validate_discarded_results()?;

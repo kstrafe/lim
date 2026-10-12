@@ -4003,6 +4003,7 @@ pub(crate) fn storage_word_count(
         return Ok(1);
     }
     match ty {
+        Type::Array(_, 0) => Ok(0),
         Type::Array(element, length) => storage_word_count(element, structs, enums)?
             .checked_mul(*length)
             .ok_or_else(|| "aggregate storage word count overflowed #usize".to_owned()),
