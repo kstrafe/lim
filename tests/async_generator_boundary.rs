@@ -103,9 +103,9 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
     assert!(standalone.contains("#ptr-address"));
     check_build_and_run(&scratch, &standalone, 42);
 
-    // Exercise the Empty guard itself, independently of source-level branch
-    // correlations. Public generated storage is inspectable ordinary code:
-    // clear the unselected left cell after Pending, then poll the right loan.
+    // There is no runtime Empty tag for primitive bindings. Change the
+    // unselected left buffer after Pending, then poll the right loan: address
+    // selection must retain the original branch instead of rebuilding it.
     let declarations = lim::parse(&standalone).unwrap();
     let frame = declarations.iter().find_map(|node| {
         let lim::Expr::List(items) = &node.expr else { return None; };
@@ -116,53 +116,35 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
     let lim::Expr::List(fields) = &frame[2] else {
         panic!("frame fields");
     };
-    let cell_type = fields
+    let left_buffer = fields
         .iter()
         .find_map(|field| {
             let lim::Expr::List(pair) = field else {
                 return None;
             };
             match pair.as_slice() {
-                [lim::Expr::Symbol(field), lim::Expr::Symbol(ty)] if field == "binding.2" => {
-                    Some(ty)
+                [lim::Expr::Symbol(field), lim::Expr::List(ty)]
+                    if field.ends_with(".binding.2-words") => {
+                    assert!(matches!(ty.as_slice(), [lim::Expr::Symbol(array), lim::Expr::Symbol(element), lim::Expr::Integer(1)]
+                        if array == "#array" && element == "#u64"));
+                    Some(field)
                 }
                 _ => None,
             }
         })
-        .unwrap_or_else(|| panic!("missing left cell: {fields:?}"));
-    let clear = declarations
-        .iter()
-        .find_map(|node| {
-            let lim::Expr::List(items) = &node.expr else {
-                return None;
-            };
-            let [lim::Expr::Symbol(head), lim::Expr::Symbol(name), parameters, ..] =
-                items.as_slice()
-            else {
-                return None;
-            };
-            let lim::Expr::List(parameters) = parameters else {
-                return None;
-            };
-            let Some(lim::Expr::List(parameter)) = parameters.first() else {
-                return None;
-            };
-            let Some(lim::Expr::List(reference)) = parameter.get(1) else {
-                return None;
-            };
-            (head == "#fn" && name.ends_with(".clear")
-            && matches!(reference.as_slice(), [lim::Expr::Symbol(kind), lim::Expr::Symbol(target)]
-                if kind == "#pin-ref-mut" && target == cell_type))
-            .then_some(name)
-        })
-        .unwrap();
-    let empty_left = standalone
+        .unwrap_or_else(|| panic!("missing left buffer: {fields:?}"));
+    let changed_left = standalone
         .replace("(: choose true)", "(: choose false)")
         .replace(
             "(#let answer #u64 (#match",
             &format!(
                 "(#drop next)
-          (#call {clear} (: slot (#pin-borrow-mut (#get task binding.2))))
+          (#block
+            (#let buffer-anchor (#pin-ref-mut (#array #u64 1))
+              (#pin-borrow-mut (#get task {left_buffer})))
+            (#let writable (#ref-mut (#array #u64 1))
+              (#unsafe (#ptr-borrow-mut buffer-anchor (#ref-ptr buffer-anchor))))
+            (#unsafe (#word-write #u64 (#borrow-slice-mut (#deref writable)) 99u64)))
           (#let answer #u64 (#match"
             ),
         )
@@ -170,7 +152,7 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
             "(: task next : waker",
             "(: task (#pin-borrow-mut task) : waker",
         );
-    check_build_and_run(&scratch, &empty_left, 52);
+    check_build_and_run(&scratch, &changed_left, 52);
 }
 
 #[test]

@@ -62,6 +62,29 @@ tagged representation. Their provenance migration, complete tag removal,
 cloning audit and performance work remain open. This is incremental progress,
 not a goal-completion claim.
 
+Primitive source bindings now also use untagged word regions. Constructors
+initialize primitive parameters, and generated parameter read/replace functions
+keep their existing state and loan guards. Clearing a binding changes only
+compile-time occupancy; dispatcher specialization determines which values are
+available. Wide integers retain their two-word representation. A layout
+regression eliminates six discriminator words (48 flat-frame bytes) across six
+primitive bindings; this is a layout saving, not a measured compilation speedup.
+An independently compiled, renamed generated program changes an unselected
+buffer and verifies that a retained reference still selects the correct owner.
+
+This conversion exposed an ordinary reference-holder reborrow issue. Loading a
+reference through a checked reference-to-reference now lends that exact typed
+holder's loan to a call, rather than conflicting with itself. Opaque lifetime
+anchors do not grant that permission. Native regressions exercise repeated
+mutable calls through direct and borrowed holders, and reject a mutable call
+while a child immutable reference remains live. This rule is generic; it does
+not recognize async-generated names or grant async-specific borrow exemptions.
+
+Verification of the primitive conversion: 1,386 library tests pass with seven
+existing ignored tests. All 49 generator-boundary, graph-production and generic
+word-storage integration tests pass, as do all-target checking and whitespace
+checks. Reference-bearing storage conversion remains open.
+
 The contiguous clone audit exposed and corrected a physical-occupancy bug:
 non-owning snapshots of linear word-backed leaves must not use the ordinary
 transfer reader. They now leave the original occupancy unchanged while the

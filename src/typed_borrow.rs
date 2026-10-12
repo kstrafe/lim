@@ -993,6 +993,25 @@ fn check_call_reborrow_parents(
             }
             let mut sources = Vec::new();
             call_argument_slots(body, *argument, &mut sources);
+            if let NodeKind::Form { head, children, .. } = &body.nodes[argument.0].kind {
+                if head == "deref"
+                    && children.len() == 2
+                    && matches!(&body.nodes[children[1].0].ty,
+                        Some(Type::Reference { target, .. } | Type::PinnedReference { target, .. })
+                        if matches!(target.as_ref(), Type::Reference { .. } | Type::PinnedReference { .. }))
+                {
+                    // Loading a reference through a checked reference holder
+                    // lends that exact holder's loan, not an independent alias.
+                    // Opaque lifetime anchors cannot identify typed holders.
+                    sources.extend(
+                        origins
+                            .value_before(body, flow, event, children[1])
+                            .into_iter()
+                            .filter(|origin| !origin.lifetime_only && origin.storage.is_empty())
+                            .map(|origin| origin.referent_place()),
+                    );
+                }
+            }
             let mut parents = HashSet::new();
             let mut pending = incoming
                 .iter()

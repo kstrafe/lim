@@ -713,6 +713,51 @@ impl<'a> Emitter<'a> {
         .map_err(|message| fail(function, message))?;
         emitter.projections.append(&mut recipes.declarations);
         emitter.slice_anchors = recipes;
+        let mut primitive_bindings = emitter.bindings.values().copied().collect::<Vec<_>>();
+        primitive_bindings.sort_unstable();
+        for index in primitive_bindings {
+            let slot = &emitter.slots[index];
+            let ty = crate::typed_ir::resolve_type(&slot.ty, &planning.declarations.aliases)
+                .map_err(|message| fail(function, message))?;
+            if slot.words.is_some()
+                || !matches!(
+                    ty,
+                    Type::Bool
+                        | Type::Char
+                        | Type::I8
+                        | Type::I16
+                        | Type::I32
+                        | Type::I64
+                        | Type::I128
+                        | Type::Isize
+                        | Type::U8
+                        | Type::U16
+                        | Type::U32
+                        | Type::U64
+                        | Type::U128
+                        | Type::Usize
+                        | Type::F32
+                        | Type::F64
+                )
+            {
+                continue;
+            }
+            let capacity = crate::codegen::storage_word_count(
+                &ty,
+                &planning.declarations.structs,
+                &planning.declarations.enums,
+            )
+            .map_err(|message| fail(function, message))?;
+            let binding_field = emitter.slots[index].field.clone();
+            emitter.slots[index].words = Some(WordRegion {
+                field: emitter.fresh(&format!("{binding_field}-words")),
+                marker: emitter.fresh(&format!("{binding_field}-type")),
+                owner: ty,
+                capacity,
+                start: 0,
+                length: capacity,
+            });
+        }
         Ok(emitter)
     }
 
@@ -1329,7 +1374,9 @@ impl<'a> Emitter<'a> {
             if owner.words.is_some() {
                 let selected_cells =
                     if let crate::typed_body::PlaceRoot::Local(binding) = place.root {
-                        if self.anchor_field(binding, &place.segments).is_none() {
+                        if self.aggregates.contains_key(&binding)
+                            && self.anchor_field(binding, &place.segments).is_none()
+                        {
                             let path = place
                                 .segments
                                 .iter()
@@ -2251,6 +2298,9 @@ impl<'a> Emitter<'a> {
             .map_or_else(String::new, |slot| {
                 self.occupancy_write(*slot, false);
                 let slot = &self.slots[*slot];
+                if slot.words.is_some() {
+                    return String::new();
+                }
                 let clear = format!(
                     "(#call {} (: slot {}))",
                     slot.clear,
@@ -5929,6 +5979,19 @@ impl<'a> Emitter<'a> {
                     "async access parameter unexpectedly uses reference storage",
                 ));
             }
+            if let Some(region) = &slot.words {
+                definitions.push(format!(
+                    "(#fn {name}-replace (: task (#pin-ref-mut {}) : value {ty}) ()
+                  {guards} (#unsafe (#word-write {ty} {} value)) (#return ()))
+                  (#fn {name}-read (: task (#pin-ref {})) {ty}
+                  {guards} (#return (#unsafe (#word-read {ty} {}))))",
+                    self.frame,
+                    self.word_slice(region, true),
+                    self.frame,
+                    self.word_slice(region, false)
+                ));
+                continue;
+            }
             let previous = self.fresh("previous-parameter-cell");
             let occupied = self.fresh("previous-parameter-value");
             let target = Self::slot_ref(slot, true);
@@ -6165,7 +6228,13 @@ impl<'a> Emitter<'a> {
                 region.capacity
             ));
             for (index, slot) in self.slots.iter().enumerate() {
-                let Some(part) = initial_parts.get(&index) else {
+                let parameter = self.bindings.iter().find_map(|(binding, actual)| {
+                    (*actual == index
+                        && binding.0 < start_parameters.len()
+                        && !self.aggregates.contains_key(binding))
+                    .then(|| &start_parameters[binding.0].name)
+                });
+                let Some(part) = initial_parts.get(&index).or(parameter) else {
                     continue;
                 };
                 let Some(word) = &slot.words else {
@@ -6461,10 +6530,21 @@ mod tests {
         let owner_slot = emitter.bindings[&owner];
         let view_slot = emitter.bindings[&view];
         for bindings in [[owner, view], [view, owner]] {
+            *emitter.occupancy_trace.borrow_mut() = Some(OccupancyTrace::default());
             let output = emitter.clear_scope(&bindings).unwrap();
+            assert!(output.contains(&emitter.slots[view_slot].clear));
+            let trace = emitter.occupancy_trace.borrow_mut().take().unwrap();
             assert!(
-                output.find(&emitter.slots[view_slot].clear).unwrap()
-                    < output.find(&emitter.slots[owner_slot].clear).unwrap()
+                trace
+                    .writes
+                    .iter()
+                    .position(|(slot, _)| *slot == view_slot)
+                    .unwrap()
+                    < trace
+                        .writes
+                        .iter()
+                        .position(|(slot, _)| *slot == owner_slot)
+                        .unwrap()
             );
         }
         emitter.slots[owner_slot].dependencies.push(view);
@@ -6550,6 +6630,39 @@ mod tests {
             let generated = runtime_planned(planning, 42);
             assert!(!generated[0].source.contains("initialization-bits"));
         }
+    }
+
+    #[test]
+    fn primitive_bindings_use_exact_word_layouts_without_tag_helpers() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let small #i8 -1i8) (#let wide #u128 340282366920938463463374607431768211455u128)
+          (#let floating #f64 1.5f64) (#let flag #bool true)
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#return (#u64.+.wrap seed extra)))";
+        let planning = prepare_generator("#async-fn-pinned", function, "");
+        let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let definitions = emitter.slot_definitions();
+        let fields = emitter.frame_fields();
+        let mut saved_words = 0;
+        for (binding, index) in &emitter.bindings {
+            let slot = &emitter.slots[*index];
+            let region = slot
+                .words
+                .as_ref()
+                .expect("all bindings in this fixture are primitive");
+            let expected = if planning.functions[0].graph.bindings[binding.0].ty == Type::U128 {
+                2
+            } else {
+                1
+            };
+            assert_eq!(region.capacity, expected);
+            assert!(fields.contains(&format!("({} (#array #u64 {expected}))", region.field)));
+            assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+            assert!(!definitions.contains(&format!("(#fn {} ", slot.put)));
+            // The old cell used one discriminator plus the same value words.
+            saved_words += 1;
+        }
+        assert_eq!(saved_words, 6);
     }
 
     #[test]
@@ -6726,7 +6839,7 @@ mod tests {
         let uninstrumented = generated[0].source.clone();
         let instrumented = uninstrumented.replace(pending, &format!("{oracle} {pending}"));
         generated[0].source = crate::generator::format_generated_source(&instrumented).unwrap();
-        let seed = &emitter.slots[emitter.bindings[&BindingId(0)]];
+        let seed = &emitter.slots[child_slot];
         let correct = format!(
             "(#assert (#variant-is {} {}))",
             Emitter::slot_ref(seed, false),
@@ -6802,7 +6915,7 @@ mod tests {
             let mut copies = 0;
             let mut owners = 0;
             for slot in &emitter.slots {
-                if emitter.types.contains_reference(&slot.storage) {
+                if slot.words.is_some() || emitter.types.contains_reference(&slot.storage) {
                     continue;
                 }
                 let definition = definitions.iter().find(|node| matches!(&node.expr,
@@ -7441,7 +7554,7 @@ mod tests {
         let copy = emitter
             .slots
             .iter()
-            .find(|slot| slot.ty == Type::U64)
+            .find(|slot| slot.ty == Type::U64 && slot.words.is_none())
             .unwrap();
         let function = source.split(&format!("(#fn {} ", copy.put)).nth(1).unwrap();
         let function = function.split("(#fn ").next().unwrap();

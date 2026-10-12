@@ -52,6 +52,48 @@ fn flat_word_views_preserve_stack_layout() {
 }
 
 #[test]
+fn typed_reference_holder_lends_its_word_view_without_duplicating_the_loan() {
+    let source = "(#struct Holder (: view (#ref-mut #u64)))
+      (#fn touch (: target (#ref-mut #u64)) ()
+        (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return ()))
+      (#fn main () #u64
+        (#let-mut words (#array #u64 1) (#array-of (#array #u64 1) 40u64))
+        (#let view (#ref-mut #u64) (#unsafe (#word-view (#ref-mut #u64)
+          (#block
+            (#let anchor (#ref-mut (#array #u64 1)) (#borrow-mut words))
+            (#borrow-slice-mut (#deref anchor))))))
+        (#let-mut holder Holder (#struct-literal Holder (: view view)))
+        (#call touch (: target (#deref (#borrow-mut (#get holder view)))))
+        (#call touch (: target (#deref (#borrow-mut (#get holder view)))))
+        (#let result #u64 (#deref (#get holder view)))
+        (#forget holder) (#return result))";
+    run(source);
+    let through_owner = source
+        .replace(
+            "(#let-mut holder Holder (#struct-literal Holder (: view view)))",
+            "(#let-mut holder Holder (#struct-literal Holder (: view view)))
+           (#let owner-view (#ref-mut Holder) (#borrow-mut holder))",
+        )
+        .replace("(#get holder view)", "(#get owner-view view)")
+        .replace("(#forget holder)", "(#forget owner-view) (#forget holder)");
+    run(&through_owner);
+    let conflict = through_owner
+        .replacen(
+            "(#call touch",
+            "
+      (#let child (#ref #u64) (#borrow (#deref (#get owner-view view))))
+      (#call touch",
+            1,
+        )
+        .replace(
+            "(#forget owner-view)",
+            "(#forget child) (#forget owner-view)",
+        );
+    let error = compile(&conflict).unwrap_err();
+    assert_eq!(error.code, DiagnosticCode::Borrow, "{}", error.message);
+}
+
+#[test]
 fn word_view_outlives_temporary_anchor_but_not_its_parameter() {
     let source = "(#fn read (: words (#ref-mut (#array #u64 2))) #u64
       (#let selected (#ref #u64) (#unsafe (#word-view (#ref #u64)
