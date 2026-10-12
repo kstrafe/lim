@@ -455,7 +455,6 @@ fn linear_reference_aggregate_guard_lends_stationary_preview_aliases() {
 }
 
 #[test]
-#[ignore = "completion gate: ordinary referent contracts lose exclusive aggregate alias call inputs"]
 fn linear_exclusive_reference_aggregate_guard_lends_without_copying_the_handle() {
     let source = exclusive_reference_guard_source(&linear_reference_guard_source())
         .replace(
@@ -530,12 +529,14 @@ fn linear_guard_whole_payload_borrow_survives_suspension_before_preview_read() {
 
 #[test]
 fn movable_linear_guard_borrows_the_retained_payload_only_during_poll() {
-    let source =
-        linear_reference_guard_source().replace("(#get (#borrow view) value)", "(#get view value)");
-    let declarations =
-        source[..source.find("(#fn main").unwrap()].replace("@#async-fn-pinned", "@#async-fn");
-    let source = format!(
-        "{declarations}
+    for source in [
+        linear_reference_guard_source(),
+        linear_reference_guard_source().replace("(#get (#borrow view) value)", "(#get view value)"),
+    ] {
+        let declarations =
+            source[..source.find("(#fn main").unwrap()].replace("@#async-fn-pinned", "@#async-fn");
+        let source = format!(
+            "{declarations}
       (#fn main () #u64
         (#let waker #u64 0u64) (#let owner #u64 42u64)
         (#let-else (work-pending next) Work-poll-result
@@ -546,8 +547,9 @@ fn movable_linear_guard_borrows_the_retained_payload_only_during_poll() {
         (#return (#match (#call work-poll (: task last : waker (#borrow waker)))
           (#case (work-ready answer) answer)
           (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))"
-    );
-    run(&source, "async-movable-linear-guard");
+        );
+        run(&source, "async-movable-linear-guard");
+    }
 }
 
 #[test]

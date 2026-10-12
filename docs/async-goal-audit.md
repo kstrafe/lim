@@ -722,27 +722,31 @@ payload directly during poll. An occupancy regression requires that preview
 does not initialize the future arm's owning cell, commit does initialize it,
 and tracing leaves byte-identical generated output.
 
-The positive exclusive-reference aggregate helper-lending reproducer remains
-an explicitly ignored completion gate: ordinary emitted-program inference
-rejects unresolved call inputs. Direct non-Copy reference-field loads also
-still require lending storage. Neither failure is waived by an async-specific
-borrow-checker rule; this part of guard support remains unfinished. A plain
-whole-aggregate immediate borrow in a movable frame also exposed missing
-ordinary slot provenance and remains separate from the passing direct-field
-inspection case. Payload-binding alternative patterns are forbidden by the
+The exclusive-reference aggregate helper-lending completion gate now passes
+and is no longer ignored. Its projection helper had stored `#ref-ptr` in a raw
+pointer local, while ordinary loan analysis only recognizes the exact named
+owner round trip directly. Emitting `(#ptr-borrow projected (#ref-ptr projected))`
+preserves actual nested reference identity instead of reducing it to a lifetime
+anchor. This changes emission, not the checker identity rule. A plain ordinary
+Lim regression checks the nested exclusive read and rejects mutation of its
+lender. Movable preview projections now pass the retained scrutinee capability
+to that helper instead of borrowing an empty future arm-binding cell. Both
+whole-payload and direct-field inspection pass cold/warm and independent native
+verification. Direct non-Copy reference-field loads still need lending storage
+and remain unfinished; no native borrowing rule is waived. Payload-binding
+alternative patterns are forbidden by the
 ordinary source language and retain negative publication/span coverage;
 supporting them is not an async lowering obligation.
 
-Verification for this increment: 1,398 library tests pass (eight existing
-ignored tests), and graph-production has 39 passing tests with the one explicit
-exclusive-aggregate completion gate ignored. Running that gate separately
-still fails as documented above; it is not part of the passing count. The
+Verification after the exact identity fix: 1,399 library tests pass (eight
+existing ignored tests), and all forty graph-production tests pass with none
+ignored. The
 contiguous, dependent-cancellation, dynamic-array, boundary and self-borrow
 integration suites pass, along with the standalone occupancy parity test,
 all-target checking and formatting/whitespace checks. A bounded alias-lifetime
 audit found no leaked activation or ownership-cell redirection in nested
 preview, commit, rejection or probe paths. Reference-bearing contiguous storage
-and the unresolved ordinary lending contracts remain unfinished.
+and direct nonmoving exclusive field loads remain unfinished.
 
 Production routes only through original-body graph planning and emission.
 Graph lowering is the default; `async-lowering=legacy` is rejected. The old

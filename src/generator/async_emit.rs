@@ -3968,7 +3968,10 @@ impl<'a> Emitter<'a> {
         let input = self.payload_ref(slot, borrow.mutable);
         let name = self.fresh("immediate-owner-project");
         let argument = self.fresh("immediate-owner-input");
-        let input = if self.pinned || borrow.mutable {
+        let input = if self.pinned
+            || borrow.mutable
+            || self.active_preview_aliases.contains(&owner.binding)
+        {
             self.projections.push(owner.declaration(&name, &argument));
             input
         } else {

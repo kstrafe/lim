@@ -115,6 +115,42 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_projection_preserves_nested_exclusive_reference_identity() {
+        let target = Box::new(Type::Named("View".into()));
+        let plan = Borrow {
+            binding: BindingId(0),
+            input: Type::PinnedReference {
+                mutable: false,
+                target: target.clone(),
+            },
+            output: Type::Reference {
+                mutable: false,
+                target,
+            },
+            mutable: false,
+            fields: Vec::new(),
+        };
+        let declaration = plan.declaration("project", "input");
+        assert!(declaration.contains("(#ptr-borrow projected (#ref-ptr projected))"));
+        let source = format!(
+            "(#struct View (: value (#ref-mut #u64))) (#linear View)
+          {declaration}
+          (#fn read-view (: view (#ref View)) #u64 (#return (#deref (#get view value))))
+          (#fn main () #u64
+            (#let-mut owner #u64 42u64)
+            (#let view View (#struct-literal View (: value (#borrow-mut owner))))
+            (#let borrowed (#ref View) (#call project (: input (#pin-borrow view))))
+            (#let answer #u64 (#call read-view (: view borrowed)))
+            (#forget borrowed) (#forget view) (#return answer))"
+        );
+        crate::CheckedProgram::validate(&crate::parse_program(&source).unwrap())
+            .unwrap_or_else(|error| panic!("{error}\n{source}"));
+        let invalid = source.replace("(#let answer #u64", "(#set owner 99u64)\n(#let answer #u64");
+        let error = crate::check_types(&crate::parse_program(&invalid).unwrap()).unwrap_err();
+        assert!(error.contains("borrow"), "{error}");
+    }
+
+    #[test]
     fn parameter_owner_projections_require_explicit_mutability_metadata() {
         let source = "(#struct Owner (: value #u64)) (#linear Owner)
           (#fn work ((#mut owner Owner)) #u64
@@ -267,9 +303,11 @@ impl Borrow {
                 Type::Reference { target, .. } => target,
                 _ => unreachable!(),
             };
-            format!("(#block (#let projected {} {value})\n(#let pointer {} (#ref-ptr projected))\n(#unsafe (#ptr-borrow{} projected pointer)))",
+            // Keep the exact identity visible to ordinary loan analysis.
+            // A stored raw pointer is otherwise only a lifetime-anchored view
+            // and cannot carry the payload's nested reference provenance.
+            format!("(#block (#let projected {} {value})\n(#unsafe (#ptr-borrow{} projected (#ref-ptr projected))))",
                 crate::type_source(&Type::PinnedReference { mutable: self.mutable, target: ty.clone() }),
-                crate::type_source(&Type::RawPointer { mutable: self.mutable, target: ty.clone() }),
                 if self.mutable { "-mut" } else { "" })
         } else {
             value
