@@ -54,7 +54,14 @@ fn run_with_role(source: &str, expected_stdout: &[u8], role: &str) {
             .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
             .find(|text| text.contains("(#fn work-poll "))
             .unwrap();
-        assert!(artifact.contains(role));
+        // Contiguous word-backed owners are projected inline rather than
+        // through the older typed-cell helper. The checks and native execution
+        // below verify both representations, including cached independent code.
+        assert!(
+            artifact.contains(role)
+                || (artifact.contains("#word-view") && artifact.contains("#borrow-slice")),
+            "neither {role} nor an inline word-backed projection was emitted"
+        );
         let invocation = lim::parse(source)
             .unwrap()
             .into_iter()

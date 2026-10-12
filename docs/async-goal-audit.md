@@ -42,6 +42,32 @@ Reference-bearing contiguous async owner storage and complete physical tag
 removal remain unfinished. The final architecture HTML has not been written;
 it is to remain uncommitted when the async goal is actually complete.
 
+### Refresh ordinary-code storage regressions (2026-10-12)
+
+The fifteen immediate-borrow tests now accept inline word-backed projections
+as well as the older typed-cell projection helper. Both routes still undergo
+independent ordinary checking and native execution, cold and warm; helper names
+are not treated as the semantic contract.
+
+The frame-restoration regression now copies and renames the actual emitted
+parameter-access functions rather than assuming that every frame field has an
+Empty/Full enum. Independent ordinary code successfully replaces and reads the
+same owner's storage after completion and cancellation. It asserts word-backed
+operations and absence of per-cell variant guards. Replacement while Pending
+traps at the explicit terminal-state guard (SIGILL), before the unsafe write.
+All five frame-restoration tests pass.
+
+This deliberately does not claim that the native checker proves unguarded raw
+word writes safe. Numeric backing has no typed contained-reference identity;
+the original source analysis, checked lowering and generated access contract
+justify these unsafe implementation details. Removing the guard is not a valid
+safe implementation, and pinning alone supplies no aliasing permission.
+
+Final follow-up verification passes all 45 graph-production tests and all 21
+heap-reference contents tests. A separate concurrent heap launch hit Linux
+`ETXTBSY`; its serial rerun passed all 21 tests, as did the run following the
+graph matrix. All-target checking and formatting pass after both changes.
+
 ### Accepted direction: checked lowering with unsafe implementation details
 
 The selected approach is to justify unsafe async storage accesses through the

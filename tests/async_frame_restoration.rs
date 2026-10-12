@@ -6,14 +6,14 @@ use std::{fs, process::Command, time::Duration};
 // contract. No async-specific ownership permission is used by these helpers.
 #[test]
 fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
+    use std::os::unix::process::ExitStatusExt;
     let prefix = include_str!("../examples/async_fn_self_reference.lim")
         .split("(#fn main")
         .next()
         .unwrap()
         .replace("read-after-await", "work")
         .replace("Read-after-await", "Work")
-        .replace("ReadAfterAwaitAwait", "WorkAwait")
-        .replace(": access (: owner work-owner)", "");
+        .replace("ReadAfterAwaitAwait", "WorkAwait");
     let source = format!("{prefix}
       (#fn main () #u64 (#let waker #u64 0u64)
         (#let-mut frame Work-frame (#call work (: owner (#struct-literal Owner
@@ -42,8 +42,8 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
         .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
         .find(|text| text.contains("(#fn work-poll "))
         .unwrap();
-    assert!(!artifact.contains("(#fn work-owner-read "));
-    assert!(!artifact.contains("(#fn work-owner-replace "));
+    assert!(artifact.contains("(#fn work-owner-read "));
+    assert!(artifact.contains("(#fn work-owner-replace "));
     // The same ordinary helper must work with the source actually reused from
     // disk, not only the first emission's in-memory analysis identities.
     lim::write_generated_sources_from_path_with_config_and_cache(
@@ -72,63 +72,32 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     );
     let program = lim::parse_program(&standalone).unwrap();
     lim::check_types(&program).unwrap();
-    let fields = program
-        .items
-        .iter()
-        .find_map(|item| match item {
-            lim::Item::Struct { name, fields, .. } if name == "Work-frame" => Some(fields),
-            _ => None,
-        })
-        .unwrap();
-    let mut assertions = Vec::new();
-    let mut owner = None;
-    for field in fields {
-        let lim::Type::Named(cell) = &field.ty else {
-            continue;
-        };
-        let variants = program
-            .items
+    // Exercise the actual ordinary word-backed implementation, not an invented
+    // Empty/Full cell layout. Rename copies to prove they need no async-aware
+    // native checking or compiler-generated naming convention.
+    let declarations = lim::parse(&artifact).unwrap();
+    let helper = |name: &str, renamed: &str| {
+        let declaration = declarations
             .iter()
-            .find_map(|item| match item {
-                lim::Item::Enum { name, variants, .. } if name == cell => Some(variants),
-                _ => None,
+            .find(|node| {
+                matches!(&node.expr, lim::Expr::List(items)
+                if matches!(items.get(1), Some(lim::Expr::Symbol(value)) if value == name))
             })
             .unwrap();
-        let empty = variants
-            .iter()
-            .find(|variant| variant.fields.is_empty())
-            .unwrap();
-        let full = variants
-            .iter()
-            .find(|variant| !variant.fields.is_empty())
-            .unwrap();
-        if full.fields == [lim::Type::Named("Owner".into())] {
-            owner = Some((
-                field.name.clone(),
-                cell.clone(),
-                empty.name.clone(),
-                full.name.clone(),
-            ));
-        } else {
-            assertions.push(format!(
-                "(#assert (#variant-is (#pin-borrow (#get task {})) {}))",
-                field.name, empty.name
-            ));
-        }
-    }
-    let (field, cell, empty, full) = owner.unwrap();
-    let guards = assertions.join("\n");
+        artifact[declaration.span.start..declaration.span.end].replacen(
+            &format!("(#fn {name} "),
+            &format!("(#fn {renamed} "),
+            1,
+        )
+    };
     let helpers = format!(
-        "(#fn replace-owner (: task (#pin-ref-mut Work-frame) : value Owner) ()
-      (#assert (#u32.== (#get task pc) 4294967295u32)) {}
-      (#let target (#pin-ref-mut {cell}) (#pin-borrow-mut (#get task {field})))
-      (#let previous {cell} (#unsafe (#pin-read target)))
-      (#match previous (#case {empty} ()) (#case ({full} occupied) (#forget occupied)))
-      (#unsafe (#pin-write target ({full} value))) (#return ()))
-      (#fn read-owner (: task (#pin-ref Work-frame)) Owner
-        (#return (#deref (#pin-get-payload (#pin-borrow (#get task {field})) {full} 0))))",
-        guards
+        "{}\n{}",
+        helper("work-owner-replace", "replace-owner"),
+        helper("work-owner-read", "read-owner")
     );
+    assert!(helpers.contains("#word-write"));
+    assert!(helpers.contains("#word-read"));
+    assert!(!helpers.contains("#variant-is"));
     let replacement = "(#call replace-owner (: task (#pin-borrow-mut frame) : value
       (#struct-literal Owner (: payload (#struct-literal Payload (: left 41u64 : right 5u64))))))
       (#let restored Owner (#call read-owner (: task (#pin-borrow frame))))
@@ -181,9 +150,6 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
     assert_eq!(status.code(), Some(58), "{status:?} {stderr:?}");
     assert!(stdout.is_empty() && stderr.is_empty());
 
-    let unguarded = helpers
-        .replace(&guards, "")
-        .replace("(#assert (#u32.== (#get task pc) 4294967295u32))", "");
     let conflicting = standalone.replace(
         "(#let second Work-poll-result",
         "(#call replace-owner
@@ -191,28 +157,33 @@ fn finalized_frame_copy_parameter_can_be_replaced_in_the_same_storage() {
         (: payload (#struct-literal Payload (: left 99u64 : right 5u64))))))
       (#let second Work-poll-result",
     );
-    let invalid = format!("{unguarded}\n{conflicting}");
-    let error = lim::compile_source_to_assembly(
+    let invalid = format!("{helpers}\n{conflicting}");
+    let assembly = lim::compile_source_to_assembly(
         &invalid,
         &path,
         &lim::CompileConfig::default(),
         &scratch.path().join("invalid-cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
-    .expect_err("replacement must not bypass the live internal pinned loans");
-    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
-    assert!(
-        error.message.contains("stored internal reference"),
-        "{error:?}"
-    );
-    let span = error.span.expect("the actual receiver must be underlined");
-    assert_eq!(&invalid[span.start..span.end], "pending");
-    assert!(
-        error
-            .labels
-            .iter()
-            .any(|label| invalid[label.span.start..label.span.end].contains("#pin-write")),
-        "{error:?}"
+    .unwrap();
+    let binary = scratch.path().join("pending-replacement");
+    lim::link_native_binary(
+        &assembly,
+        &binary,
+        &[],
+        &[],
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap();
+    let (status, _, _) =
+        support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
+    // Raw word storage has no native reference-bearing type. Its unsafe
+    // implementation must retain the explicit terminal-state guard; pinning
+    // alone does not authorize overwriting live self-reference targets.
+    assert_eq!(
+        status.signal(),
+        Some(4),
+        "replacement while Pending must trap at its state guard: {status:?}"
     );
 }
 
