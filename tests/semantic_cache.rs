@@ -178,6 +178,43 @@ fn imported_by_value_word_reader_preserves_requirements_after_cache_hits() {
 }
 
 #[test]
+fn imported_word_take_preserves_transferred_loans_and_source_retirement() {
+    let scratch = support::Scratch::new("semantic-word-take");
+    let dir = scratch.path();
+    fs::write(
+        dir.join("lib.lim"),
+        "(#struct Holder (: view (#ref-mut #u64)))
+         (#unsafe-fn take (: words (#slice-mut #u64)) Holder
+           (#return (#unsafe (#word-take Holder words))))",
+    )
+    .unwrap();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut seed #u64 42u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words)
+          (#struct-literal Holder (: view (#borrow-mut seed)))))
+        (#let holder Holder (#unsafe (#call take (: words (#borrow-slice-mut words)))))
+        (#forget words)
+        (#let answer #u64 (#deref (#get holder view)))
+        (#forget holder) (#return answer))";
+    let config = CompileConfig::default();
+    let (cold, _) = compile(dir, source, &config);
+    let (warm, report) = compile(dir, source, &config);
+    assert_eq!(cold.unwrap(), warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+    let invalid = source.replace(
+        "(#forget words)",
+        "(#let again Holder (#unsafe (#word-read Holder (#borrow-slice-mut words))))
+         (#forget again) (#forget words)",
+    );
+    let cold_error = compile(dir, &invalid, &config).0.unwrap_err();
+    let warm_error = compile(dir, &invalid, &config).0.unwrap_err();
+    assert_eq!(cold_error, warm_error);
+    assert_eq!(cold_error.code, lim::DiagnosticCode::Linear);
+}
+
+#[test]
 fn imported_nested_word_view_projection_preserves_loans_after_cache_hits() {
     let scratch = support::Scratch::new("semantic-word-view-projection");
     let dir = scratch.path();

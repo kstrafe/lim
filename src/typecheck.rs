@@ -8333,7 +8333,7 @@ fn list_expression(
                 }
             })
         }
-        "word-read" | "word-write" | "word-view" => {
+        "word-read" | "word-take" | "word-write" | "word-view" => {
             require_arity(
                 operator,
                 items,
@@ -8379,7 +8379,7 @@ fn list_expression(
                     _ => return Err("word-view requires an explicit reference result type".into()),
                 }
             } else {
-                (&result, operator == "word-write")
+                (&result, matches!(operator, "word-write" | "word-take"))
             };
             validate_layout_type(target, structs, enums)?;
             if !is_reference_target(target) {

@@ -1866,16 +1866,19 @@ impl<'a> Emitter<'a> {
                 return "()".into();
             }
             return format!(
-                "(#unsafe (#word-read {} {}))",
+                "(#unsafe (#{operation} {} {}))",
                 crate::type_source(&slot.ty),
                 self.word_slice(
                     region,
-                    self.planning
-                        .declarations
-                        .reference_storage_slots(&slot.ty)
-                        .iter()
-                        .any(|loan| loan.mutable)
-                )
+                    takes
+                        || self
+                            .planning
+                            .declarations
+                            .reference_storage_slots(&slot.ty)
+                            .iter()
+                            .any(|loan| loan.mutable)
+                ),
+                operation = if takes { "word-take" } else { "word-read" }
             );
         }
         if slot.raw {
@@ -2605,10 +2608,19 @@ impl<'a> Emitter<'a> {
             return aggregate
                 .cells()
                 .map(|index| {
+                    let occupied = self
+                        .physical_current
+                        .borrow()
+                        .as_ref()
+                        .is_none_or(|cells| cells[index]);
                     self.occupancy_write(index, false);
                     let slot = &self.slots[index];
                     if slot.words.is_some() {
-                        return String::new();
+                        return if occupied && !slot.raw && self.types.contains_reference(&slot.ty) {
+                            format!("(#forget {})", self.read(index, true))
+                        } else {
+                            String::new()
+                        };
                     }
                     format!(
                         "(#call {} (: slot {}))",
@@ -2622,10 +2634,20 @@ impl<'a> Emitter<'a> {
         self.bindings
             .get(&binding)
             .map_or_else(String::new, |slot| {
+                let occupied = self
+                    .physical_current
+                    .borrow()
+                    .as_ref()
+                    .is_none_or(|cells| cells[*slot]);
                 self.occupancy_write(*slot, false);
-                let slot = &self.slots[*slot];
+                let index = *slot;
+                let slot = &self.slots[index];
                 if slot.words.is_some() {
-                    return String::new();
+                    return if occupied && !slot.raw && self.types.contains_reference(&slot.ty) {
+                        format!("(#forget {})", self.read(index, true))
+                    } else {
+                        String::new()
+                    };
                 }
                 let clear = format!(
                     "(#call {} (: slot {}))",
@@ -6385,7 +6407,7 @@ impl<'a> Emitter<'a> {
                             slot.constant.as_ref().map_or_else(
                                 || {
                                     format!(
-                                        "({full} (#unsafe (#word-read {} {slice})))",
+                                        "({full} (#unsafe (#word-take {} {slice})))",
                                         crate::type_source(&slot.ty)
                                     )
                                 },

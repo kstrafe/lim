@@ -210,6 +210,7 @@ fn check_expression(
                         | "pin-get-payload-unchecked"
                         | "pin-get-payload-unchecked-mut"
                         | "word-read"
+                        | "word-take"
                         | "word-write"
                         | "word-view"
                         | "pin-write"

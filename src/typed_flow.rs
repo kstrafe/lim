@@ -1639,7 +1639,7 @@ impl FlowLoanOrigins {
                 state,
             );
         }
-        if head == "word-write" {
+        if matches!(head.as_str(), "word-write" | "word-take") {
             return word_loan_stores(
                 body,
                 flow,
@@ -5366,7 +5366,7 @@ impl FlowGraph {
                                 ..
                             }
                         ))
-                        || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "word-write") =>
+                        || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "word-write" | "word-take")) =>
                 {
                     let clears = if include_parameter_contents {
                         call_parameter_clears(
@@ -5391,7 +5391,7 @@ impl FlowGraph {
                             continue;
                         }
                         if !include_call_stores
-                            && !matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "word-write")
+                            && !matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "word-write" | "word-take"))
                             && !matches!(store.destination.place.root, PlaceRoot::Allocation(..))
                             && !state
                                 .allocation_contents
@@ -6550,7 +6550,7 @@ impl FlowGraph {
                                     .iter()
                                     .position(|segment| *segment == Segment::Dereference)
                                     .is_some_and(|boundary| {
-                                        source.storage.len() >= boundary
+                                        source.storage.len() == boundary
                                             && selected_slot[..boundary]
                                                 .iter()
                                                 .zip(&source.storage)
@@ -11670,10 +11670,11 @@ fn initialized_dereferenced_read_places(
     } else {
         return (None, false);
     };
-    let loans = origins.value_before(body, flow, event, children[1]);
-    if loans.iter().any(|loan| !loan.storage.is_empty()) {
-        return (Some(Vec::new()), false);
-    }
+    let loans = origins
+        .value_before(body, flow, event, children[1])
+        .into_iter()
+        .filter(|loan| loan.storage.is_empty())
+        .collect::<Vec<_>>();
     let initialized = loans.iter().any(|loan| loan.lifetime_only);
     let mut places = Vec::new();
     for loan in loans.into_iter().filter(|loan| !loan.lifetime_only) {
@@ -12346,7 +12347,7 @@ fn call_loan_stores(
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanStore> {
-    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "word-write")
+    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "word-write" | "word-take"))
     {
         return word_loan_stores(body, flow, before, value, state);
     }
@@ -12416,7 +12417,11 @@ fn word_loan_stores(
     let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
         return Vec::new();
     };
-    let incoming = value_loan_origins_at_events(body, flow, before, children[3], state);
+    let incoming = if children.len() == 4 {
+        value_loan_origins_at_events(body, flow, before, children[3], state)
+    } else {
+        Vec::new()
+    };
     let destinations = value_loan_origins_at_events(body, flow, before, children[2], state)
         .into_iter()
         .filter(|origin| origin.storage.is_empty() && !origin.lifetime_only)
@@ -12508,7 +12513,10 @@ fn word_value_origins(
                     path.insert(0, Segment::Dereference);
                 }
                 loaded.prepend_storage(&path);
-                if loaded.mutable && !view {
+                if loaded.mutable
+                    && !view
+                    && !matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "word-take")
+                {
                     if let PlaceRoot::Local(parent) = selected.place.root {
                         loaded.borrowed_from = Some(parent);
                         loaded.reborrow_slot = Some(selected.place.clone());
@@ -13755,7 +13763,9 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     .collect()
             })
         }
-        NodeKind::Form { head, children, .. } if head == "word-read" && children.len() == 3 => {
+        NodeKind::Form { head, children, .. }
+            if matches!(head.as_str(), "word-read" | "word-take") && children.len() == 3 =>
+        {
             word_value_origins(
                 body,
                 id,
@@ -14376,7 +14386,19 @@ fn value_loan_origins_at_events(
             let incoming = value_loan_origins_at_events(body, flow, before, children[1], state);
             return dereference_value_origins(body, incoming, state);
         }
-        if head == "word-read" && children.len() == 3 {
+        if matches!(head.as_str(), "word-read" | "word-take") && children.len() == 3 {
+            let state = if head == "word-take" {
+                before.events_by_value[value.0]
+                    .iter()
+                    .find_map(|&index| {
+                        matches!(flow.nodes[index].action, FlowAction::Evaluate(id) if id == value)
+                            .then(|| before[index].as_ref())
+                            .flatten()
+                    })
+                    .unwrap_or(state)
+            } else {
+                state
+            };
             return word_value_origins(
                 body,
                 value,

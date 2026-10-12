@@ -119,7 +119,7 @@ pub(crate) fn layouts(body: &Body, declarations: &Declarations) -> HashMap<NodeI
             };
             let ty = match (head.as_str(), children.len()) {
                 ("word-write", 4) => body.nodes[children[3].0].ty.as_ref()?,
-                ("word-read", 3) => node.ty.as_ref()?,
+                ("word-read" | "word-take", 3) => node.ty.as_ref()?,
                 ("word-view", 3) => match node.ty.as_ref()? {
                     Type::Reference { target, .. } | Type::PinnedReference { target, .. } => target,
                     _ => return None,

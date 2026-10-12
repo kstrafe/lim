@@ -7608,7 +7608,7 @@ impl FunctionContext<'_> {
                         })
                 }
                 Some(Expr::Symbol(operator))
-                    if matches!(operator.as_str(), "word-read" | "word-view")
+                    if matches!(operator.as_str(), "word-read" | "word-take" | "word-view")
                         && items.len() == 3 =>
                 {
                     resolve_type(&parse_type(items.get(1)).ok()?, &self.aliases).ok()
@@ -11023,7 +11023,7 @@ impl FunctionContext<'_> {
                 Ok(())
             }
             "addr-of" | "addr-of-mut" => self.borrow_expression(items),
-            "word-read" | "word-write" | "word-view" => {
+            "word-read" | "word-take" | "word-write" | "word-view" => {
                 self.word_storage_expression(operator, items)
             }
             "ptr-read" => {
@@ -15634,7 +15634,7 @@ impl FunctionContext<'_> {
         }
         if words > VALUE_REGISTERS.len() {
             if let Expr::List(items) = value {
-                if matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "word-read")
+                if matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "word-read" | "word-take"))
                     && items.len() == 3
                 {
                     self.word_storage_address(&items[2])?;

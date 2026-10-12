@@ -1341,3 +1341,54 @@ word-storage tests and three UI tests. All-target checking, formatting and diff
 checks pass. The full async integration run completed with a stable compiler
 binary; the focused failed broader-conversion experiment was removed before the
 final integration builds.
+
+### Primary read contracts and explicit word ownership transfers
+
+Referent read analysis now uses the receiver's primary address capabilities,
+not reference contents stored behind that address. Call substitution distinguishes
+a capability at the reference boundary from deeper contained-slot metadata;
+unselected neighboring contents do not become unresolved alternative receivers.
+These are ordinary checking rules, not async- or generated-name exemptions.
+
+The generic unsafe primitive `#word-take` transfers a typed value from mutable
+flat word storage and retires the backing region's reference provenance. It
+preserves transferred loans from the pre-evaluation snapshot, rather than
+reloading already-retired storage at a subsequent binding. Exclusive references
+are transferred, not returned as reborrows of the emptied numeric buffer.
+Emission uses the existing word load with no zeroing, tags, bitsets or additional
+branches. `#word-read` remains non-retiring for repeatable snapshots and custom
+clone implementations. Imported take helpers export source retirement and
+returned loans through ordinary store/return summaries, including cache hits.
+
+Async word-backed transfers and state-selected cleanup extraction now use
+`#word-take`. Occupied non-raw reference-bearing word cells retired at scope exit
+are explicitly taken and forgotten. Raw pointer snapshots retain their existing
+state-fact retirement: they do not contain typed reference slots to take.
+Semantic-cache version nine invalidates summaries inferred before these rules.
+
+Whole owned-storage release also ends contained handles in that exact released
+subtree. It does not ignore an escaped reference in another binding, a loan in
+a sibling slot, or metadata behind an additional reference boundary. Native
+ordinary controls cover whole self-referential word-buffer release, read-only
+helper access to that owner, rejected escaping-reference destruction and rejected
+borrowed sibling release. Take controls cover exclusive pointee mutation after
+transfer, rejected repeated recovery, rejected shared-slice taking, retained
+pointee aliasing, and imported cold/warm source retirement.
+
+The wider whole-holder conversion was tested with these rules, but remains
+incomplete. Its external-reference owner case gets through poll-entry checking;
+the internal-reference variant still needs output-state-conditioned word-input
+contracts for a repeated poll. Movable enum-pattern tasks also retain overlapping
+exclusive slot alternatives across distinct execution states. These cases are
+not solved by unconditional retirement or by permitting duplicated exclusive
+handles. Broad conversion remains separate in-progress work; passing primitive
+and current-layout tests are not completion of it or the overall async goal.
+
+Verification on the committed current layouts passes 1,413 library tests (eight
+existing ignored), all 236 async integration tests, seventeen contiguous-storage
+tests, fourteen dependent-cancellation tests, 26 self-borrow tests, fifteen
+semantic-cache tests, 36 word-storage tests and three UI tests. The ordinary
+read-only owner helper regression passes separately. All-target checking,
+formatting and diff checks pass; no broad-conversion failed run is counted as
+passing evidence. The HTML architecture deliverable remains pending actual
+completion of the full async goal.

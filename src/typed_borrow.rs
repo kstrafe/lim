@@ -387,6 +387,20 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                 continue;
             }
             for held in origins.before(event, binding) {
+                if matches!(access, AccessKind::Release)
+                    && place.root == PlaceRoot::Local(binding)
+                    && !held.storage.is_empty()
+                    && held.storage.starts_with(&place.segments)
+                    && !held
+                        .storage
+                        .contains(&crate::typed_place::Segment::Dereference)
+                {
+                    // Releasing owned storage ends its contained handles as
+                    // well. An internal loan in that same released subtree
+                    // cannot survive the release; other bindings and sibling
+                    // slots still undergo the ordinary conflict checks.
+                    continue;
+                }
                 if suspended_slots.iter().any(|slot| {
                     slot.root == PlaceRoot::Local(binding) && slot.segments == held.storage
                 }) {

@@ -39,7 +39,7 @@ impl FunctionContext<'_> {
         if operator == "word-view" {
             return Ok(());
         }
-        if operator == "word-read" {
+        if matches!(operator, "word-read" | "word-take") {
             return self.load_reference_value(&ty);
         }
         let words = storage_word_count(&ty, &self.structs, &self.enums)?;

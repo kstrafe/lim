@@ -177,6 +177,72 @@ fn zero_word_markers_do_not_exhaust_native_return_registers() {
 }
 
 #[test]
+fn releasing_owned_storage_ends_only_its_contained_handles() {
+    let source = "(#struct Owner (: number #u64 : words (#array #u64 1)))
+      (#fn main () #u64
+        (#let-mut owner Owner (#struct-literal Owner
+          (: number 42u64 : words (#array-repeat 0u64))))
+        (#unsafe (#word-write (#ref #u64) (#borrow-slice-mut (#get owner words))
+          (#borrow (#get owner number))))
+        (#forget owner) (#return 42u64))";
+    run(source);
+    let inspected = format!(
+        "(#fn inspect (: owner (#pin-ref Owner)) #u64
+      (#return (#get owner number)))\n{source}"
+    )
+    .replace(
+        "(#forget owner) (#return 42u64)",
+        "(#let answer #u64 (#call inspect (: owner (#pin-borrow owner))))
+         (#forget owner) (#return answer)",
+    );
+    run(&inspected);
+    let escaped = source.replace(
+        "(#forget owner) (#return 42u64)",
+        "(#let view (#ref #u64) (#unsafe (#word-read (#ref #u64)
+           (#borrow-slice (#get owner words)))))
+         (#forget owner) (#return (#deref view))",
+    );
+    assert_eq!(compile(&escaped).unwrap_err().code, DiagnosticCode::Borrow);
+    let sibling = source.replace(
+        "(#forget owner)",
+        "(#forget (#get owner number)) (#forget owner)",
+    );
+    assert_eq!(compile(&sibling).unwrap_err().code, DiagnosticCode::Borrow);
+}
+
+#[test]
+fn word_take_transfers_reference_ownership_and_retires_source_provenance() {
+    let source = "(#struct Holder (: view (#ref-mut #u64)))
+      (#fn main () #u64
+        (#let-mut seed #u64 40u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words)
+          (#struct-literal Holder (: view (#borrow-mut seed)))))
+        (#let holder Holder (#unsafe (#word-take Holder (#borrow-slice-mut words))))
+        (#let view (#ref-mut #u64) (#get holder view))
+        (#forget holder) (#forget words)
+        (#deref-set view 42u64)
+        (#let answer #u64 (#deref view))
+        (#forget view) (#return answer))";
+    run(source);
+    let repeated = source.replace(
+        "(#let view",
+        "(#let again Holder (#unsafe (#word-take Holder (#borrow-slice-mut words))))
+         (#forget again) (#let view",
+    );
+    assert_eq!(compile(&repeated).unwrap_err().code, DiagnosticCode::Linear);
+    let shared = source.replace(
+        "(#word-take Holder (#borrow-slice-mut words))",
+        "(#word-take Holder (#borrow-slice words))",
+    );
+    assert_eq!(compile(&shared).unwrap_err().code, DiagnosticCode::Borrow);
+    let safe = source.replace("(#unsafe (#word-take", "(#block (#word-take");
+    assert_eq!(compile(&safe).unwrap_err().code, DiagnosticCode::Unsafe);
+    let alias = source.replace("(#deref-set view", "(#set seed 0u64) (#deref-set view");
+    assert_eq!(compile(&alias).unwrap_err().code, DiagnosticCode::Borrow);
+}
+
+#[test]
 fn nested_word_view_field_addresses_keep_external_pointees_separate() {
     let source = "(#struct Inner (: value (#ref #u64)))
       (#struct Outer (: inner Inner))
