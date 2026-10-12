@@ -463,6 +463,29 @@ fn typed_word_reference_slots_use_real_flat_offsets() {
 }
 
 #[test]
+fn owned_nested_word_slots_preserve_tuple_and_array_reference_origins() {
+    let source = "(#struct Holder (: prefix #u128 : nested (#tuple #u64 (#array (#ref #u64) 2))))
+      (#linear Holder)
+      (#fn main () #u64
+        (#let-mut left #u64 20u64) (#let-mut right #u64 22u64)
+        (#let-mut words (#array #u64 5) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words)
+          (#struct-literal Holder (: prefix 0u128
+            : nested (#tuple (#tuple #u64 (#array (#ref #u64) 2)) 0u64
+              (#array-of (#array (#ref #u64) 2) (#borrow left) (#borrow right)))))))
+        (#let restored Holder (#unsafe (#word-read Holder (#borrow-slice words))))
+        (#let refs (#array (#ref #u64) 2) (#get (#get restored nested) 1))
+        (#let answer #u64 (#u64.+.wrap (#deref (#index refs 0usize)) (#deref (#index refs 1usize))))
+        (#forget refs) (#forget restored) (#forget words)
+        (#set left 0u64) (#set right 0u64) (#return answer))";
+    run(source);
+    for name in ["left", "right"] {
+        let invalid = source.replace("(#let answer", &format!("(#set {name} 0u64) (#let answer"));
+        assert_eq!(compile(&invalid).unwrap_err().code, DiagnosticCode::Borrow);
+    }
+}
+
+#[test]
 fn numeric_overwrites_retire_typed_word_reference_provenance() {
     let source = "(#struct Holder (: value (#ref #u64)))
       (#fn main () #u64

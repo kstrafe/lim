@@ -1114,3 +1114,22 @@ The cleanup migration remains open for non-Copy reference-bearing leaves. A raw
 numeric-array snapshot does not currently transfer concealed loan metadata into
 the cleanup state's typed reads. Those leaves retain their typed representation;
 this is an incremental migration boundary, not completion of the async goal.
+
+A direct-extraction experiment also failed the ordinary cleanup boundary check
+and was reverted. Eliminating the numeric snapshot alone is insufficient: a
+separately checked function taking a numeric-backed frame has no declared
+contained-reference slots for those words. The next mechanism must express
+required word-slot loan inputs and validate them against actual caller writes,
+including exclusive permissions. It must not seed invented loans merely because
+a callee requests a reference-bearing interpretation. A new native regression
+confirms that owned nested struct/tuple/array values preserve both reference
+origins within one function; mutation of either pointee remains rejected.
+
+Final verification of the committed migration passes all 236 async integration
+tests with no filters or ignores, 1,411 library tests (eight existing ignored),
+26 word-storage tests, 15 contiguous-storage tests, 11 semantic-cache tests,
+three UI tests, three checked-expansion tests, fourteen dependent-cancellation
+tests and 26 self-borrow tests. All-target checking and formatting pass. The
+full async rerun used a stable compiler binary: concurrently rebuilding the CLI
+midway through an earlier run invalidated that run, because these tests execute
+the on-disk compiler. That contaminated run is not counted as verification.
