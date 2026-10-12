@@ -203,18 +203,24 @@ impl Plan {
             .iter()
             .flat_map(|block| &block.actions)
             .any(|action| {
-                matches!(action.action, Action::Borrow { place, pinned: false, .. }
-                if matches!(graph.places[place.0].root, AddressRoot::Local(_)))
+                matches!(action.action, Action::Borrow { place, pinned, .. }
+                if (!pinned || stationary)
+                    && matches!(graph.places[place.0].root, AddressRoot::Local(_)))
             })
         {
             return Ok(Self::default());
         }
         let origins = flow.loan_origins(body);
-        let thin = |ty: &Type| {
+        let thin = |ty: &Type, loans: &[LoanOrigin]| {
             matches!(
                 crate::typed_ir::resolve_type(ty, &declarations.aliases),
                 Ok(Type::Reference { .. })
-            )
+            ) || (stationary
+                && matches!(
+                    crate::typed_ir::resolve_type(ty, &declarations.aliases),
+                    Ok(Type::PinnedReference { .. })
+                )
+                && anchor(loans).is_ok())
         };
         let mut plan = Self::default();
         let binding_origins = {
@@ -223,7 +229,7 @@ impl Plan {
         };
         for (index, binding) in graph.bindings.iter().enumerate() {
             let all = &binding_origins[index];
-            if !thin(&binding.ty) {
+            if !thin(&binding.ty, all) {
                 let owners = internal_owners(all);
                 if !owners.is_empty() {
                     plan.dependent_bindings.insert(BindingId(index), owners);
@@ -237,7 +243,7 @@ impl Plan {
         for (index, value) in graph.values.iter().enumerate() {
             if let Some(source) = value.source {
                 let loans = origins.value_before(body, flow, FlowNodeId(0), source);
-                if !thin(&value.ty) {
+                if !thin(&value.ty, &loans) {
                     let owners = internal_owners(&loans);
                     if !owners.is_empty() {
                         plan.dependent_values.insert(ValueId(index), owners);
@@ -255,11 +261,13 @@ impl Plan {
             if let Action::Borrow {
                 dst: Some(value),
                 place,
-                pinned: false,
+                pinned,
                 ..
             } = action.action
             {
-                if matches!(graph.places[place.0].root, AddressRoot::Local(_)) {
+                if (!pinned || stationary)
+                    && matches!(graph.places[place.0].root, AddressRoot::Local(_))
+                {
                     if !stationary {
                         let AddressRoot::Local(binding) = graph.places[place.0].root else {
                             unreachable!()
@@ -276,6 +284,11 @@ impl Plan {
                             // loan origins, not the direct-place fallback.
                             continue;
                         }
+                    }
+                    // Pinned payload recipes still retain their typed path.
+                    // Do not manufacture an unsupported direct-place anchor.
+                    if pinned && direct_place(graph, body, place).is_err() {
+                        continue;
                     }
                     plan.values
                         .entry(value)
@@ -296,7 +309,7 @@ impl Plan {
                     // do not duplicate or erase that owning source binding.
                     continue;
                 }
-                if !thin(&graph.bindings[binding.0].ty) {
+                if !thin(&graph.bindings[binding.0].ty, &[]) {
                     return Err(Error {
                         message:
                             "selected external async anchors require a thin reference parameter"

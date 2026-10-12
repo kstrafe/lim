@@ -67,8 +67,8 @@ fields preserve the original owner's structural Send/Sync constraints without
 runtime payload words. Views retain their parameter capability past temporary
 implementation anchors; result mutability does not erase alias protection.
 
-Reference-bearing aggregates and nondecomposed cells still use their existing
-tagged representation. Their provenance migration, complete tag removal,
+At that milestone, reference-bearing aggregates and nondecomposed cells still
+used their existing tagged representation. Their provenance migration, complete tag removal,
 cloning audit and performance work remain open. This is incremental progress,
 not a goal-completion claim.
 
@@ -119,7 +119,7 @@ representation remain obligations of the checked lowering and specialized PC.
 Generated child frames with deferred layouts remain on the typed path: planning
 signatures cannot provide their physical widths. The deferred-layout check also
 follows declared struct, enum and tuple contents. Whole undecomposed binding
-recipes and reference-bearing aggregates remain open. This is not complete tag
+recipes and reference-bearing aggregates remained open. This is not complete tag
 removal and does not claim that pinning alone makes raw accesses safe.
 
 The conversion exposed two generic native staging bugs. Nested aggregate block
@@ -134,6 +134,38 @@ All 69 contiguous-storage, generator-boundary, dependent-cancellation,
 graph-production and word-storage integration tests pass. This includes cached
 and independently compiled generated code, reference-bearing child frames that
 remain typed, cancellation before and after suspension, and stack/heap layouts.
+
+### Whole binding storage (2026-10-12)
+
+Concrete reference-free whole bindings now use untagged word regions too.
+Owned field, tuple, array and selected enum-payload writes address the exact
+word range; they do not perform a fictitious typed ownership mutation through
+an alias-only view. Selected writes retain the already evaluated address and
+stage the right-hand side before acquiring writable storage. Immediate calls
+and synchronous slices use the same payload accessor as other word-backed
+owners. Cancellation copies initialized backing words, then exports occupied
+values according to the specialized PC, including oversized arrays.
+
+Pinned thin handles into supported reference-free frame owners use checked
+address erasure. Movable poll-local aggregate handles still require a physical
+Empty proof at every Pending boundary. The original source checker remains
+the authority for aliasing and escape, and ordinary generated checking has no
+async exemptions. A retained continuation protects its frame; retiring that
+continuation does not remove the local's permanent prohibition on movement.
+Explicit forget may end an otherwise inaccessible pinned frame in place.
+
+Reference-bearing owners, deferred generated-child layouts and pinned
+enum-payload anchor recipes retain their typed path. Their full provenance
+migration and complete tag removal remain open, as does the analysis-performance
+audit. This milestone does not complete the async goal.
+
+Verification: 1,387 library tests pass with seven existing ignored tests.
+All 103 focused contiguous-storage, dependent-cancellation, dynamic-array,
+generator-boundary, graph-production, self-borrow and word-storage cases pass.
+The graph run passed 31 cases; its printing case produced the expected stdout
+but failed an obsolete helper-name assertion. After replacing that assertion
+with checks of the emitted operations, the printing case passed separately.
+All-target checking, Rust formatting and whitespace checks also pass.
 
 The contiguous clone audit exposed and corrected a physical-occupancy bug:
 non-owning snapshots of linear word-backed leaves must not use the ordinary

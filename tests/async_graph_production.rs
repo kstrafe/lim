@@ -118,7 +118,8 @@ fn printing_between_pending_and_resume_needs_no_stored_slice_cells() {
         42,
         include_bytes!("fixtures/async_fn.stdout"),
     );
-    assert!(artifact.contains("immediate-owner-project-slice"));
+    assert!(artifact.contains("#slice-of"));
+    assert!(artifact.contains("#word-view"));
     assert!(
         !artifact.contains("(#slice #char)"),
         "synchronous slices must not inhabit the future frame"
