@@ -1283,3 +1283,27 @@ confuses move/restore tracking. The broad conversion and speculative summary
 changes were removed; these failures remain work, not supported cases or
 completion of the async goal. The fix above does not invent initialized
 references from type shape or weaken the ordinary self-loan validator.
+
+Verification for this milestone passes all 1,413 library tests (eight existing
+ignored), 236 async integration tests, seventeen contiguous-storage tests,
+fourteen dependent-cancellation tests, 26 self-borrow tests, fourteen
+semantic-cache tests, 34 word-storage tests and three UI tests. The serial full
+async run was deliberately interrupted and replaced by a complete four-worker
+run; only the latter is counted. The strengthened numeric-provenance and pin-type
+negative controls also pass independently.
+All-target checking, formatting and diff checks pass. After removing the
+follow-up experiment, the complete semantic-cache, word-storage and UI suites
+pass again against the restored committed compiler.
+
+A follow-up experiment restricted symbolic projected contents to declared
+parameter reference slots and removed the container's immediate parent identity
+from those loaded external references. That removes a duplicated shared-reference
+return summary in the ordinary nested-parameter composition test, but introduces
+unresolved referent-call inputs in the imported nested reader and 34 library
+regressions. Filtering primary dereference targets alone is insufficient: the
+same address/contents distinction must survive referent entry, read and restoration
+contracts as well as return-loan summaries. The experiment was removed, leaving
+the verified compiler unchanged rather than accepting the regressions or
+weakening permission checks. Returning the contained reference after projecting
+inside a helper works; returning the projected holder for a caller to load later
+remains an explicit unfinished case.
