@@ -1589,6 +1589,38 @@ impl FlowLoanOrigins {
                 return None;
             }
             let argument = *children.get(summary.parameter + 1)?;
+            if summary.input_storage.is_empty() {
+                if let Some(geometry) = word_view_write_geometry(
+                    body,
+                    flow,
+                    LoanSnapshots::new(&self.before, &self.events_by_value),
+                    state,
+                    argument,
+                    &summary.referent_projection,
+                ) {
+                    if !one_concrete_store_destination(&geometry.addresses) {
+                        return None;
+                    }
+                    for mut address in geometry.addresses {
+                        let (start, end) = match address.place.segments.last().cloned() {
+                            Some(Segment::SliceRange { start, .. }) => {
+                                address.place.segments.pop();
+                                (
+                                    start.checked_add(geometry.start as u128)?,
+                                    start.checked_add(geometry.end as u128)?,
+                                )
+                            }
+                            _ => (geometry.start as u128, geometry.end as u128),
+                        };
+                        address
+                            .place
+                            .segments
+                            .push(Segment::SliceRange { start, end });
+                        merge_loan_origins(&mut targets, &[address]);
+                    }
+                    continue;
+                }
+            }
             let selected = value_loan_origins_at_events(
                 body,
                 flow,
@@ -13245,6 +13277,159 @@ fn word_value_origins(
     result
 }
 
+struct WordViewWriteGeometry<'a> {
+    layout: &'a crate::word_loans::Layout,
+    start: usize,
+    end: usize,
+    addresses: Vec<LoanOrigin>,
+}
+
+fn word_view_write_geometry<'a>(
+    body: &'a Body,
+    flow: &FlowGraph,
+    before: LoanSnapshots<'_>,
+    state: &LoanState,
+    mut argument: NodeId,
+    projection: &[Segment],
+) -> Option<WordViewWriteGeometry<'a>> {
+    loop {
+        match &body.nodes[argument.0].kind {
+            NodeKind::Form {
+                head,
+                children,
+                callee: None,
+                ..
+            } if head == "unsafe" && children.len() == 2 => argument = children[1],
+            NodeKind::Block(instructions) => {
+                let Control::Evaluate(last) = instructions.last()?.control else {
+                    return None;
+                };
+                argument = last;
+            }
+            _ => break,
+        }
+    }
+    let NodeKind::Form {
+        head,
+        children,
+        callee: None,
+        ..
+    } = &body.nodes[argument.0].kind
+    else {
+        return None;
+    };
+    if head != "word-view" || children.len() != 3 {
+        return None;
+    }
+    let layout = body.word_layouts.get(&argument)?;
+    let shape = layout.shape.as_ref()?;
+    let (start, width) = shape.project(projection)?;
+    if width == 0 {
+        return None;
+    }
+    let end = start.checked_add(width)?;
+    let addresses = value_loan_origins_at_events(body, flow, before, children[2], state)
+        .into_iter()
+        .filter(|address| address.storage.is_empty())
+        .collect::<Vec<_>>();
+    if addresses.is_empty() {
+        return None;
+    }
+    for address in &addresses {
+        if address.lifetime_only
+            || !address.mutable
+            || has_dynamic_projection(&address.referent_place())
+            || address.referent_place().segments.iter().any(|segment| {
+                matches!(segment, Segment::SliceRangeUnknown | Segment::SliceHalf(_))
+            })
+        {
+            return None;
+        }
+        if let Some(Segment::SliceRange { start, end }) = address.place.segments.last() {
+            if end.checked_sub(*start)? < layout.words as u128 {
+                return None;
+            }
+        }
+    }
+    Some(WordViewWriteGeometry {
+        layout,
+        start,
+        end,
+        addresses,
+    })
+}
+
+/// Substitute an owned typed write through a direct word view into its real
+/// numeric backing. Layout geometry maps slots; only actual incoming loans
+/// supply reference provenance. Do not cross a stored-reference boundary.
+fn word_view_store_effects(
+    body: &Body,
+    flow: &FlowGraph,
+    before: LoanSnapshots<'_>,
+    state: &LoanState,
+    argument: NodeId,
+    store: &crate::typed_body::ParameterStoreSummary,
+    incoming: &[LoanOrigin],
+    complete: bool,
+) -> Option<Vec<LoanStore>> {
+    if !store.destination.input_storage.is_empty() {
+        return None;
+    }
+    let projection = &store.destination.referent_projection;
+    let WordViewWriteGeometry {
+        layout,
+        start,
+        end,
+        addresses,
+    } = word_view_write_geometry(body, flow, before, state, argument, projection)?;
+    let shape = layout.shape.as_ref()?;
+    let strong = one_concrete_store_destination(&addresses);
+    let mut tags = HashMap::new();
+    for (path, variant) in &store.variants {
+        let mut full = projection.clone();
+        full.extend_from_slice(path);
+        if let Some(offset) = shape.tag_offset(&full, *variant) {
+            if offset >= start && offset < end {
+                tags.insert(offset, *variant);
+            }
+        }
+    }
+    let mut result = Vec::new();
+    for address in addresses {
+        for offset in start..end {
+            let mut destination = address.clone();
+            append_slice_index(&mut destination.place, Segment::Index(offset as u128));
+            let mut selected = Vec::new();
+            for slot in layout
+                .slots
+                .iter()
+                .filter(|slot| slot.offset == offset && slot.path.starts_with(projection))
+            {
+                let relative = &slot.path[projection.len()..];
+                for source in incoming
+                    .iter()
+                    .filter(|source| source.storage.starts_with(relative))
+                {
+                    let mut loan = source.clone();
+                    loan.drain_storage(relative.len());
+                    merge_loan_origins(&mut selected, &[loan]);
+                }
+            }
+            result.push(LoanStore {
+                destination,
+                incoming: selected,
+                definitely_written: store.definitely_written && complete && strong,
+                variants_definitely_written: store.variants_definitely_written && strong,
+                variants: tags
+                    .get(&offset)
+                    .map(|variant| HashMap::from([(Vec::new(), *variant)]))
+                    .unwrap_or_default(),
+            });
+        }
+    }
+    Some(result)
+}
+
 fn substitute_call_stores(
     body: &Body,
     flow: &FlowGraph,
@@ -13320,6 +13505,16 @@ fn substitute_call_stores(
             }
             complete &= !selected.is_empty();
             merge_loan_origins(&mut incoming, &selected);
+        }
+        if store.destination.global.is_none() && store.destination.fresh_allocation.is_none() {
+            if let Some(argument) = children.get(store.destination.parameter + 1) {
+                if let Some(mapped) = word_view_store_effects(
+                    body, flow, before, state, *argument, store, &incoming, complete,
+                ) {
+                    result.extend(mapped);
+                    continue;
+                }
+            }
         }
         // Retained contents travel beside an address but are not themselves
         // storage destinations. A root-slot summary may preserve those loans

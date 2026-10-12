@@ -1621,3 +1621,43 @@ tag-preservation substitution through the nested typed view are complete.
 Those remaining substitutions need investigation alongside the two exclusive
 state-join failures. The broader emitter experiment remains uncommitted; the
 full goal and the uncommitted HTML deliverable are not complete.
+
+### Caller-visible writes through numeric-backed typed views
+
+Checked helper stores through a direct mutable word view now substitute owned
+projections into the actual numeric backing. Per-word effects retire overwritten
+reference metadata and carry only real incoming loans at the correct projected
+offsets. Actual typed constructors publish their physical tag facts. Tag mutation
+footprints use the same checked geometry, preserving neighboring cells instead
+of treating the entire call as an opaque mutation.
+
+The mapping requires an actual mutable primary capability, static coordinates
+and sufficient known view extent. Opaque anchors, unknown ranges, split-half
+coordinates and zero-width ownership identities do not establish strong writes.
+Stored-reference boundaries are not owned projections: writes through an
+external reference follow ordinary provenance and must not overwrite the word
+containing that pointer. Semantic cache version fifteen invalidates prior helper
+summaries inferred without these physical effects.
+
+Four new native tests cover empty-cell cleanup, nested nonzero-offset reference
+installation and retirement, escaped-loan rejection, neighboring empty cells,
+and mutation of an external object through a stored mutable reference. A checked
+imported cleanup helper and its forwarder produce identical cold/warm assembly
+with actual cache hits; an escaped loan still blocks referent mutation on both
+attempts. All 56 word-storage, twenty cache, three UI and ten owner-entry-tag
+tests pass, as do formatting, all-target and diff checks. The full experimental
+library retains 1,413 passes, the same two exclusive-input failures and eight
+ignored tests. Dependent cancellation retains eleven passes and three repeated
+pinned-destroy failures; this physical store foundation does not finish async.
+
+A temporary focused probe provides the next causal distinction. Adding an
+explicit word-forget immediately after the successful imported typed cleanup
+causes the caller's empty-cell read to reject for missing transfer provenance,
+even though retirement does not change the tag bytes. The probe is recorded in
+/tmp/lim-view-store-retirement-probe.log, not counted as a passing regression.
+Constructor certainty and possible byte mutation must remain separate from loan
+retirement in helper summaries. In particular, metadata-only operations must not
+erase a previously established empty constructor or be classified as arbitrary
+byte writes. This needs an explicit effect distinction, not a general exemption
+for unsafe code or scalar writes. The emitter experiment, exclusive state joins,
+remaining cancellation work and uncommitted HTML deliverable are still open.

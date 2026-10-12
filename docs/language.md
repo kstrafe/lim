@@ -2899,6 +2899,15 @@ stored-reference provenance or permit a dereference through an untracked
 reference. Unknown runtime coordinates, insufficient known slice extents and
 opaque pointer anchors still cannot supply a physical consumption contract.
 
+Writes by a checked helper through a direct mutable word view also map to the
+actual backing offsets. They replace reference-slot metadata only with real
+incoming loans and publish constructor facts from actual typed writes. Mutation
+footprints use the projected word range, so neighboring cells retain their
+facts. A projection through a stored reference addresses its external referent,
+not the numeric word holding the pointer; it uses ordinary reference checking
+instead of this owned-layout mapping. Unresolved coordinates, opaque anchors,
+known-short slices and zero-width ownership identities are not strong writes.
+
 `#word-write` records a value's actual contained-reference loans at their flat
 word offsets. Reference-bearing `#word-read` and `#word-view` recover those
 loans; numeric bytes and layout types alone never establish reference provenance.

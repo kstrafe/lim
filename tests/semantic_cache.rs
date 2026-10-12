@@ -47,6 +47,47 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 }
 
 #[test]
+fn imported_typed_word_view_cleanup_exports_physical_tags_and_loans() {
+    let scratch = support::Scratch::new("semantic-word-view-cleanup");
+    let directory = scratch.path();
+    fs::write(directory.join("lib.lim"), "
+      (#enum Cell ((Vacant) (Occupied (#ref #u64))))
+      (#struct Storage (: words (#array #u64 4)))
+      (#fn clear (: slot (#pin-ref-mut Cell)) ()
+        (#unsafe (#forget (#pin-read slot)))
+        (#unsafe (#pin-write slot (Vacant))) (#return ()))
+      (#fn clear-storage (: storage (#ref-mut Storage)) ()
+        (#call clear (: slot (#unsafe (#word-view (#pin-ref-mut Cell) (#borrow-slice-mut (#get storage words) 1usize 3usize)))))
+        (#return ()))
+      (#fn forward (: storage (#ref-mut Storage)) ()
+        (#call clear-storage (: storage storage)) (#return ()))").unwrap();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut amount #u64 40u64)
+        (#let-mut storage Storage (#struct-literal Storage (: words (#array-repeat 0u64))))
+        (#unsafe (#word-write Cell (#borrow-slice-mut (#get storage words) 1usize 3usize) (Occupied (#borrow amount))))
+        (#call forward (: storage (#borrow-mut storage)))
+        (#set amount 42u64)
+        (#let cell Cell (#unsafe (#word-read Cell (#borrow-slice (#get storage words) 1usize 3usize))))
+        (#forget cell) (#forget storage) (#return amount))";
+    let config = CompileConfig::default();
+    let cold = compile(directory, source, &config).0.unwrap();
+    let (warm, report) = compile(directory, source, &config);
+    assert_eq!(cold, warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+    let invalid = source
+        .replace(
+            "(#call forward",
+            "(#let escaped (#ref #u64) (#borrow amount)) (#call forward",
+        )
+        .replace("(#forget cell)", "(#forget escaped) (#forget cell)");
+    let first = compile(directory, &invalid, &config).0.unwrap_err();
+    let second = compile(directory, &invalid, &config).0.unwrap_err();
+    assert_eq!(first, second);
+    assert_eq!(first.code, lim::DiagnosticCode::Borrow);
+}
+
+#[test]
 fn imported_conditional_word_input_guards_survive_cache_hits() {
     let scratch = support::Scratch::new("semantic-word-input-guards");
     let directory = scratch.path();
