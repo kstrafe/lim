@@ -447,6 +447,41 @@ fn copy_reference_aggregate_guard_retains_nested_referents_across_rejection() {
 }
 
 #[test]
+fn linear_reference_aggregate_guard_rejects_unsupported_preview_aliases() {
+    let source = aggregate_reference_guard_source()
+        .replace(
+            "(#struct View ((value (#ref #u64))))",
+            "(#struct View ((value (#ref #u64)))) (#linear View)",
+        )
+        .replace(
+            "\n        (#deref (#get view value)))",
+            "\n        (#block (#let answer #u64 (#deref (#get view value)))\n\
+             (#forget view) answer))",
+        )
+        .replace(
+            "(#await Child ChildPending ChildReady child-poll (Start (#deref (#get view value))))",
+            "(#block (#let amount #u64 (#deref (#get view value)))\n\
+             (#forget view)\n\
+             (#await Child ChildPending ChildReady child-poll (Start amount)))",
+        )
+        .replace("(#get view value)", "(#get (#borrow view) value)");
+    let scratch = support::Scratch::new("async-graph-linear-reference-guard");
+    let error = lim::compile_source_to_assembly(
+        &source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .expect_err("linear aggregate previews need stationary aliases, not copies");
+    assert!(error
+        .message
+        .contains("move-only guard bindings require stationary storage aliases"));
+    assert!(error.span.is_some(), "{error:?}");
+    assert!(!scratch.path().join("cache").exists());
+}
+
+#[test]
 fn copy_reference_tuple_guard_retains_nested_referents_across_rejection() {
     let source = aggregate_reference_guard_source()
         .replace(
@@ -478,6 +513,38 @@ fn alternative_reference_guards_do_not_preview_payloads() {
         source.replace("(Holding source)", "(Other source)"),
     ] {
         run(&source, "async-graph-alternative-reference-guard");
+    }
+}
+
+#[test]
+fn alternative_reference_guards_reject_payload_bindings_before_publication() {
+    let source = shared_reference_guard_source()
+        .replace(
+            "(#enum Holder ((Holding (#ref #u64))))",
+            "(#enum Holder ((Holding (#ref #u64)) (Other (#ref #u64))))",
+        )
+        .replace(
+            "(#case (Holding view)",
+            "(#case (#or (Holding view) (Other view))",
+        );
+    for source in [
+        source.clone(),
+        source.replace("(Holding source)", "(Other source)"),
+    ] {
+        let scratch = support::Scratch::new("async-graph-bound-alternative-reference-guard");
+        let error = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("input.lim"),
+            &config(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .expect_err("or-pattern payload bindings are forbidden in the source language");
+        assert!(error
+            .message
+            .contains("or-pattern alternatives cannot bind values"));
+        assert!(error.span.is_some(), "{error:?}");
+        assert!(!scratch.path().join("cache").exists());
     }
 }
 

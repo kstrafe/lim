@@ -684,6 +684,16 @@ storage: using a pointer does not exempt a live handle from the boundary proof.
 
 ## 4. One implementation and cancellation interface
 
+The follow-up guard audit now includes permanent negative regressions for
+linear reference-bearing aggregate preview bindings and payload-binding
+alternative patterns. The first fixture borrows the payload during preview
+and explicitly consumes it in each selected arm, so the rejection isolates
+the emitter's missing stationary aggregate alias rather than a source move
+violation. The second is forbidden by the ordinary source language itself;
+supporting it is not an async lowering obligation. Both errors retain source
+spans and publish no generated cache files. Linear aggregate preview aliases
+remain an implementation task, not completed guard support.
+
 Production routes only through original-body graph planning and emission.
 Graph lowering is the default; `async-lowering=legacy` is rejected. The old
 `async_fn.rs` and `async_dispatch.rs` implementations and capture-cache plumbing
