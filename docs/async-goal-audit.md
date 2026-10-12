@@ -817,6 +817,25 @@ The library run passes 1,403 tests with eight existing ignored tests; the newly
 added emission regression also passes independently. This is branch removal,
 not a measured compilation-time speedup or complete reference-storage migration.
 
+### Outstanding contiguous reference-bearing owner gate
+
+`tests/fixtures/async_partial_reference_whole_borrow.lim` isolates a remaining
+representation failure. `Owner.kept` contains a real caller reference, and the
+program retains a reference to that field's storage. It moves out the sibling
+linear `Token`, suspends, restores the sibling, then takes a whole-owner view.
+The view must expose the exact same `kept` field address and preserve its nested
+caller loan. Native completion should return 42, cold and warm, on stack and heap.
+
+The current emitter rejects the whole borrow with `whole aggregate borrowing
+requires contiguous owning storage`. The rejection regression passes twice and
+underlines the original `(#borrow owner)` expression. The positive native test is
+explicitly ignored with the missing implementation named; it is a completion
+gate, not passing evidence. Existing reference-free contiguous tests still pass.
+Replacing this owner with independent field buffers, rebuilding a temporary
+whole value, or deriving nested reference origins from numeric words would not
+meet the required address/provenance invariant. This must be resolved before
+claiming completion of the storage migration or the async goal.
+
 ### Direct scalar reads through exclusive reference fields
 
 Checked nonmoving loads of exclusive reference fields can now feed one immediate,

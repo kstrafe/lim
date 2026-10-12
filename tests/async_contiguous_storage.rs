@@ -97,6 +97,36 @@ fn whole_borrow_after_field_restoration_keeps_sibling_address_across_await() {
 }
 
 #[test]
+#[ignore = "reference-bearing contiguous owner storage is not implemented yet"]
+fn reference_field_keeps_address_and_provenance_after_sibling_restoration() {
+    run(include_str!(
+        "fixtures/async_partial_reference_whole_borrow.lim"
+    ));
+}
+
+#[test]
+fn unsupported_reference_field_whole_view_fails_at_the_source_borrow() {
+    let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim");
+    let scratch = support::Scratch::new("async-reference-contiguous-gate");
+    for _ in 0..2 {
+        let error = lim::compile_source_to_assembly(
+            source,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert!(
+            error.message.contains("requires contiguous owning storage"),
+            "{error:?}"
+        );
+        let span = error.span.expect("original whole-borrow source span");
+        assert_eq!(&source[span.start..span.end], "(#borrow owner)");
+    }
+}
+
+#[test]
 fn selected_whole_owner_keeps_branch_identity_with_contiguous_storage() {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim")
         .replace("(#fn work () #u64", "(#fn work (: flag #bool) #u64")
