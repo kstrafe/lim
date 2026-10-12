@@ -117,7 +117,11 @@ pub(crate) fn layouts(body: &Body, declarations: &Declarations) -> HashMap<NodeI
             else {
                 return None;
             };
+            let forgotten = (head == "word-forget" && children.len() == 3)
+                .then(|| crate::parse_type(Some(&body.syntax(children[1], false))).ok())
+                .flatten();
             let ty = match (head.as_str(), children.len()) {
+                ("word-forget", 3) => forgotten.as_ref()?,
                 ("word-write", 4) => body.nodes[children[3].0].ty.as_ref()?,
                 ("word-read" | "word-take", 3) => node.ty.as_ref()?,
                 ("word-view", 3) => match node.ty.as_ref()? {
@@ -129,7 +133,14 @@ pub(crate) fn layouts(body: &Body, declarations: &Declarations) -> HashMap<NodeI
             let mut slots = Vec::new();
             // Deferred layouts stay unsupported rather than acquiring fabricated
             // slots from a signature whose physical representation is unknown.
-            let words = collect(ty, declarations, &mut Vec::new(), 0, &mut slots).ok()?;
+            let words = if head == "word-forget" {
+                // Retiring numeric storage never loads a typed reference and
+                // must not introduce candidate entry loans for its layout.
+                crate::codegen::storage_word_count(ty, &declarations.structs, &declarations.enums)
+                    .ok()?
+            } else {
+                collect(ty, declarations, &mut Vec::new(), 0, &mut slots).ok()?
+            };
             Some((NodeId(index), Layout { words, slots }))
         })
         .collect()

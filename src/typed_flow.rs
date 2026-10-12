@@ -1639,7 +1639,7 @@ impl FlowLoanOrigins {
                 state,
             );
         }
-        if matches!(head.as_str(), "word-write" | "word-take") {
+        if matches!(head.as_str(), "word-write" | "word-take" | "word-forget") {
             return word_loan_stores(
                 body,
                 flow,
@@ -4484,7 +4484,7 @@ impl FlowGraph {
             let mut required = Vec::new();
             if body.word_layouts.contains_key(&value)
                 && matches!(&body.nodes[value.0].kind,
-                    NodeKind::Form { head, .. } if head != "word-write")
+                    NodeKind::Form { head, .. } if !matches!(head.as_str(), "word-write" | "word-forget"))
             {
                 let held = actual.value_before(body, self, FlowNodeId(index), value);
                 // A lineage established by real writes in this body is not
@@ -5366,7 +5366,7 @@ impl FlowGraph {
                                 ..
                             }
                         ))
-                        || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "word-write" | "word-take")) =>
+                        || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "word-write" | "word-take" | "word-forget")) =>
                 {
                     let clears = if include_parameter_contents {
                         call_parameter_clears(
@@ -5391,7 +5391,7 @@ impl FlowGraph {
                             continue;
                         }
                         if !include_call_stores
-                            && !matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "word-write" | "word-take"))
+                            && !matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "word-write" | "word-take" | "word-forget"))
                             && !matches!(store.destination.place.root, PlaceRoot::Allocation(..))
                             && !state
                                 .allocation_contents
@@ -9457,7 +9457,7 @@ impl FlowGraph {
                             });
                         }
                     }
-                    if head != "word-write"
+                    if !matches!(head.as_str(), "word-write" | "word-forget")
                         && !layout.slots.is_empty()
                         && moves.before[index].is_some()
                     {
@@ -12347,7 +12347,7 @@ fn call_loan_stores(
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanStore> {
-    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "word-write" | "word-take"))
+    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "word-write" | "word-take" | "word-forget"))
     {
         return word_loan_stores(body, flow, before, value, state);
     }

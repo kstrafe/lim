@@ -4599,6 +4599,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "pin-get-payload-unchecked-mut"
             | "word-read"
             | "word-take"
+            | "word-forget"
             | "word-write"
             | "word-view"
             | "size-of"

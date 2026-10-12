@@ -47,6 +47,36 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 }
 
 #[test]
+fn imported_word_forget_retires_numeric_slot_loans_on_cache_hits() {
+    let scratch = support::Scratch::new("semantic-word-forget");
+    let directory = scratch.path();
+    fs::write(
+        directory.join("lib.lim"),
+        "(#fn retire (: words (#slice-mut #u64)) ()
+          (#unsafe (#word-forget (#array #u64 1) words)) (#return ()))",
+    )
+    .unwrap();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut seed #u64 0u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write (#ref-mut #u64) (#borrow-slice-mut words) (#borrow-mut seed)))
+        (#call retire (: words (#borrow-slice-mut words)))
+        (#set seed 42u64) (#forget words) (#return seed))";
+    let config = CompileConfig::default();
+    let (cold, _) = compile(directory, source, &config);
+    let (warm, report) = compile(directory, source, &config);
+    assert_eq!(cold.unwrap(), warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+    let invalid = source.replace("(#set seed 42u64)",
+        "(#let recovered (#ref-mut #u64) (#unsafe (#word-take (#ref-mut #u64) (#borrow-slice-mut words)))) (#drop recovered)");
+    let cold = compile(directory, &invalid, &config).0.unwrap_err();
+    let warm = compile(directory, &invalid, &config).0.unwrap_err();
+    assert_eq!(cold, warm);
+    assert!(cold.message.contains("missing"), "{cold:?}");
+}
+
+#[test]
 fn warm_cache_reuses_both_modes_without_rewriting_and_preserves_assembly() {
     let scratch = support::Scratch::new("semantic-warm");
     let dir = scratch.path();

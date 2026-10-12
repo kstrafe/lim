@@ -8333,7 +8333,7 @@ fn list_expression(
                 }
             })
         }
-        "word-read" | "word-take" | "word-write" | "word-view" => {
+        "word-read" | "word-take" | "word-forget" | "word-write" | "word-view" => {
             require_arity(
                 operator,
                 items,
@@ -8379,7 +8379,10 @@ fn list_expression(
                     _ => return Err("word-view requires an explicit reference result type".into()),
                 }
             } else {
-                (&result, matches!(operator, "word-write" | "word-take"))
+                (
+                    &result,
+                    matches!(operator, "word-write" | "word-take" | "word-forget"),
+                )
             };
             validate_layout_type(target, structs, enums)?;
             if !is_reference_target(target) {
@@ -8413,6 +8416,8 @@ fn list_expression(
                     Some(target),
                 )?;
                 require_type(&value, target, "word-write value")?;
+                Ok(Type::Unit)
+            } else if operator == "word-forget" {
                 Ok(Type::Unit)
             } else {
                 Ok(result)

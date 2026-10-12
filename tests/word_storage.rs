@@ -526,6 +526,55 @@ fn returned_views_retain_their_callers_storage_lifetime() {
 }
 
 #[test]
+fn word_forget_retires_loans_without_loading_or_zeroing_memory() {
+    let source = "(#fn main () #u64
+      (#let-mut seed #u64 0u64)
+      (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+      (#unsafe (#word-write (#ref-mut #u64) (#borrow-slice-mut words) (#borrow-mut seed)))
+      (#let before #u64 (#unsafe (#word-read #u64 (#borrow-slice words))))
+      (#unsafe (#word-forget (#ref-mut #u64) (#borrow-slice-mut words)))
+      (#unsafe (#word-forget (#ref-mut #u64) (#borrow-slice-mut words)))
+      (#let after #u64 (#unsafe (#word-read #u64 (#borrow-slice words))))
+      (#assert (#u64.== before after))
+      (#set seed 42u64) (#forget words) (#return seed))";
+    run(source);
+    let missing = source.replace(
+        "(#let after #u64 (#unsafe (#word-read #u64 (#borrow-slice words))))",
+        "(#let recovered (#ref-mut #u64) (#unsafe (#word-take (#ref-mut #u64) (#borrow-slice-mut words)))) (#drop recovered) (#let after #u64 before)",
+    );
+    assert_eq!(compile(&missing).unwrap_err().code, DiagnosticCode::Linear);
+    let shared = source.replace(
+        "#word-forget (#ref-mut #u64) (#borrow-slice-mut words)",
+        "#word-forget (#ref-mut #u64) (#borrow-slice words)",
+    );
+    assert!(compile(&shared)
+        .unwrap_err()
+        .message
+        .contains("mutable word slice"));
+    let safe = "(#fn main () #u64
+      (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+      (#word-forget (#ref #u64) (#borrow-slice-mut words))
+      (#forget words) (#return 42u64))";
+    assert_eq!(compile(safe).unwrap_err().code, DiagnosticCode::Unsafe);
+}
+
+#[test]
+fn word_forget_does_not_end_transferred_or_neighboring_loans() {
+    let source = "(#fn main () #u64
+      (#let-mut seed #u64 42u64)
+      (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+      (#unsafe (#word-write (#ref-mut #u64) (#borrow-slice-mut words 1usize 2usize) (#borrow-mut seed)))
+      (#unsafe (#word-forget (#ref-mut #u64) (#borrow-slice-mut words 0usize 1usize)))
+      (#set seed 0u64) (#forget words) (#return 42u64))";
+    assert_eq!(compile(source).unwrap_err().code, DiagnosticCode::Borrow);
+    let escaped = source.replace(
+        "(#unsafe (#word-forget",
+        "(#let escaped (#ref-mut #u64) (#unsafe (#word-take (#ref-mut #u64) (#borrow-slice-mut words 1usize 2usize)))) (#unsafe (#word-forget",
+    ).replace("(#set seed 0u64)", "(#set seed 0u64) (#drop escaped)");
+    assert_eq!(compile(&escaped).unwrap_err().code, DiagnosticCode::Borrow);
+}
+
+#[test]
 fn numeric_words_cannot_invent_reference_provenance() {
     let source = "(#struct Holder (: item (#ref #u64)))
       (#fn bad (: words (#slice #u64)) (#ref #u64)

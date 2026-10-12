@@ -36,6 +36,12 @@ impl FunctionContext<'_> {
             return Ok(());
         }
         self.word_storage_address(&items[2])?;
+        if operator == "word-forget" {
+            // The numeric buffer stays initialized. Only concealed typed loan
+            // provenance is retired; do not read or write the backing bytes.
+            self.output.push_str("    xor eax, eax\n");
+            return Ok(());
+        }
         if operator == "word-view" {
             return Ok(());
         }

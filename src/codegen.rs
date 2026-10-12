@@ -7613,7 +7613,11 @@ impl FunctionContext<'_> {
                 {
                     resolve_type(&parse_type(items.get(1)).ok()?, &self.aliases).ok()
                 }
-                Some(Expr::Symbol(operator)) if operator == "word-write" => Some(Type::Unit),
+                Some(Expr::Symbol(operator))
+                    if matches!(operator.as_str(), "word-write" | "word-forget") =>
+                {
+                    Some(Type::Unit)
+                }
                 Some(Expr::Symbol(operator)) if operator == "ptr-read" && items.len() == 2 => {
                     match self.expression_type(&items[1])? {
                         Type::RawPointer { target, .. } => Some(*target),
@@ -11023,7 +11027,7 @@ impl FunctionContext<'_> {
                 Ok(())
             }
             "addr-of" | "addr-of-mut" => self.borrow_expression(items),
-            "word-read" | "word-take" | "word-write" | "word-view" => {
+            "word-read" | "word-take" | "word-forget" | "word-write" | "word-view" => {
                 self.word_storage_expression(operator, items)
             }
             "ptr-read" => {

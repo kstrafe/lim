@@ -1467,3 +1467,42 @@ changing the pinned result branch is not a solution. The next work must resolve
 the stored child's loan retirement and parent access contracts, while retaining
 the actual slot provenance required by the repeated-poll word read. Both the
 whole-holder conversion and concrete-anchor lowering remain uncommitted.
+
+### Explicit numeric-word loan retirement
+
+The ordinary unsafe builtin `(#word-forget LayoutType mutable-word-slice)`
+retires the selected flat words' reference provenance without loading a typed
+value, clearing bytes, freeing memory or adding runtime initialization flags.
+It evaluates the slice descriptor and returns unit. Numeric backing remains
+initialized; recovering reference-bearing contents requires a subsequent real
+typed write. Its layout establishes only the affected width, not candidate
+initialized reference slots. This is a generic memory operation, not a rule
+selected by async names or frame types. Semantic-cache version eleven accounts
+for the new effect.
+
+Native ordinary controls verify unchanged bytes, repeated retirement without
+reading a stale reference, restored pointee access, rejected typed recovery,
+required unsafe and mutable access, and retained escaped/neighboring loans.
+An imported retire helper exports the same definite empty-word store on cold
+and warm compilation; subsequent typed recovery fails identically. All 38
+word-storage, sixteen semantic-cache and three UI tests pass serially. A
+concurrent word-storage run hit `ETXTBSY`; that failed launch is not counted as
+passing verification. Formatting, all-target checking and diff checks pass.
+
+The cleanup experiment uses explicit word retirement for nonowning handles and
+after dependent child destruction. Its source had previously retired numeric
+cells only in generator occupancy facts, leaving the caller's real loan metadata
+behind. A definite post-dispatch retirement also covers terminal/empty states
+without trying to load an inactive reference.
+
+This exposes a distinct next gate, not completion of cancellation: ordinary
+inference rejects the call to `child-poll-destroy` with unresolved call inputs.
+The unknown component is its consuming-access contract, not its ordinary reads
+or entry reads. Those accesses consume typed child cells (fields one and two)
+through the numeric-backed child view. The existing opaque word-view address
+does not map that physical typed consumption. Passing initialized reads at an
+unsafe boundary must not be extended to unknown consumption/ownership effects.
+The wider experimental library still has 1,412 passes, two overlapping-exclusive
+input failures and eight ignored tests. Word retirement's ordinary foundation
+is verified separately; its async integration remains uncommitted pending the
+physical view/consumption contract work.
