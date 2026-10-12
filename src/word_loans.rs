@@ -1,11 +1,92 @@
 //! Compile-time mapping between typed loan slots and flat value words.
 //! A layout is not provenance: only a real typed write supplies loan origins.
 
-use crate::typed_body::{Body, NodeId, NodeKind};
+use crate::typed_body::{Body, NodeId, NodeKind, ParameterLoanSeed};
 use crate::typed_ir::Declarations;
 use crate::typed_place::Segment;
 use crate::Type;
 use std::collections::HashMap;
+
+pub(crate) fn parameter_candidates(
+    body: &Body,
+    declarations: &Declarations,
+) -> Vec<Vec<ParameterLoanSeed>> {
+    let mut result = vec![Vec::new(); body.parameter_count];
+    if !body
+        .word_layouts
+        .values()
+        .any(|layout| !layout.slots.is_empty())
+        && !body
+            .call_word_input_requirements
+            .values()
+            .any(|inputs| !inputs.is_empty())
+    {
+        return result;
+    }
+    for (index, binding) in body.bindings.iter().take(body.parameter_count).enumerate() {
+        collect_numeric_arrays(
+            &binding.ty,
+            declarations,
+            &mut Vec::new(),
+            &mut std::collections::HashSet::new(),
+            &mut result[index],
+        );
+    }
+    result
+}
+
+fn collect_numeric_arrays(
+    ty: &Type,
+    declarations: &Declarations,
+    path: &mut Vec<Segment>,
+    seen: &mut std::collections::HashSet<String>,
+    slots: &mut Vec<ParameterLoanSeed>,
+) {
+    let Ok(ty) = crate::typed_ir::resolve_type(ty, &declarations.aliases) else {
+        return;
+    };
+    match &ty {
+        Type::Array(element, length) if **element == Type::U64 => {
+            if *length != 0 {
+                path.push(Segment::DynamicIndex);
+                slots.push(ParameterLoanSeed {
+                    storage: path.clone(),
+                    mutable: false,
+                    pinned: false,
+                    owned_allocation: false,
+                });
+                path.pop();
+            }
+        }
+        Type::Named(name)
+            if declarations.structs.contains_key(name) && seen.insert(name.clone()) =>
+        {
+            for field in &declarations.structs[name] {
+                path.push(Segment::Field(
+                    declarations.field_id(&ty, &field.name).unwrap(),
+                ));
+                collect_numeric_arrays(&field.ty, declarations, path, seen, slots);
+                path.pop();
+            }
+            seen.remove(name);
+        }
+        Type::Tuple(fields) => {
+            for (index, field) in fields.iter().enumerate() {
+                path.push(Segment::Tuple(index));
+                collect_numeric_arrays(field, declarations, path, seen, slots);
+                path.pop();
+            }
+        }
+        Type::Array(element, length) => {
+            if *length != 0 {
+                path.push(Segment::DynamicIndex);
+                collect_numeric_arrays(element, declarations, path, seen, slots);
+                path.pop();
+            }
+        }
+        _ => (),
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Slot {
@@ -129,4 +210,34 @@ fn collect(
         _ => (),
     }
     Ok(words)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn large_numeric_input_uses_one_symbolic_candidate_and_one_exact_requirement() {
+        let source = "(#struct Holder (: value (#ref #u64)))
+          (#fn read (: words (#array #u64 1000000000)) #u64
+            (#let restored Holder (#unsafe (#word-read Holder (#borrow-slice words 7usize 8usize))))
+            (#let answer #u64 (#deref (#get restored value)))
+            (#forget restored) (#return answer))";
+        let declarations = crate::typecheck::resolve_program_for_analysis(
+            &crate::parse_program(source).unwrap(),
+            true,
+        )
+        .unwrap();
+        let body = &declarations.bodies["read"];
+        assert_eq!(body.word_parameter_candidates[0].len(), 1);
+        assert_eq!(
+            body.word_parameter_candidates[0][0].storage,
+            vec![Segment::DynamicIndex]
+        );
+        assert_eq!(body.word_input_requirements.len(), 1);
+        assert_eq!(
+            body.word_input_requirements[0].input_storage,
+            vec![Segment::Index(7)]
+        );
+    }
 }

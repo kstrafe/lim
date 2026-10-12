@@ -625,6 +625,131 @@ fn typed_word_reader_helpers_require_actual_reference_inputs() {
 }
 
 #[test]
+fn moved_by_value_word_backing_retains_caller_validated_loans() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Storage (: words (#array #u64 2))) (#linear Storage)
+      (#fn read (: incoming Storage) #u64
+        (#let-mut saved Storage incoming)
+        (#let restored Holder (#unsafe (#word-read Holder
+          (#borrow-slice (#get saved words) 1usize 2usize))))
+        (#let answer #u64 (#deref (#get restored value)))
+        (#forget restored) (#forget saved) (#return answer))
+      (#fn main () #u64
+        (#let-mut seed #u64 42u64)
+        (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words 1usize 2usize)
+          (#struct-literal Holder (: value (#borrow seed)))))
+        (#let storage Storage (#struct-literal Storage (: words words)))
+        (#forget words)
+        (#let answer #u64 (#call read (: incoming storage)))
+        (#set seed 0u64) (#return answer))";
+    run(source);
+    let field_move = source
+        .replace(
+            "(#let-mut saved Storage incoming)",
+            "(#let-mut extracted (#array #u64 2) (#get incoming words)) (#forget incoming)",
+        )
+        .replace("(#get saved words)", "extracted")
+        .replace("(#forget saved)", "(#forget extracted)");
+    run(&field_move);
+    let invalid = source.replace(
+        "(#unsafe (#word-write Holder (#borrow-slice-mut words 1usize 2usize)\n          (#struct-literal Holder (: value (#borrow seed)))))", "");
+    assert_ne!(source, invalid);
+    let error =
+        compile(&invalid).expect_err("numeric by-value storage must not invent caller loans");
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+    let wrong_slot = source.replace(
+        "#borrow-slice (#get saved words) 1usize 2usize",
+        "#borrow-slice (#get saved words) 0usize 1usize",
+    );
+    assert_eq!(
+        compile(&wrong_slot).unwrap_err().code,
+        DiagnosticCode::Linear
+    );
+    let alias = source.replace(
+        "(#let answer #u64 (#call read",
+        "(#set seed 0u64) (#let answer #u64 (#call read",
+    );
+    assert_eq!(compile(&alias).unwrap_err().code, DiagnosticCode::Borrow);
+}
+
+#[test]
+fn moved_exclusive_word_backing_keeps_permissions_and_effects() {
+    let source = "(#struct Holder (: value (#ref-mut #u64)))
+      (#struct Storage (: words (#array #u64 1))) (#linear Storage)
+      (#fn update (: incoming Storage) ()
+        (#let-mut saved Storage incoming)
+        (#let restored Holder (#unsafe (#word-read Holder
+          (#borrow-slice-mut (#get saved words)))))
+        (#deref-set (#get restored value) 42u64)
+        (#forget restored) (#forget saved) (#return ()))
+      (#fn main () #u64
+        (#let-mut seed #u64 1u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words)
+          (#struct-literal Holder (: value (#borrow-mut seed)))))
+        (#let storage Storage (#struct-literal Storage (: words words)))
+        (#forget words) (#call update (: incoming storage)) (#return seed))";
+    run(source);
+    let invalid = source.replace(
+        "#borrow-slice-mut (#get saved words)",
+        "#borrow-slice (#get saved words)",
+    );
+    let error = compile(&invalid).unwrap_err();
+    assert!(
+        matches!(error.code, DiagnosticCode::Linear | DiagnosticCode::Borrow),
+        "{error:?}"
+    );
+    let child = source.replace(
+        "(#deref-set (#get restored value) 42u64)",
+        "(#let parent (#ref-mut #u64) (#get restored value))
+         (#let child (#ref-mut #u64) (#borrow-mut (#deref parent)))
+         (#deref-set parent 42u64) (#forget child) (#forget parent)",
+    );
+    let error = compile(&child).expect_err("an exact handle is still suspended by a live child");
+    assert_eq!(error.code, DiagnosticCode::Borrow, "{error:?}");
+}
+
+#[test]
+fn a_running_thread_retains_by_value_word_input_loans_until_join() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Storage (: words (#array #u64 1))) (#linear Storage)
+      (#fn read (: incoming Storage) #u64
+        (#let-mut saved Storage incoming)
+        (#let restored Holder (#unsafe (#word-read Holder (#borrow-slice (#get saved words)))))
+        (#let answer #u64 (#deref (#get restored value)))
+        (#forget restored) (#forget saved) (#return answer))
+      (@#thread-spawn (: task WordTask : worker read))
+      (#fn main () #u64
+        (#let-mut seed #u64 42u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words)
+          (#struct-literal Holder (: value (#borrow seed)))))
+        (#let storage Storage (#struct-literal Storage (: words words))) (#forget words)
+        (#let answer #u64
+          (#match (#call WordTask-spawn (: incoming storage))
+            (#case (WordTask-spawn-ok handle)
+              (#match (#call WordTask-join (: task handle))
+                (#case (WordTask-join-ok value) value)
+                (#case (WordTask-join-error (#tuple retry error)) (#panic))))
+            (#case (WordTask-spawn-error error) (#panic))))
+        (#set seed 0u64) (#return answer))";
+    run(source);
+    let invalid = source
+        .replace(
+            "(#case (WordTask-spawn-ok handle)\n              (#match",
+            "(#case (WordTask-spawn-ok handle) (#block (#set seed 0u64)\n              (#match",
+        )
+        .replace(
+            "(#case (WordTask-spawn-error error)",
+            ") (#case (WordTask-spawn-error error)",
+        );
+    assert_ne!(source, invalid);
+    let error = compile(&invalid).expect_err("running captures must keep the pointee borrowed");
+    assert_eq!(error.code, DiagnosticCode::Borrow, "{error:?}");
+}
+
+#[test]
 fn documented_word_reader_contract_example_runs_natively() {
     let documentation = include_str!("../docs/language.md");
     let section = documentation

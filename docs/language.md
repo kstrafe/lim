@@ -2922,5 +2922,16 @@ required shared/exclusive, pinned and owning permissions.
 Removing the typed write, or overwriting its reference word with a number before
 the call, fails compilation. Inferred inputs are not permission to fabricate a
 reference. The unsafe implementation still proves capacity, representation
-validity and ownership conservation. Inferred concealed-slot inputs for moved
-by-value numeric backing are not yet supported.
+validity and ownership conservation. The same input contracts apply to numeric
+arrays passed by value, including arrays inside structs and tuples. Moving the
+backing into another local or extracting its array field preserves the required
+slot's relationship to the caller's real loan. Shared inputs cannot satisfy an
+exclusive read. A thread capturing such backing retains its input loans until
+join; checking only the spawn call would not protect the caller while it runs.
+
+Numeric parameter slots are symbolic candidates during contract inference,
+not evidence that a reference was initialized. Array candidates use one
+symbolic index rather than enumerating every element. A typed read specializes
+the requirement to its selected offset; every ordinary call must then supply
+the actual loan recorded by a typed write. Raw numeric snapshots are not a
+general mechanism for transporting concealed reference ownership.

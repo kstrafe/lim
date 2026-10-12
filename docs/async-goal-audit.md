@@ -1170,3 +1170,28 @@ tests and three UI tests. All-target checking and formatting pass. The new word
 tests cover forwarding, scalar-return readers, exclusive permission, mixed
 shared/exclusive branch inputs and rejection of untracked numeric input. Imported
 reader tests cover identical cold/warm output and identical invalid-input errors.
+
+### Caller-validated loans in moved numeric backing
+
+By-value numeric arrays, including arrays in structs and tuples, now infer
+concealed-slot input requirements. The initial abstract pass uses a single
+symbolic candidate per numeric array; an actual typed read specializes the
+required offset. Contents-aware and native validation do not treat candidates
+as initialized references: callers must supply real write-derived loans with
+the required capabilities. A billion-element analysis regression verifies that
+one selected read does not enumerate the array's elements.
+
+Moving a parameter into a local, or extracting its array field into a differently
+named local, preserves that input relationship. Exclusive typed reads require
+exclusive input, and writes through an exact stored mutable handle use its own
+capability without bypassing a live child reborrow or another conflicting loan.
+Spawned workers retain concealed input loans in the task until successful join;
+join errors retain them in the retry task. Native regressions reject caller
+mutation while the worker is running and permit it after join.
+
+The semantic cache uses schema v6 to invalidate summaries inferred under the
+older entry model. Imported by-value readers are tested cold and warm, including
+identical rejection after a scalar overwrite retires the required reference
+slot. These contracts are not a general raw-byte ownership transport mechanism.
+Arbitrary unsafe representations still require their author's validity and
+ownership proof.

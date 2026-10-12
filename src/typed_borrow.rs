@@ -333,6 +333,14 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
             // not from every other reference stored in the same aggregate.
             call_argument_slots(body, receiver, &mut tag_sources);
         }
+        let mut write_sources = Vec::new();
+        if let FlowAction::Write { value, .. } | FlowAction::Evaluate(value) = node.action {
+            if let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind {
+                if head == "deref-set" && children.len() == 3 {
+                    call_argument_slots(body, children[1], &mut write_sources);
+                }
+            }
+        }
         let mut suspended_parents = HashSet::new();
         let mut suspended_slots = access_origins
             .iter()
@@ -540,6 +548,23 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                     // Loading this exact stored handle is not a read of its
                     // pointee through an independent alias. Derived-child
                     // restrictions above still suspend the handle itself.
+                    continue;
+                }
+                if matches!(access, AccessKind::Write)
+                    && held.mutable
+                    && !held.lifetime_only
+                    && write_sources.iter().any(|source| {
+                        source.root == PlaceRoot::Local(binding) && source.segments == held.storage
+                    })
+                    && access_origins.iter().any(|origin| {
+                        origin.mutable
+                            && !origin.lifetime_only
+                            && origin.referent_place() == held.referent_place()
+                    })
+                {
+                    // Writing through this exact stored mutable handle uses
+                    // its own capability, not an independent alias. Child
+                    // suspension above and all other live loans still apply.
                     continue;
                 }
                 let forbidden_pinned_access = held.pinned

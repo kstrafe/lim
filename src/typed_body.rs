@@ -1310,6 +1310,9 @@ pub(crate) struct Body {
     /// Inferred entry loans required by typed interpretations of word memory.
     /// Callers must supply actual stored origins; these are not initialized bits.
     pub word_input_requirements: Vec<ParameterLoanSummary>,
+    /// Candidate numeric value slots, used only to infer abstract entry
+    /// requirements. Contents-aware/native analyses never seed these slots.
+    pub word_parameter_candidates: Vec<Vec<ParameterLoanSeed>>,
     pub call_word_input_requirements:
         Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     emission_nodes: Vec<NodeId>,

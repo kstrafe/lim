@@ -4537,7 +4537,7 @@ impl FlowGraph {
                 };
                 if summary.global.is_some()
                     || summary.fresh_allocation.is_some()
-                    || !summary.input_storage.contains(&Segment::Dereference)
+                    || summary.input_storage.is_empty()
                     || summary.lifetime_only
                 {
                     continue;
@@ -4556,6 +4556,17 @@ impl FlowGraph {
                                     |(known, requested)| storage_slot_matches(known, requested),
                                 )
                         })
+                    })
+                {
+                    continue;
+                }
+                if body
+                    .parameter_loan_slots
+                    .get(summary.parameter)
+                    .is_some_and(|slots| {
+                        slots
+                            .iter()
+                            .any(|slot| slot.storage == summary.input_storage)
                     })
                 {
                     continue;
@@ -4939,7 +4950,13 @@ impl FlowGraph {
         // their arguments, while this seed lets local reborrows retain the
         // parameter origin instead of appearing origin-free.
         for (index, slots) in body.parameter_loan_slots.iter().enumerate() {
-            for slot in slots {
+            let candidates = body
+                .word_parameter_candidates
+                .get(index)
+                .filter(|_| !include_parameter_contents)
+                .into_iter()
+                .flatten();
+            for slot in slots.iter().chain(candidates) {
                 empty[index].push(LoanOrigin {
                     owned_allocation: slot.owned_allocation,
                     place: Place::root(PlaceRoot::Parameter(BindingId(index))),
@@ -12326,13 +12343,11 @@ fn word_input_available(
     requirement: &crate::typed_body::ParameterLoanSummary,
     state: &LoanState,
 ) -> bool {
-    let Some(boundary) = requirement
+    let boundary = requirement
         .input_storage
         .iter()
         .position(|segment| *segment == Segment::Dereference)
-    else {
-        return false;
-    };
+        .unwrap_or(requirement.input_storage.len());
     let prefix = &requirement.input_storage[..boundary];
     let sources = origins
         .into_iter()
@@ -12448,8 +12463,15 @@ fn word_value_origins(
                 input.push(Segment::Dereference);
                 input.extend_from_slice(&selected.place.segments);
                 if state.parameter_contents.is_none()
-                    && loaded.place.root == selected.place.root
-                    && loaded.parameter_storage.as_ref() == Some(&input)
+                    && ((loaded.place.root == selected.place.root
+                        && loaded.parameter_storage.as_ref() == Some(&input))
+                        || matches!(&loaded.place.root, PlaceRoot::Parameter(parameter)
+                            if body.word_parameter_candidates.get(parameter.0).is_some_and(|slots|
+                                slots.iter().any(|candidate|
+                                    loaded.parameter_storage.as_ref().is_some_and(|input|
+                                        input.len() == candidate.storage.len()
+                                            && candidate.storage.iter().zip(input).all(|(expected, actual)|
+                                                storage_slot_matches(expected, actual)))))))
                 {
                     loaded.place.segments.clear();
                     loaded.mutable = slot.mutable;
@@ -12707,7 +12729,20 @@ fn select_summary_inputs_with_slots(
                     continue;
                 }
                 let mut loaded = held.clone();
-                loaded.drain_storage(prefix.len());
+                for selected in prefix {
+                    if matches!(
+                        selected,
+                        Segment::Index(_)
+                            | Segment::SliceIndex(_)
+                            | Segment::Field(_)
+                            | Segment::Tuple(_)
+                            | Segment::Payload(..)
+                    ) {
+                        loaded.project_storage(selected);
+                    } else {
+                        loaded.drain_storage(1);
+                    }
+                }
                 loaded.mutable &= origin.mutable;
                 // A ranged view selects physical element slots, while the
                 // callee's summary still describes a relative slice index.

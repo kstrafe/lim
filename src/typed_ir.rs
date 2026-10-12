@@ -1604,6 +1604,22 @@ impl Declarations {
         for (name, layouts) in word_layouts {
             self.bodies.get_mut(&name).unwrap().word_layouts = layouts;
         }
+        let candidates = self
+            .bodies
+            .iter()
+            .map(|(name, body)| {
+                (
+                    name.clone(),
+                    crate::word_loans::parameter_candidates(body, self),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (name, candidates) in candidates {
+            self.bodies
+                .get_mut(&name)
+                .unwrap()
+                .word_parameter_candidates = candidates;
+        }
     }
 
     fn summarize_parameter_loans_with_contents(&mut self, include_parameter_contents: bool) {
@@ -1679,6 +1695,25 @@ impl Declarations {
                 .get_mut(name)
                 .unwrap()
                 .parameter_referent_loan_slots = schema;
+            if include_parameter_contents {
+                let body = self.bodies.get_mut(name).unwrap();
+                for input in &body.word_input_requirements {
+                    if !input
+                        .input_storage
+                        .contains(&crate::typed_place::Segment::Dereference)
+                    {
+                        let seed = crate::typed_body::ParameterLoanSeed {
+                            storage: input.input_storage.clone(),
+                            mutable: input.mutable,
+                            pinned: input.pinned,
+                            owned_allocation: input.owned_allocation,
+                        };
+                        if !body.parameter_loan_slots[input.parameter].contains(&seed) {
+                            body.parameter_loan_slots[input.parameter].push(seed);
+                        }
+                    }
+                }
+            }
         }
 
         let names_by_id = self
@@ -1798,6 +1833,11 @@ impl Declarations {
                 .get_mut(&name)
                 .unwrap()
                 .call_word_input_requirements = Arc::new(needed_inputs);
+            let candidates = crate::word_loans::parameter_candidates(&self.bodies[&name], self);
+            self.bodies
+                .get_mut(&name)
+                .unwrap()
+                .word_parameter_candidates = candidates;
             // Loan transfer only consults direct callees. Copying every summary
             // accumulated so far for every body was another quadratic pass.
             let needed = self.bodies[&name]
@@ -2080,6 +2120,51 @@ impl Declarations {
                     // Spawning calls the worker with the same ordered inputs.
                     // Validate its word-loan requirements before launching it.
                     word_inputs.insert(spawn, word_inputs[&id].clone());
+                    for input in &word_inputs[&id] {
+                        let captured =
+                            crate::typed_place::Segment::ThreadCapture(owner, input.parameter);
+                        let mut retained = input.clone();
+                        retained.storage = vec![
+                            crate::typed_place::Segment::Payload(
+                                self.variant_id(
+                                    &Type::Named(format!("{task}-spawn-result")),
+                                    &format!("{task}-spawn-ok"),
+                                )
+                                .unwrap(),
+                                0,
+                            ),
+                            captured.clone(),
+                        ];
+                        retained.storage.extend_from_slice(&input.input_storage);
+                        retained.storage_inputs = vec![None, None];
+                        retained
+                            .storage_inputs
+                            .extend((0..input.input_storage.len()).map(Some));
+                        if !summaries
+                            .get(&spawn)
+                            .is_some_and(|loans| loans.contains(&retained))
+                        {
+                            summaries.entry(spawn).or_default().push(retained);
+                        }
+                        let mut retried = input.clone();
+                        retried.parameter = 0;
+                        retried.input_storage.insert(0, captured);
+                        retried.storage = vec![
+                            crate::typed_place::Segment::Payload(join_error, 0),
+                            crate::typed_place::Segment::Tuple(0),
+                        ];
+                        retried.storage.extend_from_slice(&retried.input_storage);
+                        retried.storage_inputs = vec![None, None];
+                        retried
+                            .storage_inputs
+                            .extend((0..retried.input_storage.len()).map(Some));
+                        if !summaries
+                            .get(&join)
+                            .is_some_and(|loans| loans.contains(&retried))
+                        {
+                            summaries.entry(join).or_default().push(retried);
+                        }
+                    }
                     let Some(captured_stores) = crate::thread_contract::capture_store_summaries(
                         owner,
                         captures.parameters.len(),
