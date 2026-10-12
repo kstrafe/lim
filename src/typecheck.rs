@@ -16430,6 +16430,23 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn contiguous_typed_payload_restores_a_linear_sibling_without_moving_reference_storage() {
+        let source = include_str!("../tests/fixtures/partial_reference_typed_payload.lim");
+        crate::CheckedProgram::validate_with_span(&crate::parse_program(source).unwrap())
+            .unwrap_or_else(|error| panic!("{error:?}"));
+        let invalid = source.replace("(#let restored", "(#set seed 0u64) (#let restored");
+        let error = crate::check_types(&crate::parse_program(&invalid).unwrap()).unwrap_err();
+        assert!(error.contains("borrow"), "{error}");
+        let invalid = source.replace(
+            "(#let selected",
+            "(#unsafe (#call restore-item
+          (: item (#pin-borrow-mut (#get owner item))))) (#let selected",
+        );
+        let error = crate::check_types(&crate::parse_program(&invalid).unwrap()).unwrap_err();
+        assert!(error.contains("borrow"), "{error}");
+    }
+
+    #[test]
     fn unchecked_typed_payload_transfer_preserves_exclusive_referent_contents() {
         let source = "(#enum Holder (Empty (Full (#ref-mut #u64))))
             (#unsafe-fn take (: slot (#pin-ref-mut Holder)) (#ref-mut #u64)

@@ -12476,6 +12476,59 @@ fn identity_pointer_borrow(body: &Body, children: &[NodeId]) -> bool {
 #[cfg(test)]
 mod identity_pointer_borrow_tests {
     #[test]
+    fn exact_exclusive_pointer_round_trips_keep_their_reborrow_parent() {
+        for (operator, result) in [
+            ("ptr-borrow", "#ref"),
+            ("ptr-borrow-mut", "#ref-mut"),
+            ("pin-ptr-borrow", "#pin-ref"),
+            ("pin-ptr-borrow-mut", "#pin-ref-mut"),
+        ] {
+            let source = format!(
+                "(#fn work (: owner (#pin-ref-mut #u64)
+              : other (#pin-ref-mut #u64)) ()
+              (#let exact ({result} #u64) (#unsafe (#{operator} owner (#ref-ptr owner))))
+              (#let unrelated ({result} #u64) (#unsafe (#{operator} owner (#ref-ptr other))))
+              (#forget exact) (#forget unrelated) (#return ()))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+            let body = &declarations.bodies["work"];
+            let flow = &declarations.flows["work"];
+            let owner = body
+                .bindings
+                .iter()
+                .position(|binding| binding.name == "owner")
+                .unwrap();
+            for origins in [
+                flow.loan_origins(body),
+                flow.staged_parameter_store_loan_origins(body),
+            ] {
+                let union = origins.binding_origin_union(body.bindings.len());
+                let held = |name| {
+                    &union[body
+                        .bindings
+                        .iter()
+                        .position(|binding| binding.name == name)
+                        .unwrap()]
+                };
+                assert!(
+                    held("exact").iter().any(|origin| !origin.lifetime_only
+                        && origin.borrowed_from == Some(super::BindingId(owner))),
+                    "{operator}: {:?}",
+                    held("exact")
+                );
+                assert!(
+                    held("unrelated").iter().all(|origin| origin.lifetime_only
+                        && origin.borrowed_from != Some(super::BindingId(owner))),
+                    "{operator}: {:?}",
+                    held("unrelated")
+                );
+            }
+        }
+    }
+
+    #[test]
     fn only_the_same_named_owner_recovers_actual_referent_identity() {
         let program = crate::parse_program(
             "(#fn work (: owner (#pin-ref (#slice #u64)) : other (#pin-ref (#slice #u64))) ()
@@ -13030,6 +13083,21 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             for origin in &mut origins {
                 origin.lifetime_only |= !exact;
                 if exact && origin.storage.is_empty() {
+                    // This is a child of the actual exclusive handle. Keep
+                    // that parent suspended while accesses follow this view,
+                    // rather than conflicting with its own outstanding loan.
+                    // Unrelated pointers and nested stored loans gain no such
+                    // permission from their lifetime anchor.
+                    if let Some(parent) = reference_binding(body, children[1]).filter(|parent| {
+                        matches!(
+                            body.bindings[parent.0].ty,
+                            Type::Reference { mutable: true, .. }
+                                | Type::PinnedReference { mutable: true, .. }
+                        )
+                    }) {
+                        origin.borrowed_from = Some(parent);
+                        origin.call_reborrow = false;
+                    }
                     origin.mutable =
                         matches!(head.as_str(), "ptr-borrow-mut" | "pin-ptr-borrow-mut");
                     origin.pinned =
@@ -13611,6 +13679,18 @@ fn value_loan_origins_at_events(
             for origin in &mut pointer_origins {
                 origin.lifetime_only |= !exact;
                 if exact && origin.storage.is_empty() {
+                    // Keep event-sensitive and ordinary provenance aligned:
+                    // only an exact outer-handle round trip is a reborrow.
+                    if let Some(parent) = reference_binding(body, children[1]).filter(|parent| {
+                        matches!(
+                            body.bindings[parent.0].ty,
+                            Type::Reference { mutable: true, .. }
+                                | Type::PinnedReference { mutable: true, .. }
+                        )
+                    }) {
+                        origin.borrowed_from = Some(parent);
+                        origin.call_reborrow = false;
+                    }
                     origin.mutable =
                         matches!(head.as_str(), "ptr-borrow-mut" | "pin-ptr-borrow-mut");
                     origin.pinned =

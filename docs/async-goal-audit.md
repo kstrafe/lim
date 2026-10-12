@@ -795,6 +795,34 @@ it is not a new paired whole-compiler speedup measurement.
 
 ## Historical migration verification record
 
+### Preserve exclusive parentage through exact pointer round trips
+
+An exact pointer round trip from an exclusive reference now records that named
+handle as its reborrow parent in both ordinary and event-sensitive provenance.
+Previously, an identity view could recover the correct address but lose the
+parent relationship, so projecting through that view conflicted with its own
+parent's still-live exclusive loan. This update is restricted to the outer
+reference slot and the direct `(#ref-ptr same-owner)` form. Unrelated pointers
+remain lifetime-only anchors, and nested stored loans acquire no fabricated
+access permission.
+
+The ordinary fixture `partial_reference_typed_payload.lim` preserves a reference
+to a reference-bearing field while a sibling Token is extracted and restored
+through a narrow pinned reference. It then creates a whole-owner view from the
+existing exclusive capability, compares the field address and reads the real
+caller reference. It returns 42 natively on stack storage, cold and warm, with
+no per-field tag. Caller mutation while the contained reference is live and
+sibling mutation while the whole shared view is live remain rejected.
+
+All four exact pointer-borrow forms are tested against unrelated pointers in
+both provenance solvers. The library suite passes 1,406 tests with eight existing
+ignored tests, alongside 45 graph-production, fourteen dependent-cancellation
+and 26 self-borrow integrations. This establishes a generic typed-storage
+foundation, not a migrated async representation. The existing async contiguous
+reference-owner gate remains ignored. The heap version additionally exposes an
+unresolved referent call-input failure when restoring the partially moved field;
+its native completion gate is explicitly ignored rather than counted as passing.
+
 ### Remove the discriminator branch from owned reference transfers
 
 Owned transfers from typed reference-bearing cells now retain the pre-move

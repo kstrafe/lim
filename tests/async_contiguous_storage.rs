@@ -1,6 +1,77 @@
 mod support;
 
 #[test]
+fn ordinary_typed_contiguous_payload_preserves_reference_field_address_natively() {
+    run_ordinary_typed_payload(false);
+}
+
+#[test]
+#[ignore = "heap partial-field restoration has unresolved referent call inputs"]
+fn heap_typed_contiguous_payload_preserves_reference_field_address_natively() {
+    run_ordinary_typed_payload(true);
+}
+
+fn run_ordinary_typed_payload(on_heap: bool) {
+    let source = include_str!("fixtures/partial_reference_typed_payload.lim");
+    let scratch = support::Scratch::new("typed-contiguous-reference-payload");
+    let target = lim::TargetDescription::X86_64_SYSTEM_V;
+    let heap = source
+        .replace(
+            "(#let-mut storage Storage",
+            "
+      (#let allocation (#ptr-mut Storage) (#unsafe (#linux-syscall (#ptr-mut Storage)
+        9usize (0usize (#size-of Storage) 3usize 34usize -1i64 0usize))))
+      (#let initial Storage",
+        )
+        .replace(
+            "(#let owner",
+            "
+      (#let-mut storage (#pin-own Storage) (#unsafe (#pin-own-of allocation initial)))
+      (#let owner",
+        )
+        .replace("(#pin-borrow-mut storage)", "(#pin-own-borrow-mut storage)")
+        .replace(
+            "(#forget storage)",
+            "
+      (#let released (#ptr-mut Storage) (#unsafe (#pin-release storage)))
+      (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize
+        (released (#size-of Storage)))) 0i64))",
+        );
+    let (kind, source) = if on_heap {
+        ("heap", heap.as_str())
+    } else {
+        ("stack", source)
+    };
+    {
+        let mut previous = None;
+        for label in ["cold", "warm"] {
+            let assembly = lim::compile_source_to_assembly(
+                source,
+                &scratch.path().join("input.lim"),
+                &lim::CompileConfig::default(),
+                &scratch.path().join("cache"),
+                target,
+            )
+            .unwrap();
+            if let Some(previous) = &previous {
+                assert_eq!(&assembly, previous);
+            }
+            let binary = scratch.path().join(format!("{kind}-{label}"));
+            lim::link_native_binary(&assembly, &binary, &[], &[], target).unwrap();
+            let (status, stdout, stderr) = support::run(
+                &mut std::process::Command::new(binary),
+                std::time::Duration::from_secs(5),
+                4096,
+            )
+            .unwrap();
+            assert_eq!(status.code(), Some(42), "{stderr:?}");
+            assert!(stdout.is_empty() && stderr.is_empty());
+            previous = Some(assembly);
+        }
+    }
+}
+
+#[test]
 fn source_checks_reject_incomplete_and_conflicting_whole_borrows() {
     let source = include_str!("fixtures/async_partial_whole_borrow.lim");
     let missing = source.replace(
