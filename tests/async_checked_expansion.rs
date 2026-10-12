@@ -133,7 +133,7 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
         assert!(lim::parse_program(&module).unwrap().items.iter().any(|item|
             matches!(item, lim::Item::OpaqueAnnotation { type_name } if type_name == "Work-task")
         ), "{artifact}");
-        assert!(artifact.contains("#pin-get-payload-unchecked"));
+        assert!(artifact.contains("#word-read"), "{artifact}");
         fs::write(scratch.path().join("frame.lim"), module).unwrap();
         let caller = format!(
             "(#import \"frame.lim\")\n{}",
@@ -147,19 +147,26 @@ fn generated_frame_invariants_are_private_on_cold_and_warm_expansion() {
                 "modified",
                 "(#set-field modified pc 0u32)",
             ),
+            (
+                "(#let duplicate Work-task (#clone next)) (#forget duplicate)",
+                "next",
+                "(#clone next)",
+            ),
         ] {
-            let invalid = caller
-                .replace(
-                    "(#let-else (work-pending next) Work-poll-result first (#unreachable))",
-                    &format!(
+            for source in [caller.as_str(), SOURCE] {
+                let invalid = source
+                    .replace(
+                        "(#let-else (work-pending next) Work-poll-result first (#unreachable))",
+                        &format!(
                     "(#let-else (work-pending next) Work-poll-result first (#unreachable)) {edit}"
                 ),
-                )
-                .replace(": task next", &format!(": task {receiver}"));
-            let diagnostic = compile(&invalid).unwrap_err();
-            assert!(diagnostic.message.contains("opaque"), "{diagnostic:?}");
-            let span = diagnostic.span.expect("opaque field span");
-            assert_eq!(&invalid[span.start..span.end], offending);
+                    )
+                    .replace(": task next", &format!(": task {receiver}"));
+                let diagnostic = compile(&invalid).unwrap_err();
+                assert!(diagnostic.message.contains("opaque"), "{diagnostic:?}");
+                let span = diagnostic.span.expect("opaque field span");
+                assert_eq!(&invalid[span.start..span.end], offending);
+            }
         }
     }
 }

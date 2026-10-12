@@ -821,6 +821,15 @@ contiguous, dependent-cancellation, dynamic-array, boundary and self-borrow
 integration suites pass (6, 14, 6, 5 and 26 tests respectively), as do all-target
 checking and formatting. Reference-bearing storage migration remains unfinished.
 
+All 45 graph-production tests pass. The three checked-expansion tests also pass:
+frame fields cannot be read or overwritten, and a linear frame cannot be cloned,
+by callers outside the generated implementation module. These checks cover both
+direct expansion and independently imported generated files, cold and warm.
+The privacy regression now asserts the current word-storage implementation
+rather than requiring an obsolete typed payload helper. `#opaque` is the generic
+module boundary protecting these representation invariants; it is not an
+async-specific native checking exception.
+
 ### Concrete generated child layouts and stationary cancellation
 
 Generated children are now emitted in dependency order before their parent
