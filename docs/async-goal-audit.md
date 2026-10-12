@@ -1392,3 +1392,16 @@ read-only owner helper regression passes separately. All-target checking,
 formatting and diff checks pass; no broad-conversion failed run is counted as
 passing evidence. The HTML architecture deliverable remains pending actual
 completion of the full async goal.
+
+The follow-on working-tree experiment enables contiguous whole struct/tuple
+holders and updates the representation test to require an explicit word take
+rather than the removed cell extraction protocol. Its full library run has
+1,410 passing tests, three failures and eight existing ignored. The failures are
+`reference_bearing_owners_retain_frame_and_external_borrows` (a missing required
+word input on the second poll), `nested_exclusive_pattern_storage_survives_loop_and_consecutive_polls`,
+and `aggregate_returned_children_keep_evaluated_parents_across_later_awaits`
+(overlapping exclusive call inputs). This emitter experiment remains uncommitted;
+the passing counts above describe the committed current layouts, not this
+experimental worktree. The next contract work must preserve mutually exclusive
+state/variant alternatives rather than treating every may-retained word loan as
+simultaneously initialized and accessible.
