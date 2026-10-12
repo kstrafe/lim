@@ -12111,34 +12111,11 @@ impl FunctionContext<'_> {
                     }
                     (pattern_name.as_str(), pattern[1..].iter().collect())
                 }
-                Expr::Integer(value) => {
-                    if wide_scrutinee {
-                        let bits = *value as u128;
-                        self.output.push_str(&format!(
-                            "    cmp QWORD PTR [rsp], {}\n    jne {next}\n    cmp QWORD PTR [rsp+8], {}\n    jne {next}\n",
-                            bits as u64,
-                            (bits >> 64) as u64
-                        ));
-                    } else {
-                        self.output.push_str(&format!(
-                            "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
-                        ));
-                    }
-                    ("", Vec::new())
-                }
-                Expr::UnsignedInteger(value) => {
-                    if wide_scrutinee {
-                        self.output.push_str(&format!(
-                            "    cmp QWORD PTR [rsp], {}\n    jne {next}\n    cmp QWORD PTR [rsp+8], {}\n    jne {next}\n",
-                            *value as u64,
-                            (*value >> 64) as u64
-                        ));
-                    } else {
-                        self.output.push_str(&format!(
-                            "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
-                            *value as u64
-                        ));
-                    }
+                Expr::Integer(_) | Expr::UnsignedInteger(_) => {
+                    let ty = self
+                        .expression_type(scrutinee)
+                        .ok_or_else(|| "scalar match scrutinee has no known type".to_owned())?;
+                    self.emit_scalar_pattern_test(pattern, &ty, &next)?;
                     ("", Vec::new())
                 }
                 Expr::Char(value) => {
@@ -12332,30 +12309,19 @@ impl FunctionContext<'_> {
             Expr::Integer(value) => {
                 if is_wide_integer(ty) {
                     let bits = *value as u128;
-                    self.output.push_str(&format!(
-                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n    cmp QWORD PTR [rsp+8], {}\n    jne {next}\n",
-                        asm_u64_immediate(bits as u64),
-                        asm_u64_immediate((bits >> 64) as u64)
-                    ));
+                    self.emit_word_pattern_test("QWORD PTR [rsp]", bits as u64, next);
+                    self.emit_word_pattern_test("QWORD PTR [rsp+8]", (bits >> 64) as u64, next);
                 } else {
-                    self.output.push_str(&format!(
-                        "    cmp QWORD PTR [rsp], {value}\n    jne {next}\n"
-                    ));
+                    self.emit_word_pattern_test("QWORD PTR [rsp]", *value as u64, next);
                 }
                 Ok(())
             }
             Expr::UnsignedInteger(value) => {
                 if is_wide_integer(ty) {
-                    self.output.push_str(&format!(
-                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n    cmp QWORD PTR [rsp+8], {}\n    jne {next}\n",
-                        asm_u64_immediate(*value as u64),
-                        asm_u64_immediate((*value >> 64) as u64)
-                    ));
+                    self.emit_word_pattern_test("QWORD PTR [rsp]", *value as u64, next);
+                    self.emit_word_pattern_test("QWORD PTR [rsp+8]", (*value >> 64) as u64, next);
                 } else {
-                    self.output.push_str(&format!(
-                        "    cmp QWORD PTR [rsp], {}\n    jne {next}\n",
-                        asm_u64_immediate(*value as u64)
-                    ));
+                    self.emit_word_pattern_test("QWORD PTR [rsp]", *value as u64, next);
                 }
                 Ok(())
             }
@@ -12367,6 +12333,22 @@ impl FunctionContext<'_> {
                 Ok(())
             }
             _ => Err("invalid scalar or-pattern alternative".into()),
+        }
+    }
+
+    /// x86-64 memory comparisons sign-extend their 32-bit immediate.
+    /// Larger constants must be materialized, not silently truncated.
+    fn emit_word_pattern_test(&mut self, operand: &str, bits: u64, next: &str) {
+        if bits == (bits as i32 as i64 as u64) {
+            self.output.push_str(&format!(
+                "    cmp {operand}, {}\n    jne {next}\n",
+                bits as i32
+            ));
+        } else {
+            self.output.push_str(&format!(
+                "    mov r11, {}\n    cmp {operand}, r11\n    jne {next}\n",
+                asm_u64_immediate(bits)
+            ));
         }
     }
 

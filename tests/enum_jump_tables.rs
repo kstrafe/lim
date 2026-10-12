@@ -57,6 +57,28 @@ fn fieldless_source(tags: &[u64]) -> String {
 }
 
 #[test]
+fn scalar_matches_materialize_constants_outside_signed_32_bit_immediates() {
+    for (ty, value) in [
+        ("u32", "4294967295"),
+        ("u64", "2147483648"),
+        ("u64", "4294967295"),
+        ("u64", "9223372036854775808"),
+        ("i64", "-2147483649"),
+        ("u128", "79228162514264337602133884927"),
+    ] {
+        let assembly = compile_and_run(&format!(
+            "(#fn dispatch (: value #{ty}) #u64
+               (#return (#match value (#case {value}{ty} 42u64) (#case _ 0u64))))
+             (#fn main () #u64
+               (#assert (#u64.== (#call dispatch (: value 0{ty})) 0u64))
+               (#return (#call dispatch (: value {value}{ty}))))"
+        ));
+        assert!(assembly.contains("cmp QWORD PTR [rsp], r11"), "{assembly}");
+        assert!(!assembly.contains("enum_jump_table"));
+    }
+}
+
+#[test]
 fn contiguous_tags_dispatch_in_tag_order_including_full_width_ranges() {
     for tags in [
         vec![0, 1, 2, 3],
