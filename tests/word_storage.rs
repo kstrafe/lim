@@ -51,6 +51,176 @@ fn flat_word_views_preserve_stack_layout() {
     run(SOURCE);
 }
 
+const EMPTY_REFERENCE_CELL: &str = "
+(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+(#fn main () #u64
+  (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+  (#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))
+  (#let cell Cell (#unsafe (#word-take Cell (#borrow-slice-mut words))))
+  (#forget cell) (#return 42u64))";
+
+#[test]
+fn actual_empty_constructor_does_not_require_inactive_word_reference() {
+    run(EMPTY_REFERENCE_CELL);
+    for operation in ["word-read", "word-view"] {
+        let source = if operation == "word-read" {
+            EMPTY_REFERENCE_CELL.replace(
+                "#word-take Cell (#borrow-slice-mut words)",
+                "#word-read Cell (#borrow-slice words)",
+            )
+        } else {
+            EMPTY_REFERENCE_CELL
+                .replace("(#let cell Cell", "(#let cell (#ref Cell)")
+                .replace(
+                    "#word-take Cell (#borrow-slice-mut words)",
+                    "#word-view (#ref Cell) (#borrow-slice words)",
+                )
+        };
+        run(&source);
+    }
+}
+
+#[test]
+fn numeric_zero_is_not_an_empty_constructor_witness() {
+    let source = EMPTY_REFERENCE_CELL
+        .replace("(#let cell Cell", "(#let cell (#ref Cell)")
+        .replace(
+            "#word-take Cell (#borrow-slice-mut words)",
+            "#word-view (#ref Cell) (#borrow-slice words)",
+        );
+    let no_write = source.replace(
+        "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))",
+        "",
+    );
+    let error = compile(&no_write).unwrap_err();
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+    assert!(
+        error.message.contains("missing slot provenance"),
+        "{error:?}"
+    );
+    let overwritten = source.replace(
+        "(#let cell",
+        "(#unsafe (#word-write #u64 (#borrow-slice-mut words 0usize 1usize) 0u64)) (#let cell",
+    );
+    let error = compile(&overwritten).unwrap_err();
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+    assert!(
+        error.message.contains("missing slot provenance"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn nested_constructor_facts_use_nonzero_backing_offsets_and_enum_identity() {
+    let source = "(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+      (#enum Outer ((Absent) (Present Cell)))
+      (#struct Holder (: prefix #u64 : cell Outer : suffix #u64))
+      (#fn main () #u64
+        (#let-mut words (#array #u64 7) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words 1usize 6usize)
+          (#struct-literal Holder (: prefix 40u64 : cell (Present (Vacant)) : suffix 2u64))))
+        (#let value Holder (#unsafe (#word-take Holder (#borrow-slice-mut words 1usize 6usize))))
+        (#let answer #u64 (#u64.+.wrap (#get value prefix) (#get value suffix)))
+        (#forget value) (#return answer))";
+    run(source);
+    let lost_outer = source.replace("(#let value Holder", "(#unsafe (#word-write #u64 (#borrow-slice-mut words 2usize 3usize) 1u64)) (#let value Holder");
+    assert!(compile(&lost_outer)
+        .unwrap_err()
+        .message
+        .contains("missing slot provenance"));
+    let wrong_type = EMPTY_REFERENCE_CELL
+        .replace(
+            "(#fn main",
+            "(#enum Other ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
+        )
+        .replace(
+            "#word-write Cell (#borrow-slice-mut words) (Vacant)",
+            "#word-write Other (#borrow-slice-mut words) (OtherVacant)",
+        );
+    assert!(compile(&wrong_type)
+        .unwrap_err()
+        .message
+        .contains("missing slot provenance"));
+}
+
+#[test]
+fn occupied_word_cells_need_real_reference_provenance_after_retirement() {
+    let source = "(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+      (#fn main () #u64
+        (#let amount #u64 42u64)
+        (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+        (#unsafe (#word-write Cell (#borrow-slice-mut words) (Occupied (#borrow amount))))
+        (#let view (#ref Cell) (#unsafe (#word-view (#ref Cell) (#borrow-slice words))))
+        (#forget view)
+        (#unsafe (#word-forget Cell (#borrow-slice-mut words)))
+        (#return 42u64))";
+    run(source);
+    let retired = source.replace("(#return 42u64)", "(#let invalid (#ref Cell) (#unsafe (#word-view (#ref Cell) (#borrow-slice words)))) (#forget invalid) (#return 42u64)");
+    assert!(compile(&retired)
+        .unwrap_err()
+        .message
+        .contains("missing slot provenance"));
+    let cleared = retired.replace(
+        "(#let invalid",
+        "(#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant))) (#let invalid",
+    );
+    run(&cleared);
+}
+
+#[test]
+fn constructor_facts_are_per_cell_and_required_on_every_reaching_address() {
+    let source = "(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+      (#fn choose (: flag #bool) #u64
+        (#let amount #u64 42u64)
+        (#let-mut first (#array #u64 2) (#array-repeat 0u64))
+        (#let-mut second (#array #u64 2) (#array-repeat 0u64))
+        (#unsafe (#word-write Cell (#borrow-slice-mut first) (Vacant)))
+        (#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))
+        (#let words (#slice #u64) (#if flag (#borrow-slice first) (#borrow-slice second)))
+        (#let view (#ref Cell) (#unsafe (#word-view (#ref Cell) words)))
+        (#forget view) (#forget words) (#return 42u64))
+      (#fn main () #u64 (#return (#call choose (: flag true))))";
+    run(source);
+    let unknown = source.replace(
+        "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))",
+        "",
+    );
+    assert!(compile(&unknown)
+        .unwrap_err()
+        .message
+        .contains("missing slot provenance"));
+    let occupied = source.replace("(#unsafe (#word-write Cell (#borrow-slice-mut second) (Vacant)))", "(#unsafe (#word-write Cell (#borrow-slice-mut second) (Occupied (#borrow amount)))) (#unsafe (#word-forget Cell (#borrow-slice-mut second)))");
+    assert!(compile(&occupied)
+        .unwrap_err()
+        .message
+        .contains("missing slot provenance"));
+    let independent = occupied.replace(
+        "(#if flag (#borrow-slice first) (#borrow-slice second))",
+        "(#borrow-slice first)",
+    );
+    run(&independent);
+}
+
+#[test]
+fn raw_mutation_invalidates_word_constructor_facts() {
+    let source = EMPTY_REFERENCE_CELL
+        .replace("(#let cell Cell", "(#let cell (#ref Cell)")
+        .replace(
+            "#word-take Cell (#borrow-slice-mut words)",
+            "#word-view (#ref Cell) (#borrow-slice words)",
+        );
+    let invalid = source.replace("(#let cell", "(#let pointer (#ptr-mut #u64) (#ref-ptr (#borrow-mut (#index words 0usize)))) (#unsafe (#ptr-write pointer 0u64)) (#let cell");
+    assert!(compile(&invalid)
+        .unwrap_err()
+        .message
+        .contains("missing slot provenance"));
+    let retired_empty = source.replace(
+        "(#let cell",
+        "(#unsafe (#word-forget Cell (#borrow-slice-mut words))) (#let cell",
+    );
+    run(&retired_empty);
+}
+
 const REFERENCE_WORDS: &str = "
 (#struct Pair (: left #u8 : right #u64))
 (#fn expose (: value (#pin-ref-mut Pair)) (#slice-mut #u64)

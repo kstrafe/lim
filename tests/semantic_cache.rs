@@ -47,6 +47,46 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 }
 
 #[test]
+fn imported_word_constructor_facts_survive_cache_hits() {
+    let scratch = support::Scratch::new("semantic-word-constructors");
+    let directory = scratch.path();
+    fs::write(
+        directory.join("lib.lim"),
+        "
+      (#enum Cell ((Vacant) (Occupied (#ref #u64))))
+      (#fn initialize (: words (#slice-mut #u64)) ()
+        (#unsafe (#word-write Cell words (Vacant))) (#return ()))
+      (#fn initialize-and-read (: words (#ref-mut (#array #u64 2))) ()
+        (#unsafe (#word-write Cell (#borrow-slice-mut (#deref words)) (Vacant)))
+        (#let cell Cell (#unsafe (#word-read Cell (#borrow-slice (#deref words)))))
+        (#forget cell) (#return ()))",
+    )
+    .unwrap();
+    let config = CompileConfig::default();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut words (#array #u64 4) (#array-repeat 0u64))
+        (#call initialize (: words (#borrow-slice-mut words 1usize 3usize)))
+        (#let cell Cell (#unsafe (#word-take Cell (#borrow-slice-mut words 1usize 3usize))))
+        (#forget cell)
+        (#let-mut other (#array #u64 2) (#array-repeat 0u64))
+        (#call initialize-and-read (: words (#borrow-mut other)))
+        (#return 42u64))";
+    let cold = compile(directory, source, &config).0.unwrap();
+    let (warm, report) = compile(directory, source, &config);
+    assert_eq!(cold, warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+    let invalid = source.replace(
+        "(#let cell Cell",
+        "(#unsafe (#word-write #u64 (#borrow-slice-mut words 1usize 2usize) 0u64)) (#let cell Cell",
+    );
+    let cold_error = compile(directory, &invalid, &config).0.unwrap_err();
+    let warm_error = compile(directory, &invalid, &config).0.unwrap_err();
+    assert_eq!(cold_error, warm_error);
+    assert!(cold_error.message.contains("missing slot provenance"));
+}
+
+#[test]
 fn imported_typed_word_view_consumer_maps_geometry_on_cache_hits() {
     let scratch = support::Scratch::new("semantic-word-view-consumer");
     let directory = scratch.path();

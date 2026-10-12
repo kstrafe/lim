@@ -1541,3 +1541,41 @@ writes, so inactive cells do not require a nonexistent loan. These facts must no
 be synthesized from zero bytes, a type's slot schema, or an unsafe lifetime
 anchor. This is the next general tagged-word-memory gate, not permission to
 skip final checking. Broader lowering and the HTML deliverable remain unfinished.
+
+### Constructor facts in actual word-backed cells
+
+Typed word writes now record enum declaration identities at their physical
+backing offsets. Read, take and view operations recover those facts through
+compact layout geometry and omit only reference slots proven to belong to an
+inactive variant. Nested payload tags require the actual enclosing constructor.
+Facts are intersected across all reaching primary addresses; unresolved or
+opaque alternatives cannot borrow another branch's proof.
+
+This does not infer a constructor from zero bytes, a numeric discriminant write,
+a type's reference-slot schema, or an unsafe lifetime anchor. Numeric overwrites
+and raw mutations invalidate tag facts. Word retirement preserves unchanged
+bytes and tags but not forgotten reference loans: an occupied cell remains
+unreadable without actual provenance. A subsequent typed empty write is a new
+constructor witness, not restoration of a retired loan.
+
+Ordinary imported writer summaries carry these facts through existing store
+contracts. A helper that writes an empty cell before reading it does not require
+an impossible entry loan for the inactive payload. Semantic cache version
+thirteen invalidates older inference summaries. Cold/warm assembly and rejected
+program diagnostics match, with actual warm cache hits.
+
+All 45 word-storage, eighteen cache and three UI tests pass, including native
+empty read/take/view, nested nonzero offsets, wrong enum identity, independent
+cells, ambiguous addresses, missing occupied loans, numeric overwrite and raw
+mutation controls. Formatting, all-target and diff checks pass. The complete
+experimental library was run serially: 1,413 pass, the same two exclusive-input
+tests fail and eight are ignored. This does not certify the broader lowering.
+
+Pinned child cancellation gets beyond the previous final word-view provenance
+gate, but is now rejected by the inferred typed-reader input contract at the
+public destroy call. Both the existing repeated-destroy program and a temporary
+single-destroy probe reject for a missing required input loan; neither is counted
+as a native success. The next task is to preserve state/constructor conditions
+in those entry requirements and caller-visible cleanup effects rather than
+requiring every possible reference slot unconditionally. The broader emitter
+experiment remains uncommitted, and the goal and HTML deliverable remain open.

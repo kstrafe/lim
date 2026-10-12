@@ -2905,6 +2905,19 @@ loans; numeric bytes and layout types alone never establish reference provenance
 Numeric overwrites retire the metadata at the overwritten offsets. These facts
 exist only during compilation, without runtime occupancy flags.
 
+Typed writes also establish enum constructor facts at the actual backing word
+offsets. A subsequent read, take or view need not recover reference slots in an
+inactive variant. Nested payload tags require a known enclosing constructor;
+facts belong to the specific cell and enum declaration, not merely a numeric
+discriminant. Zero-filled memory, a numeric tag write, or a layout type alone
+does not establish a constructor fact. Unknown branches and opaque addresses
+remain conservative, and raw mutations invalidate known tags.
+
+`#word-forget` retires loans but leaves bytes and constructor facts unchanged.
+An occupied cell still needs real reference provenance after retirement; a new
+typed empty-constructor write can establish an empty cell instead. These rules
+do not add runtime occupancy bits or branches.
+
 An ordinary helper can require loans in a borrowed word slice. The compiler
 infers those entry requirements and checks the actual stored origins at every
 call, including through forwarding helpers and cached imports. Returning only

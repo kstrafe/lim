@@ -111,6 +111,7 @@ pub(crate) struct Shape {
     words: usize,
     fields: Vec<(Segment, Shape)>,
     array: Option<(Box<Shape>, usize)>,
+    variants: Vec<crate::typed_ir::VariantId>,
 }
 
 impl Shape {
@@ -124,6 +125,7 @@ impl Shape {
             )?,
             fields: Vec::new(),
             array: None,
+            variants: Vec::new(),
         };
         match &ty {
             Type::Named(name) if declarations.structs.contains_key(name) => {
@@ -136,6 +138,9 @@ impl Shape {
             }
             Type::Named(name) if declarations.enums.contains_key(name) => {
                 for variant in &declarations.enums[name] {
+                    shape
+                        .variants
+                        .push(declarations.variant_id(&ty, &variant.name).unwrap());
                     for (index, field) in variant.fields.iter().enumerate() {
                         shape.fields.push((
                             Segment::Payload(
@@ -163,25 +168,30 @@ impl Shape {
     }
 
     pub fn project(&self, path: &[Segment]) -> Option<(usize, usize)> {
+        self.project_shape(path)
+            .map(|(offset, shape)| (offset, shape.words))
+    }
+
+    fn project_shape(&self, path: &[Segment]) -> Option<(usize, &Shape)> {
         let Some((first, tail)) = path.split_first() else {
-            return Some((0, self.words));
+            return Some((0, self));
         };
         if let (Some((element, length)), Segment::Index(index)) = (&self.array, first) {
             let index = usize::try_from(*index).ok()?;
             if index >= *length {
                 return None;
             }
-            let (offset, words) = element.project(tail)?;
+            let (offset, shape) = element.project_shape(tail)?;
             return Some((
                 index.checked_mul(element.words)?.checked_add(offset)?,
-                words,
+                shape,
             ));
         }
         let mut start = usize::from(matches!(first, Segment::Payload(_, _)));
         for (segment, child) in &self.fields {
             if segment == first {
-                let (offset, words) = child.project(tail)?;
-                return Some((start.checked_add(offset)?, words));
+                let (offset, shape) = child.project_shape(tail)?;
+                return Some((start.checked_add(offset)?, shape));
             }
             if let (Segment::Payload(wanted, _), Segment::Payload(actual, _)) = (first, segment) {
                 if wanted != actual {
@@ -189,6 +199,74 @@ impl Shape {
                 }
             }
             start = start.checked_add(child.words)?;
+        }
+        None
+    }
+
+    pub fn tag_offset(
+        &self,
+        path: &[Segment],
+        variant: crate::typed_ir::VariantId,
+    ) -> Option<usize> {
+        let (offset, shape) = self.project_shape(path)?;
+        shape.variants.contains(&variant).then_some(offset)
+    }
+
+    pub fn tag_path(
+        &self,
+        offset: usize,
+        variant: crate::typed_ir::VariantId,
+        at: &impl Fn(usize) -> Option<crate::typed_ir::VariantId>,
+    ) -> Option<Vec<Segment>> {
+        self.tag_path_at(offset, 0, variant, at)
+    }
+
+    fn tag_path_at(
+        &self,
+        offset: usize,
+        base: usize,
+        variant: crate::typed_ir::VariantId,
+        at: &impl Fn(usize) -> Option<crate::typed_ir::VariantId>,
+    ) -> Option<Vec<Segment>> {
+        if offset == 0 && self.variants.contains(&variant) {
+            return Some(Vec::new());
+        }
+        if let Some((element, length)) = &self.array {
+            if element.words == 0 {
+                return None;
+            }
+            let index = offset / element.words;
+            if index >= *length {
+                return None;
+            }
+            let start = index.checked_mul(element.words)?;
+            let mut path =
+                element.tag_path_at(offset - start, base.checked_add(start)?, variant, at)?;
+            path.insert(0, Segment::Index(index as u128));
+            return Some(path);
+        }
+        let active = if self.variants.is_empty() {
+            None
+        } else {
+            let active = at(base)?;
+            if !self.variants.contains(&active) {
+                return None;
+            }
+            Some(active)
+        };
+        let mut start = usize::from(active.is_some());
+        for (segment, child) in &self.fields {
+            if matches!(segment, Segment::Payload(actual, _) if Some(*actual) != active) {
+                continue;
+            }
+            let end = start.checked_add(child.words)?;
+            if offset >= start && offset < end {
+                let mut path =
+                    child.tag_path_at(offset - start, base.checked_add(start)?, variant, at)?;
+                path.insert(0, segment.clone());
+                return Some(path);
+            }
+            start = end;
         }
         None
     }
@@ -232,7 +310,7 @@ pub(crate) fn layouts(body: &Body, declarations: &Declarations) -> HashMap<NodeI
             } else {
                 collect(ty, declarations, &mut Vec::new(), 0, &mut slots).ok()?
             };
-            let shape = (head == "word-view")
+            let shape = (head != "word-forget")
                 .then(|| Shape::build(ty, declarations).map(std::sync::Arc::new))
                 .transpose()
                 .ok()?;

@@ -2615,6 +2615,15 @@ impl FlowGraph {
                 | FlowAction::Write { value, .. } => value,
                 FlowAction::Evaluate(value)
                     if matches!(&body.nodes[value.0].kind,
+                        NodeKind::Form { head, children, callee: None, .. } if head == "word-write" && children.len() == 4) =>
+                {
+                    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                        unreachable!()
+                    };
+                    children[3]
+                }
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind,
                     NodeKind::Form { head, children, callee: None, .. } if head == "pin-own-of" && children.len() == 3) =>
                 {
                     value
@@ -2819,6 +2828,20 @@ impl FlowGraph {
                         }
                     } else {
                         state.clear();
+                    }
+                }
+                FlowAction::Evaluate(value) if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "word-write") =>
+                {
+                    let mut stores = origins.stores_before(body, self, event);
+                    annotate_word_write_variants(
+                        body,
+                        *value,
+                        &state,
+                        (self, origins, event, &before),
+                        &mut stores,
+                    );
+                    for store in stores {
+                        apply_store_variant_facts(&mut state, &store);
                     }
                 }
                 FlowAction::Write { .. } => state.clear(),
@@ -4210,6 +4233,17 @@ impl FlowGraph {
             .map(|index| {
                 let event = FlowNodeId(index);
                 let mut stores = origins.stores_before(body, self, event);
+                if let (Some(state), FlowAction::Evaluate(value)) =
+                    (&variant_states[index], &self.nodes[index].action)
+                {
+                    annotate_word_write_variants(
+                        body,
+                        *value,
+                        state,
+                        (self, origins, event, &variant_states),
+                        &mut stores,
+                    );
+                }
                 if let (
                     Some(state),
                     FlowAction::Write { value, .. } | FlowAction::Evaluate(value),
@@ -4487,6 +4521,22 @@ impl FlowGraph {
                     NodeKind::Form { head, .. } if !matches!(head.as_str(), "word-write" | "word-forget"))
             {
                 let held = actual.value_before(body, self, FlowNodeId(index), value);
+                let snapshots = actual
+                    .variants
+                    .get_or_init(|| self.variant_facts_with_origins(body, actual));
+                let tags = snapshots[index]
+                    .as_ref()
+                    .map(|state| {
+                        word_memory_variant_facts(
+                            body,
+                            value,
+                            state,
+                            (self, actual, FlowNodeId(index), snapshots),
+                        )
+                    })
+                    .unwrap_or_default();
+                let root = Place::root(PlaceRoot::Local(BindingId(0)));
+                let view = matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "word-view");
                 // A lineage established by real writes in this body is not
                 // an extra entry assumption. Infer only slots still missing
                 // when numeric inputs start without concealed references.
@@ -4495,6 +4545,15 @@ impl FlowGraph {
                         .value_before(body, self, FlowNodeId(index), value)
                         .into_iter()
                         .filter(|loan| {
+                            let path =
+                                if view && loan.storage.first() == Some(&Segment::Dereference) {
+                                    &loan.storage[1..]
+                                } else {
+                                    &loan.storage
+                                };
+                            if inactive_variant_slot(&tags, &root, path) {
+                                return false;
+                            }
                             !held
                                 .iter()
                                 .any(|known| !known.lifetime_only && known.storage == loan.storage)
@@ -9578,7 +9637,25 @@ impl FlowGraph {
                     {
                         let held = origins.value_before(body, self, FlowNodeId(index), value);
                         let view = head == "word-view";
+                        let snapshots = origins
+                            .variants
+                            .get_or_init(|| self.variant_facts_with_origins(body, origins));
+                        let tags = snapshots[index]
+                            .as_ref()
+                            .map(|state| {
+                                word_memory_variant_facts(
+                                    body,
+                                    value,
+                                    state,
+                                    (self, origins, FlowNodeId(index), snapshots),
+                                )
+                            })
+                            .unwrap_or_default();
+                        let root = Place::root(PlaceRoot::Local(BindingId(0)));
                         if layout.slots.iter().any(|slot| {
+                            if inactive_variant_slot(&tags, &root, &slot.path) {
+                                return false;
+                            }
                             let mut path = slot.path.clone();
                             if view {
                                 path.insert(0, Segment::Dereference);
@@ -12519,6 +12596,161 @@ fn word_input_available(
         })
 }
 
+/// Decode only constructor facts established at the actual numeric backing
+/// address. A type layout or zero-filled buffer is not a tag witness.
+fn word_memory_variant_facts(
+    body: &Body,
+    value: NodeId,
+    state: &HashMap<Place, VariantId>,
+    context: VariantContext<'_>,
+) -> HashMap<Place, VariantId> {
+    let NodeKind::Form {
+        head,
+        children,
+        callee: None,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return HashMap::new();
+    };
+    if !matches!(head.as_str(), "word-read" | "word-take" | "word-view") || children.len() != 3 {
+        return HashMap::new();
+    }
+    let Some(layout) = body.word_layouts.get(&value) else {
+        return HashMap::new();
+    };
+    let Some(shape) = &layout.shape else {
+        return HashMap::new();
+    };
+    let (flow, origins, event, _) = context;
+    let addresses = origins.value_before(body, flow, event, children[2]);
+    let mut common = None;
+    for address in addresses
+        .iter()
+        .filter(|address| address.storage.is_empty())
+    {
+        if address.lifetime_only {
+            return HashMap::new();
+        }
+        let mut base = address.referent_place();
+        let start = match base.segments.last() {
+            Some(Segment::SliceRange { start, end }) => {
+                if end
+                    .checked_sub(*start)
+                    .is_none_or(|width| width < layout.words as u128)
+                {
+                    return HashMap::new();
+                }
+                let start = *start;
+                base.segments.pop();
+                start
+            }
+            _ => 0,
+        };
+        if base.segments.iter().any(|segment| {
+            matches!(
+                segment,
+                Segment::DynamicIndex | Segment::SliceDynamicIndex | Segment::SliceRangeUnknown
+            )
+        }) {
+            return HashMap::new();
+        }
+        let at = |offset: usize| {
+            let mut place = base.clone();
+            place
+                .segments
+                .push(Segment::Index(start.checked_add(offset as u128)?));
+            state.get(&place).copied()
+        };
+        let mut incoming = HashMap::new();
+        for (place, variant) in state {
+            if place.root != base.root
+                || place.segments.len() != base.segments.len() + 1
+                || !place.segments.starts_with(&base.segments)
+            {
+                continue;
+            }
+            let Some(Segment::Index(index)) = place.segments.last() else {
+                continue;
+            };
+            let Some(offset) = index
+                .checked_sub(start)
+                .and_then(|offset| usize::try_from(offset).ok())
+                .filter(|offset| *offset < layout.words)
+            else {
+                continue;
+            };
+            if let Some(path) = shape.tag_path(offset, *variant, &at) {
+                incoming.insert(
+                    Place {
+                        root: PlaceRoot::Local(BindingId(0)),
+                        segments: path,
+                    },
+                    *variant,
+                );
+            }
+        }
+        if let Some(held) = &mut common {
+            join_variant_facts(held, &incoming);
+        } else {
+            common = Some(incoming);
+        }
+    }
+    common.unwrap_or_default()
+}
+
+fn annotate_word_write_variants(
+    body: &Body,
+    value: NodeId,
+    state: &HashMap<Place, VariantId>,
+    context: VariantContext<'_>,
+    stores: &mut [LoanStore],
+) {
+    let NodeKind::Form {
+        head,
+        children,
+        callee: None,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return;
+    };
+    if head != "word-write" || children.len() != 4 {
+        return;
+    }
+    let Some(shape) = body
+        .word_layouts
+        .get(&value)
+        .and_then(|layout| layout.shape.as_ref())
+    else {
+        return;
+    };
+    let incoming = value_variant_facts(body, children[3], state, Some(context));
+    let (flow, origins, event, _) = context;
+    let addresses = origins.value_before(body, flow, event, children[2]);
+    let mut tags = HashMap::new();
+    for (path, variant) in incoming {
+        let Some(offset) = shape.tag_offset(&path.segments, variant) else {
+            continue;
+        };
+        for address in &addresses {
+            if !address.storage.is_empty() || address.lifetime_only {
+                continue;
+            }
+            let mut target = address.clone();
+            append_slice_index(&mut target.place, Segment::Index(offset as u128));
+            tags.insert(target.referent_place(), variant);
+        }
+    }
+    for store in stores {
+        store.variants_definitely_written = store.definitely_written;
+        store.variants.clear();
+        if let Some(variant) = tags.get(&store.destination.referent_place()) {
+            store.variants.insert(Vec::new(), *variant);
+        }
+    }
+}
+
 fn word_loan_stores(
     body: &Body,
     flow: &FlowGraph,
@@ -15292,6 +15524,19 @@ fn value_storage_variant_bounds(
     ) {
         return HashMap::new();
     }
+    if body.word_layouts.contains_key(&value) {
+        return facts[event.0]
+            .as_ref()
+            .map(|state| {
+                word_memory_variant_facts(body, value, state, (flow, origins, event, facts))
+                    .into_iter()
+                    .map(|(place, variant)| {
+                        (place.segments, std::collections::HashSet::from([variant]))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+    }
     let mut alternatives = Vec::new();
     collect_result_alternatives(body, value, &mut alternatives);
     if alternatives.len() != 1 || alternatives[0] != value {
@@ -15658,6 +15903,11 @@ fn value_variant_facts(
         Some(Type::Reference { .. } | Type::PinnedReference { .. } | Type::RawPointer { .. })
     ) {
         return HashMap::new();
+    }
+    if body.word_layouts.contains_key(&value) {
+        return context
+            .map(|context| word_memory_variant_facts(body, value, state, context))
+            .unwrap_or_default();
     }
     if let Some(sources) = variant_value_sources(
         body,
