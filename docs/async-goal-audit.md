@@ -96,6 +96,52 @@ not a claim that they have been fixed.
 
 Physical occupancy is not permission to access a cell: source initialization,
 aliasing, escaping-reference and cancellation validation remain mandatory.
+
+Dependent-child cancellation now dispatches on the existing externally visible
+PC. Each construction/Pending case contains only children whose physical cells
+are Full in that specialized state, in child-before-lender order. Ready and
+previously cancelled frames select an empty case. Pinned child handlers receive
+a typed unchecked payload projection justified by that state; this preserves
+stack/heap reference metadata and does not move the pinned child. Movable,
+reference-bearing children still use their ordinary checked consuming read.
+Both cleanup/export and destruction use this path. Generated-source tests
+require the PC selector, reject per-child `variant-is` conditionals, and require
+unchecked rather than checked pinned-child projections. Native coverage includes
+different live children at two successive awaits, mixed internal/external
+references, mutable loans, nested pinned children on stack storage, and
+repeated cancellation.
+
+The heap-owned nested-child acceptance test remains ignored, explicitly
+unfinished: after correctly releasing the Pending reference before reborrowing
+the allocation, ordinary call-entry analysis rejects the first parent poll
+with an unresolved referent contract. Staging the initial frame before
+allocation does not fix it. This is not permission to bypass contract inference
+or introduce an async-specific exemption. Generic unchecked-projection tests
+already cover stack/heap layout, but do not establish that this nested heap
+future program compiles. Resolving its allocation-backed call contract remains
+part of the active goal.
+
+The change exposed a backend bug in scalar matching: x86-64 memory comparisons
+sign-extend their 32-bit immediate, so a direct comparison against `u32::MAX`
+missed the completed PC. Scalar pattern emission now materializes constants
+outside the signed immediate range. Native tests cover matching and fallthrough
+for u32, u64, i64 and multiword u128 constants.
+
+This removes the per-child occupancy-selection branches, not every cell guard.
+Boundary Empty assertions, reference-bearing consuming matches and public
+cleanup optional wrappers remain; no claim is made that the payload has already
+become untagged or that pinning alone permits an unchecked access.
+
+Verification of the PC-selected cancellation change: 1,382 library tests pass
+with seven existing ignored tests; all 236 async integration cases pass with
+four test threads. All 65 checked-expansion, graph-production, dynamic-array,
+restoration, heap-contents, generated-boundary, rejection, self-borrow-cleanup
+and unchecked-projection integration cases pass. Eleven dependent-cancellation
+tests pass; the new nested heap acceptance case is explicitly ignored for the
+contract limitation above. All eleven jump-table/scalar integration tests,
+all-target checking and whitespace checks pass. No temporary syscall probes
+or diagnostic artifact-retention code remains.
+
 Existing Empty/Full cells and their runtime operations have not yet been
 replaced; contiguous payload lowering and state-specific partial cancellation
 remain required. Broader physical/native parity coverage is also still needed

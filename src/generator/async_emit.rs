@@ -4785,6 +4785,24 @@ impl<'a> Emitter<'a> {
             .get_or_init(|| self.compute_cleanup_occupied())
     }
 
+    fn cancellation_states(&self) -> Vec<usize> {
+        let plan = self
+            .initialization
+            .as_ref()
+            .expect("async cancellation requires a dispatcher plan");
+        let mut states = vec![0];
+        states.extend(plan.states.iter().filter_map(|state| {
+            matches!(
+                self.function.graph.blocks[state.block].terminator,
+                Terminator::Await { .. }
+            )
+            .then(|| state.successors[1])
+        }));
+        states.sort_unstable();
+        states.dedup();
+        states
+    }
+
     fn compute_cleanup_occupied(&self) -> HashSet<usize> {
         let _timing = crate::timing::detail("generator.async.cancellation_cells");
         if let Some(plan) = &self.initialization {
@@ -4792,15 +4810,8 @@ impl<'a> Emitter<'a> {
             // not at arbitrary internal dispatcher instructions. Use the
             // actual cell effects, including retirement and partial moves.
             let physical_start = plan.states[0].before.len() - self.slots.len();
-            let suspended = std::iter::once(0).chain(plan.states.iter().filter_map(|state| {
-                matches!(
-                    self.function.graph.blocks[state.block].terminator,
-                    Terminator::Await { .. }
-                )
-                .then(|| state.successors[1])
-            }));
             let mut occupied = HashSet::new();
-            for state in suspended {
+            for state in self.cancellation_states() {
                 for (cell, slot) in self.slots.iter().enumerate() {
                     if plan.states[state].before[physical_start + cell]
                         && (slot.linear || self.types.contains_reference(&slot.ty))
@@ -5020,6 +5031,7 @@ impl<'a> Emitter<'a> {
         emptied.extend(self.reference_slots());
         emptied.sort_unstable();
         emptied.dedup();
+        let mut contracts = HashMap::new();
         for &index in &order {
             let slot = &self.slots[index];
             let name = &names[&index];
@@ -5051,25 +5063,47 @@ impl<'a> Emitter<'a> {
             {
                 return Err(fail(self.function, format!("dependent cleanup handler '{handler}' must safely consume {} or cancel its pinned mutable reference and return ()", crate::type_source(&slot.ty))));
             }
-            let reference = Self::slot_ref(slot, true);
-            let operation = if pinned {
-                format!("(#call {handler} (: {} (#pin-get-payload-mut {reference} {} 0)))\n(#unsafe (#forget (#pin-read {reference})))\n(#unsafe (#pin-write {reference} ({})))", declaration.parameters[0].name, slot.full, slot.empty)
-            } else {
-                let payload = self.fresh("dependent-child");
-                // This contract consumes a movable child while its borrowed
-                // parent remains stationary. It is not a pinned-child move.
-                format!(
-                    "(#let {payload} {} {})\n(#call {handler} (: {} {payload}))",
-                    crate::type_source(&slot.ty),
-                    self.read(index, true),
-                    declaration.parameters[0].name
-                )
-            };
-            output.push(format!(
-                "(#if (#variant-is {} {}) (#block {operation} ()) ())",
-                Self::slot_ref(slot, false),
-                slot.full
-            ));
+            contracts.insert(index, (handler, &declaration.parameters[0].name, pinned));
+        }
+        if !order.is_empty() {
+            let plan = self.initialization.as_ref().unwrap();
+            let physical_start = plan.states[0].before.len() - self.slots.len();
+            let mut cases = Vec::new();
+            for state in self.cancellation_states() {
+                let mut operations = Vec::new();
+                for &index in &order {
+                    if !plan.states[state].before[physical_start + index] {
+                        continue;
+                    }
+                    let slot = &self.slots[index];
+                    let (handler, parameter, pinned) = contracts[&index];
+                    let reference = Self::slot_ref(slot, true);
+                    let operation = if pinned {
+                        // The externally visible PC proves this child Full.
+                        // This typed projection preserves stack/heap layout;
+                        // pinning alone is not initialization permission.
+                        format!("(#call {handler} (: {parameter} (#unsafe (#pin-get-payload-unchecked-mut {reference} {} 0))))\n(#unsafe (#forget (#pin-read {reference})))\n(#unsafe (#pin-write {reference} ({})))", slot.full, slot.empty)
+                    } else {
+                        let payload = self.fresh("dependent-child");
+                        // Consume a movable child without relocating its
+                        // stationary lender; never move a pinned child.
+                        format!(
+                            "(#let {payload} {} {})\n(#call {handler} (: {parameter} {payload}))",
+                            crate::type_source(&slot.ty),
+                            self.read(index, true)
+                        )
+                    };
+                    operations.push(operation);
+                }
+                cases.push(format!(
+                    "(#case {state}u32 (#block {} ()))",
+                    operations.join("\n")
+                ));
+            }
+            // Ready and previously cancelled frames have no live children.
+            cases.push(format!("(#case {}u32 ())", u32::MAX));
+            cases.push("(#case _ (#unreachable))".into());
+            output.push(format!("(#match (#get task pc) {})", cases.join("\n")));
         }
         // Publish child retirement before touching the retained lenders.
         // Opaque handler calls can otherwise erase the input tag facts used

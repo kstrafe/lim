@@ -44,6 +44,29 @@ fn dependent_child_is_destroyed_before_exporting_its_owner() {
 }
 
 #[test]
+fn cancellation_selects_only_the_child_live_at_the_current_await() {
+    let program = source()
+        .replace("(await-0 cancel-child)", "(await-0 cancel-child) (await-1 cancel-second)")
+        .replace("(#drop view) (#forget count)",
+            "(#assert (#u64.== count 1u64)) (#drop view) (#forget count)")
+        .replace("(#forget owner) (#return answer)",
+            "(#let second-answer #u64 (#await Child Pending Ready second-poll\n            (Holding (#borrow owner) 0u64)))\n          (#forget second-answer) (#forget owner) (#return answer)")
+        .replace("(#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task pending)))",
+            "(#let second Work-poll-result (#call work-poll (: task pending : waker (#borrow waker))))\n        (#let-else (work-pending second-pending) Work-poll-result second (#unreachable))\n        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task second-pending)))")
+        + "\n(#fn second-poll (: task Child : waker (#ref #u64)) ChildPoll
+            (#return (#match task (#case (Holding second-view second-count)
+              (#block (#forget second-count) (Pending (Holding second-view 5u64)))))))
+          (#fn cancel-second (: value Child) ()
+            (#match value (#case (Holding second-view second-count)
+              (#block (#assert (#u64.== (#get second-view amount) 40u64))
+                (#assert (#u64.== second-count 5u64))
+                (#drop second-view) (#forget second-count) ())))
+            (#return ()))";
+    assert!(program.contains("task second-pending"));
+    run(&program, "async-dependent-two-await-cancellation");
+}
+
+#[test]
 fn runtime_array_child_is_cancelled_before_destroying_its_selected_owner() {
     let program = source()
         .replace("(#fn destroy-owner (: value Owner) ()\n        (#assert (#u64.== (#get value amount) 40u64))",
@@ -183,6 +206,43 @@ fn pinned_generated_child_is_cancelled_without_moving_its_frame() {
 }
 
 #[test]
+#[ignore = "heap-owned nested frame poll has an unresolved referent entry contract"]
+fn pinned_child_cancellation_preserves_heap_frame_layout() {
+    let program = pinned_source()
+        .replace("(#call parent-poll-destroy (: task pending))",
+            "(#call parent-poll-destroy (: task pending)) (#forget pending)")
+        .replace("(#let-mut task Parent-frame (#call parent ()))",
+            "(#let initial Parent-frame (#call parent ()))\n        (#let pointer (#ptr-mut Parent-frame) (#unsafe (#linux-syscall (#ptr-mut Parent-frame)\n          9usize (0usize (#size-of Parent-frame) 3usize 34usize -1i64 0usize))))\n        (#let-mut task (#pin-own Parent-frame) (#unsafe (#pin-own-of pointer initial)))")
+        .replace("(#pin-borrow-mut task)", "(#pin-own-borrow-mut task)")
+        .replace("(#forget task)",
+            "(#let raw (#ptr-mut Parent-frame) (#unsafe (#pin-release task)))\n        (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Parent-frame)))) 0i64))");
+    assert!(program.contains("#pin-own-borrow-mut"));
+    run(&program, "async-dependent-pinned-heap-child");
+    let rejected = program.replace(" (#forget pending)", "");
+    assert_ne!(rejected, program);
+    let scratch = support::Scratch::new("async-dependent-pinned-heap-conflict");
+    let mut config = lim::CompileConfig::default();
+    config.set("async-lowering", "graph");
+    let error = lim::compile_source_to_assembly(
+        &rejected,
+        &scratch.path().join("input.lim"),
+        &config,
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .expect_err("pinning does not authorize overlapping allocation borrows");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    assert!(
+        error.message.contains("retains a conflicting borrow"),
+        "{error:?}"
+    );
+    let span = error
+        .span
+        .expect("the overlapping borrow needs a source span");
+    assert_eq!(&rejected[span.start..span.end], "#pin-own-borrow-mut");
+}
+
+#[test]
 fn pinned_child_rejects_a_by_value_cancellation_handler() {
     let program = pinned_source().replace("(nested child-poll-destroy)", "(nested forget-child)")
         + "\n(#fn forget-child (: value Child-frame) () (#forget value) (#return ()))";
@@ -256,6 +316,70 @@ fn run(source: &str, label: &str) {
     let cold = compile();
     let warm = compile();
     assert_eq!(cold, warm);
+    // Inspect the actual cached Lim source, not only an assembly artifact.
+    // Child occupancy comes from the externally visible dispatcher PC;
+    // neither cleanup entry point may add a variant-is conditional per child.
+    let mut inspected = 0;
+    for entry in std::fs::read_dir(scratch.path().join("generated")).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|extension| extension != "lim") {
+            continue;
+        }
+        let generated = std::fs::read_to_string(path).unwrap();
+        for node in lim::parse(&generated).unwrap() {
+            let lim::Expr::List(parts) = node.expr else {
+                continue;
+            };
+            if !matches!(parts.first(), Some(lim::Expr::Symbol(head)) if head == "#fn")
+                || !matches!(parts.get(1), Some(lim::Expr::Symbol(name))
+                    if ["work-poll-cleanup", "work-poll-destroy", "parent-poll-cleanup", "parent-poll-destroy"].contains(&name.as_str()))
+            {
+                continue;
+            }
+            fn contains(expr: &lim::Expr, needle: &str) -> bool {
+                matches!(expr, lim::Expr::Symbol(name) if name == needle)
+                    || matches!(expr, lim::Expr::List(items) if items.iter().any(|item| contains(item, needle)))
+            }
+            fn has_tag_conditional(expr: &lim::Expr) -> bool {
+                let lim::Expr::List(items) = expr else {
+                    return false;
+                };
+                (matches!(items.first(), Some(lim::Expr::Symbol(name)) if name == "#if")
+                    && items
+                        .get(1)
+                        .is_some_and(|condition| contains(condition, "#variant-is")))
+                    || items.iter().any(has_tag_conditional)
+            }
+            assert!(!parts.iter().any(has_tag_conditional), "{generated}");
+            assert!(
+                parts.iter().any(|part| matches!(part, lim::Expr::List(items)
+                    if matches!(items.first(), Some(lim::Expr::Symbol(head)) if head == "#match")
+                        && matches!(items.get(1), Some(lim::Expr::List(selector))
+                            if selector == &vec![lim::Expr::Symbol("#get".into()), lim::Expr::Symbol("task".into()), lim::Expr::Symbol("pc".into())]))),
+                "{generated}"
+            );
+            if matches!(parts.get(1), Some(lim::Expr::Symbol(name)) if name.starts_with("parent-"))
+            {
+                assert!(
+                    parts
+                        .iter()
+                        .any(|part| contains(part, "#pin-get-payload-unchecked-mut")),
+                    "{generated}"
+                );
+                assert!(
+                    !parts
+                        .iter()
+                        .any(|part| contains(part, "#pin-get-payload-mut")),
+                    "{generated}"
+                );
+            }
+            inspected += 1;
+        }
+    }
+    assert_eq!(
+        inspected, 2,
+        "both dependent cleanup entry points must be inspected"
+    );
     let binary = scratch.path().join("program");
     lim::link_native_binary(
         &warm,
@@ -267,6 +391,6 @@ fn run(source: &str, label: &str) {
     .unwrap();
     let (status, stdout, stderr) =
         support::run(&mut Command::new(binary), Duration::from_secs(5), 4096).unwrap();
-    assert_eq!(status.code(), Some(42), "{stderr:?}");
+    assert_eq!(status.code(), Some(42), "{status:?}: {stderr:?}");
     assert!(stdout.is_empty() && stderr.is_empty());
 }
