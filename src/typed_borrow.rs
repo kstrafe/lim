@@ -2029,12 +2029,15 @@ fn origin_alternatives(
         return bounded(alternatives, span).map(Some);
     }
     use crate::typed_place::Segment;
-    let mut variants = BTreeMap::<crate::typed_ir::AggregateId, BTreeSet<usize>>::new();
+    // A discriminant belongs to a stored enum instance, not its type. Reusing
+    // one enum type in sibling slots does not correlate those slots' tags.
+    let mut variants =
+        BTreeMap::<(Vec<Segment>, crate::typed_ir::AggregateId), BTreeSet<usize>>::new();
     for origin in held {
-        for segment in &origin.storage {
+        for (depth, segment) in origin.storage.iter().enumerate() {
             if let Segment::Payload(variant, _) = segment {
                 variants
-                    .entry(variant.owner)
+                    .entry((origin.storage[..depth].to_vec(), variant.owner))
                     .or_default()
                     .insert(variant.index);
             }
@@ -2044,13 +2047,17 @@ fn origin_alternatives(
         .into_iter()
         .filter(|(_, indices)| indices.len() > 1)
         .collect::<Vec<_>>();
-    let mut assignments = vec![HashMap::<crate::typed_ir::AggregateId, usize>::new()];
+    let mut assignments =
+        vec![HashMap::<(Vec<Segment>, crate::typed_ir::AggregateId), usize>::new()];
     for (owner, indices) in split_variants {
+        if assignments.len() > MAX_BORROW_ALTERNATIVES / indices.len() {
+            return Err(complexity_error(span));
+        }
         let mut expanded = Vec::new();
         for assignment in &assignments {
             for index in &indices {
                 let mut next = assignment.clone();
-                next.insert(owner, *index);
+                next.insert(owner.clone(), *index);
                 expanded.push(next);
             }
         }
@@ -2061,12 +2068,16 @@ fn origin_alternatives(
         .map(|assignment| {
             held.iter()
                 .filter(|origin| {
-                    origin.storage.iter().all(|segment| match segment {
-                        Segment::Payload(variant, _) => assignment
-                            .get(&variant.owner)
-                            .is_none_or(|index| *index == variant.index),
-                        _ => true,
-                    })
+                    origin
+                        .storage
+                        .iter()
+                        .enumerate()
+                        .all(|(depth, segment)| match segment {
+                            Segment::Payload(variant, _) => assignment
+                                .get(&(origin.storage[..depth].to_vec(), variant.owner))
+                                .is_none_or(|index| *index == variant.index),
+                            _ => true,
+                        })
                 })
                 .map(|origin| DirectBorrow {
                     place: origin.referent_place(),
@@ -5002,6 +5013,74 @@ mod tests {
             .unwrap();
         assert_eq!(coexisting.len(), 1);
         assert_eq!(coexisting[0].len(), 2);
+
+        // Sibling instances of the same enum have independent tags. Same-tag
+        // combinations are disjoint here, but opposite-tag combinations alias.
+        let sibling = |position, tag, referent| {
+            let mut origin = variant(tag, 0);
+            origin
+                .storage
+                .insert(0, crate::typed_place::Segment::Tuple(position));
+            origin.place = Place::root(PlaceRoot::Local(BindingId(referent)));
+            origin
+        };
+        let independent = origin_alternatives(
+            &[
+                sibling(0, first, 0),
+                sibling(0, second, 1),
+                sibling(1, first, 1),
+                sibling(1, second, 0),
+            ],
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(independent.len(), 4);
+        assert!(combine(vec![Vec::new()], independent, "inspect", None).is_err());
+        let separate_referents = origin_alternatives(
+            &[
+                sibling(0, first, 0),
+                sibling(0, second, 1),
+                sibling(1, first, 2),
+                sibling(1, second, 3),
+            ],
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(separate_referents.len(), 4);
+        assert!(combine(vec![Vec::new()], separate_referents, "inspect", None).is_ok());
+        // A reference boundary is also part of instance identity. A directly
+        // stored enum and one in its referent cannot share a discriminant.
+        let mut indirect_first = variant(first, 0);
+        indirect_first
+            .storage
+            .insert(0, crate::typed_place::Segment::Dereference);
+        let mut indirect_second = variant(second, 0);
+        indirect_second
+            .storage
+            .insert(0, crate::typed_place::Segment::Dereference);
+        let distinct_boundaries = origin_alternatives(
+            &[
+                variant(first, 0),
+                variant(second, 0),
+                indirect_first,
+                indirect_second,
+            ],
+            None,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(distinct_boundaries.len(), 4);
+        let excessive = (0..11)
+            .flat_map(|position| {
+                [
+                    sibling(position, first, position * 2),
+                    sibling(position, second, position * 2 + 1),
+                ]
+            })
+            .collect::<Vec<_>>();
+        assert!(origin_alternatives(&excessive, None).is_err());
 
         let source = "(#fn inspect ((first (#ref-mut #u64)) (second (#ref #u64))) #u64
             (#drop first) (#drop second) (#return 0u64))

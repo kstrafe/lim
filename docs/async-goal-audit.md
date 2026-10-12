@@ -1405,3 +1405,30 @@ the passing counts above describe the committed current layouts, not this
 experimental worktree. The next contract work must preserve mutually exclusive
 state/variant alternatives rather than treating every may-retained word loan as
 simultaneously initialized and accessible.
+
+### Independent enum-instance alternatives
+
+Ordinary borrow alternatives now identify a discriminant by its storage path
+and enum type, rather than by enum type alone. Two fields or tuple positions
+containing the same enum type can have different tags. Correlating their tags
+discarded cross-tag combinations and could hide overlapping exclusive loans.
+Reference boundaries are part of the storage path too; a directly stored enum
+and an enum behind a reference do not share a discriminant.
+
+Regression coverage checks all four combinations for two independent two-variant
+instances, rejects the cross-tag alias witness, accepts disjoint referents, and
+preserves exclusive alternatives within one instance. Cartesian expansion checks
+the existing 1,024-alternative limit before allocating the next product; eleven
+independent two-variant instances are rejected without constructing 2,048 paths.
+Semantic-cache version ten invalidates summaries checked under the old rule.
+
+All seventy ordinary borrow-checker unit tests, fifteen semantic-cache tests,
+36 word-storage tests and three UI tests pass. The experimental full library
+run still has 1,410 passes, the same three whole-holder failures and eight ignored
+tests; this repair does not claim to solve those failures. The second-poll
+failure requires a numeric-backed reference slot beneath the task parameter's
+reference boundary (field six, word zero), while its available argument only
+has the primary pinned address capability. The two overlapping-input failures
+retain the original numeric input and destructured exclusive field together
+across execution states. Resolving these contracts must not fabricate missing
+reference contents or permit two coexisting exclusive handles.
