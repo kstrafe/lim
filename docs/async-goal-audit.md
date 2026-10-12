@@ -194,6 +194,16 @@ existing ignored tests, and all 104 focused async/word-storage integration tests
 pass. All-target checking and whitespace checks pass. No source borrow rule or
 ordinary generated-code validation was relaxed.
 
+Owned parameter projections also retain explicit `#mut` metadata in typed IR
+and the executable graph. Owner validation previously inspected only local
+Bind/Commit actions, incorrectly rejecting exclusive projections from mutable
+owned parameters. It now accepts the explicit parameter annotation, not all
+parameters; graph validation rejects annotations naming nonparameter bindings.
+Cold/warm native payload tests accept mutable parameters and reject immutable
+ones. The follow-up passes 1,390 library tests with seven existing ignored tests,
+all 43 cancellation, boundary and self-borrow integration tests, and all-target
+checking. This does not change alias, escape or initialization permissions.
+
 The contiguous clone audit exposed and corrected a physical-occupancy bug:
 non-owning snapshots of linear word-backed leaves must not use the ordinary
 transfer reader. They now leave the original occupancy unchanged while the

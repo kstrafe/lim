@@ -290,6 +290,7 @@ pub(crate) struct Block {
 pub(crate) struct Graph {
     pub bindings: Vec<Binding>,
     pub parameter_count: usize,
+    pub mutable_parameters: HashSet<BindingId>,
     pub values: Vec<Value>,
     /// Results intentionally ignored by source statements, not dead operands.
     pub discarded_values: Vec<ValueId>,
@@ -478,6 +479,7 @@ pub(crate) fn build(body: &Body, sites: &[CheckedAwait]) -> Result<Graph, Error>
         graph: Graph {
             bindings: body.bindings.clone(),
             parameter_count: body.parameter_count,
+            mutable_parameters: body.mutable_parameters.clone(),
             values: Vec::new(),
             discarded_values: Vec::new(),
             places: Vec::new(),
@@ -2451,6 +2453,10 @@ impl Graph {
         }
         if self.entry.0 >= self.blocks.len()
             || self.parameter_count > self.bindings.len()
+            || self
+                .mutable_parameters
+                .iter()
+                .any(|binding| binding.0 >= self.parameter_count)
             || !self.blocks[self.entry.0].parameters.is_empty()
         {
             return Err(error(None, "invalid executable graph entry"));

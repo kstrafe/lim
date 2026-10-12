@@ -27,6 +27,7 @@ pub(crate) fn validate_mutability(
     mutable: bool,
 ) -> Result<(), String> {
     if mutable
+        && !(binding.0 < graph.parameter_count && graph.mutable_parameters.contains(&binding))
         && !graph
             .blocks
             .iter()
@@ -111,6 +112,27 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn parameter_owner_projections_require_explicit_mutability_metadata() {
+        let source = "(#struct Owner (: value #u64)) (#linear Owner)
+          (#fn work ((#mut owner Owner)) #u64
+            (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get owner value)))
+            (#drop view) (#forget owner) (#return 42u64))";
+        let program = crate::parse_program(source).unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let mut graph =
+            crate::generator::async_exec::build(&declarations.bodies["work"], &[]).unwrap();
+        assert!(graph.mutable_parameters.contains(&BindingId(0)));
+        assert!(validate_mutability(&graph, BindingId(0), true).is_ok());
+        graph.mutable_parameters.clear();
+        assert!(validate_mutability(&graph, BindingId(0), true).is_err());
+        assert!(validate_mutability(&graph, BindingId(0), false).is_ok());
+        graph
+            .mutable_parameters
+            .insert(BindingId(graph.parameter_count));
+        assert!(graph.validate().is_err());
     }
 
     #[test]

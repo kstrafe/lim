@@ -79,6 +79,26 @@ fn pinned_nested_enum_payload_borrows_survive_cold_and_cached_suspension() {
             "(#unsafe (#pin-write view 40u64)) (#return (#u64.+.wrap (#deref view) result))",
         );
     run_native(&mutable, "async-word-enum-payload-exclusive", 42);
+    let mutable_parameter = mutable
+        .replace(
+            "((input Owner)) #u64\n    (#let-mut owner Owner input)",
+            "((#mut owner Owner)) #u64",
+        )
+        .replace(
+            "(: input (#struct-literal Owner",
+            "(: owner (#struct-literal Owner",
+        );
+    run_native(
+        &mutable_parameter,
+        "async-word-enum-payload-mutable-parameter",
+        42,
+    );
+    let immutable_parameter = mutable_parameter.replace("((#mut owner Owner))", "((owner Owner))");
+    let error = compile_error(
+        &immutable_parameter,
+        "async-word-enum-payload-immutable-parameter",
+    );
+    assert_eq!(error.code, DiagnosticCode::Borrow, "{error:?}");
     let overlapping = mutable.replacen(
         "(#let result #u64",
         "(#let conflict (#pin-ref-mut Owner) (#pin-borrow-mut owner))\n    (#let result #u64",

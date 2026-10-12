@@ -1242,6 +1242,8 @@ pub(crate) struct Body {
     /// Keeping this boundary in typed IR lets ownership analyses distinguish
     /// externally supplied reference roots from references to local owners.
     pub parameter_count: usize,
+    /// Explicitly mutable parameter bindings, retained for owner projections.
+    pub mutable_parameters: std::collections::HashSet<BindingId>,
     /// Staged move classification; Copy-valued pinned reads do not consume.
     pub consuming_pin_reads: std::collections::HashSet<NodeId>,
     pub consuming_releases: std::collections::HashSet<NodeId>,
@@ -1928,11 +1930,14 @@ impl Body {
         };
         builder.body.parameter_count = function.parameters.len();
         for (index, parameter) in function.parameters.iter().enumerate() {
-            builder.binding(
+            let binding = builder.binding(
                 &parameter.name,
                 resolve_type(&parameter.ty, &declarations.aliases).expect("checked parameter"),
                 parameter_spans.get(index).copied().flatten(),
             );
+            if parameter.mutable {
+                builder.body.mutable_parameters.insert(binding);
+            }
         }
         builder.body.instructions = builder.statements(&function.body);
         debug_assert!(
