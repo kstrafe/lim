@@ -2,7 +2,8 @@
 //! Implementation detail of built-in code generation, not runtime semantics.
 //!
 //! The dispatcher, rather than a collection of body-shape rewrites, defines
-//! execution order. Every owning storage cell has an explicit Empty/Full tag.
+//! execution order. Dispatcher states track occupancy of untagged word regions;
+//! reference-bearing cells retain their typed Empty/Full representation.
 //! Source ownership, loans, pinning and initialization establish the safety
 //! obligations of generated unsafe operations; pinning alone is insufficient.
 //! Graph validation is not ownership permission. Ordinary emitted-code checking
@@ -67,6 +68,52 @@ struct WordRegion {
     capacity: usize,
     start: usize,
     length: usize,
+}
+
+// Planning interfaces name generated child frames before their executable
+// layouts exist. A signature is not permission to guess their storage width.
+fn deferred_word_layout(
+    ty: &Type,
+    declarations: &crate::typed_ir::Declarations,
+) -> Result<bool, String> {
+    let ty = crate::typed_ir::resolve_type(ty, &declarations.aliases)?;
+    match &ty {
+        Type::Named(name) => {
+            if declarations.deferred_layouts.contains_key(name) {
+                return Ok(true);
+            }
+            if let Some(fields) = declarations.structs.get(name) {
+                for field in fields {
+                    if deferred_word_layout(&field.ty, declarations)? {
+                        return Ok(true);
+                    }
+                }
+            }
+            if let Some(variants) = declarations.enums.get(name) {
+                for variant in variants {
+                    for field in &variant.fields {
+                        if deferred_word_layout(field, declarations)? {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+            Ok(false)
+        }
+        Type::Array(_, 0) => Ok(false),
+        Type::Array(element, _) => deferred_word_layout(element, declarations),
+        Type::Tuple(fields) => {
+            for field in fields {
+                if deferred_word_layout(field, declarations)? {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        }
+        // References and pointers have fixed-width descriptors, irrespective
+        // of the referent's eventual generated layout.
+        _ => Ok(false),
+    }
 }
 
 impl WordRegion {
@@ -713,17 +760,22 @@ impl<'a> Emitter<'a> {
         .map_err(|message| fail(function, message))?;
         emitter.projections.append(&mut recipes.declarations);
         emitter.slice_anchors = recipes;
-        // Primitive values need only their payload words. The specialized
-        // dispatcher already carries their initialization facts, including
-        // for expression temporaries and frozen array indices. Aggregate value
+        // Reference-free temporaries need only their payload words. The
+        // specialized dispatcher carries their ownership and initialization
+        // facts, including for whole aggregate values. Binding projection
         // recipes and actual reference holders retain their typed storage path.
+        let value_slots = emitter.values.values().copied().collect::<HashSet<_>>();
         for index in 0..emitter.slots.len() {
             let slot = &emitter.slots[index];
             let ty = crate::typed_ir::resolve_type(&slot.ty, &planning.declarations.aliases)
                 .map_err(|message| fail(function, message))?;
+            let reference_free_value = value_slots.contains(&index)
+                && !matches!(ty, Type::Unit | Type::Never)
+                && !types.contains_reference(&ty);
             if slot.words.is_some()
                 || slot.raw
-                || !matches!(
+                || (!reference_free_value
+                    && !matches!(
                     ty,
                     Type::Bool
                         | Type::Char
@@ -741,7 +793,12 @@ impl<'a> Emitter<'a> {
                         | Type::Usize
                         | Type::F32
                         | Type::F64
-                )
+                    ))
+            {
+                continue;
+            }
+            if deferred_word_layout(&ty, &planning.declarations)
+                .map_err(|message| fail(function, message))?
             {
                 continue;
             }
@@ -2564,12 +2621,7 @@ impl<'a> Emitter<'a> {
                         "stationary guard scrutinee has no owning cell",
                     )
                 })?];
-                let reference = crate::parse(&format!(
-                    "(#pin-get-payload{} {} {} 0)",
-                    if lenders.is_empty() { "" } else { "-mut" },
-                    Self::slot_ref(slot, !lenders.is_empty()),
-                    slot.full
-                ))
+                let reference = crate::parse(&self.payload_ref(slot, !lenders.is_empty()))
                 .map_err(|error| fail(self.function, error.to_string()))?
                 .remove(0)
                 .expr;
@@ -4278,11 +4330,7 @@ impl<'a> Emitter<'a> {
             signature.join(" ")
         ));
         let slot = &self.slots[self.values[&value]];
-        let reference = format!(
-            "(#pin-get-payload {} {} 0)",
-            Self::slot_ref(slot, false),
-            slot.full
-        );
+        let reference = self.payload_ref(slot, false);
         let retire = if !self.types.can_repeat(&slot.ty)
             && !self
                 .physical_uses
@@ -4510,11 +4558,7 @@ impl<'a> Emitter<'a> {
                                         "computed clone requires typed owning storage",
                                     ));
                                 }
-                                let reference = format!(
-                                    "(#pin-get-payload {} {} 0)",
-                                    Self::slot_ref(slot, false),
-                                    slot.full
-                                );
+                                let reference = self.payload_ref(slot, false);
                                 let helper = self.fresh("clone-computed");
                                 let argument = self.fresh("clone-input");
                                 let ty = crate::type_source(&descriptor.ty);
@@ -4623,11 +4667,7 @@ impl<'a> Emitter<'a> {
                                     let ty = crate::type_source(&slot.ty);
                                     let input = self.fresh("aggregate-clone-input");
                                     let helper = self.fresh("aggregate-clone");
-                                    let reference = format!(
-                                        "(#pin-get-payload {} {} 0)",
-                                        Self::slot_ref(slot, false),
-                                        slot.full
-                                    );
+                                    let reference = self.payload_ref(slot, false);
                                     self.projections.push(format!("(#fn {helper} (: {input} (#pin-ref {ty})) {ty} (#return (#clone (#deref {input}))))"));
                                     format!("(#call {helper} (: {input} {reference}))")
                                 }
@@ -4736,11 +4776,7 @@ impl<'a> Emitter<'a> {
                         // A typed shared projection lets ordinary clone-hook
                         // checking retain pointee origins in both owners.
                         let slot = &self.slots[*slot];
-                        let reference = format!(
-                            "(#pin-get-payload {} {} 0)",
-                            Self::slot_ref(slot, false),
-                            slot.full
-                        );
+                        let reference = self.payload_ref(slot, false);
                         let ty = crate::type_source(&slot.ty);
                         let helper = self.fresh("clone-owner");
                         let argument = self.fresh("clone-owner-input");
@@ -5309,11 +5345,7 @@ impl<'a> Emitter<'a> {
                         &self.slots[*self.values.get(&pattern.scrutinee).ok_or_else(|| {
                             fail(self.function, "stationary scrutinee has no owning cell")
                         })?];
-                    let reference = format!(
-                        "(#pin-get-payload {} {} 0)",
-                        Self::slot_ref(slot, false),
-                        slot.full
-                    );
+                    let reference = self.payload_ref(slot, false);
                     let reference = crate::parse(&reference)
                         .map_err(|error| fail(self.function, error.to_string()))?
                         .remove(0)
@@ -6687,6 +6719,46 @@ mod tests {
     }
 
     #[test]
+    fn reference_free_aggregate_temporaries_have_no_occupancy_tags() {
+        let planning = prepare(
+            "(#let child Child (Start seed))
+             (#let amount #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+             (#forget child) (#return (#u64.+.wrap seed amount))",
+            "(#fn main () #u64 (#return 0u64))",
+        );
+        let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let definitions = emitter.slot_definitions();
+        let mut aggregates = 0;
+        for index in emitter.values.values() {
+            let slot = &emitter.slots[*index];
+            let ty = crate::typed_ir::resolve_type(&slot.ty, &planning.declarations.aliases).unwrap();
+            if slot.raw
+                || matches!(ty, Type::Unit | Type::Never)
+                || emitter.types.contains_reference(&ty)
+            {
+                continue;
+            }
+            let region = slot.words.as_ref().expect("reference-free temporary must be untagged");
+            assert_eq!(
+                region.capacity,
+                crate::codegen::storage_word_count(
+                    &ty,
+                    &planning.declarations.structs,
+                    &planning.declarations.enums,
+                ).unwrap()
+            );
+            assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+            assert!(!definitions.contains(&format!("(#unsafe-fn {} ", slot.take)));
+            if matches!(ty, Type::Named(_) | Type::Array(_, _) | Type::Tuple(_)) {
+                aggregates += 1;
+            }
+        }
+        assert!(aggregates > 0, "fixture must cover a whole aggregate value");
+        let generated = generate(&planning).unwrap();
+        crate::CheckedProgram::validate_with_span(&program(&planning, &generated).unwrap()).unwrap();
+    }
+
+    #[test]
     fn contiguous_clone_snapshot_does_not_consume_original_cells() {
         let function = "(#fn work (: seed #u64) #u64
           (#let-mut owner Owner (#struct-literal Owner (: kept seed : item (#struct-literal Token (: value 1u64)))))
@@ -7849,19 +7921,35 @@ mod tests {
         );
         fn constructor_heads(expression: &Expr, heads: &mut Vec<String>) {
             if let Expr::List(items) = expression {
+                if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#let" || head == "#let-mut") {
+                    for child in items.iter().skip(3) {
+                        constructor_heads(child, heads);
+                    }
+                    return;
+                }
                 if let [Expr::Symbol(head), Expr::List(ty), ..] = items.as_slice() {
                     if matches!(ty.first(), Some(Expr::Symbol(name)) if name == "#array") {
                         heads.push(head.clone());
                     }
                 }
-                for child in items {
+                let start = if matches!(items.first(), Some(Expr::Symbol(head))
+                    if matches!(head.as_str(), "#array-of" | "#word-read" | "#word-write" | "#word-view")) {
+                    2
+                } else { 0 };
+                for child in items.iter().skip(start) {
                     constructor_heads(child, heads);
                 }
             }
         }
         let mut heads = Vec::new();
         for expression in crate::parse(&generated[0].source).unwrap() {
-            constructor_heads(&expression.expr, &mut heads);
+            if let Expr::List(items) = &expression.expr {
+                if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#fn" || head == "#unsafe-fn") {
+                    for body in items.iter().skip(4) {
+                        constructor_heads(body, &mut heads);
+                    }
+                }
+            }
         }
         assert!(heads.iter().any(|head| head == "#array-of"));
         assert!(!heads.iter().any(|head| head == "#array"));

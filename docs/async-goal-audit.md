@@ -98,6 +98,33 @@ dynamic-array, generator-boundary and self-borrow integration tests pass.
 All-target and whitespace checking pass. Whole aggregate value recipes and
 reference-bearing storage still need migration; this is not complete tag removal.
 
+Whole reference-free expression temporaries with concrete declared layouts now
+use untagged word regions too. Stationary pattern inspection, guard preview and
+clone access all obtain a typed payload view through the common accessor,
+instead of assuming an enum wrapper around every value. Layout tests require
+the exact payload width and absence of occupancy enums/transfer helpers. The
+ordinary checker still checks the generated source; ownership and initialized
+representation remain obligations of the checked lowering and specialized PC.
+
+Generated child frames with deferred layouts remain on the typed path: planning
+signatures cannot provide their physical widths. The deferred-layout check also
+follows declared struct, enum and tuple contents. Whole undecomposed binding
+recipes and reference-bearing aggregates remain open. This is not complete tag
+removal and does not claim that pinning alone makes raw accesses safe.
+
+The conversion exposed two generic native staging bugs. Nested aggregate block
+results now dispatch observable clone hooks, rather than stripping `#clone` as
+a transparent wrapper. Struct return register checks count payload words rather
+than fields, so zero-sized typed markers consume no registers. Standalone native
+regressions cover two- and seven-word clone staging and six zero-sized markers.
+The full library suite passes 1,387 tests with seven existing ignored tests;
+all-target and whitespace checking also pass.
+
+All 69 contiguous-storage, generator-boundary, dependent-cancellation,
+graph-production and word-storage integration tests pass. This includes cached
+and independently compiled generated code, reference-bearing child frames that
+remain typed, cancellation before and after suspension, and stack/heap layouts.
+
 The contiguous clone audit exposed and corrected a physical-occupancy bug:
 non-owning snapshots of linear word-backed leaves must not use the ordinary
 transfer reader. They now leave the original occupancy unchanged while the
