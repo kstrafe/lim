@@ -47,6 +47,20 @@ discard a read copy without emptying the source cell or its initialization
 fact. Copy field release no longer forces aggregate decomposition. Native
 regressions verify subsequent borrowing/field reads and resumed values.
 
+Reference-free Copy cell transfers now use the same unchecked, typed pinned
+payload projection as Copy reads. The caller's checked flow proves Full; the
+helper reads a copy, discards the old wrapper and publishes Empty, without
+matching the old variant. This removes a redundant variant branch, not the
+initialization tags themselves. No reference-bearing or owning transfer is
+changed by this optimization. Native tests cover a multiword Copy struct across
+Pending/Ready on both descending stack and ascending heap storage, and inspect
+the helpers to require unchecked Copy reads while retaining owning matches.
+Heap cleanup explicitly ends the poll reference before releasing the allocation.
+Verification of this transfer change: 1,380 library tests pass with seven
+existing ignored tests; all 22 checked-expansion, dependent-cancellation,
+generated-boundary and unchecked-projection integration tests pass.
+All-target checking and whitespace checks pass.
+
 This domain currently describes source bindings, decomposed fields and nominal
 shell obligations. It is not yet an exact occupancy proof for every temporary,
 address and retired reference cell. Existing Empty/Full cells and their runtime

@@ -1739,6 +1739,28 @@ impl<'a> Emitter<'a> {
                 let read = if slot.raw { format!("(#clone {read})") } else { read };
                 format!("; Caller proves this cell Full through checked async flow.\n(#unsafe-fn {} ((slot (#pin-ref {}))) {ty}\n  (#return (#unsafe {read})))", slot.peek, slot.name)
             } else { String::new() };
+            let take = if slot.copy && !self.types.contains_reference(&slot.storage) {
+                // Like peek, the caller must prove Full. Copy payloads carry
+                // neither destruction obligations nor loans; taking one can
+                // read the payload directly and publish Empty without a tag
+                // branch. Use a typed pinned projection, not an untagged raw
+                // address: native stack and heap layouts differ.
+                format!("; Caller proves this cell Full through checked async flow.\n\
+                  (#unsafe-fn {take} ((slot (#pin-ref-mut {name}))) {ty}\n\
+                    (#let value {ty} (#unsafe (#deref (#pin-get-payload-unchecked slot {full} 0))))\n\
+                    (#unsafe (#forget (#pin-read slot)))\n\
+                    (#unsafe (#pin-write slot ({empty})))\n\
+                    (#return value))",
+                    name=slot.name, empty=slot.empty, full=slot.full, take=slot.take)
+            } else {
+                format!("(#unsafe-fn {take} ((slot (#pin-ref-mut {name}))) {ty}\n\
+                    (#let previous {name} (#unsafe (#pin-read slot)))\n\
+                    (#unsafe (#pin-write slot ({empty})))\n\
+                    (#return (#match previous\n\
+                      (#case {empty} (#unreachable))\n\
+                      (#case ({full} value) value))))",
+                    name=slot.name, empty=slot.empty, full=slot.full, take=slot.take)
+            };
             if slot.copy && self.types.contains_reference(&slot.storage) {
                 // A shared handle is copied, not extracted through a moving
                 // cell helper. End all old loaded aliases before restoration.
@@ -1778,12 +1800,7 @@ impl<'a> Emitter<'a> {
                     finish=slot.finish, clear=slot.clear);
             }
             format!("{lend}(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
-              (#unsafe-fn {take} ((slot (#pin-ref-mut {name}))) {ty}\n\
-                (#let previous {name} (#unsafe (#pin-read slot)))\n\
-                (#unsafe (#pin-write slot ({empty})))\n\
-                (#return (#match previous\n\
-                  (#case {empty} (#unreachable))\n\
-                  (#case ({full} value) value))))\n\
+              {take}\n\
               (#fn {put} ((slot (#pin-ref-mut {name})) (value {ty})) ()\n\
                 {empty_guard}\n\
                 (#let previous {name} (#unsafe (#pin-read slot)))\n\
@@ -1800,7 +1817,7 @@ impl<'a> Emitter<'a> {
                 (#unsafe (#pin-write slot ({empty})))\n\
                 (#call {finish} (: slot previous))\n\
                 (#return ()))\n{peek}\n",
-                name=slot.name, empty=slot.empty, full=slot.full, take=slot.take,
+                name=slot.name, empty=slot.empty, full=slot.full,
                 put=slot.put, finish=slot.finish, clear=slot.clear)
         }).collect::<Vec<_>>().join("\n")
     }
@@ -5716,6 +5733,76 @@ mod tests {
             }));
             let generated = runtime_planned(planning, 42);
             assert!(!generated[0].source.contains("initialization-bits"));
+        }
+    }
+
+    #[test]
+    fn copy_takes_skip_variant_checks_and_preserve_stack_and_heap_layouts() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let pair Pair (#struct-literal Pair (: left seed : right 0u64)))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#return (#u64.+.wrap (#u64.+.wrap (#get pair left) (#get pair right)) extra)))";
+        for heap in [false, true] {
+            let construct = "(#call work (: seed 40u64))";
+            let setup = if heap {
+                format!(
+                    "(#let initial Work-frame {construct})
+                  (#let pointer (#ptr-mut Work-frame) (#unsafe (#linux-syscall (#ptr-mut Work-frame)
+                  9usize (0usize (#size-of Work-frame) 3usize 34usize -1i64 0usize))))
+                  (#let-mut task (#pin-own Work-frame) (#unsafe (#pin-own-of pointer initial)))"
+                )
+            } else {
+                format!("(#let-mut task Work-frame {construct})")
+            };
+            let borrow = if heap {
+                "pin-own-borrow-mut"
+            } else {
+                "pin-borrow-mut"
+            };
+            let finish = if heap {
+                "(#let raw (#ptr-mut Work-frame) (#unsafe (#pin-release task)))
+                 (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Work-frame)))) 0i64))"
+            } else {
+                "(#forget task)"
+            };
+            let main = format!(
+                "(#struct Pair (: left #u64 : right #u64))
+              (#fn main () #u64
+                (#let waker #u64 0u64) {setup}
+                (#let-else (work-pending next) Work-poll-result (#call work-poll
+                  (: task (#{borrow} task) : waker (#borrow waker))) (#unreachable))
+                (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+                  (#case (work-ready value) value)
+                  (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+                (#forget next) {finish} (#return answer))"
+            );
+            let planning = prepare_generator("#async-fn-pinned", function, &main);
+            let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+            let definitions = crate::parse(&emitter.slot_definitions()).unwrap();
+            let mut copies = 0;
+            let mut owners = 0;
+            for slot in &emitter.slots {
+                if emitter.types.contains_reference(&slot.storage) {
+                    continue;
+                }
+                let definition = definitions.iter().find(|node| matches!(&node.expr,
+                    crate::Expr::List(items) if items.get(1) == Some(&crate::Expr::Symbol(slot.take.clone())))).unwrap();
+                let source = crate::expression_source(&definition.expr).unwrap();
+                if slot.copy {
+                    copies += 1;
+                    assert!(source.contains("#pin-get-payload-unchecked"));
+                    assert!(!source.contains("#match"));
+                    assert!(!source.contains("#variant-is"));
+                } else {
+                    owners += 1;
+                    assert!(
+                        source.contains("#match"),
+                        "owning transfer must retain its check"
+                    );
+                }
+            }
+            assert!(copies > 0 && owners > 0);
+            runtime_planned(planning, 42);
         }
     }
 
