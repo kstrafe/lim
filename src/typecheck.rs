@@ -21125,7 +21125,7 @@ mod typed_ownership_tests {
                     let program =
                         crate::parse_program_from_path_with_config(&source, &path, &config)
                             .unwrap();
-                    crate::check_types(&program).unwrap();
+                    crate::check_types(&program).unwrap_or_else(|error| panic!("{name}: {error}"));
                     let mut declarations = resolve_program_for_analysis(&program, false).unwrap();
                     let types = crate::linearcheck::LinearTypes::from_program(&program);
                     declarations
@@ -22409,6 +22409,7 @@ mod typed_ownership_tests {
             mutable: true,
             pinned: true,
             lifetime_only: true,
+            reborrow: false,
             referent_projection: vec![Segment::Tuple(2)],
             input_storage: vec![Segment::Tuple(0), Segment::DynamicIndex],
             storage: vec![Segment::DynamicIndex],

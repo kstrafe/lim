@@ -9,6 +9,39 @@ generated-program checking remain mandatory, including on cache hits.
 
 ## Current follow-up scope (2026-10-11)
 
+### Exact stored-handle child ancestry (2026-10-12)
+
+Returned child projections now preserve the precise caller slot supplying an
+exclusive handle, including through forwarding helpers and typed holder reads.
+Call checking suspends only that slot, not every sibling reference in its owner.
+The summary distinguishes a child reborrow from an owned reference transfer;
+semantic cache schema v3 serializes the distinction in both transfer modes.
+Known typed holder addresses may identify their stored loan, but an opaque
+lifetime anchor cannot invent a pointee identity or grant native access.
+
+Whole-reference forwarding retains the existing transfer behavior rather than
+being mistaken for a new field projection. A checked call's child retains the
+actual pointee, not ownership of the intermediate pointer descriptor. Dropping
+that nonowning descriptor is permitted; conflicting pointee access and pointee
+destruction remain rejected. Ordinary retained slice operations still enforce
+their descriptor-specific suspension rules. These are generic checker changes,
+not permissions selected by async-generated names.
+
+All 236 async integration tests pass with no filters, including the previously
+failing mutable loop-body and deep-field regressions. The library suite passes
+1,411 tests (eight existing ignored). The UI suite passes all three tests.
+Cold/warm integrations pass three checked-expansion, nine contiguous-storage
+(one explicit unfinished gate), fourteen dependent-cancellation, five generated
+boundary, 26 self-borrow and ten semantic-cache tests. All-target checking passes.
+Six immediate-borrow tests still assert an obsolete generated helper name;
+the disjoint-field case reproduces that assertion failure on the pre-change
+baseline. The stale frame-restoration representation test also remains open.
+Neither failure has been counted as passing verification.
+
+Reference-bearing contiguous async owner storage and complete physical tag
+removal remain unfinished. The final architecture HTML has not been written;
+it is to remain uncommitted when the async goal is actually complete.
+
 ### Accepted direction: checked lowering with unsafe implementation details
 
 The selected approach is to justify unsafe async storage accesses through the

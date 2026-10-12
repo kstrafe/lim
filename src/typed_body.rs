@@ -1177,6 +1177,10 @@ pub(crate) struct ParameterLoanSummary {
     pub mutable: bool,
     pub pinned: bool,
     pub lifetime_only: bool,
+    /// The callee creates a child loan, rather than transferring a stored
+    /// reference value out of its owner. Caller slot ancestry needs this
+    /// distinction even when both results have identical pointee origins.
+    pub reborrow: bool,
     pub referent_projection: Vec<crate::typed_place::Segment>,
     /// Slot supplying the returned loan. Dereference segments cross from a
     /// reference value to reference-bearing storage inside its referent;

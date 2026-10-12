@@ -422,10 +422,15 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                 if access_is_through_child_of_held_parent(origins, event, place, held) {
                     continue;
                 }
-                if held
-                    .reborrow_slot
-                    .as_ref()
-                    .is_some_and(|slot| slot.overlaps(place))
+                // A retained slice operation can borrow the descriptor itself.
+                // A checked call instead lends its pointee: exact slot ancestry
+                // supplies permission, while ordinary overlap checks below
+                // still reject conflicting pointee access or destruction.
+                if !held.call_reborrow
+                    && held
+                        .reborrow_slot
+                        .as_ref()
+                        .is_some_and(|slot| slot.overlaps(place))
                     && !matches!(&node.action,
                         FlowAction::Read { value, .. } if is_mutable_slice_index_base(body, *value))
                 {
@@ -518,6 +523,24 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                             .into_iter()
                             .collect(),
                     });
+                }
+                if matches!(access, AccessKind::Read)
+                    && !held.storage.is_empty()
+                    && place.root == PlaceRoot::Local(binding)
+                    && matches!(&node.action, FlowAction::Read { value, .. }
+                        if matches!(body.nodes[value.0].ty,
+                            Some(Type::Reference { .. } | Type::PinnedReference { .. }
+                                | Type::MutableSlice(_))))
+                    && (place.segments == held.storage
+                        || place
+                            .segments
+                            .strip_suffix(&[crate::typed_place::Segment::Dereference])
+                            == Some(held.storage.as_slice()))
+                {
+                    // Loading this exact stored handle is not a read of its
+                    // pointee through an independent alias. Derived-child
+                    // restrictions above still suspend the handle itself.
+                    continue;
                 }
                 let forbidden_pinned_access = held.pinned
                     && !reference_value_access
@@ -1013,12 +1036,23 @@ fn check_call_reborrow_parents(
                 }
             }
             let mut parents = HashSet::new();
+            let mut suspended_slots = incoming
+                .iter()
+                .filter_map(|origin| origin.reborrow_slot.clone())
+                .collect::<Vec<_>>();
             let mut pending = incoming
                 .iter()
                 .filter_map(|origin| origin.borrowed_from)
                 .collect::<Vec<_>>();
             while let Some(parent) = pending.pop() {
                 if parents.insert(parent) {
+                    for origin in origins.before(event, parent) {
+                        if let Some(slot) = &origin.reborrow_slot {
+                            if !suspended_slots.contains(slot) {
+                                suspended_slots.push(slot.clone());
+                            }
+                        }
+                    }
                     pending.extend(
                         origins
                             .before(event, parent)
@@ -1028,10 +1062,25 @@ fn check_call_reborrow_parents(
                 }
             }
             for binding in visible_loan_bindings(live, unread, event, body.bindings.len()) {
-                if parents.contains(&binding) {
+                if parents.contains(&binding)
+                    && (matches!(
+                        body.bindings[binding.0].ty,
+                        Type::Reference { .. }
+                            | Type::PinnedReference { .. }
+                            | Type::Slice(_)
+                            | Type::MutableSlice(_)
+                    ) || !suspended_slots
+                        .iter()
+                        .any(|slot| slot.root == PlaceRoot::Local(binding)))
+                {
                     continue;
                 }
                 for held in origins.before(event, binding) {
+                    if suspended_slots.iter().any(|slot| {
+                        slot.root == PlaceRoot::Local(binding) && slot.segments == held.storage
+                    }) {
+                        continue;
+                    }
                     if held.borrowed_from.is_none() {
                         continue;
                     }

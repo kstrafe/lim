@@ -20,7 +20,7 @@ use crate::{
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v2\0";
+const MAGIC: &[u8] = b"lim-semantic-v3\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -525,6 +525,7 @@ record_codec!(
     mutable,
     pinned,
     lifetime_only,
+    reborrow,
     referent_projection,
     input_storage,
     storage,
@@ -570,12 +571,17 @@ mod tests {
             (#return (#if flag (Found (#struct-literal Holder (: value owner))) Missing)))
           (#fn set (: slot (#ref-mut (#ref #u64)) : value (#ref #u64)) ()
             (#deref-set slot value) (#return ()))
+          (#fn project (: slot (#ref-mut (#ref-mut #u64))) (#ref-mut #u64)
+            (#return (#borrow-mut (#deref (#deref slot)))))
           (#fn main () #u64 (#return 42u64))",
         );
-        for name in ["choose", "set", "main"] {
+        for name in ["choose", "set", "project", "main"] {
             for mode in [false, true] {
                 d.bodies.get_mut(name).unwrap().staged_parameter_contents = mode;
                 let facts = d.flows[name].parameter_summary(&d.bodies[name], mode);
+                if name == "project" {
+                    assert!(facts.returned.iter().any(|loan| loan.reborrow));
+                }
                 let mut bytes = Vec::new();
                 facts.write(&mut bytes, &d);
                 let mut r = Reader(&bytes);

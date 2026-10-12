@@ -407,7 +407,7 @@ pub(crate) struct LoanOrigin {
     pub span: Option<Span>,
     /// Immediate reference binding whose referent this loan reborrows.
     pub borrowed_from: Option<BindingId>,
-    /// Exact aggregate slot lending a slice handle. Binding-only ancestry is
+    /// Exact aggregate slot lending a reference or slice handle. Binding-only ancestry is
     /// retained for named references; a slot keeps unrelated fields usable.
     pub reborrow_slot: Option<Place>,
     /// A call-duration reborrow restricts parent referent access, not lifetime
@@ -469,6 +469,7 @@ impl LoanOrigin {
             mutable: self.mutable,
             pinned: self.pinned,
             lifetime_only: self.lifetime_only,
+            reborrow: self.borrowed_from.is_some(),
             referent_projection: self.place.segments.clone(),
             input_storage: self.parameter_storage.clone().unwrap_or_default(),
             storage: self.storage.clone(),
@@ -11620,25 +11621,90 @@ fn apply_return_loan_summary(
     events: Option<(&FlowGraph, LoanSnapshots<'_>)>,
 ) -> Vec<LoanOrigin> {
     if summary.mutable
-        && summary.input_storage.contains(&Segment::Dereference)
-        && summary.referent_projection.iter().any(|segment| {
-            matches!(
-                segment,
-                Segment::SliceRange { .. } | Segment::SliceRangeUnknown
-            )
-        })
+        && origin.mutable
+        && summary.input_storage.is_empty()
+        && origin.storage.is_empty()
+        && (origin.lifetime_only || !summary.referent_projection.is_empty())
     {
-        // A helper lending a slice stored in borrowed aggregate storage must
-        // retain the actual caller slot, not merely the pointee's address.
+        // Identity helpers can lend a reference loaded through a typed holder.
+        // Match the evaluated physical slot, not an opaque lifetime anchor.
+        if let NodeKind::Form {
+            head,
+            children,
+            callee: None,
+            ..
+        } = &body.nodes[argument.0].kind
+        {
+            if head == "deref" && children.len() == 2 {
+                let receiver = children[1];
+                let addresses = events.map_or_else(
+                    || value_loan_origins(body, receiver, state),
+                    |(flow, before)| {
+                        value_loan_origins_at_events(body, flow, before, receiver, state)
+                    },
+                );
+                for address in addresses {
+                    if address.lifetime_only || !address.mutable || !address.storage.is_empty() {
+                        continue;
+                    }
+                    let PlaceRoot::Local(parent) = address.place.root else {
+                        continue;
+                    };
+                    let slot = address.referent_place();
+                    let matches = |state: &LoanState| {
+                        state[parent.0].iter().any(|held| {
+                            if !held.storage.starts_with(&slot.segments) {
+                                return false;
+                            }
+                            let mut loaded = held.clone();
+                            loaded.drain_storage(slot.segments.len());
+                            loaded == origin
+                        })
+                    };
+                    if matches(state)
+                        || events.is_some_and(|(flow, before)| {
+                            before.events_by_value[argument.0].iter().any(|&index| {
+                                flow_action_has_value(&flow.nodes[index].action, argument)
+                                    && before[index].as_ref().is_some_and(matches)
+                            })
+                        })
+                    {
+                        let mut results = apply_parameter_loan_summary(origin, summary, state);
+                        for result in &mut results {
+                            result.borrowed_from = Some(parent);
+                            result.reborrow_slot = Some(slot.clone());
+                            result.call_reborrow = true;
+                        }
+                        return results;
+                    }
+                }
+            }
+        }
+    }
+    if summary.mutable
+        && origin.mutable
+        && !origin.lifetime_only
+        && summary.reborrow
+        && !summary.referent_projection.is_empty()
+        && summary.input_storage.contains(&Segment::Dereference)
+    {
+        // A helper projecting an exclusive handle stored in borrowed aggregate
+        // storage lends that exact caller slot. This includes element/field
+        // projections, not just ranged slices. The holder's proven identity
+        // establishes the parent; a lifetime-only anchor cannot do so.
         let selected =
             select_summary_inputs_with_slots(origin.clone(), &summary.input_storage, state);
         let mut results = apply_parameter_loan_summary(origin, summary, state);
         for (result, selected) in results.iter_mut().zip(selected) {
+            // Abstract parameter contents have no concrete caller slot yet.
+            // Preserve the child-loan relationship through forwarding helpers;
+            // their outer invocation will resolve the actual stored slot.
+            result.borrowed_from = reference_binding(body, argument).or(result.borrowed_from);
             if let Some(slot) = selected.source_slot {
                 if let PlaceRoot::Local(parent) = slot.root {
                     result.borrowed_from = Some(parent);
                     result.reborrow_slot = Some(slot);
-                    result.call_reborrow = false;
+                    result.call_reborrow = true;
                 }
             }
         }
@@ -12561,6 +12627,90 @@ mod identity_pointer_borrow_tests {
         assert!(held("exact").iter().any(|origin| !origin.lifetime_only));
         assert!(!held("unrelated").is_empty());
         assert!(held("unrelated").iter().all(|origin| origin.lifetime_only));
+    }
+}
+
+#[cfg(test)]
+mod stored_handle_parent_tests {
+    const SOURCE: &str = "(#struct Counter (: value #u64))
+      (#struct Holder (: first (#ref-mut Counter) : second (#ref #u64)))
+      (#fn lend (: value (#ref-mut #u64)) (#ref-mut #u64) (#return value))
+      (#fn project (: input (#ref-mut Holder)) (#ref-mut #u64)
+        (#return (#call lend (: value (#borrow-mut (#get (#get input first) value))))))
+      (#fn forward (: input (#ref-mut Holder)) (#ref-mut #u64)
+        (#return (#call project (: input input))))
+      (#fn touch (: value (#ref-mut #u64)) () (#deref-set value 42u64) (#return ()))
+      (#fn main () #u64
+        (#let-mut left Counter (#struct-literal Counter (: value 41u64))) (#let right #u64 9u64)
+        (#let-mut holder Holder (#struct-literal Holder
+          (: first (#borrow-mut left) : second (#borrow right))))
+        (#let selected (#ref-mut #u64) (#call forward (: input (#borrow-mut holder))))
+        (#assert (#u64.== (#deref (#get holder second)) 9u64))
+        (#call touch (: value selected))
+        (#forget selected) (#forget holder) (#let answer #u64 (#get left value)) (#forget left) (#return answer))";
+
+    #[test]
+    fn returned_stored_handles_retain_only_their_actual_caller_slot() {
+        let program = crate::parse_program(SOURCE).unwrap();
+        crate::check_types(&program).unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, true).unwrap();
+        let body = &declarations.bodies["main"];
+        let flow = &declarations.flows["main"];
+        let binding =
+            |name| super::BindingId(body.bindings.iter().position(|b| b.name == name).unwrap());
+        let slot = super::Place {
+            root: super::PlaceRoot::Local(binding("holder")),
+            segments: vec![super::Segment::Field(
+                declarations
+                    .field_id(&crate::Type::Named("Holder".into()), "first")
+                    .unwrap(),
+            )],
+        };
+        for origins in [
+            flow.loan_origins(body),
+            flow.staged_parameter_store_loan_origins(body),
+        ] {
+            let union = origins.binding_origin_union(body.bindings.len());
+            let held = &union[binding("selected").0];
+            assert!(!held.is_empty());
+            assert!(
+                held.iter()
+                    .all(|origin| origin.borrowed_from == Some(binding("holder"))
+                        && origin.reborrow_slot.as_ref() == Some(&slot)
+                        && origin.call_reborrow
+                        && origin.place.root == super::PlaceRoot::Local(binding("left"))),
+                "{held:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn stored_handle_children_still_suspend_parent_access_and_pointee_release() {
+        for inserted in [
+            "(#forget left)",
+            "(#call touch (: value (#borrow-mut (#get (#get holder first) value))))",
+            "(#let conflict (#ref #u64) (#borrow (#get (#get holder first) value))) (#forget conflict)",
+            "(#let child (#ref #u64) (#borrow (#deref selected))) (#call touch (: value selected)) (#forget child)",
+        ] {
+            let mut source = SOURCE.replace("(#call touch (: value selected))", &format!("{inserted} (#call touch (: value selected))"));
+            if inserted == "(#forget left)" {
+                source = source.replace("(#forget left) (#return answer)", "(#return answer)");
+            }
+            let error = crate::check_types(&crate::parse_program(&source).unwrap())
+                .unwrap_err();
+            assert!(error.contains("borrow") || error.contains("reference") || error.contains("consum"), "{inserted}: {error}");
+        }
+    }
+
+    #[test]
+    fn returned_child_does_not_require_a_nonowning_pointer_holder_to_survive() {
+        let source = SOURCE
+            .replace(
+                "(#call touch (: value selected))",
+                "(#forget holder) (#call touch (: value selected))",
+            )
+            .replace("(#forget selected) (#forget holder)", "(#forget selected)");
+        crate::check_types(&crate::parse_program(&source).unwrap()).unwrap();
     }
 }
 
