@@ -273,6 +273,55 @@ fn exclusive_reference_field_keeps_address_after_sibling_restoration() {
 }
 
 #[test]
+fn partial_exclusive_holder_lends_its_handle_before_a_later_await() {
+    let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim")
+        .replace("(#ref #u64)", "(#ref-mut #u64)")
+        .replace("waker (#ref-mut #u64)", "waker (#ref #u64)")
+        .replace("(#let seed #u64", "(#let-mut seed #u64")
+        .replace("seed (#borrow seed)", "seed (#borrow-mut seed)");
+    let begin = source.find("    (#let kept").unwrap();
+    let end = source.find("(#fn main").unwrap();
+    let source = format!(
+        "{}\n
+        (#let moved Token (#get owner item)) (#forget moved)
+        (#set-field owner item (#struct-literal Token (: value 1u64)))
+        (#let answer #u64 (#call read
+          (: view (#get owner kept)
+           : amount (#await () Step Pending Ready step-poll Start))))
+        (#forget owner) (#return answer))))
+        (#fn read (: view (#ref-mut #u64) : amount ()) #u64
+          (#deref-set view (#u64.+.wrap (#deref view) 2u64))
+          (#return (#deref view)))\n{}",
+        &source[..begin],
+        &source[end..],
+    );
+    run(&source);
+    let invalid = source.replace(
+        "(#await () Step Pending Ready step-poll Start)",
+        "(#block (#deref-set (#get owner kept) 99u64)
+          (#await () Step Pending Ready step-poll Start))",
+    );
+    let scratch = support::Scratch::new("partial-exclusive-lend-conflict");
+    let mut previous = None;
+    for _ in 0..2 {
+        let error = lim::compile_source_to_assembly(
+            &invalid,
+            &scratch.path().join("main.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            lim::TargetDescription::X86_64_SYSTEM_V,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        assert!(error.span.is_some(), "{error:?}");
+        if let Some(previous) = &previous {
+            assert_eq!(&error, previous);
+        }
+        previous = Some(error);
+    }
+}
+
+#[test]
 fn incomplete_reference_owner_whole_view_fails_at_the_source_borrow() {
     let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim").replace(
         "(#set-field owner item (#struct-literal Token (: value 2u64)))",

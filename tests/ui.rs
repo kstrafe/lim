@@ -11,6 +11,12 @@ struct Case {
 fn compilation_errors_render_the_offending_source_line() {
     let cases = [
         Case {
+            name: "earlier-argument-write",
+            diagnostic_code: "E4100",
+            offending_line: "          (#deref-set (#get held value) 99u64)",
+            line_number: 9,
+        },
+        Case {
             name: "reserved-generator-name",
             diagnostic_code: "E3000",
             offending_line: "(#gn #future-generator () ())",
@@ -1285,6 +1291,7 @@ fn compilation_errors_render_the_offending_source_line() {
             "unsafe-function-call" => Some("answer"),
             "unsafe-pointer-op" => Some("#ptr-read"),
             "borrow" => Some("#set"),
+            "earlier-argument-write" => Some("(#deref-set (#get held value) 99u64)"),
             "string-borrow-mutation" => Some("#borrow-mut"),
             "stored-reference-projection-replacement" => Some("#set"),
             "overlapping-call-borrows" => Some("(#borrow value)"),

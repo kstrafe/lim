@@ -1220,3 +1220,37 @@ checks the retained field address after sibling restoration. The previously
 failing aggregate-clone cleanup regression passes without a raw numeric snapshot.
 Formatting and diff checks pass; the compiler binary remained stable throughout
 the full async integration run.
+
+### Projected lending and writes during argument evaluation
+
+Contiguous field addresses are pinned references to the field's storage, not the
+reference value stored in that field. Projected lending leases and evaluated
+exclusive snapshots now dereference the word view before using the stored handle.
+A native cold/warm partial-owner test moves and restores a linear sibling, then
+captures an exclusive field argument before a later argument suspends. The resumed
+callee mutates the pointee and returns 42.
+
+Its adversarial variant exposed an ordinary checking gap: simultaneous argument
+alias checks did not reject a direct reference write inside a later operand after
+an earlier operand captured the same loan. The ordinary checker now compares
+those writes against the evaluated earlier reference inputs. It indexes reachable
+write events once per body, traverses typed operand structure rather than source
+text, distinguishes symbolic parameter slots and retains diagnostic source spans.
+Ordinary controls accept a disjoint field and skip a write after an unconditional
+unreachable instruction. This closes the direct deref-set/pin-write case, not a
+claim of complete operand-effect checking through every possible callee.
+
+A broader whole-holder word-storage experiment remains uncommitted and was
+removed. It exposed missing contained-slot provenance and self-loan projection
+contracts for some stationary reference-bearing owners and guards. Partially
+moved owners keep the committed contiguous representation; whole reference
+holders outside those layouts keep their checked typed representation. The
+experiment's interrupted full async run is not verification evidence.
+
+Final verification passes all 236 async integration tests, 1,413 library tests
+(eight existing ignored), seventeen contiguous-storage tests, fourteen dependent
+cancellation tests, 26 self-borrow tests, thirteen semantic-cache tests, 33
+word-storage tests and three UI tests. The UI case checks exact underline width
+and alignment for the offending reference write. All-target checking, formatting
+and diff checks pass. Two word-storage launches in an additional parallel run
+hit Linux ETXTBSY; the unchanged entire word-storage suite passes serially.

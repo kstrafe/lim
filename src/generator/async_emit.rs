@@ -1958,10 +1958,15 @@ impl<'a> Emitter<'a> {
             }
             let descriptor = &self.function.graph.places[lease.place.0];
             if !descriptor.projections.is_empty() {
-                return self
+                let address = self
                     .owned_projection_address(lease.place, true)
                     .expect("a projected lease must have a checked owning address")
                     .0;
+                return if self.is_word_place(lease.place) {
+                    format!("(#deref {address})")
+                } else {
+                    address
+                };
             }
             return format!("(#deref {})", self.payload_ref(slot, true));
         }
@@ -5138,7 +5143,10 @@ impl<'a> Emitter<'a> {
                         // Lend the stored handle at its original evaluation
                         // point. The child value cell holds this actual checked
                         // reborrow through later effects and Pending edges.
-                        let read = self.owned_projection_address(*place, true)?.0;
+                        let mut read = self.owned_projection_address(*place, true)?.0;
+                        if self.is_word_place(*place) {
+                            read = format!("(#deref {read})");
+                        }
                         let slot = &self.slots[self.values[dst]];
                         let reborrow =
                             format!("(#call {} (: {} {read}))", slot.lend, slot.lend_argument);
