@@ -1639,6 +1639,15 @@ impl FlowLoanOrigins {
                 state,
             );
         }
+        if head == "word-write" {
+            return word_loan_stores(
+                body,
+                flow,
+                LoanSnapshots::new(&self.before, &self.events_by_value),
+                value,
+                state,
+            );
+        }
         let (source, field) = match (head.as_str(), children.len()) {
             ("deref-set" | "pin-write", 3) => (children[2], None),
             ("pin-set-field", 4) => {
@@ -5209,14 +5218,15 @@ impl FlowGraph {
                     ..
                 } => replace_projected_origins(&mut state[binding.0], segments, Vec::new()),
                 FlowAction::Evaluate(value)
-                    if include_call_stores
+                    if (include_call_stores
                         && matches!(
                             &body.nodes[value.0].kind,
                             NodeKind::Form {
                                 callee: Some(_),
                                 ..
                             }
-                        ) =>
+                        ))
+                        || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "word-write") =>
                 {
                     let clears = if include_parameter_contents {
                         call_parameter_clears(
@@ -5241,6 +5251,7 @@ impl FlowGraph {
                             continue;
                         }
                         if !include_call_stores
+                            && !matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "word-write")
                             && !matches!(store.destination.place.root, PlaceRoot::Allocation(..))
                             && !state
                                 .allocation_contents
@@ -9247,6 +9258,61 @@ impl FlowGraph {
         moves: &FlowConsumptions,
     ) -> Result<(), ReleaseConflict> {
         for (index, node) in self.nodes.iter().enumerate() {
+            if let FlowAction::Evaluate(value) = node.action {
+                if let Some(layout) = body.word_layouts.get(&value) {
+                    let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind else {
+                        unreachable!();
+                    };
+                    if head == "word-write"
+                        && !layout.slots.is_empty()
+                        && moves.before[index].is_some()
+                    {
+                        let destinations =
+                            origins.value_before(body, self, FlowNodeId(index), children[2]);
+                        let addresses = destinations
+                            .iter()
+                            .filter(|loan| loan.storage.is_empty())
+                            .collect::<Vec<_>>();
+                        if addresses.is_empty()
+                            || addresses.iter().any(|loan| {
+                                loan.lifetime_only
+                                    || loan.place.segments.iter().any(|segment| {
+                                        matches!(
+                                            segment,
+                                            Segment::DynamicIndex
+                                                | Segment::SliceDynamicIndex
+                                                | Segment::SliceRangeUnknown
+                                        )
+                                    })
+                            })
+                        {
+                            return Err(ReleaseConflict {
+                                message: "cannot write reference-bearing word storage: unresolved slot address".into(),
+                                span: node.span, labels: Vec::new(),
+                            });
+                        }
+                    }
+                    if head != "word-write"
+                        && !layout.slots.is_empty()
+                        && moves.before[index].is_some()
+                    {
+                        let held = origins.value_before(body, self, FlowNodeId(index), value);
+                        let view = head == "word-view";
+                        if layout.slots.iter().any(|slot| {
+                            let mut path = slot.path.clone();
+                            if view {
+                                path.insert(0, Segment::Dereference);
+                            }
+                            !held.iter().any(|loan| loan.storage == path)
+                        }) {
+                            return Err(ReleaseConflict {
+                                message: "cannot read reference-bearing word storage: missing slot provenance".into(),
+                                span: node.span, labels: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
             let value = match node.action {
                 FlowAction::Bind { value, .. }
                 | FlowAction::Assign { value, .. }
@@ -11598,10 +11664,24 @@ fn apply_parameter_loan_summary(
                 origin.pinned = summary.pinned;
             }
             origin.lifetime_only |= summary.lifetime_only;
-            origin
-                .place
-                .segments
-                .extend(summary.referent_projection.iter().cloned());
+            for projection in &summary.referent_projection {
+                if matches!(projection, Segment::Index(_) | Segment::SliceIndex(_))
+                    && matches!(
+                        origin.place.segments.last(),
+                        Some(Segment::SliceRange { .. } | Segment::SliceRangeUnknown)
+                    )
+                {
+                    let index = match projection {
+                        Segment::Index(index) | Segment::SliceIndex(index) => {
+                            Segment::Index(*index)
+                        }
+                        _ => unreachable!(),
+                    };
+                    append_slice_index(&mut origin.place, index);
+                } else {
+                    origin.place.segments.push(projection.clone());
+                }
+            }
             Some(origin)
         })
         .collect()
@@ -12076,6 +12156,10 @@ fn call_loan_stores(
     value: NodeId,
     state: &LoanState,
 ) -> Vec<LoanStore> {
+    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "word-write")
+    {
+        return word_loan_stores(body, flow, before, value, state);
+    }
     let NodeKind::Form {
         callee: Some(callee),
         ..
@@ -12087,6 +12171,104 @@ fn call_loan_stores(
         return Vec::new();
     };
     substitute_call_stores(body, flow, before, value, state, stores)
+}
+
+fn word_loan_stores(
+    body: &Body,
+    flow: &FlowGraph,
+    before: LoanSnapshots<'_>,
+    value: NodeId,
+    state: &LoanState,
+) -> Vec<LoanStore> {
+    let Some(layout) = body.word_layouts.get(&value) else {
+        return Vec::new();
+    };
+    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+        return Vec::new();
+    };
+    let incoming = value_loan_origins_at_events(body, flow, before, children[3], state);
+    let destinations = value_loan_origins_at_events(body, flow, before, children[2], state)
+        .into_iter()
+        .filter(|origin| origin.storage.is_empty() && !origin.lifetime_only)
+        .collect::<Vec<_>>();
+    let strong = one_concrete_store_destination(&destinations);
+    let mut stores = Vec::new();
+    for address in destinations {
+        for offset in 0..layout.words {
+            let mut destination = address.clone();
+            append_slice_index(&mut destination.place, Segment::Index(offset as u128));
+            // Unknown runtime coordinates do not establish a readable slot.
+            if destination.place.segments.iter().any(|segment| {
+                matches!(segment, Segment::DynamicIndex | Segment::SliceDynamicIndex)
+            }) {
+                continue;
+            }
+            let mut sources = Vec::new();
+            for slot in layout.slots.iter().filter(|slot| slot.offset == offset) {
+                for origin in &incoming {
+                    if origin.storage.starts_with(&slot.path) {
+                        let mut loaded = origin.clone();
+                        loaded.drain_storage(slot.path.len());
+                        merge_loan_origins(&mut sources, &[loaded]);
+                    }
+                }
+            }
+            stores.push(LoanStore {
+                destination,
+                incoming: sources,
+                definitely_written: strong,
+                variants_definitely_written: false,
+                variants: HashMap::new(),
+            });
+        }
+    }
+    stores
+}
+
+fn word_value_origins(
+    body: &Body,
+    value: NodeId,
+    incoming: Vec<LoanOrigin>,
+    state: &LoanState,
+) -> Vec<LoanOrigin> {
+    let Some(layout) = body.word_layouts.get(&value) else {
+        return Vec::new();
+    };
+    let view =
+        matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "word-view");
+    let mut result = Vec::new();
+    for address in incoming
+        .into_iter()
+        .filter(|origin| origin.storage.is_empty() && !origin.lifetime_only)
+    {
+        for slot in &layout.slots {
+            let mut selected = address.clone();
+            append_slice_index(&mut selected.place, Segment::Index(slot.offset as u128));
+            if selected.place.segments.iter().any(|segment| {
+                matches!(segment, Segment::DynamicIndex | Segment::SliceDynamicIndex)
+            }) {
+                continue;
+            }
+            for mut loaded in
+                select_summary_inputs(selected.clone(), &[Segment::Dereference], state)
+            {
+                let mut path = slot.path.clone();
+                if view {
+                    path.insert(0, Segment::Dereference);
+                }
+                loaded.prepend_storage(&path);
+                if loaded.mutable && !view {
+                    if let PlaceRoot::Local(parent) = selected.place.root {
+                        loaded.borrowed_from = Some(parent);
+                        loaded.reborrow_slot = Some(selected.place.clone());
+                        loaded.call_reborrow = true;
+                    }
+                }
+                merge_loan_origins(&mut result, &[loaded]);
+            }
+        }
+    }
+    result
 }
 
 fn substitute_call_stores(
@@ -13302,8 +13484,17 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     .collect()
             })
         }
+        NodeKind::Form { head, children, .. } if head == "word-read" && children.len() == 3 => {
+            word_value_origins(
+                body,
+                id,
+                value_loan_origins(body, children[2], state),
+                state,
+            )
+        }
         NodeKind::Form { head, children, .. } if head == "word-view" && children.len() == 3 => {
             let mut origins = value_loan_origins(body, children[2], state);
+            let contents = word_value_origins(body, id, origins.clone(), state);
             for origin in &mut origins {
                 // An unsafe typed view retains its slice range as an alias
                 // and lifetime anchor, not as initialized typed storage.
@@ -13326,6 +13517,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     }
                 }
             }
+            merge_loan_origins(&mut origins, &contents);
             origins
         }
         NodeKind::Form { head, children, .. }
@@ -13908,8 +14100,17 @@ fn value_loan_origins_at_events(
             let incoming = value_loan_origins_at_events(body, flow, before, children[1], state);
             return dereference_value_origins(body, incoming, state);
         }
+        if head == "word-read" && children.len() == 3 {
+            return word_value_origins(
+                body,
+                value,
+                value_loan_origins_at_events(body, flow, before, children[2], state),
+                state,
+            );
+        }
         if head == "word-view" && children.len() == 3 {
             let mut origins = value_loan_origins_at_events(body, flow, before, children[2], state);
+            let contents = word_value_origins(body, value, origins.clone(), state);
             for origin in &mut origins {
                 origin.lifetime_only = true;
                 origin.pinned = false;
@@ -13930,6 +14131,7 @@ fn value_loan_origins_at_events(
                     }
                 }
             }
+            merge_loan_origins(&mut origins, &contents);
             return origins;
         }
         if matches!(

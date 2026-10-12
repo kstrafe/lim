@@ -1671,6 +1671,11 @@ pub(crate) fn check_scope_escapes_cached(
                     {
                         Some((children[1], children[3]))
                     }
+                    NodeKind::Form { head, children, .. }
+                        if head == "word-write" && children.len() == 4 =>
+                    {
+                        Some((children[2], children[3]))
+                    }
                     _ => None,
                 }
             }

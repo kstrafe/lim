@@ -1237,6 +1237,9 @@ pub(crate) type OutputVariantMap<T> =
 
 #[derive(Default)]
 pub(crate) struct Body {
+    /// Flat-word offsets of typed memory operations. A schema describes where
+    /// existing loans may be stored or loaded; it never initializes a loan.
+    pub word_layouts: HashMap<NodeId, crate::word_loans::Layout>,
     pub nodes: Vec<Node>,
     pub bindings: Vec<Binding>,
     pub instructions: Vec<Instruction>,

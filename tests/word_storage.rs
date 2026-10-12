@@ -406,6 +406,167 @@ fn numeric_words_cannot_invent_reference_provenance() {
 }
 
 #[test]
+fn typed_word_writes_preserve_contained_reference_provenance() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#fn main () #u64
+        (#let-mut seed #u64 42u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words)
+          (#struct-literal Holder (: value (#borrow seed)))))
+        (#let copied Holder (#unsafe (#word-read Holder (#borrow-slice words))))
+        (#let result #u64 (#deref (#get copied value)))
+        (#forget copied) (#forget words) (#set seed 0u64)
+        (#return result))";
+    run(source);
+    run(&source.replace(
+        "copied Holder (#unsafe (#word-read Holder",
+        "copied (#ref Holder) (#unsafe (#word-view (#ref Holder)",
+    ));
+    let heap = source
+        .replace("(#let-mut words (#array #u64 1) (#array-repeat 0u64))",
+          "(#let allocation (#ptr-mut (#array #u64 1)) (#unsafe (#linux-syscall (#ptr-mut (#array #u64 1))
+            9usize (0usize 8usize 3usize 34usize -1i64 0usize))))
+           (#let-mut owner (#pin-own (#array #u64 1)) (#unsafe (#pin-own-of allocation (#array-repeat 0u64))))
+           (#let anchor (#pin-ref-mut (#array #u64 1)) (#pin-own-borrow-mut owner))
+           (#let writable (#ref-mut (#array #u64 1)) (#unsafe (#ptr-borrow-mut anchor (#ref-ptr anchor))))")
+        .replace("#borrow-slice-mut words", "#borrow-slice-mut (#deref writable)")
+        .replace("#borrow-slice words", "#borrow-slice (#deref writable)")
+        .replace("(#forget words)", "(#forget writable) (#forget anchor)
+          (#let released (#ptr-mut (#array #u64 1)) (#unsafe (#pin-release owner)))
+          (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (released 8usize))) 0i64))");
+    run(&heap);
+    let invalid = source.replace("(#let result", "(#set seed 0u64) (#let result");
+    let error = compile(&invalid).unwrap_err();
+    assert_eq!(error.code, DiagnosticCode::Borrow, "{error:?}");
+}
+
+#[test]
+fn typed_word_reference_slots_use_real_flat_offsets() {
+    let source = "(#struct Holder (: prefix #u128 : value (#ref #u64) : suffix #u64))
+      (#fn main () #u64
+        (#let-mut seed #u64 40u64)
+        (#let-mut words (#array #u64 6) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words 1usize 5usize)
+          (#struct-literal Holder (: prefix 0u128 : value (#borrow seed) : suffix 2u64))))
+        (#let view (#ref Holder) (#unsafe (#word-view (#ref Holder) (#borrow-slice words 1usize 5usize))))
+        (#let result #u64 (#u64.+.wrap (#deref (#get view value)) (#get view suffix)))
+        (#forget view) (#forget words) (#set seed 0u64) (#return result))";
+    run(source);
+    let invalid = source.replace(
+        "#borrow-slice words 1usize 5usize",
+        "#borrow-slice words 0usize 4usize",
+    );
+    assert!(
+        compile(&invalid).is_err(),
+        "a neighboring range cannot supply this slot's provenance"
+    );
+}
+
+#[test]
+fn numeric_overwrites_retire_typed_word_reference_provenance() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#fn main () #u64
+        (#let-mut seed #u64 1u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words)
+          (#struct-literal Holder (: value (#borrow seed)))))
+        (#unsafe (#word-write #u64 (#borrow-slice-mut words) 0u64))
+        (#set seed 42u64) (#return seed))";
+    run(source);
+    let invalid = source.replace("(#set seed 42u64)",
+        "(#let restored Holder (#unsafe (#word-read Holder (#borrow-slice words)))) (#forget restored) (#set seed 42u64)");
+    let error = compile(&invalid).unwrap_err();
+    assert!(
+        error.message.contains("missing slot provenance"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn exclusive_word_reads_require_an_exclusive_source_and_keep_aliases_checked() {
+    let source = "(#struct Holder (: value (#ref-mut #u64)))
+      (#fn write (: value (#ref-mut #u64)) () (#deref-set value 42u64) (#return ()))
+      (#fn main () #u64
+        (#let-mut seed #u64 1u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words)
+          (#struct-literal Holder (: value (#borrow-mut seed)))))
+        (#let copied Holder (#unsafe (#word-read Holder (#borrow-slice-mut words))))
+        (#call write (: value (#get copied value)))
+        (#forget copied) (#forget words) (#return seed))";
+    run(source);
+    for invalid in [
+        source.replace(
+            "#word-read Holder (#borrow-slice-mut words)",
+            "#word-read Holder (#borrow-slice words)",
+        ),
+        source.replace(
+            "(#call write",
+            "(#let alias (#ref #u64) (#borrow seed)) (#call write",
+        ),
+    ] {
+        assert!(
+            compile(&invalid).is_err(),
+            "exclusive word storage must retain permission and alias checks"
+        );
+    }
+}
+
+#[test]
+fn typed_word_writes_cannot_export_short_lived_references() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#fn bad (: words (#slice-mut #u64)) ()
+        (#let local #u64 42u64)
+        (#unsafe (#word-write Holder words
+          (#struct-literal Holder (: value (#borrow local)))))
+        (#return ()))";
+    let error = compile(source).expect_err("caller word memory must not retain a local reference");
+    assert!(
+        matches!(error.code, DiagnosticCode::Borrow | DiagnosticCode::Linear),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn typed_word_reference_writes_require_resolved_slot_addresses() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#fn store (: words (#slice-mut #u64) : offset #usize : source (#ref #u64)) ()
+        (#unsafe (#word-write Holder (#slice-mut-range words offset 2usize)
+          (#struct-literal Holder (: value source))))
+        (#return ()))";
+    let error = compile(source).expect_err("unknown coordinates cannot establish typed slots");
+    assert!(
+        error.message.contains("unresolved slot address"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn typed_word_writer_helpers_export_real_source_loans() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#fn store (: words (#slice-mut #u64) : source (#ref #u64)) ()
+        (#unsafe (#word-write Holder words (#struct-literal Holder (: value source))))
+        (#return ()))
+      (#fn main () #u64
+        (#let-mut seed #u64 42u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#call store (: words (#borrow-slice-mut words) : source (#borrow seed)))
+        (#let copied Holder (#unsafe (#word-read Holder (#borrow-slice words))))
+        (#let result #u64 (#deref (#get copied value)))
+        (#forget copied) (#forget words) (#set seed 0u64) (#return result))";
+    run(source);
+    run(&source
+        .replace("(#array #u64 1)", "(#array #u64 2)")
+        .replace(
+            "#borrow-slice-mut words)",
+            "#borrow-slice-mut words 1usize 2usize)",
+        )
+        .replace("#borrow-slice words)", "#borrow-slice words 1usize 2usize)"));
+    let invalid = source.replace("(#let result", "(#set seed 0u64) (#let result");
+    assert_eq!(compile(&invalid).unwrap_err().code, DiagnosticCode::Borrow);
+}
+
+#[test]
 fn scalar_float_wide_and_pinned_views_use_the_same_word_layout() {
     for (ty, value, read) in [
         ("#i8", "42i8", "(#as (#deref view) #u64)"),
@@ -446,4 +607,32 @@ fn contiguous_partial_ownership_restoration_keeps_the_whole_address() {
         (#forget selected) (#forget whole) (#forget kept)
         (#let remaining Owner (#unsafe (#word-read Owner (#borrow-slice words))))
         (#forget remaining) (#return answer))");
+}
+
+#[test]
+fn contiguous_reference_owner_restoration_keeps_address_and_real_caller_loan() {
+    let source = "(#struct Token (: value #u64)) (#linear Token)
+      (#struct Owner (: kept (#ref #u64) : item Token))
+      (#fn inspect (: owner (#ref Owner)) #u64
+        (#return (#u64.+.wrap (#deref (#get owner kept)) (#get (#get owner item) value))))
+      (#fn main () #u64
+        (#let-mut seed #u64 40u64)
+        (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+        (#unsafe (#word-write Owner (#borrow-slice-mut words)
+          (#struct-literal Owner (: kept (#borrow seed) : item (#struct-literal Token (: value 1u64))))))
+        (#let kept (#ref (#ref #u64))
+          (#unsafe (#word-view (#ref (#ref #u64)) (#borrow-slice words 0usize 1usize))))
+        (#let moved Token (#unsafe (#word-read Token (#borrow-slice words 1usize 2usize))))
+        (#forget moved)
+        (#unsafe (#word-write Token (#borrow-slice-mut words 1usize 2usize)
+          (#struct-literal Token (: value 2u64))))
+        (#let whole (#ref Owner) (#unsafe (#word-view (#ref Owner) (#borrow-slice words))))
+        (#let selected (#ref (#ref #u64)) (#borrow (#get whole kept)))
+        (#assert (#usize.== (#ptr-address (#ref-ptr kept)) (#ptr-address (#ref-ptr selected))))
+        (#let answer #u64 (#call inspect (: owner whole)))
+        (#forget selected) (#forget whole) (#forget kept) (#forget words)
+        (#set seed 0u64) (#return answer))";
+    run(source);
+    let invalid = source.replace("(#let answer", "(#set seed 0u64) (#let answer");
+    assert_eq!(compile(&invalid).unwrap_err().code, DiagnosticCode::Borrow);
 }

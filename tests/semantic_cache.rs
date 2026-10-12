@@ -64,6 +64,41 @@ fn warm_cache_reuses_both_modes_without_rewriting_and_preserves_assembly() {
 }
 
 #[test]
+fn imported_word_writer_retains_real_loans_on_cache_hits() {
+    let scratch = support::Scratch::new("semantic-word-loans");
+    let dir = scratch.path();
+    fs::write(
+        dir.join("lib.lim"),
+        "(#struct Holder (: value (#ref #u64)))
+         (#fn store (: words (#slice-mut #u64) : source (#ref #u64)) ()
+           (#unsafe (#word-write Holder words (#struct-literal Holder (: value source))))
+           (#return ()))",
+    )
+    .unwrap();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut seed #u64 42u64)
+        (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+        (#call store (: words (#borrow-slice-mut words 1usize 2usize) : source (#borrow seed)))
+        (#let copied Holder (#unsafe (#word-read Holder (#borrow-slice words 1usize 2usize))))
+        (#let result #u64 (#deref (#get copied value)))
+        (#forget copied) (#forget words) (#set seed 0u64) (#return result))";
+    let config = CompileConfig::default();
+    let (cold, _) = compile(dir, source, &config);
+    let (warm, report) = compile(dir, source, &config);
+    assert_eq!(cold.unwrap(), warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+    let invalid = source.replace("(#let result", "(#set seed 0u64) (#let result");
+    let cold_error = compile(dir, &invalid, &config).0.unwrap_err();
+    let (warm, report) = compile(dir, &invalid, &config);
+    let warm_error = warm.unwrap_err();
+    assert_eq!(cold_error.code, lim::DiagnosticCode::Borrow);
+    assert_eq!(cold_error, warm_error);
+    // Invalid programs never publish a reusable summary artifact.
+    assert_eq!(semantic_decisions(&report, "hit"), 0, "{report}");
+}
+
+#[test]
 fn transitive_dependency_root_cfg_and_type_changes_invalidate() {
     let scratch = support::Scratch::new("semantic-invalidation");
     let dir = scratch.path();

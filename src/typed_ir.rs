@@ -1596,6 +1596,14 @@ impl Declarations {
         for (name, slots) in parameter_slots {
             self.bodies.get_mut(&name).unwrap().parameter_loan_slots = slots;
         }
+        let word_layouts = self
+            .bodies
+            .iter()
+            .map(|(name, body)| (name.clone(), crate::word_loans::layouts(body, self)))
+            .collect::<Vec<_>>();
+        for (name, layouts) in word_layouts {
+            self.bodies.get_mut(&name).unwrap().word_layouts = layouts;
+        }
     }
 
     fn summarize_parameter_loans_with_contents(&mut self, include_parameter_contents: bool) {
