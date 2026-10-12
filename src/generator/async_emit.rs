@@ -438,24 +438,32 @@ impl<'a> Emitter<'a> {
         )
         .map_err(|message| fail(function, message))?
         {
-            let word_buffer = if !types.contains_reference(&layout.shape.ty) {
-                let capacity = crate::codegen::storage_word_count(
-                    &layout.shape.ty,
-                    &planning.declarations.structs,
-                    &planning.declarations.enums,
-                )
-                .map_err(|message| fail(function, message))?;
-                Some(WordRegion {
-                    field: emitter.fresh("aggregate-words"),
-                    marker: emitter.fresh("aggregate-type"),
-                    owner: layout.shape.ty.clone(),
-                    capacity,
-                    start: 0,
-                    length: capacity,
-                })
-            } else {
-                None
-            };
+            // Owned reference-bearing leaves still need a typed cleanup
+            // transfer. Raw buffer snapshots do not yet export their slot
+            // provenance into the separately checked cleanup function.
+            // Preserve that representation until its transfer is supported;
+            // Copy references can stay in a contiguous owner word region.
+            let word_buffer =
+                if layout.fields.iter().all(|field| {
+                    !types.contains_reference(&field.ty) || types.can_repeat(&field.ty)
+                }) {
+                    let capacity = crate::codegen::storage_word_count(
+                        &layout.shape.ty,
+                        &planning.declarations.structs,
+                        &planning.declarations.enums,
+                    )
+                    .map_err(|message| fail(function, message))?;
+                    Some(WordRegion {
+                        field: emitter.fresh("aggregate-words"),
+                        marker: emitter.fresh("aggregate-type"),
+                        owner: layout.shape.ty.clone(),
+                        capacity,
+                        start: 0,
+                        length: capacity,
+                    })
+                } else {
+                    None
+                };
             if let Some(region) = &word_buffer {
                 emitter.slots[emitter.bindings[&layout.binding]].words = Some(region.clone());
             }
@@ -2240,6 +2248,9 @@ impl<'a> Emitter<'a> {
                 .map(|field| {
                     self.occupancy_write(field.slot, false);
                     let slot = &self.slots[field.slot];
+                    if slot.words.is_some() {
+                        return String::new();
+                    }
                     format!(
                         "(#call {} (: slot {}))",
                         slot.clear,
@@ -5435,6 +5446,9 @@ impl<'a> Emitter<'a> {
                             let slot = &self.slots[field.slot];
                             if slot.copy && self.types.contains_reference(&slot.ty) {
                                 self.occupancy_write(field.slot, false);
+                                if slot.words.is_some() {
+                                    return Ok(String::new());
+                                }
                                 return Ok(format!(
                                     "(#call {} (: slot {}))",
                                     slot.clear,

@@ -256,7 +256,6 @@ fn whole_borrow_after_field_restoration_keeps_sibling_address_across_await() {
 }
 
 #[test]
-#[ignore = "reference-bearing contiguous owner storage is not implemented yet"]
 fn reference_field_keeps_address_and_provenance_after_sibling_restoration() {
     run(include_str!(
         "fixtures/async_partial_reference_whole_borrow.lim"
@@ -264,12 +263,15 @@ fn reference_field_keeps_address_and_provenance_after_sibling_restoration() {
 }
 
 #[test]
-fn unsupported_reference_field_whole_view_fails_at_the_source_borrow() {
-    let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim");
+fn incomplete_reference_owner_whole_view_fails_at_the_source_borrow() {
+    let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim").replace(
+        "(#set-field owner item (#struct-literal Token (: value 2u64)))",
+        "",
+    );
     let scratch = support::Scratch::new("async-reference-contiguous-gate");
     for _ in 0..2 {
         let error = lim::compile_source_to_assembly(
-            source,
+            &source,
             &scratch.path().join("main.lim"),
             &lim::CompileConfig::default(),
             &scratch.path().join("cache"),
@@ -277,12 +279,30 @@ fn unsupported_reference_field_whole_view_fails_at_the_source_borrow() {
         )
         .unwrap_err();
         assert!(
-            error.message.contains("requires contiguous owning storage"),
+            matches!(
+                error.code,
+                lim::DiagnosticCode::Borrow | lim::DiagnosticCode::Linear
+            ),
             "{error:?}"
         );
         let span = error.span.expect("original whole-borrow source span");
         assert_eq!(&source[span.start..span.end], "(#borrow owner)");
     }
+}
+
+#[test]
+fn heap_reference_owner_keeps_address_and_provenance_after_sibling_restoration() {
+    let source = include_str!("fixtures/async_partial_reference_whole_borrow.lim")
+        .replace("(#let-mut frame Work-frame (#call work (: seed (#borrow seed))))",
+          "(#let pointer (#ptr-mut Work-frame) (#unsafe (#linux-syscall (#ptr-mut Work-frame)
+            9usize (0usize (#size-of Work-frame) 3usize 34usize -1i64 0usize))))
+           (#let initial Work-frame (#call work (: seed (#borrow seed))))
+           (#let-mut frame (#pin-own Work-frame) (#unsafe (#pin-own-of pointer initial)))")
+        .replace("(#pin-borrow-mut frame)", "(#pin-own-borrow-mut frame)")
+        .replace("(#forget frame)", "(#forget pending)
+          (#let released (#ptr-mut Work-frame) (#unsafe (#pin-release frame)))
+          (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (released (#size-of Work-frame)))) 0i64))");
+    run(&source);
 }
 
 #[test]

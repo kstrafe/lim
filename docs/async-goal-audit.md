@@ -1091,3 +1091,26 @@ the current follow-up scope remains unfinished. Necessary safety boundaries
 remain explicit: a local borrow crossing
 suspension needs a stationary pinned frame, unsafe emitted storage does not
 authorize invalid original source, and cache hits do not bypass validation.
+
+### Actual loan provenance in typed word storage
+
+Typed word writes now record actual contained-reference origins at their physical
+word offsets. Typed reads and views recover those recorded origins rather than
+inventing references from a numeric buffer or a layout marker. Scalar overwrites
+retire the previous metadata. Reference-bearing writes require resolved storage
+coordinates, and the ordinary scope-escape check prevents a writer from leaving
+a short-lived reference in caller memory. Writer helpers export these effects;
+their indexed destinations are normalized against the caller's selected slice.
+The semantic cache schema is version four, invalidating older store summaries.
+These are compile-time loan facts, not runtime occupancy tags or async exemptions.
+
+The previously ignored shared-reference aggregate restoration test is enabled.
+Its stack and heap variants pass cold and warm compilation and native execution:
+a retained field keeps both its address and its real caller loan while a linear
+sibling is moved and restored. An incomplete whole-owner borrow is rejected at
+the original source expression.
+
+The cleanup migration remains open for non-Copy reference-bearing leaves. A raw
+numeric-array snapshot does not currently transfer concealed loan metadata into
+the cleanup state's typed reads. Those leaves retain their typed representation;
+this is an incremental migration boundary, not completion of the async goal.
