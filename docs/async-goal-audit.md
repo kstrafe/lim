@@ -68,6 +68,36 @@ heap-reference contents tests. A separate concurrent heap launch hit Linux
 `ETXTBSY`; its serial rerun passed all 21 tests, as did the run following the
 graph matrix. All-target checking and formatting pass after both changes.
 
+### Untagged typed-owner backing evidence (2026-10-12)
+
+`partial_reference_typed_owner.lim` now exercises a real typed Owner directly,
+without an outer Empty/Full cell or per-field flags. The native size assertion
+checks that Owner consists only of its reference and Token field widths. Its
+retained field address survives unsafe sibling extraction and restoration;
+the whole-owner view reads the original caller reference and returns 42.
+Stack and heap implementations pass cold and warm with both shared and
+exclusive contained references. Caller mutation and sibling mutation under a
+whole shared view remain Borrow errors with source spans. No numeric word view
+is allowed to fabricate these contained-reference origins.
+
+The contiguous-storage suite passes thirteen tests with the one explicit async
+reference-owner completion gate still ignored. This is backing-model evidence,
+not integration of that model into async frames. In particular, these ordinary
+owners start fully initialized. Future-local owners may initialize on a later
+poll; constructors cannot hoist their observable work, forge reference values,
+or reintroduce per-field runtime occupancy bits just to initialize the backing.
+The emitter must also preserve partial ownership and specialized cancellation
+when using the same region rather than independent leaf cells.
+
+One concrete missing generic mechanism is visible in the existing word-storage
+analysis: `#word-write` does not currently export a value's contained-reference
+origins into its numeric destination, and a later typed read/view cannot recover
+them. Allowing reference-bearing word reads without such an actual write-derived
+provenance proof would contradict the existing missing-slot-provenance gate.
+That gate remains intact. Investigate tracked typed writes and region projection
+before enabling reference-bearing contiguous word storage; numeric bits alone
+are not evidence of a valid contained reference.
+
 ### Accepted direction: checked lowering with unsafe implementation details
 
 The selected approach is to justify unsafe async storage accesses through the

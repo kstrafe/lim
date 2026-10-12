@@ -10,6 +10,95 @@ fn heap_typed_contiguous_payload_preserves_reference_field_address_natively() {
     run_ordinary_typed_payload(true);
 }
 
+#[test]
+fn untagged_stack_owner_preserves_reference_field_address_and_provenance() {
+    run_ordinary_typed_owner(false, false);
+}
+
+#[test]
+fn untagged_heap_owner_preserves_reference_field_address_and_provenance() {
+    run_ordinary_typed_owner(true, false);
+}
+
+#[test]
+fn untagged_stack_owner_preserves_exclusive_contained_reference() {
+    run_ordinary_typed_owner(false, true);
+}
+
+#[test]
+fn untagged_heap_owner_preserves_exclusive_contained_reference() {
+    run_ordinary_typed_owner(true, true);
+}
+
+fn run_ordinary_typed_owner(on_heap: bool, exclusive: bool) {
+    let source = include_str!("fixtures/partial_reference_typed_owner.lim").to_owned();
+    let parsed = lim::parse_program(&source).unwrap();
+    assert!(!parsed
+        .items
+        .iter()
+        .any(|item| matches!(item, lim::Item::Enum { .. })));
+    let source = if exclusive {
+        source
+            .replace("kept (#ref #u64)", "kept (#ref-mut #u64)")
+            .replace("kept (#borrow seed)", "kept (#borrow-mut seed)")
+            .replace("(#ref (#ref #u64))", "(#ref (#ref-mut #u64))")
+            .replace("(#pin-ref (#ref #u64))", "(#pin-ref (#ref-mut #u64))")
+            .replace(
+                "(#deref (#get restored kept))",
+                "(#deref (#deref selected))",
+            )
+    } else {
+        source
+    };
+    let source = if on_heap {
+        source
+            .replace("(#let-mut storage Owner", "(#let allocation (#ptr-mut Owner) (#unsafe (#linux-syscall (#ptr-mut Owner)\n        9usize (0usize (#size-of Owner) 3usize 34usize -1i64 0usize))))\n      (#let initial Owner")
+            .replace("(#let owner", "(#let-mut storage (#pin-own Owner) (#unsafe (#pin-own-of allocation initial)))\n      (#let owner")
+            .replace("(#pin-borrow-mut storage)", "(#pin-own-borrow-mut storage)")
+            .replace("(#forget storage)", "(#let released (#ptr-mut Owner) (#unsafe (#pin-release storage)))\n      (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize\n        (released (#size-of Owner)))) 0i64))")
+    } else {
+        source
+    };
+    let scratch = support::Scratch::new("untagged-contiguous-reference-owner");
+    let target = lim::TargetDescription::X86_64_SYSTEM_V;
+    let mut previous = None;
+    for label in ["cold", "warm"] {
+        let assembly = lim::compile_source_to_assembly(
+            &source,
+            &scratch.path().join("input.lim"),
+            &lim::CompileConfig::default(),
+            &scratch.path().join("cache"),
+            target,
+        )
+        .unwrap_or_else(|error| panic!("{}", lim::render_diagnostic(&error, &source, "input.lim")));
+        if let Some(previous) = &previous {
+            assert_eq!(&assembly, previous);
+        }
+        let binary = scratch.path().join(label);
+        lim::link_native_binary(&assembly, &binary, &[], &[], target).unwrap();
+        let (status, stdout, stderr) = support::run(
+            &mut std::process::Command::new(binary),
+            std::time::Duration::from_secs(5),
+            4096,
+        )
+        .unwrap();
+        assert_eq!(status.code(), Some(42), "{stderr:?}");
+        assert!(stdout.is_empty() && stderr.is_empty());
+        previous = Some(assembly);
+    }
+    for invalid in [
+        source.replace("(#let kept", "(#set seed 99u64)\n      (#let kept"),
+        source.replace("(#let selected", "(#unsafe (#call restore-item (: item (#pin-borrow-mut (#get owner item)))))\n      (#let selected"),
+    ] {
+        let error = lim::compile_source_to_assembly(
+            &invalid, &scratch.path().join("invalid.lim"), &lim::CompileConfig::default(),
+            &scratch.path().join("invalid-cache"), target,
+        ).expect_err("untagged storage must not discard alias protection");
+        assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        assert!(error.span.is_some(), "{error:?}");
+    }
+}
+
 fn run_ordinary_typed_payload(on_heap: bool) {
     let source = include_str!("fixtures/partial_reference_typed_payload.lim");
     let scratch = support::Scratch::new("typed-contiguous-reference-payload");
