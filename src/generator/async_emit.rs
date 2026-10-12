@@ -248,6 +248,8 @@ struct Emitter<'a> {
     current_state: usize,
     occupancy_trace: RefCell<Option<OccupancyTrace>>,
     physical_current: RefCell<Option<Vec<bool>>>,
+    preview_aliases: crate::generator::async_preview_alias::Plan,
+    active_preview_aliases: HashSet<BindingId>,
 }
 
 fn atom(name: &str) -> Expr {
@@ -365,6 +367,13 @@ impl<'a> Emitter<'a> {
             occupancy_trace: RefCell::new(None),
             physical_current: RefCell::new(None),
             current_state: 0,
+            preview_aliases: crate::generator::async_preview_alias::Plan::new(
+                &function.graph,
+                types,
+                &planning.declarations,
+            )
+            .map_err(|message| fail(function, message))?,
+            active_preview_aliases: HashSet::new(),
             types,
             render: crate::generator::async_render::RenderContext::new(
                 body,
@@ -832,6 +841,17 @@ impl<'a> Emitter<'a> {
                 start: 0,
                 length: capacity,
             });
+        }
+        let mut aliases = emitter
+            .preview_aliases
+            .patterns
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        aliases.sort_by_key(|binding| binding.0);
+        for binding in aliases {
+            emitter.try_preview_alias_reference(binding, false)?;
+            emitter.try_preview_alias_reference(binding, true)?;
         }
         Ok(emitter)
     }
@@ -1606,6 +1626,13 @@ impl<'a> Emitter<'a> {
     }
 
     fn payload_ref(&self, slot: &Slot, mutable: bool) -> String {
+        if let Some(binding) = self.active_preview_aliases.iter().find(|binding| {
+            self.bindings
+                .get(binding)
+                .is_some_and(|index| std::ptr::eq(&self.slots[*index], slot))
+        }) {
+            return self.preview_alias_reference(*binding, mutable);
+        }
         if let Some(region) = &slot.words {
             let ty = crate::type_source(&slot.ty);
             return format!(
@@ -1620,6 +1647,75 @@ impl<'a> Emitter<'a> {
             Self::slot_ref(slot, mutable),
             slot.full
         )
+    }
+
+    fn preview_alias_reference(&self, binding: BindingId, mutable: bool) -> String {
+        self.try_preview_alias_reference(binding, mutable)
+            .expect("stationary alias projection validated before emission")
+    }
+
+    fn try_preview_alias_reference(
+        &self,
+        binding: BindingId,
+        mutable: bool,
+    ) -> Result<String, Error> {
+        let error = |message| Error {
+            message,
+            span: self.function.graph.bindings[binding.0]
+                .span
+                .unwrap_or(self.function.source.function.span),
+        };
+        let pattern = &self.preview_aliases.patterns[&binding];
+        let names = pattern
+            .bindings
+            .iter()
+            .map(|binding| (*binding, self.fresh("preview-alias")))
+            .collect::<HashMap<_, _>>();
+        let bindings = names
+            .iter()
+            .map(|(binding, name)| {
+                (
+                    name.clone(),
+                    self.function.graph.bindings[binding.0].ty.clone(),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let aliases = names.values().cloned().collect::<HashSet<_>>();
+        // For alias leaves this map only marks the exclusive projection path;
+        // preview_with_aliases returns the reference before consulting helpers.
+        // No identity call (and no owned aggregate read) is emitted here.
+        let lenders = if mutable {
+            HashMap::from([(names[&binding].clone(), (String::new(), String::new()))])
+        } else {
+            HashMap::new()
+        };
+        let source = crate::parse(&self.pattern_source(pattern, &names)?)
+            .map_err(|failure| error(failure.to_string()))?
+            .remove(0)
+            .expr;
+        let owner = &self.slots[*self
+            .values
+            .get(&pattern.scrutinee)
+            .ok_or_else(|| error("stationary alias scrutinee has no owning cell".into()))?];
+        let reference = crate::parse(&self.payload_ref(owner, mutable))
+            .map_err(|failure| error(failure.to_string()))?
+            .remove(0)
+            .expr;
+        let projected = crate::generator::async_pattern::preview_with_aliases(
+            &self.planning.declarations,
+            &source,
+            &self.function.graph.values[pattern.scrutinee.0].ty,
+            reference,
+            &bindings,
+            &lenders,
+            &aliases,
+        )
+        .map_err(error)?;
+        let (_, reference) = projected
+            .into_iter()
+            .find(|(name, _)| name == &names[&binding])
+            .ok_or_else(|| error("stationary alias binding has no projection".into()))?;
+        crate::expression_source(&reference).map_err(error)
     }
 
     fn word_buffers(&self) -> Vec<&WordRegion> {
@@ -2121,6 +2217,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn aggregate_field(&self, descriptor: &PlaceDescriptor) -> Option<&AggregateField> {
+        if matches!(descriptor.root, AddressRoot::Local(binding)
+            if self.active_preview_aliases.contains(&binding))
+        {
+            return None;
+        }
         let AddressRoot::Local(binding) = descriptor.root else {
             return None;
         };
@@ -2249,6 +2350,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn aggregate_exact_field(&self, descriptor: &PlaceDescriptor) -> Option<&AggregateField> {
+        if matches!(descriptor.root, AddressRoot::Local(binding)
+            if self.active_preview_aliases.contains(&binding))
+        {
+            return None;
+        }
         self.aggregate_field(descriptor)
             .filter(|field| field.path.len() == descriptor.projections.len())
     }
@@ -2274,6 +2380,11 @@ impl<'a> Emitter<'a> {
         &self,
         descriptor: &PlaceDescriptor,
     ) -> Option<(&Aggregate, Vec<crate::typed_ir::FieldId>)> {
+        if matches!(descriptor.root, AddressRoot::Local(binding)
+            if self.active_preview_aliases.contains(&binding))
+        {
+            return None;
+        }
         let AddressRoot::Local(binding) = descriptor.root else {
             return None;
         };
@@ -2420,6 +2531,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn clear_binding(&self, binding: BindingId) -> String {
+        if self.active_preview_aliases.contains(&binding) {
+            return String::new();
+        }
         if let Some(aggregate) = self.aggregates.get(&binding) {
             return aggregate
                 .cells()
@@ -2670,6 +2784,11 @@ impl<'a> Emitter<'a> {
                 let mut bindings = HashMap::new();
                 let mut lenders = HashMap::new();
                 for &binding in &pattern.bindings {
+                    if self.preview_aliases.patterns.contains_key(&binding) {
+                        names.insert(binding, self.fresh("guard-alias"));
+                        self.active_preview_aliases.insert(binding);
+                        continue;
+                    }
                     let ty = &self.function.graph.bindings[binding.0].ty;
                     let exclusive = matches!(
                         crate::typed_ir::resolve_type(ty, &self.planning.declarations.aliases),
@@ -3248,6 +3367,9 @@ impl<'a> Emitter<'a> {
         let AddressRoot::Local(binding) = descriptor.root else {
             return Ok(None);
         };
+        if self.active_preview_aliases.contains(&binding) {
+            return Ok(None);
+        }
         let Some(root) = self.bindings.get(&binding).map(|slot| &self.slots[*slot]) else {
             return Ok(None);
         };
@@ -3398,7 +3520,8 @@ impl<'a> Emitter<'a> {
 
     fn is_word_place(&self, id: PlaceId) -> bool {
         matches!(self.function.graph.places[id.0].root, AddressRoot::Local(binding)
-            if self.bindings.get(&binding).is_some_and(|slot| self.slots[*slot].words.is_some()))
+            if !self.active_preview_aliases.contains(&binding)
+                && self.bindings.get(&binding).is_some_and(|slot| self.slots[*slot].words.is_some()))
     }
 
     fn owned_projection_address(
@@ -3418,11 +3541,19 @@ impl<'a> Emitter<'a> {
             .bindings
             .get(&binding)
             .ok_or_else(|| reject("projected owner has no owning cell"))?];
-        let part = self.aggregate_field(descriptor);
+        let part = if self.active_preview_aliases.contains(&binding) {
+            None
+        } else {
+            self.aggregate_field(descriptor)
+        };
         let (slot, skip) = part.map_or((root_slot, 0), |field| {
             (&self.slots[field.slot], field.path.len())
         });
-        if part.is_none() && self.aggregates.contains_key(&binding) && root_slot.words.is_none() {
+        if part.is_none()
+            && self.aggregates.contains_key(&binding)
+            && root_slot.words.is_none()
+            && !self.active_preview_aliases.contains(&binding)
+        {
             return Err(reject(
                 "whole aggregate borrowing requires contiguous owning storage",
             ));
@@ -3794,7 +3925,7 @@ impl<'a> Emitter<'a> {
         if self.is_word_place(borrow.place) || self.aggregate_field(descriptor).is_some() {
             return self.aggregate_borrow(borrow.place, borrow.mutable, false);
         }
-        if matches!(descriptor.root, AddressRoot::Local(binding) if self.aggregates.contains_key(&binding) && self.slots[self.bindings[&binding]].words.is_none())
+        if matches!(descriptor.root, AddressRoot::Local(binding) if !self.active_preview_aliases.contains(&binding) && self.aggregates.contains_key(&binding) && self.slots[self.bindings[&binding]].words.is_none())
         {
             return Err(fail(
                 self.function,
@@ -3872,7 +4003,7 @@ impl<'a> Emitter<'a> {
                 let value = self.aggregate_borrow(place, mutable, pinned)?;
                 return Ok(self.put(dst, &value));
             }
-            if matches!(descriptor.root, AddressRoot::Local(binding) if self.aggregates.contains_key(&binding) && self.slots[self.bindings[&binding]].words.is_none())
+            if matches!(descriptor.root, AddressRoot::Local(binding) if !self.active_preview_aliases.contains(&binding) && self.aggregates.contains_key(&binding) && self.slots[self.bindings[&binding]].words.is_none())
             {
                 return Err(fail(
                     self.function,
@@ -4056,6 +4187,7 @@ impl<'a> Emitter<'a> {
         let state = self.current_state;
         let trace = self.occupancy_trace.borrow_mut().take();
         let current = self.physical_current.borrow_mut().take();
+        let aliases = self.active_preview_aliases.clone();
         let result = self.trace_physical_occupancy();
         *self.reserved.borrow_mut() = reserved;
         self.next.set(next);
@@ -4066,6 +4198,7 @@ impl<'a> Emitter<'a> {
         self.current_state = state;
         *self.occupancy_trace.borrow_mut() = trace;
         *self.physical_current.borrow_mut() = current;
+        self.active_preview_aliases = aliases;
         result
     }
 
@@ -4083,6 +4216,7 @@ impl<'a> Emitter<'a> {
             }
             pending.extend(graph.successors(block));
             probe.current_state = block.0;
+            probe.active_preview_aliases = probe.preview_aliases.entry[block.0].clone();
             *probe.occupancy_trace.borrow_mut() = Some(OccupancyTrace::default());
             probe.clear_addresses(&probe.address_retirement.as_ref().unwrap().entry[block.0]);
             let retired = probe
@@ -4858,7 +4992,9 @@ impl<'a> Emitter<'a> {
                 let Some(slot) = self.bindings.get(&binding) else {
                     return Ok(self.put_value(*dst, "()"));
                 };
-                if self.aggregates.contains_key(&binding) {
+                if self.aggregates.contains_key(&binding)
+                    && !self.active_preview_aliases.contains(&binding)
+                {
                     if *kind == LoadKind::Clone {
                         let read = self.clone_aggregate(binding, &[])?;
                         return Ok(self.put_value(*dst, &read));
@@ -5258,13 +5394,24 @@ impl<'a> Emitter<'a> {
                 "borrow/address tokens must retain their checked lifetime and ownership mode",
             )),
             Action::Preview(pattern) => self.pattern_bind(pattern, false),
-            Action::Commit(pattern) => self.pattern_bind(pattern, true),
-            Action::EndPreview(pattern) => Ok(pattern
-                .bindings
-                .iter()
-                .map(|binding| self.clear_binding(*binding))
-                .collect::<Vec<_>>()
-                .join("\n")),
+            Action::Commit(pattern) => {
+                for binding in &pattern.bindings {
+                    self.active_preview_aliases.remove(binding);
+                }
+                self.pattern_bind(pattern, true)
+            }
+            Action::EndPreview(pattern) => {
+                let result = pattern
+                    .bindings
+                    .iter()
+                    .map(|binding| self.clear_binding(*binding))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                for binding in &pattern.bindings {
+                    self.active_preview_aliases.remove(binding);
+                }
+                Ok(result)
+            }
         }
     }
 
@@ -6307,6 +6454,7 @@ impl<'a> Emitter<'a> {
             *self.physical_current.borrow_mut() =
                 Some(before[before.len() - self.slots.len()..].to_vec());
             let index = self.initialization.as_ref().unwrap().states[state].block;
+            self.active_preview_aliases = self.preview_aliases.entry[index].clone();
             let block = &graph.blocks[index];
             let mut actions = Vec::new();
             actions.push(
@@ -6739,6 +6887,60 @@ mod selected_address_snapshots;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linear_guard_aliases_never_initialize_preview_owner_cells() {
+        let function = "(#fn work (: source (#ref #u64)) #u64
+          (#let holder Holder (Holding (#struct-literal View (: value source))))
+          (#return (#match holder
+            (#case (Holding view)
+              (#when (#u64.==
+                (#await Child ChildPending ChildReady child-poll (Start 0u64))
+                (#deref (#get (#borrow view) value))))
+              (#block (#forget view) 42u64))
+            (#case (Holding other) (#block (#forget other) 42u64)))))";
+        let planning = prepare_generator(
+            "#async-fn-pinned",
+            function,
+            "(#struct View (: value (#ref #u64))) (#linear View)
+             (#enum Holder ((Holding View))) (#linear Holder)",
+        );
+        let mut emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let binding = *emitter.preview_aliases.patterns.keys().next().unwrap();
+        let slot = emitter.bindings[&binding];
+        let traces = emitter.physical_occupancy().unwrap();
+        let graph = &planning.functions[0].graph;
+        let preview = graph
+            .blocks
+            .iter()
+            .position(|block| {
+                block.actions.iter().any(|action| {
+                    matches!(&action.action, Action::Preview(pattern)
+                if pattern.bindings.contains(&binding))
+                })
+            })
+            .unwrap();
+        assert!(!traces[preview].writes.contains(&(slot, true)));
+        let commit = graph
+            .blocks
+            .iter()
+            .position(|block| {
+                block.actions.iter().any(|action| {
+                    matches!(&action.action, Action::Commit(pattern)
+                if pattern.bindings.contains(&binding))
+                })
+            })
+            .unwrap();
+        assert!(traces[commit].writes.contains(&(slot, true)));
+        assert!(emitter.active_preview_aliases.is_empty());
+        let actual = emitter.emit().unwrap();
+        let expected = Emitter::new(&planning, &planning.functions[0])
+            .unwrap()
+            .emit()
+            .unwrap();
+        assert_eq!(actual.source, expected.source);
+        crate::CheckedProgram::validate_with_span(&program(&planning, &[actual]).unwrap()).unwrap();
+    }
     use std::{
         fs,
         process::Command,

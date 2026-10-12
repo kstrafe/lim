@@ -703,15 +703,46 @@ storage: using a pointer does not exempt a live handle from the boundary proof.
 
 ## 4. One implementation and cancellation interface
 
-The follow-up guard audit now includes permanent negative regressions for
-linear reference-bearing aggregate preview bindings and payload-binding
-alternative patterns. The first fixture borrows the payload during preview
-and explicitly consumes it in each selected arm, so the rejection isolates
-the emitter's missing stationary aggregate alias rather than a source move
-violation. The second is forbidden by the ordinary source language itself;
-supporting it is not an async lowering obligation. Both errors retain source
-spans and publish no generated cache files. Linear aggregate preview aliases
-remain an implementation task, not completed guard support.
+Linear aggregate previews now project the retained scrutinee rather than
+initializing a second owning payload cell. `async_preview_alias` tracks preview
+activation and retirement through checked graph edges. A join with inconsistent
+alias lifetimes is rejected. Guard reads and borrows address the actual payload;
+commit retires the alias before transferring the owner. Rejection merely ends
+the preview. These are compile-time facts, not runtime initialization flags.
+Projection shapes are checked before emission, with binding source spans on
+failure. Physical occupancy tracing restores alias state along with its other
+rendering scratch.
+
+Cold/warm and independent ordinary-code native tests cover linear shared-reference
+payload acceptance, rejection, cancellation and repeated cleanup, plus a whole
+payload borrow created before suspension and read afterwards. Mutating the
+external lender while the guard is suspended remains rejected at the original
+`#set` token without cache publication. Movable frames inspect the retained
+payload directly during poll. An occupancy regression requires that preview
+does not initialize the future arm's owning cell, commit does initialize it,
+and tracing leaves byte-identical generated output.
+
+The positive exclusive-reference aggregate helper-lending reproducer remains
+an explicitly ignored completion gate: ordinary emitted-program inference
+rejects unresolved call inputs. Direct non-Copy reference-field loads also
+still require lending storage. Neither failure is waived by an async-specific
+borrow-checker rule; this part of guard support remains unfinished. A plain
+whole-aggregate immediate borrow in a movable frame also exposed missing
+ordinary slot provenance and remains separate from the passing direct-field
+inspection case. Payload-binding alternative patterns are forbidden by the
+ordinary source language and retain negative publication/span coverage;
+supporting them is not an async lowering obligation.
+
+Verification for this increment: 1,398 library tests pass (eight existing
+ignored tests), and graph-production has 39 passing tests with the one explicit
+exclusive-aggregate completion gate ignored. Running that gate separately
+still fails as documented above; it is not part of the passing count. The
+contiguous, dependent-cancellation, dynamic-array, boundary and self-borrow
+integration suites pass, along with the standalone occupancy parity test,
+all-target checking and formatting/whitespace checks. A bounded alias-lifetime
+audit found no leaked activation or ownership-cell redirection in nested
+preview, commit, rejection or probe paths. Reference-bearing contiguous storage
+and the unresolved ordinary lending contracts remain unfinished.
 
 Production routes only through original-body graph planning and emission.
 Graph lowering is the default; `async-lowering=legacy` is rejected. The old

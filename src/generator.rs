@@ -84,6 +84,7 @@ pub(crate) mod async_lend;
 pub(crate) mod async_owner;
 pub(crate) mod async_pattern;
 pub(crate) mod async_prepare;
+pub(crate) mod async_preview_alias;
 pub(crate) mod async_projection;
 pub(crate) mod async_render;
 pub(crate) mod async_retire;

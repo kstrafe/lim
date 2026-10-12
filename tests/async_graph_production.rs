@@ -447,8 +447,34 @@ fn copy_reference_aggregate_guard_retains_nested_referents_across_rejection() {
 }
 
 #[test]
-fn linear_reference_aggregate_guard_rejects_unsupported_preview_aliases() {
-    let source = aggregate_reference_guard_source()
+fn linear_reference_aggregate_guard_lends_stationary_preview_aliases() {
+    run(
+        &linear_reference_guard_source(),
+        "async-graph-linear-reference-guard",
+    );
+}
+
+#[test]
+#[ignore = "completion gate: ordinary referent contracts lose exclusive aggregate alias call inputs"]
+fn linear_exclusive_reference_aggregate_guard_lends_without_copying_the_handle() {
+    let source = exclusive_reference_guard_source(&linear_reference_guard_source())
+        .replace(
+            "View ((value (#ref #u64)))",
+            "View ((value (#ref-mut #u64)))",
+        )
+        .replace(
+            "(#deref (#get (#borrow view) value))",
+            "(#call read-view (: view (#borrow view)))",
+        );
+    let source = format!(
+        "{source}\n(#fn read-view (: view (#ref View)) #u64
+      (#return (#deref (#get view value))))"
+    );
+    run(&source, "async-linear-exclusive-guard");
+}
+
+fn linear_reference_guard_source() -> String {
+    aggregate_reference_guard_source()
         .replace(
             "(#struct View ((value (#ref #u64))))",
             "(#struct View ((value (#ref #u64)))) (#linear View)",
@@ -464,8 +490,75 @@ fn linear_reference_aggregate_guard_rejects_unsupported_preview_aliases() {
              (#forget view)\n\
              (#await Child ChildPending ChildReady child-poll (Start amount)))",
         )
-        .replace("(#get view value)", "(#get (#borrow view) value)");
-    let scratch = support::Scratch::new("async-graph-linear-reference-guard");
+        .replace("(#get view value)", "(#get (#borrow view) value)")
+}
+
+#[test]
+fn linear_reference_guard_acceptance_consumes_only_the_selected_payload() {
+    let source = linear_reference_guard_source();
+    let main = source.find("(#fn main").unwrap();
+    let source = format!(
+        "{}\n(#fn main () #u64
+      (#let waker #u64 0u64) (#let owner #u64 0u64)
+      (#let-mut frame Work-frame (#call work (: source (#borrow owner))))
+      (#let-else (work-pending next) Work-poll-result
+        (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker)))
+        (#unreachable))
+      (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+        (#case (work-ready value) value)
+        (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+      (#forget frame) (#return answer))",
+        &source[..main]
+    );
+    run_expected(&source, "async-linear-guard-accept", 0);
+}
+
+#[test]
+fn linear_guard_whole_payload_borrow_survives_suspension_before_preview_read() {
+    let source = linear_reference_guard_source().replace(
+        "(#when (#u64.==\n          (#await Child ChildPending ChildReady child-poll (Start 0u64))\n          (#deref (#get (#borrow view) value))))",
+        "(#when (#block
+          (#let guard-view (#ref View) (#borrow view))
+          (#let decision #bool (#u64.==
+            (#await Child ChildPending ChildReady child-poll (Start 0u64))
+            (#deref (#get guard-view value))))
+          (#forget guard-view) decision))",
+    );
+    assert!(source.contains("(#let guard-view"));
+    run(&source, "async-linear-whole-preview-borrow");
+}
+
+#[test]
+fn movable_linear_guard_borrows_the_retained_payload_only_during_poll() {
+    let source =
+        linear_reference_guard_source().replace("(#get (#borrow view) value)", "(#get view value)");
+    let declarations =
+        source[..source.find("(#fn main").unwrap()].replace("@#async-fn-pinned", "@#async-fn");
+    let source = format!(
+        "{declarations}
+      (#fn main () #u64
+        (#let waker #u64 0u64) (#let owner #u64 42u64)
+        (#let-else (work-pending next) Work-poll-result
+          (#call work-poll (: task (#call work (: source (#borrow owner)))
+            : waker (#borrow waker))) (#unreachable))
+        (#let-else (work-pending last) Work-poll-result
+          (#call work-poll (: task next : waker (#borrow waker))) (#unreachable))
+        (#return (#match (#call work-poll (: task last : waker (#borrow waker)))
+          (#case (work-ready answer) answer)
+          (#case (work-pending bad) (#block (#forget bad) (#unreachable))))))"
+    );
+    run(&source, "async-movable-linear-guard");
+}
+
+#[test]
+fn suspended_linear_reference_guard_keeps_the_callers_referent_borrowed() {
+    let source = linear_reference_guard_source()
+        .replace("(#let owner #u64", "(#let-mut owner #u64")
+        .replace(
+            "(#let second Work-poll-result",
+            "(#set owner 99u64)\n(#let second Work-poll-result",
+        );
+    let scratch = support::Scratch::new("async-linear-guard-conflict");
     let error = lim::compile_source_to_assembly(
         &source,
         &scratch.path().join("input.lim"),
@@ -473,12 +566,32 @@ fn linear_reference_aggregate_guard_rejects_unsupported_preview_aliases() {
         &scratch.path().join("cache"),
         lim::TargetDescription::X86_64_SYSTEM_V,
     )
-    .expect_err("linear aggregate previews need stationary aliases, not copies");
-    assert!(error
-        .message
-        .contains("move-only guard bindings require stationary storage aliases"));
-    assert!(error.span.is_some(), "{error:?}");
+    .expect_err("the retained linear preview cannot release its external loan");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&source[span.start..span.end], "#set");
+    assert_eq!(span.start, source.find("#set owner").unwrap());
     assert!(!scratch.path().join("cache").exists());
+}
+
+#[test]
+fn linear_reference_guard_cancellation_reads_and_releases_the_retained_owner() {
+    let source = linear_reference_guard_source();
+    let declarations = format!(
+        "{}\n
+      (#fn cancel-holder (: holder Holder) ()
+        (#match holder (#case (Holding held)
+          (#block (#assert (#u64.== (#deref (#get (#borrow held) value)) 42u64))
+            (#forget held) ())))
+        (#return ()))",
+        &source[..source.find("(#fn main").unwrap()]
+    )
+    .replace(
+        ": function (#fn work",
+        ": cancel (work-cancel ((source-expression-17 cancel-holder)
+               (await-0 cancel-child) (await-1 cancel-child)))\n: function (#fn work",
+    );
+    run_guard_cancellation_matrix(&declarations, "async-linear-guard-cancel");
 }
 
 #[test]

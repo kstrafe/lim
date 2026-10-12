@@ -203,8 +203,9 @@ pub(crate) fn test(
 
 /// Snapshot only checked repeatable guard bindings authorized by the emitter.
 /// Shared reference leaves retain their ordinary pointee loans. The scrutinee
-/// remains in its stationary cell until the arm commits. Move-only aliases and
-/// alternative-pattern bindings are not allowed by the ordinary language.
+/// remains in its stationary cell until the arm commits. Stationary aggregate
+/// aliases return a projection, never an owned read. Alternative-pattern
+/// bindings are not allowed by the ordinary language.
 pub(crate) fn preview(
     declarations: &Declarations,
     pattern: &Expr,
@@ -213,11 +214,34 @@ pub(crate) fn preview(
     bindings: &std::collections::HashMap<String, Type>,
     lenders: &std::collections::HashMap<String, (String, String)>,
 ) -> Result<Vec<(String, Expr)>, String> {
+    preview_with_aliases(
+        declarations,
+        pattern,
+        ty,
+        reference,
+        bindings,
+        lenders,
+        &HashSet::new(),
+    )
+}
+
+pub(crate) fn preview_with_aliases(
+    declarations: &Declarations,
+    pattern: &Expr,
+    ty: &Type,
+    reference: Expr,
+    bindings: &std::collections::HashMap<String, Type>,
+    lenders: &std::collections::HashMap<String, (String, String)>,
+    aliases: &HashSet<String>,
+) -> Result<Vec<(String, Expr)>, String> {
     let ty = crate::typed_ir::resolve_type(ty, &declarations.aliases)?;
     if let Expr::Symbol(name) = pattern {
         if let Some(expected) = bindings.get(name) {
             if crate::typed_ir::resolve_type(expected, &declarations.aliases)? != ty {
                 return Err("stationary guard binding changed its checked type".into());
+            }
+            if aliases.contains(name) {
+                return Ok(vec![(name.clone(), reference)]);
             }
             let value = form("#deref", [reference]);
             let value = if let Some((helper, argument)) = lenders.get(name) {
@@ -252,13 +276,14 @@ pub(crate) fn preview(
         // Ordinary enum alternatives cannot bind values. PatternTest already
         // checked their shape: preview must not read any rejected payload.
         for alternative in &parts[1..] {
-            if !preview(
+            if !preview_with_aliases(
                 declarations,
                 alternative,
                 &ty,
                 reference.clone(),
                 bindings,
                 lenders,
+                aliases,
             )?
             .is_empty()
             {
@@ -373,13 +398,14 @@ pub(crate) fn preview(
     }
     let mut result = Vec::new();
     for (nested, (ty, reference)) in parts[1..].iter().zip(fields) {
-        result.extend(preview(
+        result.extend(preview_with_aliases(
             declarations,
             nested,
             &ty,
             reference,
             bindings,
             lenders,
+            aliases,
         )?);
     }
     Ok(result)
