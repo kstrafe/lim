@@ -1432,3 +1432,38 @@ has the primary pinned address capability. The two overlapping-input failures
 retain the original numeric input and destructured exclusive field together
 across execution states. Resolving these contracts must not fabricate missing
 reference contents or permit two coexisting exclusive handles.
+
+### Concrete scalar anchors versus retained frame loans
+
+The next lowering experiment isolates the previously missing second-poll loan.
+Its owner is initialized with a reference to the frame's stationary scalar seed.
+The emitted reference recovery used an opaque saved-pointer conversion, so the
+exported owner-word store retained only a lifetime anchor. The caller's next
+typed word read correctly refused to interpret that anchor as a concrete loan.
+This is more specific than a missing execution-state predicate: the callee's
+store source itself lacked usable pointee provenance.
+
+For a single statically selected local `#u64` referent, the experiment borrows
+the actual numeric backing element. An ordinary reference is recovered through
+an exact `#ref-ptr` round trip from that borrowed element, not by trusting the
+saved raw pointer. No ordinary checker rule changes, synthetic word-input loans,
+runtime initialization flags, or generated-name exemptions are involved.
+Pinned reference recovery, dynamic coordinates, multiple possible owners and
+external referents retain their pointer-selection protocol. The backing `#u64`
+address projection itself is also used by other anchor consumers.
+
+The shared/external and internal-reference owner source regression now passes.
+A new native repeated-poll regression reads the seed through a reference inside
+an owner and returns 42 after suspension. The experimental library run has
+1,412 passes, two overlapping-exclusive-input failures and eight ignored tests.
+All seventeen contiguous-storage and 26 self-borrow integrations pass.
+
+The wider cancellation gate contradicts readiness to ship this change: three of
+fourteen dependent-cancellation integrations reject reacquiring or releasing a
+parent frame after dropping its returned continuation. Concrete retained loans
+now expose a self-borrow through the stored generated child. Restricting direct
+reference recovery to unpinned results does not remove these failures; merely
+changing the pinned result branch is not a solution. The next work must resolve
+the stored child's loan retirement and parent access contracts, while retaining
+the actual slot provenance required by the repeated-poll word read. Both the
+whole-holder conversion and concrete-anchor lowering remain uncommitted.
