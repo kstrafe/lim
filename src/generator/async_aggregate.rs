@@ -65,6 +65,14 @@ pub(crate) fn layouts(
             _ => continue,
         };
         let descriptor = &graph.places[place.0];
+        if matches!(located.action, Action::Release { .. })
+            && types.can_repeat(&descriptor.ty)
+            && !types.contains_reference(&descriptor.ty)
+        {
+            // Releasing a plain Copy projection discards a copy. It neither
+            // empties a field nor requires split owning storage.
+            continue;
+        }
         if let (AddressRoot::Local(binding), Some(AddressProjection::Field(_))) =
             (&descriptor.root, descriptor.projections.first())
         {

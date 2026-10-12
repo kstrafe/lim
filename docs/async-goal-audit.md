@@ -28,15 +28,31 @@ an option. Native address recipes must also respect actual stack versus
 heap/global layouts. Casting an untagged address to an ascending payload is not
 valid for descending stack storage, even when the frame is pinned.
 
-The first implementation step separates compile-time initialization analysis
-from cell emission. `async_initialization.rs` computes must/may facts at block
-entry and exit, with no runtime state writes. Production projected-access
-validation uses its definite facts. Tests cover partial moves and restoration,
-conditional joins, unreachable blocks, loops and parity with the old definite
-solver across 256 cyclic graphs. Existing Empty/Full cells and their runtime
-operations have not yet been replaced; contiguous unsafe payload lowering and
-state-specific partial cancellation remain required follow-up work.
-Verification: all 1,374 library tests pass with seven existing ignored tests;
+Initialization analysis is separate from cell emission. Production now
+specializes the dispatcher by `(source block, exact source initialization)`.
+Distinct incoming field histories remain distinct states; both Ready and
+Pending edges write the corresponding specialized PC. No runtime initialization
+bitset is added. Construction enters state zero, and loops deduplicate recurring
+histories instead of unrolling iterations. Every specialized state's projected
+accesses are checked against its own initialization facts.
+
+Specialization is deterministic and capped at 16,384 states; exceeding the cap
+reports an error at the invocation, rather than silently merging incompatible
+histories. The former must/may solver remains a test-only independent oracle:
+intersecting/unioning exact states agrees with it across 256 cyclic graphs.
+Tests also cover correlated fields, unreachable blocks, loops, invalid domains,
+state-budget exhaustion, and native branch/resume execution.
+The audit also corrected reference-free Copy release: `#forget`/`#drop` now
+discard a read copy without emptying the source cell or its initialization
+fact. Copy field release no longer forces aggregate decomposition. Native
+regressions verify subsequent borrowing/field reads and resumed values.
+
+This domain currently describes source bindings, decomposed fields and nominal
+shell obligations. It is not yet an exact occupancy proof for every temporary,
+address and retired reference cell. Existing Empty/Full cells and their runtime
+operations have not yet been replaced; contiguous payload lowering, complete
+physical occupancy and state-specific partial cancellation remain required.
+Earlier verification: all 1,374 library tests pass with seven existing ignored tests;
 23 cancellation, standalone generated-boundary, adversarial and UI integration
 tests pass. All-target and whitespace checks pass. A raw-address prototype was
 discarded after native testing exposed its incorrect stack-layout assumption;
@@ -192,7 +208,7 @@ explicitly unsafe functions called from generated unsafe blocks. Original
 source validation still runs on cold and warm expansion. Generated frames
 are opaque so safe clients cannot modify the fields that establish this proof.
 Empty/Full cell tags, guarded transfers and conditional cleanup still exist:
-this step does not complete contiguous payload storage or state specialization.
+that step did not complete contiguous payload storage or state specialization.
 
 Deep scalar borrows within independently stored aggregate leaves now lower to
 references rooted in their actual field cells. Field/tuple/static-index/runtime-

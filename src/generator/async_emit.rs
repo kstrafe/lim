@@ -144,6 +144,8 @@ struct Emitter<'a> {
     addresses: HashMap<PlaceId, usize>,
     owned_indices: HashMap<PlaceId, Vec<OwnedIndex>>,
     address_retirement: Option<crate::generator::async_addresses::Plan>,
+    initialization: Option<crate::generator::async_initialization::Specialization>,
+    current_state: usize,
 }
 
 fn atom(name: &str) -> Expr {
@@ -257,6 +259,8 @@ impl<'a> Emitter<'a> {
             scopes: HashMap::new(),
             reserved: RefCell::new(reserved),
             next: Cell::new(0),
+            initialization: None,
+            current_state: 0,
             types,
             render: crate::generator::async_render::RenderContext::new(
                 body,
@@ -3177,31 +3181,15 @@ impl<'a> Emitter<'a> {
         ))
     }
 
-    /// Verify representation, not ownership. A split owner has independent
-    /// field tags; reconstructing it requires every field, while restoring one
-    /// field must not require unrelated fields to be Full. Unsplit owners keep
-    /// their existing whole-cell proof. Source validation remains mandatory.
-    fn check_owned_cells(&self) -> Result<(), Error> {
+    /// Specialize source initialization histories and verify projected access
+    /// in each history. Reconstructing an owner requires every field; restoring
+    /// one field does not require unrelated fields to be Full. This is not yet
+    /// an occupancy proof for every physical temporary/reference cell. Source
+    /// ownership and loan validation remain mandatory.
+    fn check_owned_cells(
+        &self,
+    ) -> Result<crate::generator::async_initialization::Specialization, Error> {
         let graph = &self.function.graph;
-        let whole_owner_borrow =
-            graph
-                .blocks
-                .iter()
-                .flat_map(|block| &block.actions)
-                .any(|located| {
-                    matches!(located.action, Action::Borrow { place, .. }
-                if matches!(graph.places[place.0].root, AddressRoot::Local(_)))
-                });
-        if !whole_owner_borrow
-            && !graph.places.iter().any(|descriptor| {
-                matches!(descriptor.root, AddressRoot::Local(_))
-                    && !descriptor.projections.is_empty()
-            })
-        {
-            return Ok(());
-        }
-        let mut live = graph.reachable().into_iter().collect::<Vec<_>>();
-        live.sort_by_key(|block| block.0);
         let mut field_slots = self
             .aggregates
             .values()
@@ -3247,6 +3235,9 @@ impl<'a> Emitter<'a> {
                         set_binding(full, *binding, false);
                     }
                 }
+                Action::Release { place, .. }
+                    if self.types.can_repeat(&graph.places[place.0].ty)
+                        && !self.types.contains_reference(&graph.places[place.0].ty) => {}
                 Action::Store { place, .. }
                 | Action::Release { place, .. }
                 | Action::Load { place, .. } => {
@@ -3333,23 +3324,21 @@ impl<'a> Emitter<'a> {
                     .collect()
             })
             .collect::<Vec<_>>();
-        let initialization = crate::generator::async_initialization::Analysis::solve(
+        let initialization = crate::generator::async_initialization::Specialization::solve(
             graph.entry.0,
             &successors,
             initial,
+            16_384,
             |block, full| {
                 for located in &graph.blocks[block].actions {
                     transfer(located, full);
                 }
             },
-        );
-        for block in live {
-            let mut full = initialization.before[block.0]
-                .as_ref()
-                .expect("reachable block has initialization facts")
-                .definitely_initialized()
-                .to_vec();
-            for located in &graph.blocks[block.0].actions {
+        )
+        .map_err(|message| fail(self.function, message))?;
+        for state in &initialization.states {
+            let mut full = state.before.clone();
+            for located in &graph.blocks[state.block].actions {
                 let descriptor = match &located.action {
                     Action::Place { descriptor, .. } => Some(descriptor),
                     Action::Load { place, .. }
@@ -3419,7 +3408,7 @@ impl<'a> Emitter<'a> {
                 transfer(located, &mut full);
             }
         }
-        Ok(())
+        Ok(initialization)
     }
 
     fn clone_read(&mut self, ty: &Type, read: &str) -> String {
@@ -4127,6 +4116,30 @@ impl<'a> Emitter<'a> {
                         "nonlocal releases need their checked address representation",
                     ));
                 };
+                if self.types.can_repeat(&descriptor.ty)
+                    && !self.types.contains_reference(&descriptor.ty)
+                {
+                    // Ordinary release of reference-free Copy data discards
+                    // a copy, not the source place. Still perform the read:
+                    // projected/indexed access retains its evaluation/checks.
+                    let value = if descriptor.projections.is_empty() {
+                        self.read_binding(binding, false)
+                    } else if let Some((aggregate, path)) = self.aggregate_subtree(descriptor) {
+                        self.read_aggregate(aggregate, &path, false)
+                    } else if let Some(field) = self.aggregate_exact_field(descriptor) {
+                        self.read(field.slot, false)
+                    } else {
+                        self.owned_projection_place(*place, false)?.0
+                    };
+                    return Ok(format!(
+                        "(#{} {value})",
+                        if *kind == ReleaseKind::Drop {
+                            "drop"
+                        } else {
+                            "forget"
+                        }
+                    ));
+                }
                 if !descriptor.projections.is_empty() {
                     if let Some((aggregate, path)) = self.aggregate_subtree(descriptor) {
                         return Ok(format!(
@@ -4397,7 +4410,7 @@ impl<'a> Emitter<'a> {
             stages.join("\n"),
             self.retire_edge(block, index),
             stores.join("\n"),
-            self.set_pc(edge.target.0 as u32)
+            self.set_pc(self.successor_pc(index)?)
         ))
     }
 
@@ -4406,6 +4419,16 @@ impl<'a> Emitter<'a> {
             "(#{}set-field task pc {pc}u32)",
             if self.pinned { "pin-" } else { "" }
         )
+    }
+
+    fn successor_pc(&self, edge: usize) -> Result<u32, Error> {
+        let target = self
+            .initialization
+            .as_ref()
+            .and_then(|plan| plan.states.get(self.current_state))
+            .and_then(|state| state.successors.get(edge))
+            .ok_or_else(|| fail(self.function, "missing specialized async successor"))?;
+        u32::try_from(*target).map_err(|_| fail(self.function, "async state exceeds #u32 range"))
     }
 
     fn terminal(&mut self, block: BlockId, terminal: &Terminator) -> Result<String, Error> {
@@ -4423,7 +4446,7 @@ impl<'a> Emitter<'a> {
                 site,
                 child,
                 ready,
-                pending,
+                pending: _,
             } => {
                 let protocol = &self.function.model.awaits[*site];
                 let child_value = self.value(*child, true);
@@ -4475,7 +4498,7 @@ impl<'a> Emitter<'a> {
                 Ok(format!("(#let {polled} {} {call})\n\
                   (#match {polled}\n\
                     (#case ({} {next}) (#block {store} {retired} {retired_bindings} {empty} {} (#return ({} {pending_task})) (#unreachable)))\n\
-                    (#case ({} {result}) (#block {edge} (#unreachable))))", crate::type_source(poll_type), protocol.pending, self.set_pc(pending.0 as u32), self.pending, protocol.ready))
+                    (#case ({} {result}) (#block {edge} (#unreachable))))", crate::type_source(poll_type), protocol.pending, self.set_pc(self.successor_pc(1)?), self.pending, protocol.ready))
             }
             Terminator::Return(value) => {
                 let value = value.map_or_else(|| "()".into(), |value| self.value(value, true));
@@ -5136,12 +5159,13 @@ impl<'a> Emitter<'a> {
     }
 
     fn emit(mut self) -> Result<Generated, Error> {
-        self.check_owned_cells()?;
+        self.initialization = Some(self.check_owned_cells()?);
         let graph: &Graph = &self.function.graph;
         let mut cases = Vec::new();
-        let mut live = graph.reachable().into_iter().collect::<Vec<_>>();
-        live.sort_by_key(|block| block.0);
-        for BlockId(index) in live {
+        let count = self.initialization.as_ref().unwrap().states.len();
+        for state in 0..count {
+            self.current_state = state;
+            let index = self.initialization.as_ref().unwrap().states[state].block;
             let block = &graph.blocks[index];
             let mut actions = Vec::new();
             actions.push(
@@ -5225,7 +5249,7 @@ impl<'a> Emitter<'a> {
             }
             let terminal = self.terminal(BlockId(index), &block.terminator)?;
             cases.push(format!(
-                "(#case {index}u32 (#block {} {terminal} (#unreachable)))",
+                "(#case {state}u32 (#block {} {terminal} (#unreachable)))",
                 actions.join("\n")
             ));
         }
@@ -5382,7 +5406,7 @@ impl<'a> Emitter<'a> {
             self.frame,
             factory_captures.join("\n"),
             self.frame,
-            graph.entry.0,
+            0,
             initial.join(" "),
             self.finish,
             self.frame,
@@ -5653,6 +5677,77 @@ mod tests {
     fn runtime(body: &str, main: &str, expected: i32) -> Vec<Generated> {
         let planning = prepare(body, main);
         runtime_planned(planning, expected)
+    }
+
+    #[test]
+    fn dispatcher_specializes_different_initialization_histories_and_resumes_both() {
+        let function = "(#fn work (: seed #u64 : choose #bool) #u64
+          (#let owner #u64 seed)
+          (#let view (#ref #u64) (#borrow owner))
+          (#if choose (#forget view) ())
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#return (#u64.+.wrap owner extra)))";
+        for choose in ["true", "false"] {
+            let main = format!(
+                "(#fn main () #u64
+              (#let waker #u64 0u64)
+              (#let-mut task Work-frame (#call work (: seed 42u64 : choose {choose})))
+              (#let first Work-poll-result (#call work-poll
+                (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+              (#let-else (work-pending next) Work-poll-result first (#unreachable))
+              (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+                (#case (work-ready value) value)
+                (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+              (#forget task) (#return answer))"
+            );
+            let planning = prepare_generator("#async-fn-pinned", function, &main);
+            let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+            let specialized = emitter.check_owned_cells().unwrap();
+            let view = planning.functions[0]
+                .graph
+                .bindings
+                .iter()
+                .position(|binding| binding.name == "view")
+                .unwrap();
+            assert!(specialized.states.iter().any(|left| {
+                specialized.states.iter().any(|right| {
+                    left.block == right.block && left.before[view] != right.before[view]
+                })
+            }));
+            let generated = runtime_planned(planning, 42);
+            assert!(!generated[0].source.contains("initialization-bits"));
+        }
+    }
+
+    #[test]
+    fn plain_copy_release_preserves_initialized_source_storage_across_pending() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let owner #u64 seed) (#forget owner)
+          (#let view (#ref #u64) (#borrow owner))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#return (#u64.+.wrap (#deref view) extra)))";
+        let main = "(#fn main () #u64
+          (#let waker #u64 0u64)
+          (#let-mut task Work-frame (#call work (: seed 42u64)))
+          (#let-else (work-pending next) Work-poll-result (#call work-poll
+            (: task (#pin-borrow-mut task) : waker (#borrow waker))) (#unreachable))
+          (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+            (#case (work-ready value) value)
+            (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+          (#forget task) (#return answer))";
+        runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
+        let projected = function.replace(
+            "(#let owner #u64 seed) (#forget owner)",
+            "(#let pair Pair (#struct-literal Pair (: left seed : right 0u64)))
+             (#forget (#get pair left)) (#let owner #u64 (#get pair left)) (#forget pair)",
+        );
+        let projected_main = format!("(#struct Pair (: left #u64 : right #u64))\n{main}");
+        let planning = prepare_generator("#async-fn-pinned", &projected, &projected_main);
+        assert!(Emitter::new(&planning, &planning.functions[0])
+            .unwrap()
+            .aggregates
+            .is_empty());
+        runtime_planned(planning, 42);
     }
 
     #[test]

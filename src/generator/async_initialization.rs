@@ -4,6 +4,93 @@
 //! Conditional facts require state specialization before unchecked access;
 //! they must never be silently interpreted as initialized storage.
 
+use std::collections::HashMap;
+
+/// One dispatcher state with an exact initialization history. Two histories
+/// at the same source block are intentionally not joined. The dispatcher PC
+/// can therefore identify initialized fields without an additional bitset.
+#[derive(Debug)]
+pub(crate) struct SpecializedState {
+    pub(crate) block: usize,
+    pub(crate) before: Vec<bool>,
+    pub(crate) after: Vec<bool>,
+    /// In the source graph's successor order (including Pending retries).
+    pub(crate) successors: Vec<usize>,
+}
+
+#[derive(Debug)]
+pub(crate) struct Specialization {
+    /// Deterministic breadth-first order; state zero is the constructor entry.
+    pub(crate) states: Vec<SpecializedState>,
+}
+
+impl Specialization {
+    pub(crate) fn solve(
+        entry: usize,
+        successors: &[Vec<usize>],
+        initial: Vec<bool>,
+        limit: usize,
+        transfer: impl Fn(usize, &mut Vec<bool>),
+    ) -> Result<Self, String> {
+        if entry >= successors.len()
+            || successors
+                .iter()
+                .flatten()
+                .any(|next| *next >= successors.len())
+        {
+            return Err("invalid async initialization graph".into());
+        }
+        if limit == 0 {
+            return Err("async initialization specialization has no state budget".into());
+        }
+        let mut identities = HashMap::new();
+        identities.insert((entry, initial.clone()), 0);
+        let mut states = vec![SpecializedState {
+            block: entry,
+            before: initial,
+            after: Vec::new(),
+            successors: Vec::new(),
+        }];
+        let mut cursor = 0;
+        while cursor < states.len() {
+            let block = states[cursor].block;
+            let mut after = states[cursor].before.clone();
+            transfer(block, &mut after);
+            if after.len() != states[cursor].before.len() {
+                return Err("async initialization transfer changed the storage domain".into());
+            }
+            let mut next_states = Vec::new();
+            for &next in &successors[block] {
+                let key = (next, after.clone());
+                let id = if let Some(&id) = identities.get(&key) {
+                    id
+                } else {
+                    if states.len() == limit {
+                        return Err(format!(
+                            "async initialization specialization exceeds {limit} states"
+                        ));
+                    }
+                    let id = states.len();
+                    identities.insert(key, id);
+                    states.push(SpecializedState {
+                        block: next,
+                        before: after.clone(),
+                        after: Vec::new(),
+                        successors: Vec::new(),
+                    });
+                    id
+                };
+                next_states.push(id);
+            }
+            states[cursor].after = after;
+            states[cursor].successors = next_states;
+            cursor += 1;
+        }
+        Ok(Self { states })
+    }
+}
+
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Fact {
     Empty,
@@ -11,12 +98,14 @@ pub(crate) enum Fact {
     Conditional,
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct State {
     must: Vec<bool>,
     may: Vec<bool>,
 }
 
+#[cfg(test)]
 impl State {
     pub(crate) fn definitely_initialized(&self) -> &[bool] {
         &self.must
@@ -32,11 +121,13 @@ impl State {
     }
 }
 
+#[cfg(test)]
 pub(crate) struct Analysis {
     pub(crate) before: Vec<Option<State>>,
     pub(crate) after: Vec<Option<State>>,
 }
 
+#[cfg(test)]
 impl Analysis {
     /// Transfers assign initialization facts, never inspect data or emit code.
     /// The same transfer runs independently on the must and may domains.
@@ -116,6 +207,104 @@ mod tests {
     use super::*;
 
     #[test]
+    fn specialization_preserves_correlated_fields_and_exact_successors() {
+        let graph = [vec![1, 2], vec![3], vec![3], vec![4], vec![4]];
+        let plan =
+            Specialization::solve(
+                0,
+                &graph,
+                vec![false, false],
+                16,
+                |block, fields| match block {
+                    1 => fields[0] = true,
+                    2 => fields[1] = true,
+                    _ => {}
+                },
+            )
+            .unwrap();
+        let joined = plan
+            .states
+            .iter()
+            .filter(|state| state.block == 3)
+            .map(|state| state.before.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(joined, vec![vec![true, false], vec![false, true]]);
+        assert_eq!(plan.states.len(), 7);
+        for state in &plan.states {
+            for (&original, &specialized) in graph[state.block].iter().zip(&state.successors) {
+                assert_eq!(plan.states[specialized].block, original);
+                assert_eq!(plan.states[specialized].before, state.after);
+            }
+        }
+        let repeat =
+            Specialization::solve(
+                0,
+                &graph,
+                vec![false, false],
+                16,
+                |block, fields| match block {
+                    1 => fields[0] = true,
+                    2 => fields[1] = true,
+                    _ => {}
+                },
+            )
+            .unwrap();
+        for (left, right) in plan.states.iter().zip(&repeat.states) {
+            assert_eq!(left.block, right.block);
+            assert_eq!(left.before, right.before);
+            assert_eq!(left.successors, right.successors);
+        }
+    }
+
+    #[test]
+    fn specialization_handles_loop_entry_and_excludes_unreachable_states() {
+        let plan = Specialization::solve(
+            0,
+            &[vec![1], vec![1, 2], vec![], vec![1]],
+            vec![false],
+            8,
+            |block, fields| {
+                if block == 1 {
+                    fields[0] = true;
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(plan.states.len(), 4);
+        assert!(plan.states.iter().all(|state| state.block != 3));
+        assert_eq!(
+            plan.states
+                .iter()
+                .filter(|state| state.block == 1)
+                .map(|state| state.before[0])
+                .collect::<Vec<_>>(),
+            vec![false, true]
+        );
+        assert!(plan
+            .states
+            .iter()
+            .filter(|state| state.block == 2)
+            .all(|state| state.before == [true]));
+    }
+
+    #[test]
+    fn specialization_reports_limits_and_invalid_domains_without_fallback() {
+        assert!(
+            Specialization::solve(0, &[vec![1], vec![]], vec![false], 1, |_, _| {})
+                .err()
+                .unwrap()
+                .contains("exceeds 1 states")
+        );
+        assert!(Specialization::solve(0, &[vec![2]], vec![], 8, |_, _| {}).is_err());
+        assert!(
+            Specialization::solve(0, &[vec![]], vec![false], 8, |_, fields| fields.push(true))
+                .err()
+                .unwrap()
+                .contains("storage domain")
+        );
+    }
+
+    #[test]
     fn definite_facts_match_the_previous_solver_on_cyclic_graphs() {
         for mask in 0..256usize {
             let mut successors = vec![vec![1], vec![2], vec![3], vec![]];
@@ -134,6 +323,28 @@ mod tests {
                 }
             };
             let actual = Analysis::solve(0, &successors, initial.clone(), transfer);
+            let exact =
+                Specialization::solve(0, &successors, initial.clone(), 32, transfer).unwrap();
+            for block in 0..4 {
+                let mut must = vec![true; 2];
+                let mut may = vec![false; 2];
+                for state in exact.states.iter().filter(|state| state.block == block) {
+                    for index in 0..2 {
+                        must[index] &= state.before[index];
+                        may[index] |= state.before[index];
+                    }
+                }
+                assert_eq!(
+                    must,
+                    actual.before[block].as_ref().unwrap().must,
+                    "specialized must parity, graph {mask}, block {block}"
+                );
+                assert_eq!(
+                    may,
+                    actual.before[block].as_ref().unwrap().may,
+                    "specialized may parity, graph {mask}, block {block}"
+                );
+            }
             let mut predecessors = vec![Vec::new(); 4];
             for (block, next) in successors.iter().enumerate() {
                 for &next in next {
