@@ -52,6 +52,55 @@ fn flat_word_views_preserve_stack_layout() {
 }
 
 #[test]
+fn word_staging_preserves_observable_clone_hooks() {
+    let source = "(#struct Value (: number #u64 : count (#ptr-mut #u64)))
+      (#fn Value-clone (: value Value) Value
+        (#unsafe (#ptr-write (#get value count)
+          (#u64.+.wrap (#ptr-read (#get value count)) 1u64))) (#return value))
+      (#fn main () #u64
+        (#let-mut count #u64 0u64)
+        (#let pointer (#ptr-mut #u64) (#ref-ptr (#borrow-mut count)))
+        (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+        (#let initial Value (#struct-literal Value (: number 40u64 : count pointer)))
+        (#unsafe (#word-write Value (#borrow-slice-mut words) initial))
+        (#let source Value (#unsafe (#word-read Value (#borrow-slice words))))
+        (#let copied Value (#block (#let nested Value source) (#clone nested)))
+        (#unsafe (#word-write Value (#borrow-slice-mut words)
+          (#block (#let staged Value copied) (#clone staged))))
+        (#assert (#u64.== count 2u64))
+        (#let result Value (#unsafe (#word-read Value (#borrow-slice words))))
+        (#return (#u64.+.wrap (#get result number) count)))";
+    run(source);
+    let large = source
+        .replace(
+            "(: number #u64 : count (#ptr-mut #u64))",
+            "(: number #u64 : count (#ptr-mut #u64)
+              : a #u64 : b #u64 : c #u64 : d #u64 : e #u64)",
+        )
+        .replace("(#array #u64 2)", "(#array #u64 7)")
+        .replace(
+            "(: number 40u64 : count pointer)",
+            "(: number 40u64 : count pointer
+              : a 1u64 : b 2u64 : c 3u64 : d 4u64 : e 5u64)",
+        );
+    run(&large);
+}
+
+#[test]
+fn zero_word_markers_do_not_exhaust_native_return_registers() {
+    run("(#struct Marked (: number #u64
+        : a (#array #u64 0) : b (#array #u64 0) : c (#array #u64 0)
+        : d (#array #u64 0) : e (#array #u64 0) : f (#array #u64 0)))
+      (#fn make () Marked
+        (#return (#struct-literal Marked (: number 42u64
+          : a (#array-of (#array #u64 0)) : b (#array-of (#array #u64 0))
+          : c (#array-of (#array #u64 0)) : d (#array-of (#array #u64 0))
+          : e (#array-of (#array #u64 0)) : f (#array-of (#array #u64 0))))))
+      (#fn main () #u64 (#let value Marked (#call make ()))
+        (#return (#get value number)))");
+}
+
+#[test]
 fn typed_reference_holder_lends_its_word_view_without_duplicating_the_loan() {
     let source = "(#struct Holder (: view (#ref-mut #u64)))
       (#fn touch (: target (#ref-mut #u64)) ()

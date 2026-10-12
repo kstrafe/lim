@@ -8131,13 +8131,13 @@ impl FunctionContext<'_> {
                 if items.len() - 1 != fields.len() {
                     return Err(format!("constructor '{struct_name}' has wrong field count"));
                 }
-                if fields.len() > VALUE_REGISTERS.len() {
+                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
+                if words > VALUE_REGISTERS.len() {
                     return Err("native struct return has too many fields".into());
                 }
                 for (index, field) in items[1..].iter().enumerate() {
                     self.push_value_words(field, &fields[index].ty, false)?;
                 }
-                let words = value_word_count(&self.return_type, &self.structs, &self.enums)?;
                 for register in VALUE_REGISTERS[..words].iter().rev() {
                     self.output.push_str(&format!("    pop {register}\n"));
                     self.stack_depth -= 1;
@@ -15600,9 +15600,18 @@ impl FunctionContext<'_> {
         }
         if let Expr::List(items) = value {
             if items.len() == 2
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "unsafe" | "clone"))
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "unsafe")
             {
                 return self.store_value_to_slots(&items[1], ty, slots);
+            }
+            if items.len() == 2
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "clone")
+            {
+                // Clone hooks are observable even for Copy aggregates. A
+                // nested block result must dispatch before staging its words,
+                // just like a direct let initializer or call argument.
+                let cloned = self.clone_operand(value);
+                return self.store_value_to_slots(&cloned, ty, slots);
             }
         }
         let words = storage_word_count(ty, &self.structs, &self.enums)?;
