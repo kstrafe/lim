@@ -37,6 +37,61 @@ fn source_checks_reject_incomplete_and_conflicting_whole_borrows() {
 }
 
 #[test]
+fn whole_clone_preserves_the_original_owner_and_retained_address() {
+    run(&cloned_source());
+}
+
+#[test]
+fn cancellation_after_whole_clone_still_exports_the_original_linear_field() {
+    let source = cloned_source().replace(
+        "(#forget copied)",
+        "(#forget copied)
+      (#let second-ready () (#await () Step Pending Ready step-poll Start))
+      (#forget second-ready)",
+    );
+    let prefix = source.split_once("(#fn main () #u64").unwrap().0;
+    run(&format!(
+        "{prefix}
+      (#fn main () #u64
+        (#let waker #u64 0u64)
+        (#let-mut frame Work-frame (#call work (:)))
+        (#let first Work-poll-result (#call work-poll
+          (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
+        (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+        (#let second Work-poll-result (#call work-poll
+          (: task pending : waker (#borrow waker))))
+        (#let-else (work-pending next) Work-poll-result second (#unreachable))
+        (#let cleanup Work-frame-cleanup (#call work-poll-cleanup (: task next)))
+        (#let-else (Work-frame-cleanup-owner.item-full original)
+          Work-frame-cleanup-owner.item (#get cleanup owner.item) (#unreachable))
+        (#assert (#u64.== (#get original value) 2u64))
+        (#forget original) (#forget cleanup)
+        (#forget pending) (#forget next) (#forget frame)
+        (#return 42u64))"
+    ));
+}
+
+fn cloned_source() -> String {
+    let source = include_str!("fixtures/async_partial_whole_borrow.lim");
+    let hooks = "
+      (#fn Token-clone (: original Token) Token
+        (#let value #u64 (#get original value))
+        (#forget original)
+        (#return (#struct-literal Token (: value (#u64.+.wrap value 10u64)))))
+      (#fn Owner-clone (: original Owner) Owner
+        (#let kept #u64 (#get original kept))
+        (#let item Token (#clone (#get original item)))
+        (#forget original)
+        (#return (#struct-literal Owner (: kept kept : item item))))";
+    format!("{hooks}\n{source}").replace(
+        "(#let whole (#ref Owner)",
+        "(#let copied Owner (#clone owner))
+         (#assert (#u64.== (#get (#get copied item) value) 12u64))
+         (#forget copied)\n    (#let whole (#ref Owner)",
+    )
+}
+
+#[test]
 fn whole_borrow_after_field_restoration_keeps_sibling_address_across_await() {
     run(include_str!("fixtures/async_partial_whole_borrow.lim"));
 }

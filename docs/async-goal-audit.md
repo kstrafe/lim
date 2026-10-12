@@ -62,6 +62,16 @@ tagged representation. Their provenance migration, complete tag removal,
 cloning audit and performance work remain open. This is incremental progress,
 not a goal-completion claim.
 
+The contiguous clone audit exposed and corrected a physical-occupancy bug:
+non-owning snapshots of linear word-backed leaves must not use the ordinary
+transfer reader. They now leave the original occupancy unchanged while the
+checked clone hook receives a temporary that is explicitly forgotten. A failing
+occupancy-trace regression reproduced the old field-clear event. Cold/warm
+native tests verify clone-hook results, the original sibling address, and export
+of the still-owned original field when cancellation follows a clone and a
+second Pending return. The emitter suite passes 87 tests (one existing ignored),
+and all 18 contiguous-storage/dependent-cancellation tests pass.
+
 Verification of this conversion: 1,384 library tests pass with seven existing
 ignored tests, along with 76 focused async integration tests and 15 contiguous
 storage/word-operation tests. Cold/warm native coverage includes stack, heap,

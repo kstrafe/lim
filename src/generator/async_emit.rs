@@ -2000,8 +2000,21 @@ impl<'a> Emitter<'a> {
     }
 
     fn snapshot_cell(&mut self, index: usize) -> Result<String, Error> {
-        if self.slots[index].words.is_some() {
-            return Ok(self.read(index, false));
+        if let Some(region) = &self.slots[index].words {
+            // This is an implementation-only bit snapshot for one checked
+            // clone invocation, not a transfer of the original linear owner.
+            // clone_aggregate explicitly forgets the temporary afterwards.
+            // In particular, cancellation must still see the original Full.
+            let ty = &self.slots[index].ty;
+            return Ok(if *ty == Type::Unit {
+                "()".into()
+            } else {
+                format!(
+                    "(#unsafe (#word-read {} {}))",
+                    crate::type_source(ty),
+                    self.word_slice(region, false)
+                )
+            });
         }
         if self.slots[index].copy || self.slots[index].raw {
             return Ok(self.read(index, false));
@@ -6537,6 +6550,43 @@ mod tests {
             let generated = runtime_planned(planning, 42);
             assert!(!generated[0].source.contains("initialization-bits"));
         }
+    }
+
+    #[test]
+    fn contiguous_clone_snapshot_does_not_consume_original_cells() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let-mut owner Owner (#struct-literal Owner (: kept seed : item (#struct-literal Token (: value 1u64)))))
+          (#let moved Token (#get owner item)) (#forget moved)
+          (#set-field owner item (#struct-literal Token (: value 2u64)))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#forget owner) (#return seed))";
+        let main = "(#struct Token (: value #u64)) (#linear Token)
+          (#struct Owner (: kept #u64 : item Token))";
+        let planning = prepare_generator("#async-fn-pinned", function, main);
+        let mut emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let owner = planning.functions[0]
+            .graph
+            .bindings
+            .iter()
+            .position(|binding| binding.name == "owner")
+            .unwrap();
+        let aggregate = &emitter.aggregates[&BindingId(owner)];
+        assert!(aggregate
+            .fields
+            .iter()
+            .any(|field| emitter.slots[field.slot].linear));
+        assert!(aggregate
+            .fields
+            .iter()
+            .all(|field| emitter.slots[field.slot].words.is_some()));
+        *emitter.occupancy_trace.borrow_mut() = Some(OccupancyTrace::default());
+        emitter.clone_aggregate(BindingId(owner), &[]).unwrap();
+        let trace = emitter.occupancy_trace.borrow_mut().take().unwrap();
+        assert!(
+            trace.writes.is_empty(),
+            "snapshot changed original occupancy: {:?}",
+            trace.writes
+        );
     }
 
     #[test]
