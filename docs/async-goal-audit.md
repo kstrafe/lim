@@ -795,6 +795,32 @@ it is not a new paired whole-compiler speedup measurement.
 
 ## Historical migration verification record
 
+### Direct scalar reads through exclusive reference fields
+
+Checked nonmoving loads of exclusive reference fields can now feed one immediate,
+reference-free Copy read without materializing a duplicate reference. The emitted
+ordinary reader projects through the actual evaluated parent capability. It
+supports shared or exclusive parent references, pinned exclusive leaves, and
+nested struct/tuple pointee projections. Deferred physical-use accounting keeps
+the parent alive until the scalar read, not merely until the elided field load.
+
+The certificate requires original-source lending permission, a pure projection,
+one scalar consumer, no escaping result and no intervening effect or block
+boundary. It does not permit reference-bearing results, arbitrary consumers or
+references carried across suspension. Those cases remain fail-closed. Both
+original and independently emitted ordinary programs are checked; no native
+async-specific borrow exemption is introduced.
+
+Sixteen lending-certificate tests pass, including parent-retirement timing,
+effect barriers, block boundaries, missing source permissions and multiple
+consumers. Native cold/warm tests cover exclusive and
+pinned-exclusive leaves, nested struct/tuple projections, repeated reads through
+an exclusive parent before and after Pending, and caller unique-loan rejection.
+The library suite passes 1,401 tests with eight existing ignored tests. The
+contiguous, dependent-cancellation, dynamic-array, boundary and self-borrow
+integration suites pass (6, 14, 6, 5 and 26 tests respectively), as do all-target
+checking and formatting. Reference-bearing storage migration remains unfinished.
+
 ### Concrete generated child layouts and stationary cancellation
 
 Generated children are now emitted in dependency order before their parent

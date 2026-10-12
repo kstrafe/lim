@@ -472,6 +472,107 @@ fn linear_exclusive_reference_aggregate_guard_lends_without_copying_the_handle()
     run(&source, "async-linear-exclusive-guard");
 }
 
+#[test]
+fn linear_exclusive_reference_fields_are_read_directly_without_moving_the_handle() {
+    let source = exclusive_reference_guard_source(&linear_reference_guard_source()).replace(
+        "View ((value (#ref #u64)))",
+        "View ((value (#ref-mut #u64)))",
+    );
+    run(&source, "async-direct-exclusive-field-guard");
+}
+
+#[test]
+fn direct_pinned_exclusive_reference_fields_are_lent_for_scalar_reads() {
+    let source = exclusive_reference_guard_source(&linear_reference_guard_source())
+        .replace(
+            "View ((value (#ref #u64)))",
+            "View ((value (#ref-mut #u64)))",
+        )
+        .replace("(#ref-mut #u64)", "(#pin-ref-mut #u64)")
+        .replace("(#borrow-mut owner)", "(#pin-borrow-mut owner)");
+    run(&source, "async-direct-pinned-exclusive-field");
+}
+
+#[test]
+fn direct_exclusive_field_reads_do_not_release_the_callers_unique_loan() {
+    let source = exclusive_reference_guard_source(&linear_reference_guard_source())
+        .replace("View ((value (#ref #u64)))", "View ((value (#ref-mut #u64)))")
+        .replace("(#let second Work-poll-result", "(#let conflicting (#ref #u64) (#borrow owner))\n(#forget conflicting)\n(#let second Work-poll-result");
+    let scratch = support::Scratch::new("async-direct-field-caller-conflict");
+    let error = lim::compile_source_to_assembly(
+        &source,
+        &scratch.path().join("input.lim"),
+        &config(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .expect_err("Pending must retain the caller's unique borrow");
+    assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+    let span = error.span.unwrap();
+    assert_eq!(&source[span.start..span.end], "#borrow");
+    assert_eq!(span.start, source.find("#borrow owner").unwrap());
+    assert!(!scratch.path().join("cache").exists());
+}
+
+#[test]
+fn direct_exclusive_field_reads_keep_nested_struct_and_tuple_projections() {
+    let source = exclusive_reference_guard_source(&linear_reference_guard_source())
+        .replace(
+            "View ((value (#ref #u64)))",
+            "View ((value (#ref-mut #u64)))",
+        )
+        .replace("(#ref-mut #u64)", "(#ref-mut Point)")
+        .replace(
+            "(#let-mut owner #u64 42u64)",
+            "(#let-mut owner Point (#struct-literal Point (: amount 42u64 : other 0u64)))",
+        )
+        .replace(
+            "(#deref (#get (#borrow view) value))",
+            "(#get (#get (#borrow view) value) amount)",
+        );
+    let source = format!("(#struct Point (: amount #u64 : other #u64))\n{source}");
+    run(&source, "async-direct-nested-exclusive-field");
+    let tuple = source
+        .replace(
+            "(#struct Point (: amount #u64 : other #u64))",
+            "(#type Point (#tuple #u64 #u64))",
+        )
+        .replace(
+            "(#struct-literal Point (: amount 42u64 : other 0u64))",
+            "(#tuple (#tuple #u64 #u64) 42u64 0u64)",
+        )
+        .replace(
+            "(#get (#get (#borrow view) value) amount)",
+            "(#get (#get (#borrow view) value) 0)",
+        );
+    run(&tuple, "async-direct-tuple-exclusive-field");
+}
+
+#[test]
+fn repeated_direct_field_reads_lend_a_unique_parent_before_and_after_pending() {
+    let source = format!(
+        "{CONTEXT}
+      (#struct View (: field (#ref-mut #u64))) (#linear View)
+      (@#async-fn-pinned (: protocol WorkAwait : waker #u64
+        : function (#fn work (: view (#ref-mut View)) #u64
+          (#let first #u64 (#deref (#get view field)))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#let second #u64 (#deref (#get view field)))
+          (#return (#u64.+.wrap (#u64.+.wrap first second) extra)))))
+      (#fn main () #u64
+        (#let waker #u64 0u64) (#let-mut owner #u64 21u64)
+        (#let-mut view View (#struct-literal View (: field (#borrow-mut owner))))
+        (#let-mut frame Work-frame (#call work (: view (#borrow-mut view))))
+        (#let-else (work-pending next) Work-poll-result
+          (#call work-poll (: task (#pin-borrow-mut frame) : waker (#borrow waker))) (#unreachable))
+        (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+          (#case (work-ready result) result)
+          (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+        (#forget frame) (#forget view) (#set owner 42u64) (#return answer))"
+    );
+    run(&source, "async-direct-unique-parent");
+}
+
 fn linear_reference_guard_source() -> String {
     aggregate_reference_guard_source()
         .replace(

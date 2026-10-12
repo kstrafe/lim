@@ -48,6 +48,9 @@ pub(crate) struct Plan {
     snapshots: HashMap<ValueId, BindingId>,
     projected_snapshots: HashMap<ValueId, PlaceId>,
     snapshot_bindings: HashSet<BindingId>,
+    /// Nonmoving field-handle loads used by one immediate scalar read. The
+    /// emitted reader projects through the parent instead of storing a copy.
+    handle_leaves: HashMap<ValueId, PlaceId>,
 }
 
 fn pure_path(descriptor: &crate::generator::async_exec::PlaceDescriptor, value: ValueId) -> bool {
@@ -76,12 +79,14 @@ impl Plan {
         let mut leases = HashMap::new();
         let mut snapshots = HashMap::new();
         let mut projected_snapshots = HashMap::new();
+        let mut handle_leaves = HashMap::new();
         let Some(accesses) = accesses else {
             return Ok(Self {
                 leases,
                 snapshots,
                 projected_snapshots,
                 snapshot_bindings: HashSet::new(),
+                handle_leaves,
             });
         };
         let reachable = graph.reachable();
@@ -122,6 +127,57 @@ impl Plan {
                     continue;
                 };
                 let descriptor = &graph.places[place.0];
+                if let AddressRoot::Value(parent) = descriptor.root {
+                    let nonmoving = located
+                        .source
+                        .and_then(|source| accesses.access(source))
+                        .is_some_and(|access| matches!(access, Access::Lend(_)));
+                    if !nonmoving || !pure_path(descriptor, parent) || escapes[dst.0] {
+                        continue;
+                    }
+                    let ty = crate::typed_ir::resolve_type(&graph.values[dst.0].ty, aliases)
+                        .map_err(|message| crate::generator::async_exec::Error {
+                            source: located.source,
+                            message,
+                        })?;
+                    if matches!(
+                        ty,
+                        Type::Reference { mutable: true, .. }
+                            | Type::PinnedReference { mutable: true, .. }
+                    ) {
+                        let mut consumer = None;
+                        let mut valid = true;
+                        for &(user_block, index) in &users[dst.0] {
+                            if user_block != block || index <= load {
+                                valid = false;
+                                break;
+                            }
+                            match &graph.blocks[block.0].actions[index].action {
+                                Action::Place { descriptor, .. } if pure_path(descriptor, dst) => {}
+                                Action::Load {
+                                    place,
+                                    kind: LoadKind::Read,
+                                    ..
+                                } if pure_path(&graph.places[place.0], dst)
+                                    && types.can_repeat(&graph.places[place.0].ty)
+                                    && !types.contains_reference(&graph.places[place.0].ty) =>
+                                {
+                                    if consumer.replace(index).is_some() {
+                                        valid = false;
+                                    }
+                                }
+                                _ => valid = false,
+                            }
+                        }
+                        if let Some(read) = consumer {
+                            if valid && graph.blocks[block.0].actions[load + 1..read].iter()
+                                .all(|action| matches!(&action.action, Action::Place { descriptor, .. } if pure_path(descriptor, dst))) {
+                                handle_leaves.insert(dst, place);
+                            }
+                        }
+                    }
+                    continue;
+                }
                 let AddressRoot::Local(binding) = descriptor.root else {
                     continue;
                 };
@@ -326,11 +382,35 @@ impl Plan {
             snapshots,
             projected_snapshots,
             snapshot_bindings,
+            handle_leaves,
         })
     }
 
     pub(crate) fn get(&self, value: ValueId) -> Option<&Lease> {
         self.leases.get(&value)
+    }
+
+    pub(crate) fn handle_leaf(&self, value: ValueId) -> Option<PlaceId> {
+        self.handle_leaves.get(&value).copied()
+    }
+
+    /// A deferred scalar reader uses the evaluated parent capability, not the
+    /// elided child handle. Keep that parent alive through the actual read.
+    pub(crate) fn extend_physical_uses(&self, graph: &Graph, values: &mut Vec<ValueId>) {
+        let mut index = 0;
+        let mut seen = HashSet::new();
+        while index < values.len() {
+            let value = values[index];
+            index += 1;
+            if !seen.insert(value) {
+                continue;
+            }
+            if let Some(place) = self.handle_leaf(value) {
+                if let AddressRoot::Value(parent) = graph.places[place.0].root {
+                    values.push(parent);
+                }
+            }
+        }
     }
 
     pub(crate) fn snapshot(&self, value: ValueId) -> Option<BindingId> {
@@ -384,6 +464,154 @@ mod tests {
             )
             .unwrap()
         }
+    }
+
+    fn borrowed_field() -> Checked {
+        Checked::new(
+            "(#struct View (: field (#ref-mut #u64))) (#linear View)
+          (#fn work (: view (#ref View)) #u64 (#return (#deref (#get view field))))",
+        )
+    }
+
+    #[test]
+    fn borrowed_exclusive_field_leaves_require_one_immediate_nonmoving_read() {
+        let mut checked = borrowed_field();
+        let plan = checked.plan();
+        assert_eq!(plan.handle_leaves.len(), 1);
+        let value = *plan.handle_leaves.keys().next().unwrap();
+        let (block, load) = checked.graph.blocks.iter().enumerate().find_map(|(block, body)|
+            body.actions.iter().position(|located| matches!(located.action, Action::Load { dst, .. } if dst == value))
+                .map(|load| (block, load))).unwrap();
+        let AddressRoot::Value(parent) = checked.graph.places[plan.handle_leaves[&value].0].root
+        else {
+            unreachable!()
+        };
+        let retirement = super::super::async_retire::Plan::with_lending_snapshots(
+            &checked.graph,
+            &checked.types,
+            &HashSet::new(),
+            &checked.aliases,
+            Some(&plan),
+        )
+        .unwrap();
+        assert!(
+            !retirement.after_action[block][load].contains(&parent),
+            "parent capability must survive the elided load"
+        );
+        assert!(
+            retirement.after_action[block]
+                .iter()
+                .skip(load + 1)
+                .any(|retired| retired.contains(&parent)),
+            "the actual scalar consumer retires the parent"
+        );
+        let unit = ValueId(checked.graph.values.len());
+        checked
+            .graph
+            .values
+            .push(crate::generator::async_exec::Value {
+                source: None,
+                ty: Type::Unit,
+                span: None,
+            });
+        checked.graph.blocks[block].actions.insert(
+            load + 1,
+            crate::generator::async_exec::LocatedAction {
+                action: Action::Compute {
+                    dst: unit,
+                    operation: Compute::Unit,
+                },
+                source: None,
+                span: None,
+                unsafe_context: false,
+            },
+        );
+        checked.graph.validate().unwrap();
+        assert!(
+            checked.plan().handle_leaf(value).is_none(),
+            "no deferred read across another operation"
+        );
+
+        let mut checked = borrowed_field();
+        let value = *checked.plan().handle_leaves.keys().next().unwrap();
+        checked.graph.blocks[checked.graph.entry.0].terminator =
+            crate::generator::async_exec::Terminator::Return(Some(value));
+        checked.graph.validate().unwrap();
+        assert!(
+            checked.plan().handle_leaf(value).is_none(),
+            "a borrowed field window cannot escape as an owned handle"
+        );
+    }
+
+    #[test]
+    fn borrowed_field_windows_reject_missing_permission_and_multiple_consumers() {
+        let mut checked = borrowed_field();
+        let value = *checked.plan().handle_leaves.keys().next().unwrap();
+        checked.accesses = None;
+        assert!(checked.plan().handle_leaf(value).is_none());
+
+        let mut checked = borrowed_field();
+        let value = *checked.plan().handle_leaves.keys().next().unwrap();
+        let physical = super::super::async_retire::PhysicalUses::new(&checked.graph);
+        let (block, index) = checked
+            .graph
+            .blocks
+            .iter()
+            .enumerate()
+            .find_map(|(block, body)| {
+                body.actions
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, located)| {
+                        (matches!(located.action, Action::Load { .. })
+                            && physical.uses(&located.action).contains(&value))
+                        .then_some((block, index))
+                    })
+            })
+            .unwrap();
+        let mut duplicate = checked.graph.blocks[block].actions[index].clone();
+        let Action::Load { dst, .. } = &mut duplicate.action else {
+            unreachable!()
+        };
+        let ty = checked.graph.values[dst.0].clone();
+        *dst = ValueId(checked.graph.values.len());
+        checked.graph.values.push(ty);
+        checked.graph.blocks[block]
+            .actions
+            .insert(index + 1, duplicate);
+        checked.graph.validate().unwrap();
+        assert!(
+            checked.plan().handle_leaf(value).is_none(),
+            "the certificate covers one scalar read, not repeated consumers"
+        );
+    }
+
+    #[test]
+    fn borrowed_field_windows_do_not_cross_block_boundaries() {
+        let mut checked = borrowed_field();
+        let value = *checked.plan().handle_leaves.keys().next().unwrap();
+        let (block, load) = checked.graph.blocks.iter().enumerate().find_map(|(block, body)|
+            body.actions.iter().position(|located| matches!(located.action, Action::Load { dst, .. } if dst == value))
+                .map(|load| (block, load))).unwrap();
+        let target = BlockId(checked.graph.blocks.len());
+        let terminal = std::mem::replace(
+            &mut checked.graph.blocks[block].terminator,
+            crate::generator::async_exec::Terminator::Goto(crate::generator::async_exec::Edge {
+                target,
+                arguments: vec![],
+            }),
+        );
+        let actions = checked.graph.blocks[block].actions.split_off(load + 1);
+        checked
+            .graph
+            .blocks
+            .push(crate::generator::async_exec::Block {
+                parameters: vec![],
+                actions,
+                terminator: terminal,
+            });
+        checked.graph.validate().unwrap();
+        assert!(checked.plan().handle_leaf(value).is_none());
     }
 
     #[test]

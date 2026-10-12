@@ -532,6 +532,7 @@ impl<'a> Emitter<'a> {
         for (index, value) in function.graph.values.iter().enumerate() {
             if matches!(value.ty, Type::Unit | Type::Never)
                 || emitter.leases.get(ValueId(index)).is_some()
+                || emitter.leases.handle_leaf(ValueId(index)).is_some()
                 || emitter.immediate.skips_storage(ValueId(index))
             {
                 continue;
@@ -3657,6 +3658,11 @@ impl<'a> Emitter<'a> {
     }
 
     fn handle_leaf_read(&mut self, descriptor: &PlaceDescriptor) -> Result<String, Error> {
+        if let AddressRoot::Value(value) = descriptor.root {
+            if let Some(holder) = self.leases.handle_leaf(value) {
+                return self.lent_handle_leaf_read(holder, descriptor);
+            }
+        }
         let function = self.function;
         let reject = |message: &str| fail(function, message);
         let AddressRoot::Value(value) = descriptor.root else {
@@ -3807,6 +3813,114 @@ impl<'a> Emitter<'a> {
                 format!("(#deref {reference})")
             },
         ))
+    }
+
+    fn lent_handle_leaf_read(
+        &mut self,
+        holder: PlaceId,
+        leaf: &PlaceDescriptor,
+    ) -> Result<String, Error> {
+        let holder = &self.function.graph.places[holder.0];
+        let AddressRoot::Value(parent) = holder.root else {
+            unreachable!("certified evaluated holder")
+        };
+        let input_ty = self.function.graph.values[parent.0].ty.clone();
+        let input = self.fresh("field-lend-input");
+        let helper = self.fresh("field-lend-read");
+        let mut expression = input.clone();
+        let mut ty = crate::typed_ir::resolve_type(&input_ty, &self.planning.declarations.aliases)
+            .map_err(|message| fail(self.function, message))?;
+        for descriptor in [holder, leaf] {
+            for step in &descriptor.projections {
+                match step {
+                    AddressProjection::Dereference => {
+                        let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
+                            ty
+                        else {
+                            return Err(fail(
+                                self.function,
+                                "certified field read lost its reference boundary",
+                            ));
+                        };
+                        ty = *target;
+                        // Field getters already project through a reference.
+                        // Only a whole referent needs an explicit dereference.
+                        if descriptor.projections.len() == 1 {
+                            expression = format!("(#deref {expression})");
+                        }
+                    }
+                    AddressProjection::Field(field) => {
+                        let declaration = self.planning.declarations.field(*field);
+                        if self.planning.declarations.field_id(&ty, &declaration.name)
+                            != Some(*field)
+                        {
+                            return Err(fail(
+                                self.function,
+                                "certified field read lost its checked field identity",
+                            ));
+                        }
+                        ty = declaration.ty.clone();
+                        expression = format!("(#get {expression} {})", declaration.name);
+                    }
+                    AddressProjection::Tuple(index) => {
+                        let Type::Tuple(fields) = ty else {
+                            return Err(fail(
+                                self.function,
+                                "certified field read lost its tuple type",
+                            ));
+                        };
+                        ty = fields.get(*index).cloned().ok_or_else(|| {
+                            fail(
+                                self.function,
+                                "certified field read tuple index is out of bounds",
+                            )
+                        })?;
+                        expression = format!("(#get {expression} {index})");
+                    }
+                    _ => {
+                        return Err(fail(
+                            self.function,
+                            "certified field read acquired an effectful projection",
+                        ))
+                    }
+                }
+                ty = crate::typed_ir::resolve_type(&ty, &self.planning.declarations.aliases)
+                    .map_err(|message| fail(self.function, message))?;
+            }
+        }
+        if ty
+            != crate::typed_ir::resolve_type(&leaf.ty, &self.planning.declarations.aliases)
+                .map_err(|message| fail(self.function, message))?
+        {
+            return Err(fail(
+                self.function,
+                "certified field read disagrees with its leaf type",
+            ));
+        }
+        self.projections.push(format!(
+            "(#fn {helper} (: {input} {}) {} (#return {expression}))",
+            crate::type_source(&input_ty),
+            crate::type_source(&leaf.ty)
+        ));
+        let exclusive = matches!(
+            crate::typed_ir::resolve_type(&input_ty, &self.planning.declarations.aliases),
+            Ok(Type::Reference { mutable: true, .. } | Type::PinnedReference { mutable: true, .. })
+        );
+        let parent = if exclusive
+            && self.leases.get(parent).is_none()
+            && self
+                .values
+                .get(&parent)
+                .is_some_and(|slot| !self.slots[*slot].raw)
+        {
+            format!(
+                "(#deref {})",
+                self.payload_ref(&self.slots[self.values[&parent]], true)
+            )
+        } else {
+            self.value(parent, false)
+        };
+        Ok(format!("(#call {helper} (: {input} {parent}))"))
     }
 
     fn reborrow_from_handle(
@@ -4827,6 +4941,9 @@ impl<'a> Emitter<'a> {
                         "projected addresses need checked storage and immediate place checks",
                     ));
                 }
+                Ok(String::new())
+            }
+            Action::Load { dst, .. } if self.leases.handle_leaf(*dst).is_some() => {
                 Ok(String::new())
             }
             Action::Load { dst, place, kind } => {

@@ -433,7 +433,13 @@ impl Plan {
                 block
                     .actions
                     .iter()
-                    .map(|located| selected(physical_uses.uses(&located.action)))
+                    .map(|located| {
+                        let mut uses = physical_uses.uses(&located.action);
+                        if let Some(lending) = lending {
+                            lending.extend_physical_uses(graph, &mut uses);
+                        }
+                        selected(uses)
+                    })
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
