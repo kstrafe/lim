@@ -2143,6 +2143,7 @@ pub(crate) type VariantBounds = HashMap<Vec<Segment>, HashSet<VariantId>>;
 /// same provenance and outcome graphs for each consumer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ParameterSummary {
+    pub word_inputs: Vec<crate::typed_body::ParameterLoanSummary>,
     pub returned: Vec<crate::typed_body::ParameterLoanSummary>,
     pub stores: Vec<crate::typed_body::ParameterStoreSummary>,
     pub mutations: Option<Vec<crate::typed_body::ParameterLoanSummary>>,
@@ -4455,6 +4456,122 @@ impl FlowGraph {
             .collect()
     }
 
+    fn word_input_requirements(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        actual: &FlowLoanOrigins,
+    ) -> Vec<crate::typed_body::ParameterLoanSummary> {
+        if !body
+            .word_layouts
+            .values()
+            .any(|layout| !layout.slots.is_empty())
+            && !body
+                .call_word_input_requirements
+                .values()
+                .any(|inputs| !inputs.is_empty())
+        {
+            return Vec::new();
+        }
+        let mut result = Vec::new();
+        for (index, event) in self.nodes.iter().enumerate() {
+            let FlowAction::Evaluate(value) = event.action else {
+                continue;
+            };
+            if origins.before[index].is_none() {
+                continue;
+            }
+            let mut required = Vec::new();
+            if body.word_layouts.contains_key(&value)
+                && matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, .. } if head != "word-write")
+            {
+                let held = actual.value_before(body, self, FlowNodeId(index), value);
+                // A lineage established by real writes in this body is not
+                // an extra entry assumption. Infer only slots still missing
+                // when numeric inputs start without concealed references.
+                required.extend(
+                    origins
+                        .value_before(body, self, FlowNodeId(index), value)
+                        .into_iter()
+                        .filter(|loan| {
+                            !held
+                                .iter()
+                                .any(|known| !known.lifetime_only && known.storage == loan.storage)
+                        }),
+                );
+            }
+            if let NodeKind::Form {
+                callee: Some(callee),
+                children,
+                ..
+            } = &body.nodes[value.0].kind
+            {
+                if let Some(inputs) = body.call_word_input_requirements.get(callee) {
+                    let state = origins.before[index].as_ref().unwrap();
+                    for input in inputs {
+                        if let Some(argument) = children.get(input.parameter + 1) {
+                            if let Some(actual_state) = actual.before[index].as_ref() {
+                                let supplied = word_input_available(
+                                    actual.value_before(body, self, FlowNodeId(index), *argument),
+                                    input,
+                                    actual_state,
+                                );
+                                if supplied {
+                                    continue;
+                                }
+                            }
+                            for argument in
+                                origins.value_before(body, self, FlowNodeId(index), *argument)
+                            {
+                                required
+                                    .extend(apply_parameter_loan_summary(argument, input, state));
+                            }
+                        }
+                    }
+                }
+            }
+            for origin in required {
+                let Some(mut summary) = origin.parameter_summary() else {
+                    continue;
+                };
+                if summary.global.is_some()
+                    || summary.fresh_allocation.is_some()
+                    || !summary.input_storage.contains(&Segment::Dereference)
+                    || summary.lifetime_only
+                {
+                    continue;
+                }
+                // Declared reference slots already have ordinary entry
+                // contracts. Only concealed numeric-backed slots need this
+                // additional requirement; do not turn optional typed payloads
+                // into unconditional initialized fields.
+                if body
+                    .parameter_referent_loan_slots
+                    .get(summary.parameter)
+                    .is_some_and(|slots| {
+                        slots.iter().any(|slot| {
+                            slot.storage.len() == summary.input_storage.len()
+                                && slot.storage.iter().zip(&summary.input_storage).all(
+                                    |(known, requested)| storage_slot_matches(known, requested),
+                                )
+                        })
+                    })
+                {
+                    continue;
+                }
+                summary.storage.clear();
+                summary.storage_inputs.clear();
+                summary.referent_projection.clear();
+                summary.reborrow = false;
+                if !result.contains(&summary) {
+                    result.push(summary);
+                }
+            }
+        }
+        result
+    }
+
     pub fn parameter_summary(&self, body: &Body, contents: bool) -> ParameterSummary {
         let origins = if contents {
             self.staged_parameter_store_loan_origins(body)
@@ -4470,10 +4587,11 @@ impl FlowGraph {
         };
         // Outcome graphs always use contents-aware seeds, including during
         // legacy initialization. Reuse ordinary origins only in that mode.
+        let actual_inputs = (!contents).then(|| self.staged_parameter_store_loan_origins(body));
         let graphs = if contents {
             self.return_output_variant_graphs_with_origins(body, &origins)
         } else {
-            self.return_output_variant_graphs(body)
+            self.return_output_variant_graphs_with_origins(body, actual_inputs.as_ref().unwrap())
         };
         let mut output_stores = HashMap::new();
         let mut output_clears = HashMap::new();
@@ -4502,6 +4620,11 @@ impl FlowGraph {
             }
         }
         ParameterSummary {
+            word_inputs: if contents {
+                body.word_input_requirements.clone()
+            } else {
+                self.word_input_requirements(body, store_origins, actual_inputs.as_ref().unwrap())
+            },
             returned,
             stores: self.parameter_store_summaries(body, store_origins),
             mutations: self.parameter_tag_mutations(body, store_origins),
@@ -9224,12 +9347,37 @@ impl FlowGraph {
             }
             let NodeKind::Form {
                 children,
-                callee: Some(_),
+                callee: Some(callee),
                 ..
             } = &body.nodes[value.0].kind
             else {
                 continue;
             };
+            if let Some(required) = body
+                .call_word_input_requirements
+                .get(callee)
+                .filter(|inputs| !inputs.is_empty())
+            {
+                let state = origins.before[index].as_ref().unwrap();
+                for requirement in required {
+                    let Some(argument) = children.get(requirement.parameter + 1) else {
+                        continue;
+                    };
+                    let available = word_input_available(
+                        origins.value_before(body, self, FlowNodeId(index), *argument),
+                        requirement,
+                        state,
+                    );
+                    if !available {
+                        return Err(ReleaseConflict {
+                            message: "cannot call typed word reader: missing required input loan"
+                                .into(),
+                            span: node.span,
+                            labels: Vec::new(),
+                        });
+                    }
+                }
+            }
             for argument in children.iter().skip(1) {
                 if self.value_missing_reference_provenance(
                     body,
@@ -12173,6 +12321,48 @@ fn call_loan_stores(
     substitute_call_stores(body, flow, before, value, state, stores)
 }
 
+fn word_input_available(
+    origins: Vec<LoanOrigin>,
+    requirement: &crate::typed_body::ParameterLoanSummary,
+    state: &LoanState,
+) -> bool {
+    let Some(boundary) = requirement
+        .input_storage
+        .iter()
+        .position(|segment| *segment == Segment::Dereference)
+    else {
+        return false;
+    };
+    let prefix = &requirement.input_storage[..boundary];
+    let sources = origins
+        .into_iter()
+        .filter(|origin| {
+            origin.storage.len() == prefix.len()
+                && origin
+                    .storage
+                    .iter()
+                    .zip(prefix)
+                    .all(|(actual, wanted)| storage_slot_matches(actual, wanted))
+        })
+        .collect::<Vec<_>>();
+    !sources.is_empty()
+        && sources.into_iter().all(|source| {
+            let loaded = select_summary_inputs(source, &requirement.input_storage, state)
+                .into_iter()
+                .filter(|loan| loan.storage.is_empty())
+                .collect::<Vec<_>>();
+            // Every reaching primary capability must satisfy the contract. One
+            // exclusive branch must not authorize a different shared branch.
+            !loaded.is_empty()
+                && loaded.iter().all(|loan| {
+                    !loan.lifetime_only
+                        && (!requirement.mutable || loan.mutable)
+                        && (!requirement.pinned || loan.pinned)
+                        && (!requirement.owned_allocation || loan.owned_allocation)
+                })
+        })
+}
+
 fn word_loan_stores(
     body: &Body,
     flow: &FlowGraph,
@@ -12252,6 +12442,20 @@ fn word_value_origins(
             for mut loaded in
                 select_summary_inputs(selected.clone(), &[Segment::Dereference], state)
             {
+                // An abstract input-slot load names the contained pointee,
+                // not the word address within the backing parameter.
+                let mut input = selected.parameter_storage.clone().unwrap_or_default();
+                input.push(Segment::Dereference);
+                input.extend_from_slice(&selected.place.segments);
+                if state.parameter_contents.is_none()
+                    && loaded.place.root == selected.place.root
+                    && loaded.parameter_storage.as_ref() == Some(&input)
+                {
+                    loaded.place.segments.clear();
+                    loaded.mutable = slot.mutable;
+                    loaded.pinned = slot.pinned;
+                    loaded.owned_allocation = slot.owned_allocation;
+                }
                 let mut path = slot.path.clone();
                 if view {
                     path.insert(0, Segment::Dereference);

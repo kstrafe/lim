@@ -2886,3 +2886,41 @@ Pure float arithmetic, named constants, and supported constant conditionals
 may initialize globals; calls and runtime effects remain forbidden, and
 constant dependency cycles are errors. Reading or writing statics still
 requires `#unsafe`.
+
+### Typed word-memory loan inputs
+
+`#word-write` records a value's actual contained-reference loans at their flat
+word offsets. Reference-bearing `#word-read` and `#word-view` recover those
+loans; numeric bytes and layout types alone never establish reference provenance.
+Numeric overwrites retire the metadata at the overwritten offsets. These facts
+exist only during compilation, without runtime occupancy flags.
+
+An ordinary helper can require loans in a borrowed word slice. The compiler
+infers those entry requirements and checks the actual stored origins at every
+call, including through forwarding helpers and cached imports. Returning only
+a scalar does not hide a reference read. All reaching loans must meet the
+required shared/exclusive, pinned and owning permissions.
+
+```lisp
+(#struct RefValue (: value (#ref #u64)))
+(#fn read-value (: words (#slice #u64)) #u64
+  (#let restored RefValue (#unsafe (#word-read RefValue words)))
+  (#let answer #u64 (#deref (#get restored value)))
+  (#forget restored)
+  (#return answer))
+
+(#fn main () #u64
+  (#let seed #u64 42u64)
+  (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+  (#unsafe (#word-write RefValue (#borrow-slice-mut words)
+    (#struct-literal RefValue (: value (#borrow seed)))))
+  (#let answer #u64 (#call read-value (: words (#borrow-slice words))))
+  (#forget words)
+  (#return answer))
+```
+
+Removing the typed write, or overwriting its reference word with a number before
+the call, fails compilation. Inferred inputs are not permission to fabricate a
+reference. The unsafe implementation still proves capacity, representation
+validity and ownership conservation. Inferred concealed-slot inputs for moved
+by-value numeric backing are not yet supported.

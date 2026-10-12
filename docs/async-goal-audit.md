@@ -1133,3 +1133,40 @@ tests and 26 self-borrow tests. All-target checking and formatting pass. The
 full async rerun used a stable compiler binary: concurrently rebuilding the CLI
 midway through an earlier run invalidated that run, because these tests execute
 the on-disk compiler. That contaminated run is not counted as verification.
+
+### Inferred loan inputs for borrowed word readers
+
+Ordinary functions can now read reference-bearing values from borrowed numeric
+word memory when every caller supplies the required write-derived loan at the
+selected offset. The inference records required primary capability flags and
+propagates the requirements through forwarding functions, including functions
+that return only scalars. Native call checking validates all reaching primary
+loans, not just one favorable branch. Shared loans cannot satisfy exclusive
+requirements. Thread-spawn operations inherit their worker's input requirements.
+Both inference modes serialize these requirements in semantic cache schema v5;
+cache hits still run the native validation gates.
+
+These inferred slots are abstract function inputs, not initialized reference
+values inferred from numeric bits. Requirements are added only for lineage
+missing from the actual-content analysis: real writes in the body need no new
+entry assumption, and declared optional typed payloads keep their existing
+conditional contracts. The earlier uncalled numeric-reader negative now calls
+the reader on untracked numeric bytes, preserving the actual safety boundary
+while permitting a helper declaration with caller-validated requirements.
+
+The full cleanup migration still remains open. Repeating direct cleanup
+extraction now reaches a by-value backing transfer that lacks an inferred loan
+input. Numeric-backed values moved from a function parameter into a local must
+preserve the relationship between their concealed slots and that parameter's
+entry requirements. The exploratory emitter change was reverted; owned
+reference-bearing leaves still retain typed storage. Borrowed reader contracts
+are a generic prerequisite, not a claim that by-value storage or state-specific
+cleanup has been completed.
+
+Verification passes all 236 async integration tests, 1,411 library tests (eight
+ existing ignored), 30 word-storage tests, twelve semantic-cache tests, fifteen
+contiguous-storage tests, fourteen dependent-cancellation tests, 26 self-borrow
+tests and three UI tests. All-target checking and formatting pass. The new word
+tests cover forwarding, scalar-return readers, exclusive permission, mixed
+shared/exclusive branch inputs and rejection of untracked numeric input. Imported
+reader tests cover identical cold/warm output and identical invalid-input errors.

@@ -1307,6 +1307,11 @@ pub(crate) struct Body {
     /// Slot schema beyond reference boundaries. These describe loads;
     /// unlike value slots, they must never seed initialized physical loans.
     pub parameter_referent_loan_slots: Vec<Vec<ParameterLoanSeed>>,
+    /// Inferred entry loans required by typed interpretations of word memory.
+    /// Callers must supply actual stored origins; these are not initialized bits.
+    pub word_input_requirements: Vec<ParameterLoanSummary>,
+    pub call_word_input_requirements:
+        Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     emission_nodes: Vec<NodeId>,
     callees: HashMap<FunctionId, String>,
     declaration_names: HashMap<DeclarationId, String>,

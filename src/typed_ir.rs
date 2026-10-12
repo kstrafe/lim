@@ -1662,6 +1662,19 @@ impl Declarations {
                     true,
                 );
             }
+            if include_parameter_contents {
+                for input in &body.word_input_requirements {
+                    let seed = crate::typed_body::ParameterLoanSeed {
+                        storage: input.input_storage.clone(),
+                        mutable: input.mutable,
+                        pinned: input.pinned,
+                        owned_allocation: input.owned_allocation,
+                    };
+                    if !schema[input.parameter].contains(&seed) {
+                        schema[input.parameter].push(seed);
+                    }
+                }
+            }
             self.bodies
                 .get_mut(name)
                 .unwrap()
@@ -1738,6 +1751,7 @@ impl Declarations {
         }
 
         let mut summaries = HashMap::new();
+        let mut word_inputs = HashMap::new();
         let mut store_summaries = HashMap::new();
         let mut clear_summaries =
             HashMap::<FunctionId, Vec<crate::typed_body::ParameterLoanSummary>>::new();
@@ -1762,6 +1776,28 @@ impl Declarations {
             return_bounds.extend(bounds);
         }
         for name in order {
+            let needed_inputs = self.bodies[&name]
+                .nodes
+                .iter()
+                .filter_map(|node| {
+                    let crate::typed_body::NodeKind::Form {
+                        callee: Some(callee),
+                        ..
+                    } = node.kind
+                    else {
+                        return None;
+                    };
+                    word_inputs.get(&callee).map(
+                        |inputs: &Vec<crate::typed_body::ParameterLoanSummary>| {
+                            (callee, inputs.clone())
+                        },
+                    )
+                })
+                .collect();
+            self.bodies
+                .get_mut(&name)
+                .unwrap()
+                .call_word_input_requirements = Arc::new(needed_inputs);
             // Loan transfer only consults direct callees. Copying every summary
             // accumulated so far for every body was another quadratic pass.
             let needed = self.bodies[&name]
@@ -1972,6 +2008,7 @@ impl Declarations {
                     facts
                 });
             let crate::typed_flow::ParameterSummary {
+                word_inputs: required_inputs,
                 returned,
                 stores,
                 mutations,
@@ -1980,6 +2017,10 @@ impl Declarations {
                 bounds: mut returned_bounds,
                 output_clears,
             } = facts;
+            self.bodies.get_mut(&name).unwrap().word_input_requirements = required_inputs.clone();
+            if let Some(id) = self.function_id(&name) {
+                word_inputs.insert(id, required_inputs);
+            }
             if let Some(id) = self.function_id(&name) {
                 self.complete_reference_variant_bounds(
                     &self.functions[id.0].signature.return_type,
@@ -2036,6 +2077,9 @@ impl Declarations {
                     ) else {
                         continue;
                     };
+                    // Spawning calls the worker with the same ordered inputs.
+                    // Validate its word-loan requirements before launching it.
+                    word_inputs.insert(spawn, word_inputs[&id].clone());
                     let Some(captured_stores) = crate::thread_contract::capture_store_summaries(
                         owner,
                         captures.parameters.len(),
@@ -2133,6 +2177,7 @@ impl Declarations {
             }
         }
         let shared = Arc::new(summaries);
+        let shared_word_inputs = Arc::new(word_inputs);
         let shared_stores = Arc::new(store_summaries);
         let shared_variants = Arc::new(store_variants);
         let shared_clears = Arc::new(clear_summaries);
@@ -2143,6 +2188,7 @@ impl Declarations {
         let shared_return_bounds = Arc::new(return_bounds);
         for body in self.bodies.values_mut() {
             body.call_return_origins = shared.clone();
+            body.call_word_input_requirements = shared_word_inputs.clone();
             {
                 body.call_store_origins = shared_stores.clone();
                 body.call_store_variants = shared_variants.clone();

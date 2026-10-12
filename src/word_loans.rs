@@ -11,6 +11,9 @@ use std::collections::HashMap;
 pub(crate) struct Slot {
     pub path: Vec<Segment>,
     pub offset: usize,
+    pub mutable: bool,
+    pub pinned: bool,
+    pub owned_allocation: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -73,6 +76,15 @@ fn collect(
             slots.push(Slot {
                 path: path.clone(),
                 offset,
+                mutable: matches!(
+                    &ty,
+                    Type::Reference { mutable: true, .. }
+                        | Type::PinnedReference { mutable: true, .. }
+                        | Type::MutableSlice(_)
+                        | Type::PinOwned(_)
+                ),
+                pinned: matches!(&ty, Type::PinnedReference { .. } | Type::PinOwned(_)),
+                owned_allocation: matches!(&ty, Type::PinOwned(_)),
             });
         }
         Type::Named(name) if declarations.structs.contains_key(name) => {

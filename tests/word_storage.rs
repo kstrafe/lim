@@ -396,11 +396,16 @@ fn numeric_words_cannot_invent_reference_provenance() {
     let source = "(#struct Holder (: item (#ref #u64)))
       (#fn bad (: words (#slice #u64)) (#ref #u64)
         (#let holder (#ref Holder) (#unsafe (#word-view (#ref Holder) words)))
-        (#return (#get holder item)))";
+        (#return (#get holder item)))
+      (#fn main () #u64
+        (#let words (#array #u64 1) (#array-of (#array #u64 1) 42u64))
+        (#return (#deref (#call bad (: words (#borrow-slice words))))))";
     let error = compile(source).unwrap_err();
     assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
     assert!(
-        error.message.contains("missing slot provenance"),
+        error.message.contains("missing slot provenance")
+            || error.message.contains("missing required input loan")
+            || error.message.contains("unresolved call inputs"),
         "{error:?}"
     );
 }
@@ -587,6 +592,103 @@ fn typed_word_writer_helpers_export_real_source_loans() {
         .replace("#borrow-slice words)", "#borrow-slice words 1usize 2usize)"));
     let invalid = source.replace("(#let result", "(#set seed 0u64) (#let result");
     assert_eq!(compile(&invalid).unwrap_err().code, DiagnosticCode::Borrow);
+}
+
+#[test]
+fn typed_word_reader_helpers_require_actual_reference_inputs() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#fn read (: words (#slice #u64)) #u64
+        (#let restored Holder (#unsafe (#word-read Holder words)))
+        (#let answer #u64 (#deref (#get restored value)))
+        (#forget restored) (#return answer))
+      (#fn forward (: words (#slice #u64)) #u64
+        (#return (#call read (: words words))))
+      (#fn main () #u64
+        (#let-mut seed #u64 42u64)
+        (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words 1usize 2usize)
+          (#struct-literal Holder (: value (#borrow seed)))))
+        (#let answer #u64 (#call forward (: words (#borrow-slice words 1usize 2usize))))
+        (#forget words) (#set seed 0u64) (#return answer))";
+    run(source);
+    let invalid = source.replace(
+        "(#unsafe (#word-write Holder (#borrow-slice-mut words 1usize 2usize)\n          (#struct-literal Holder (: value (#borrow seed)))))", "");
+    assert_ne!(source, invalid);
+    let error =
+        compile(&invalid).expect_err("a scalar return must not hide a forged reference read");
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+    assert!(
+        error.message.contains("missing required input loan")
+            || error.message.contains("unresolved call inputs"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn documented_word_reader_contract_example_runs_natively() {
+    let documentation = include_str!("../docs/language.md");
+    let section = documentation
+        .split("### Typed word-memory loan inputs")
+        .nth(1)
+        .unwrap();
+    let example = section
+        .split("```lisp\n")
+        .nth(1)
+        .unwrap()
+        .split("```")
+        .next()
+        .unwrap();
+    run(example);
+}
+
+#[test]
+fn exclusive_word_reader_helpers_cannot_upgrade_shared_permissions() {
+    let source = "(#struct Holder (: value (#ref-mut #u64)))
+      (#fn update (: words (#slice-mut #u64)) ()
+        (#let restored Holder (#unsafe (#word-read Holder words)))
+        (#deref-set (#get restored value) 42u64)
+        (#forget restored) (#return ()))
+      (#fn main () #u64
+        (#let-mut seed #u64 1u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Holder (#borrow-slice-mut words)
+          (#struct-literal Holder (: value (#borrow-mut seed)))))
+        (#call update (: words (#borrow-slice-mut words)))
+        (#forget words) (#return seed))";
+    run(source);
+    let invalid = source
+        .replace("value (#borrow-mut seed)", "value (#borrow seed)")
+        .replace("(#word-write Holder", "(#word-write SharedHolder");
+    let invalid = format!("(#struct SharedHolder (: value (#ref #u64))) {invalid}").replace(
+        "(#struct-literal Holder (: value (#borrow seed)))",
+        "(#struct-literal SharedHolder (: value (#borrow seed)))",
+    );
+    let error = compile(&invalid).expect_err("numeric backing cannot upgrade a shared loan");
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+}
+
+#[test]
+fn word_reader_contracts_require_permission_on_every_reaching_branch() {
+    let source = "(#struct SharedHolder (: value (#ref #u64)))
+      (#struct UniqueHolder (: value (#ref-mut #u64)))
+      (#fn fill (: words (#slice-mut #u64) : left (#ref-mut #u64) : right (#ref #u64) : flag #bool) ()
+        (#if flag
+          (#unsafe (#word-write UniqueHolder words (#struct-literal UniqueHolder (: value left))))
+          (#unsafe (#word-write SharedHolder words (#struct-literal SharedHolder (: value right)))))
+        (#return ()))
+      (#fn update (: words (#slice-mut #u64)) ()
+        (#let restored UniqueHolder (#unsafe (#word-read UniqueHolder words)))
+        (#deref-set (#get restored value) 42u64) (#forget restored) (#return ()))
+      (#fn main () #u64
+        (#let-mut left #u64 1u64) (#let right #u64 2u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#call fill (: words (#borrow-slice-mut words) : left (#borrow-mut left)
+          : right (#borrow right) : flag true))
+        (#call update (: words (#borrow-slice-mut words)))
+        (#forget words) (#return left))";
+    let error =
+        compile(source).expect_err("a shared alternative must not gain exclusive permission");
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
 }
 
 #[test]
