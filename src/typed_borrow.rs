@@ -1998,6 +1998,7 @@ fn returned_borrows_with_bindings(
                 Some(
                     Type::Reference { mutable: true, .. }
                         | Type::PinnedReference { mutable: true, .. }
+                        | Type::MutableSlice(_)
                 )
             );
             for alternative in &mut alternatives {

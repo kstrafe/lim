@@ -19,6 +19,22 @@ impl FunctionContext<'_> {
         items: &[Expr],
     ) -> Result<(), String> {
         let ty = resolve_type(&parse_type(items.get(1))?, &self.aliases)?;
+        if operator == "word-view" && matches!(ty, Type::Slice(_) | Type::MutableSlice(_)) {
+            let source = self
+                .expression_type(&items[2])
+                .ok_or_else(|| "word view source lost its checked reference type".to_owned())?;
+            let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) = &source
+            else {
+                return Err("word-slice view requires a checked reference".into());
+            };
+            let words = storage_word_count(target, &self.structs, &self.enums)?;
+            self.expression_as_expected(&items[2], &source)?;
+            // This unsafe reinterpretation requires flat value-word backing.
+            // Preserve descending storage; packed-byte metadata is inapplicable.
+            self.output
+                .push_str(&format!("    btr rax, 62\n    mov rdx, {words}\n"));
+            return Ok(());
+        }
         self.word_storage_address(&items[2])?;
         if operator == "word-view" {
             return Ok(());

@@ -8340,6 +8340,38 @@ fn list_expression(
                 if operator == "word-write" { 4 } else { 3 },
             )?;
             let result = resolve_type(&parse_type(items.get(1))?, aliases)?;
+            if operator == "word-view" && matches!(result, Type::Slice(_) | Type::MutableSlice(_)) {
+                let (Type::Slice(element) | Type::MutableSlice(element)) = &result else {
+                    unreachable!()
+                };
+                require_type(element, &Type::U64, "word storage element")?;
+                let source = expression(
+                    &items[2], variables, functions, structs, enums, mutable, aliases, None,
+                )?;
+                let (Type::Reference {
+                    mutable: source_mutable,
+                    target,
+                }
+                | Type::PinnedReference {
+                    mutable: source_mutable,
+                    target,
+                }) = source
+                else {
+                    return Err(
+                        "word-view with a word-slice result requires a reference source".into(),
+                    );
+                };
+                validate_layout_type(&target, structs, enums)?;
+                if !is_reference_target(&target) {
+                    return Err("word-view requires a value type other than () or #never".into());
+                }
+                if matches!(result, Type::MutableSlice(_)) && !source_mutable {
+                    return Err(borrow_error(
+                        "word-view requires a mutable reference for a mutable word slice",
+                    ));
+                }
+                return Ok(result);
+            }
             let (target, writable) = if operator == "word-view" {
                 match &result {
                     Type::Reference { mutable, target }

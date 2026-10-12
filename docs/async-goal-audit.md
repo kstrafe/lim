@@ -40,6 +40,16 @@ missing provenance for reference-bearing fields. These operations currently
 have x86-64 native emission; AArch64 still rejects slice types rather than
 silently lowering them incorrectly.
 
+The inverse `#word-view` form exposes an ordinary or pinned reference as an
+explicit `(#slice #u64)` or `(#slice-mut #u64)` of exactly the referent's flat
+word width. It preserves descending-address metadata rather than reinterpreting
+the pointer as an ascending native array. This is unsafe and requires flat-word
+backing, not packed bytes; it grants neither ownership nor reference provenance.
+Exclusive results require exclusive sources. Seventeen generic word-storage
+tests pass, including stack/heap execution, helper-returned aliases, rejected
+local escapes, missing unsafe scopes, immutable-to-exclusive conversion and
+release of a heap owner while a derived view remains live.
+
 Native regression coverage includes scalar/floating/wide values, oversized
 aggregates, packed heap versus descending stack layouts, overlapping and
 disjoint ranges, helper-returned views, rejected local escapes and heap release,

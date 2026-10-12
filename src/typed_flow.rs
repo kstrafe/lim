@@ -13005,6 +13005,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                     Some(
                         Type::Reference { mutable: true, .. }
                             | Type::PinnedReference { mutable: true, .. }
+                            | Type::MutableSlice(_)
                     )
                 );
                 if let PlaceRoot::Parameter(binding) = origin.place.root {
@@ -13585,6 +13586,7 @@ fn value_loan_origins_at_events(
                     Some(
                         Type::Reference { mutable: true, .. }
                             | Type::PinnedReference { mutable: true, .. }
+                            | Type::MutableSlice(_)
                     )
                 );
                 if let PlaceRoot::Parameter(binding) = origin.place.root {

@@ -51,6 +51,82 @@ fn flat_word_views_preserve_stack_layout() {
     run(SOURCE);
 }
 
+const REFERENCE_WORDS: &str = "
+(#struct Pair (: left #u8 : right #u64))
+(#fn expose (: value (#pin-ref-mut Pair)) (#slice-mut #u64)
+  (#return (#unsafe (#word-view (#slice-mut #u64) value))))
+(#fn main () #u64
+  (#let-mut words (#array #u64 2) (#array-of (#array #u64 2) 40u64 2u64))
+  (#let target (#pin-ref-mut Pair)
+    (#unsafe (#word-view (#pin-ref-mut Pair) (#borrow-slice-mut words))))
+  (#let raw (#slice-mut #u64) (#call expose (: value target)))
+  (#assert (#usize.== (#slice-mut-len raw) 2usize))
+  (#unsafe (#word-write Pair raw (#struct-literal Pair (: left 20u8 : right 22u64))))
+  (#let raw-read (#slice #u64) (#unsafe (#word-view (#slice #u64) target)))
+  (#let result Pair (#unsafe (#word-read Pair raw-read)))
+  (#forget raw-read) (#forget target)
+  (#let answer #u64 (#u64.+.wrap (#as (#get result left) #u64) (#get result right)))
+  (#forget result) (#return answer))";
+
+#[test]
+fn reference_word_views_preserve_selected_stack_layout_and_helper_lifetimes() {
+    run(REFERENCE_WORDS);
+    let conflict = REFERENCE_WORDS.replace(
+        "(#let result Pair",
+        "(#set-index words 0usize 99u64) (#let result Pair",
+    );
+    assert_eq!(compile(&conflict).unwrap_err().code, DiagnosticCode::Borrow);
+}
+
+#[test]
+fn reference_word_views_preserve_heap_layout_and_owner_lifetimes() {
+    let source = REFERENCE_WORDS
+        .replace(
+            "(#let-mut words (#array #u64 2) (#array-of (#array #u64 2) 40u64 2u64))",
+            "(#let pointer (#ptr-mut (#array #u64 2))
+          (#unsafe (#linux-syscall (#ptr-mut (#array #u64 2)) 9usize
+            (0usize 16usize 3usize 34usize -1i64 0usize))))
+         (#let-mut owner (#pin-own (#array #u64 2))
+          (#unsafe (#pin-own-of pointer (#array-of (#array #u64 2) 40u64 2u64))))",
+        )
+        .replace(
+            "(#borrow-slice-mut words)",
+            "(#unsafe (#word-view (#slice-mut #u64) (#pin-own-borrow-mut owner)))",
+        )
+        .replace(
+            "(#forget raw-read) (#forget target)",
+            "(#forget raw-read) (#forget target)
+         (#let pointer-out (#ptr-mut (#array #u64 2)) (#unsafe (#pin-release owner)))
+         (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer-out 16usize))) 0i64))",
+        );
+    run(&source);
+    let invalid = source.replace("(#forget raw-read) (#forget target)", "");
+    assert_eq!(compile(&invalid).unwrap_err().code, DiagnosticCode::Borrow);
+}
+
+#[test]
+fn reference_word_views_check_unsafe_mutability_types_and_escapes() {
+    let missing = REFERENCE_WORDS.replace(
+        "(#unsafe (#word-view (#slice-mut #u64) value))",
+        "(#word-view (#slice-mut #u64) value)",
+    );
+    assert_eq!(compile(&missing).unwrap_err().code, DiagnosticCode::Unsafe);
+    let immutable = REFERENCE_WORDS.replace("(#pin-ref-mut Pair)", "(#pin-ref Pair)");
+    assert_eq!(
+        compile(&immutable).unwrap_err().code,
+        DiagnosticCode::Borrow
+    );
+    let wrong_element = REFERENCE_WORDS.replace("(#slice-mut #u64)", "(#slice-mut #u8)");
+    assert_eq!(
+        compile(&wrong_element).unwrap_err().code,
+        DiagnosticCode::Type
+    );
+    let escape = "(#fn bad () (#slice #u64)
+      (#let value #u64 42u64)
+      (#return (#unsafe (#word-view (#slice #u64) (#borrow value)))))";
+    assert_eq!(compile(escape).unwrap_err().code, DiagnosticCode::Borrow);
+}
+
 #[test]
 fn word_staging_preserves_observable_clone_hooks() {
     let source = "(#struct Value (: number #u64 : count (#ptr-mut #u64)))
