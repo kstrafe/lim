@@ -58,6 +58,37 @@ fn rejected(body: &str, label: &str, conflict: &str, occurrence: usize) {
 }
 
 #[test]
+fn pinned_nested_enum_payload_borrows_survive_cold_and_cached_suspension() {
+    let source = include_str!("../examples/async_fn_enum_self_reference.lim");
+    run_native(source, "async-word-enum-payload-shared", 42);
+    let mutable = source
+        .replace(
+            "((owner Owner)) #u64",
+            "((input Owner)) #u64\n    (#let-mut owner Owner input)",
+        )
+        .replace(
+            "(: owner (#struct-literal Owner",
+            "(: input (#struct-literal Owner",
+        )
+        .replace("(#pin-ref #u64)", "(#pin-ref-mut #u64)")
+        .replace("(#pin-borrow ", "(#pin-borrow-mut ")
+        .replace("(#pin-borrow\n", "(#pin-borrow-mut\n")
+        .replace("(#pin-get-payload ", "(#pin-get-payload-mut ")
+        .replace(
+            "(#return (#u64.+.wrap (#deref view) result))",
+            "(#unsafe (#pin-write view 40u64)) (#return (#u64.+.wrap (#deref view) result))",
+        );
+    run_native(&mutable, "async-word-enum-payload-exclusive", 42);
+    let overlapping = mutable.replacen(
+        "(#let result #u64",
+        "(#let conflict (#pin-ref-mut Owner) (#pin-borrow-mut owner))\n    (#let result #u64",
+        1,
+    );
+    let error = compile_error(&overlapping, "async-word-enum-payload-overlap");
+    assert_eq!(error.code, DiagnosticCode::Borrow, "{error:?}");
+}
+
+#[test]
 fn scope_exit_retires_implicit_shared_handles_before_their_local_owner() {
     run_native(
         include_str!("../examples/async_fn_local_self_reference.lim"),

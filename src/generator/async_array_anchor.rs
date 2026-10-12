@@ -84,6 +84,9 @@ pub(crate) fn target_type(
     for segment in &place.segments[..prefix] {
         ty = match (segment, ty) {
             (Segment::Field(id), _) => resolve(&declarations.field(*id).ty),
+            (Segment::Payload(variant, index), _) => {
+                resolve(&declarations.variant(*variant).fields[*index])
+            }
             (Segment::Tuple(index), Type::Tuple(fields)) => resolve(&fields[*index]),
             (Segment::Index(_) | Segment::DynamicIndex, Type::Array(element, _)) => {
                 resolve(&element)
@@ -155,6 +158,10 @@ impl Recipes {
                                     format!("(#get {projected} {})", declarations.field(*id).name)
                                 }
                                 Segment::Tuple(index) => format!("(#get {projected} {index})"),
+                                Segment::Payload(variant, index) => format!(
+                                    "(#deref (#pin-get-payload{suffix} {projected} {} {index}))",
+                                    declarations.variant(*variant).name
+                                ),
                                 Segment::Index(index) => {
                                     format!("(#index {projected} {index}usize)")
                                 }
@@ -239,7 +246,29 @@ impl Recipes {
                 let probe = fresh("array-anchor-probe");
                 let sample = fresh("array-anchor-sample");
                 let mut projected = owner.clone();
+                let mut prototype_steps = Vec::new();
+                let mut projected_reference = true;
                 for (offset, segment) in place.segments[position..].iter().enumerate() {
+                    if let Segment::Payload(variant, index) = segment {
+                        // A prototype measures geometry, not the contents of
+                        // its sample element. Another element may have an
+                        // inactive variant here. Form only its padded payload
+                        // address; never load the value. Actual selections and
+                        // candidate probes check the active variant separately.
+                        let input = if projected_reference {
+                            projected.clone()
+                        } else {
+                            format!("(#pin-borrow {projected})")
+                        };
+                        let next = fresh("array-anchor-payload");
+                        let target =
+                            target_type(&place, position + offset + 1, graph, declarations);
+                        prototype_steps.push(format!("(#let {next} (#pin-ref {}) (#unsafe (#pin-get-payload-unchecked {input} {} {index})))",
+                            crate::type_source(&target), declarations.variant(*variant).name));
+                        projected = next;
+                        projected_reference = true;
+                        continue;
+                    }
                     projected = match segment {
                         Segment::Field(id) => {
                             format!("(#get {projected} {})", declarations.field(*id).name)
@@ -252,11 +281,17 @@ impl Recipes {
                         Segment::DynamicIndex => format!("(#index {projected} 0usize)"),
                         _ => unreachable!("array prototype has checked projections"),
                     };
+                    projected_reference = false;
                 }
                 // Start at the canonical *leaf*, not the array's start. This
                 // subtracts actual field/padding offsets, including zero-sized
                 // tail fields whose address is at the end of an element.
                 let borrow = if pinned { "#pin-borrow" } else { "#borrow" };
+                let prototype_reference = if projected_reference {
+                    projected
+                } else {
+                    format!("({borrow} {projected})")
+                };
                 let input = crate::type_source(&input);
                 let (prefix, index_value, probe_value) = if *length <= 1 {
                     (
@@ -285,13 +320,14 @@ impl Recipes {
                 };
                 recipes.declarations.push(format!(
                     "(#fn {prototype} (: {owner} {input} : {sample} #usize) #usize
-                      (#return (#ptr-address (#ref-ptr ({borrow} {projected})))))
+                      {}\n(#return (#ptr-address (#ref-ptr {prototype_reference}))))
                     (#fn {index} (: {owner} {input} : {address} #usize) #usize
                       {prefix}
                       (#return {index_value}))
                     (#fn {probe} (: {owner} {input} : {address} #usize) #bool
                       {prefix}
-                      (#return {probe_value}))"
+                      (#return {probe_value}))",
+                    prototype_steps.join("\n")
                 ));
                 recipes.entries.insert(
                     (place.clone(), position),

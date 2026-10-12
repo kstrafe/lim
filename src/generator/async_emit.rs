@@ -766,32 +766,6 @@ impl<'a> Emitter<'a> {
         // holders and deferred generated layouts retain their typed path.
         let value_slots = emitter.values.values().copied().collect::<HashSet<_>>();
         let binding_slots = emitter.bindings.values().copied().collect::<HashSet<_>>();
-        let typed_payload_owners = function
-            .graph
-            .blocks
-            .iter()
-            .flat_map(|block| &block.actions)
-            .filter_map(|action| match action.action {
-                Action::Borrow {
-                    place,
-                    pinned: true,
-                    ..
-                } => {
-                    let descriptor = &function.graph.places[place.0];
-                    match descriptor.root {
-                        AddressRoot::Local(binding)
-                            if descriptor.projections.iter().any(|projection| {
-                                matches!(projection, AddressProjection::Payload(_, _))
-                            }) =>
-                        {
-                            emitter.bindings.get(&binding).copied()
-                        }
-                        _ => None,
-                    }
-                }
-                _ => None,
-            })
-            .collect::<HashSet<_>>();
         for index in 0..emitter.slots.len() {
             let slot = &emitter.slots[index];
             let ty = crate::typed_ir::resolve_type(&slot.ty, &planning.declarations.aliases)
@@ -802,7 +776,6 @@ impl<'a> Emitter<'a> {
                 && !types.contains_reference(&ty);
             if slot.words.is_some()
                 || slot.raw
-                || typed_payload_owners.contains(&index)
                 || (!reference_free_value
                     && !matches!(
                         ty,
@@ -1323,6 +1296,10 @@ impl<'a> Emitter<'a> {
                     self.planning.declarations.field(*id).name
                 ),
                 Segment::Tuple(index) => format!("(#get {anchor} {index})"),
+                Segment::Payload(variant, index) => format!(
+                    "(#deref (#pin-get-payload{suffix} {anchor} {} {index}))",
+                    self.planning.declarations.variant(*variant).name
+                ),
                 Segment::Index(index) => format!("(#index {anchor} {index}usize)"),
                 Segment::DynamicIndex => format!("(#index {anchor} {})", indices[&position]),
                 _ => unreachable!("internal anchors were checked before emission"),
@@ -1372,6 +1349,9 @@ impl<'a> Emitter<'a> {
         for segment in place.segments.iter().skip(skip) {
             ty = match (segment, ty) {
                 (Segment::Field(id), _) => resolve(&self.planning.declarations.field(*id).ty),
+                (Segment::Payload(variant, index), _) => {
+                    resolve(&self.planning.declarations.variant(*variant).fields[*index])
+                }
                 (Segment::Tuple(index), Type::Tuple(fields)) => resolve(&fields[*index]),
                 (
                     segment @ (Segment::Index(_) | Segment::DynamicIndex),
@@ -1408,8 +1388,20 @@ impl<'a> Emitter<'a> {
             indices: &mut HashMap<usize, String>,
         ) -> String {
             if let Some(position) = (start..place.segments.len()).find(|position| {
-                place.segments[*position] == crate::typed_place::Segment::DynamicIndex
+                matches!(
+                    place.segments[*position],
+                    crate::typed_place::Segment::DynamicIndex
+                        | crate::typed_place::Segment::Payload(_, _)
+                )
             }) {
+                if let crate::typed_place::Segment::Payload(variant, _) = place.segments[position] {
+                    let owner = emitter.anchor_project(place, position, false, indices);
+                    return format!(
+                        "(#bool.&& (#variant-is {owner} {}) {})",
+                        emitter.planning.declarations.variant(variant).name,
+                        probe(emitter, place, pointer, position + 1, indices)
+                    );
+                }
                 let array = emitter.anchor_project(place, position, false, indices);
                 let recipe = emitter.array_anchors.get(place, position);
                 let index = emitter.fresh("probe-index");
@@ -3043,14 +3035,34 @@ impl<'a> Emitter<'a> {
             steps.join("\n")
         ));
         let slot = &self.slots[destination];
+        let mut word_checks = Vec::new();
+        if self.is_word_place(place) && start == descriptor.projections.len() {
+            for check in descriptor.checks() {
+                if let crate::generator::async_exec::PlaceCheck::ActivePayload {
+                    projection,
+                    variant,
+                } = check
+                {
+                    let (slice, ty) = self
+                        .word_owned_slice_prefix(place, false, projection)?
+                        .ok_or_else(|| fail(self.function, "word payload check lost its owner"))?;
+                    word_checks.push(format!(
+                        "(#assert (#variant-is (#unsafe (#word-view (#pin-ref {}) {slice})) {}))",
+                        crate::type_source(&ty),
+                        self.planning.declarations.variant(variant).name
+                    ));
+                }
+            }
+        }
         // Repeated execution may select this address only after its prior
         // capability has been retired. Publish that physical tag invariant
         // before touching the owner, so ordinary call contracts distinguish
         // first-entry selection from resumed access through a retained handle.
         Ok(format!(
-            "(#assert (#variant-is {} {}))\n{}",
+            "(#assert (#variant-is {} {}))\n{}\n{}",
             Self::slot_ref(slot, false),
             slot.empty,
+            word_checks.join("\n"),
             self.put(
                 destination,
                 &format!("(#call {helper} ({}))", arguments.join(" "))
@@ -3180,6 +3192,19 @@ impl<'a> Emitter<'a> {
         id: PlaceId,
         mutable: bool,
     ) -> Result<Option<(String, Type)>, Error> {
+        self.word_owned_slice_prefix(
+            id,
+            mutable,
+            self.function.graph.places[id.0].projections.len(),
+        )
+    }
+
+    fn word_owned_slice_prefix(
+        &self,
+        id: PlaceId,
+        mutable: bool,
+        prefix: usize,
+    ) -> Result<Option<(String, Type)>, Error> {
         let descriptor = &self.function.graph.places[id.0];
         let AddressRoot::Local(binding) = descriptor.root else {
             return Ok(None);
@@ -3206,7 +3231,7 @@ impl<'a> Emitter<'a> {
         let mut ty = resolve(&root.ty)?;
         let mut offset = region.start;
         let mut dynamic = Vec::new();
-        for (position, projection) in descriptor.projections.iter().enumerate() {
+        for (position, projection) in descriptor.projections.iter().take(prefix).enumerate() {
             let next = match projection {
                 AddressProjection::Field(field) => {
                     let declaration = self.planning.declarations.field(*field);
@@ -3298,7 +3323,7 @@ impl<'a> Emitter<'a> {
             };
             ty = next;
         }
-        if ty != descriptor.ty {
+        if prefix == descriptor.projections.len() && ty != descriptor.ty {
             return Err(reject("word projection disagrees with its checked target"));
         }
         if ty == Type::Unit {
@@ -6855,6 +6880,100 @@ mod tests {
                 slot.field
             );
             assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+        }
+    }
+
+    #[test]
+    fn pinned_enum_payload_handles_use_word_owners_and_select_active_anchors() {
+        let function = "(#fn work (: choose #bool) #u64
+          (#let-mut owner Choice (#if choose (Left 40u64) (Right 40u64)))
+          (#let view (#pin-ref-mut #u64) (#if choose
+            (#pin-get-payload-mut (#pin-borrow-mut owner) Left 0)
+            (#pin-get-payload-mut (#pin-borrow-mut owner) Right 0)))
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#unsafe (#pin-write view (#u64.+.wrap (#deref view) extra)))
+          (#let answer #u64 (#deref view))
+          (#drop view) (#forget owner) (#return answer))";
+        for choose in ["true", "false"] {
+            let main = format!(
+                "(#enum Choice ((Left #u64) (Right #u64))) (#linear Choice)
+              (#fn main () #u64 (#let waker #u64 0u64)
+                (#let-mut task Work-frame (#call work (: choose {choose})))
+                (#let first Work-poll-result (#call work-poll
+                  (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable))
+                (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+                  (#case (work-ready result) result)
+                  (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+                (#forget task) (#return answer))"
+            );
+            let planning = prepare_generator("#async-fn-pinned", function, &main);
+            let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+            for (index, binding) in planning.functions[0].graph.bindings.iter().enumerate() {
+                if binding.name == "owner" {
+                    assert!(emitter.slots[emitter.bindings[&BindingId(index)]]
+                        .words
+                        .is_some());
+                } else if binding.name == "view" {
+                    assert!(emitter.slots[emitter.bindings[&BindingId(index)]].raw);
+                }
+            }
+            runtime_planned(planning, 42);
+            let inactive = function.replace(
+                "(#if choose (Left 40u64) (Right 40u64))",
+                "(#if choose (Right 40u64) (Left 40u64))",
+            );
+            let planning = prepare_generator("#async-fn-pinned", &inactive, &main);
+            let generated = generate(&planning).unwrap();
+            runtime_generated_outcome(planning, generated, NativeOutcome::Signal(4));
+        }
+    }
+
+    #[test]
+    fn pinned_enum_array_anchors_ignore_inactive_prototype_variants() {
+        let function = "(#fn work (: choose #bool) #u64
+          (#let-mut owner (#array Choice 2) (#array-of (#array Choice 2)
+            (Left (#array-of (#array #u64 2) 0u64 40u64))
+            (Right (#array-of (#array #u64 2) 0u64 40u64))))
+          (#let-mut outer #usize (#if choose 0usize 1usize))
+          (#let-mut inner #usize 1usize)
+          (#let view (#pin-ref-mut #u64) (#if choose
+            (#pin-borrow-mut (#index (#pin-get-payload-mut (#pin-borrow-mut (#index owner outer)) Left 0) inner))
+            (#pin-borrow-mut (#index (#pin-get-payload-mut (#pin-borrow-mut (#index owner outer)) Right 0) inner))))
+          (#set outer 0usize) (#set inner 0usize)
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#unsafe (#pin-write view (#u64.+.wrap (#deref view) extra)))
+          (#let answer #u64 (#deref view)) (#drop view) (#forget owner) (#return answer))";
+        for choose in ["true", "false"] {
+            let main = format!(
+                "(#enum Choice ((Left (#array #u64 2)) (Right (#array #u64 2)))) (#linear Choice)
+              (#fn main () #u64 (#let waker #u64 0u64)
+                (#let-mut task Work-frame (#call work (: choose {choose})))
+                (#let first Work-poll-result (#call work-poll
+                  (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+                (#let-else (work-pending next) Work-poll-result first (#unreachable))
+                (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+                  (#case (work-ready result) result)
+                  (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+                (#forget task) (#return answer))"
+            );
+            runtime_planned(prepare_generator("#async-fn-pinned", function, &main), 42);
+            let heap = main.replace(
+                "(#let-mut task Work-frame (#call work (: choose",
+                "(#let pointer (#ptr-mut Work-frame) (#unsafe (#linux-syscall (#ptr-mut Work-frame) 9usize
+                  (0usize (#size-of Work-frame) 3usize 34usize -1i64 0usize))))
+                 (#let initial Work-frame (#call work (: choose",
+            ).replace(
+                "(#let first Work-poll-result",
+                "(#let-mut task (#pin-own Work-frame) (#unsafe (#pin-own-of pointer initial)))
+                 (#let first Work-poll-result",
+            ).replace("(#pin-borrow-mut task)", "(#pin-own-borrow-mut task)")
+             .replace("(#forget task) (#return answer)",
+                    "(#forget next)
+                 (#let allocation (#ptr-mut Work-frame) (#unsafe (#pin-release task)))
+                 (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (allocation (#size-of Work-frame)))) 0i64))
+                 (#return answer)");
+            runtime_planned(prepare_generator("#async-fn-pinned", function, &heap), 42);
         }
     }
 

@@ -76,6 +76,7 @@ fn anchor(origins: &[LoanOrigin]) -> Result<Option<Vec<crate::typed_place::Place
             !matches!(
                 segment,
                 crate::typed_place::Segment::Field(_)
+                    | crate::typed_place::Segment::Payload(_, _)
                     | crate::typed_place::Segment::Tuple(_)
                     | crate::typed_place::Segment::Index(_)
                     | crate::typed_place::Segment::DynamicIndex
@@ -83,7 +84,7 @@ fn anchor(origins: &[LoanOrigin]) -> Result<Option<Vec<crate::typed_place::Place
         })
     }) {
         return Err(
-            "internal reference anchors require checked struct/tuple/array projections".into(),
+            "internal reference anchors require checked struct/tuple/enum/array projections".into(),
         );
     }
     Ok(Some(places))
@@ -170,12 +171,14 @@ pub(crate) fn direct_place(
         .map(|projection| match projection {
             AddressProjection::Field(field) => Ok(Segment::Field(*field)),
             AddressProjection::Tuple(index) => Ok(Segment::Tuple(*index)),
+            AddressProjection::Payload(variant, index) => Ok(Segment::Payload(*variant, *index)),
             AddressProjection::Index(index) => graph.values[index.0]
                 .source
                 .and_then(|source| crate::typed_place::literal_index(body, source))
                 .map_or(Ok(Segment::DynamicIndex), |index| Ok(Segment::Index(index))),
             _ => Err(
-                "internal reference anchors require checked struct/tuple/array projections".into(),
+                "internal reference anchors require checked struct/tuple/enum/array projections"
+                    .into(),
             ),
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -285,8 +288,8 @@ impl Plan {
                             continue;
                         }
                     }
-                    // Pinned payload recipes still retain their typed path.
-                    // Do not manufacture an unsupported direct-place anchor.
+                    // Opaque dereference and slice recipes retain their typed
+                    // path. Do not manufacture an unsupported owned anchor.
                     if pinned && direct_place(graph, body, place).is_err() {
                         continue;
                     }

@@ -155,9 +155,9 @@ continuation does not remove the local's permanent prohibition on movement.
 Explicit forget may end an otherwise inaccessible pinned frame in place.
 
 Reference-bearing owners, deferred generated-child layouts and pinned
-enum-payload anchor recipes retain their typed path. Their full provenance
-migration and complete tag removal remain open, as does the analysis-performance
-audit. This milestone does not complete the async goal.
+enum-payload anchor recipes retained their typed path at this milestone.
+Their full provenance migration and complete tag removal remained open, as did
+the analysis-performance audit. This milestone did not complete the async goal.
 
 Verification: 1,387 library tests pass with seven existing ignored tests.
 All 103 focused contiguous-storage, dependent-cancellation, dynamic-array,
@@ -166,6 +166,33 @@ The graph run passed 31 cases; its printing case produced the expected stdout
 but failed an obsolete helper-name assertion. After replacing that assertion
 with checks of the emitted operations, the printing case passed separately.
 All-target checking, Rust formatting and whitespace checks also pass.
+
+### Pinned enum payloads (2026-10-12)
+
+Reference-free owners with pinned enum-payload borrows now use word storage.
+Thin handles retain checked payload projections in their source anchors rather
+than forcing the whole owner back onto the tagged path. Required active-variant
+checks remain at address selection, before subsequent source operations.
+Branch-selected handle reconstruction checks a candidate's active variants
+before probing or materializing its payload. This adds no initialization flags.
+
+Dynamic array address prototypes can measure the padded address of an inactive
+sample payload without reading its value. Actual selections still check the
+variant; prototypes only establish geometry. Native regressions cover both
+variants, inactive-variant traps, nested shared and exclusive payload views,
+overlapping-borrow rejection, and frozen array indices whose variables change
+before suspension. The nested enum/array selection executes on both stack and
+heap backing. Original-source checking and final ordinary generated checking
+remain mandatory; the native checker has no async exemptions.
+
+Reference-bearing owner provenance, deferred generated-child layouts, remaining
+typed handle cells and analysis-performance work are still open. This is not a
+goal-completion claim.
+
+Verification of the payload migration: 1,389 library tests pass with seven
+existing ignored tests, and all 104 focused async/word-storage integration tests
+pass. All-target checking and whitespace checks pass. No source borrow rule or
+ordinary generated-code validation was relaxed.
 
 The contiguous clone audit exposed and corrected a physical-occupancy bug:
 non-owning snapshots of linear word-backed leaves must not use the ordinary
