@@ -204,6 +204,34 @@ ones. The follow-up passes 1,390 library tests with seven existing ignored tests
 all 43 cancellation, boundary and self-borrow integration tests, and all-target
 checking. This does not change alias, escape or initialization permissions.
 
+### Erased thin handle cells (2026-10-12)
+
+Internal thin handles to reference-free values now store one physical pointer
+word instead of an Empty/Full enum cell. Reads reconstruct the logical reference
+from the same checked source anchors; writes erase the incoming temporary loan
+before acquiring the destination storage. Constructors use captured pointer
+values while retaining actual lifetime-bearing external captures separately.
+Retirement changes dispatcher occupancy facts, not bytes or runtime tags.
+Non-owning snapshots reconstruct the reference without consuming its cell.
+
+Zero-length markers retain the physical raw pointer's structural Send/Sync
+restrictions. A regression checks pointer width, anchors, absence of cell enums
+and transfer helpers, ordinary generated-code validation and thread properties.
+The native pending-tag oracle now includes a retained external capture, since
+internal reference-free handles no longer have tags to inspect.
+
+Handles into reference-bearing values retain typed storage and recovery helpers.
+Their provenance migration, deferred generated-child layouts and the remaining
+analysis-performance audit are still open. This is not complete tag removal or
+a goal-completion claim.
+
+Verification of thin-handle storage: 1,391 library tests pass with seven existing
+ignored tests. All 104 focused contiguous-storage, dependent-cancellation,
+dynamic-array, generator-boundary, graph-production, self-borrow and generic
+word-storage integration tests pass. All-target checking, Rust formatting and
+whitespace checks pass. Each converted handle removes one discriminator word;
+this is a layout saving, not a measured compilation-time speedup.
+
 The contiguous clone audit exposed and corrected a physical-occupancy bug:
 non-owning snapshots of linear word-backed leaves must not use the ordinary
 transfer reader. They now leave the original occupancy unchanged while the

@@ -764,19 +764,32 @@ impl<'a> Emitter<'a> {
         // words. The specialized dispatcher carries ownership and initialization
         // facts, including for whole aggregate values. Actual reference
         // holders and deferred generated layouts retain their typed path.
+        // Erased thin handles store physical pointer words, but reads still
+        // reconstruct references from their checked source anchors.
         let value_slots = emitter.values.values().copied().collect::<HashSet<_>>();
         let binding_slots = emitter.bindings.values().copied().collect::<HashSet<_>>();
         for index in 0..emitter.slots.len() {
             let slot = &emitter.slots[index];
-            let ty = crate::typed_ir::resolve_type(&slot.ty, &planning.declarations.aliases)
+            // Nested reference provenance still uses the typed recovery helper.
+            // Pointer bits alone must not replace that lifetime-bearing path.
+            if slot.raw
+                && matches!(
+                    crate::typed_ir::resolve_type(&slot.ty, &planning.declarations.aliases),
+                    Ok(Type::Reference { target, .. } | Type::PinnedReference { target, .. })
+                        if types.contains_reference(&target)
+                )
+            {
+                continue;
+            }
+            let ty = crate::typed_ir::resolve_type(&slot.storage, &planning.declarations.aliases)
                 .map_err(|message| fail(function, message))?;
             let reference_free_value = (value_slots.contains(&index)
                 || binding_slots.contains(&index))
                 && !matches!(ty, Type::Unit | Type::Never)
                 && !types.contains_reference(&ty);
             if slot.words.is_some()
-                || slot.raw
-                || (!reference_free_value
+                || (!slot.raw
+                    && !reference_free_value
                     && !matches!(
                         ty,
                         Type::Bool
@@ -1690,6 +1703,21 @@ impl<'a> Emitter<'a> {
             return value.clone();
         }
         if let Some(region) = &slot.words {
+            if slot.raw {
+                let pointer = self.fresh("self-pointer");
+                let mutable = matches!(slot.storage, Type::RawPointer { mutable: true, .. });
+                let pinned = matches!(
+                    crate::typed_ir::resolve_type(&slot.ty, &self.planning.declarations.aliases),
+                    Ok(Type::PinnedReference { .. })
+                );
+                return format!(
+                    "(#block (#let {pointer} {} (#unsafe (#word-read {} {})))\n{})",
+                    crate::type_source(&slot.storage),
+                    crate::type_source(&slot.storage),
+                    self.word_slice(region, false),
+                    self.materialize_internal_reference(slot, &pointer, mutable, pinned)
+                );
+            }
             if slot.ty == Type::Unit {
                 return "()".into();
             }
@@ -1794,6 +1822,14 @@ impl<'a> Emitter<'a> {
             return format!("(#forget {value})");
         }
         if let Some(region) = &slot.words {
+            if slot.raw {
+                let pointer = self.fresh("stored-self-pointer");
+                let ty = crate::type_source(&slot.storage);
+                return format!(
+                    "(#block (#let {pointer} {ty} (#ref-ptr {value}))\n(#unsafe (#word-write {ty} {} {pointer})))",
+                    self.word_slice(region, true)
+                );
+            }
             if slot.ty == Type::Unit {
                 return format!("(#forget {value})");
             }
@@ -2153,6 +2189,9 @@ impl<'a> Emitter<'a> {
     }
 
     fn snapshot_cell(&mut self, index: usize) -> Result<String, Error> {
+        if self.slots[index].raw {
+            return Ok(self.read(index, false));
+        }
         if let Some(region) = &self.slots[index].words {
             // This is an implementation-only bit snapshot for one checked
             // clone invocation, not a transfer of the original linear owner.
@@ -6444,8 +6483,21 @@ impl<'a> Emitter<'a> {
                     factory_captures.push(format!("(#forget {part})"));
                     continue;
                 }
-                factory_captures.push(format!("(#unsafe (#word-write {} (#borrow-slice-mut {buffer} {}usize {}usize) {part}))",
-                    crate::type_source(&slot.ty), word.start, word.start + word.length));
+                let physical = if slot.raw {
+                    self.bindings
+                        .iter()
+                        .find_map(|(binding, actual)| {
+                            (*actual == index)
+                                .then(|| captured_pointers.get(binding))
+                                .flatten()
+                        })
+                        .cloned()
+                        .unwrap_or_else(|| format!("(#ref-ptr {part})"))
+                } else {
+                    part.clone()
+                };
+                factory_captures.push(format!("(#unsafe (#word-write {} (#borrow-slice-mut {buffer} {}usize {}usize) {physical}))",
+                    crate::type_source(&slot.storage), word.start, word.start + word.length));
             }
             initial.push(format!("({} {buffer})", region.field));
             initial.push(format!(
@@ -6729,7 +6781,10 @@ mod tests {
         for bindings in [[owner, view], [view, owner]] {
             *emitter.occupancy_trace.borrow_mut() = Some(OccupancyTrace::default());
             let output = emitter.clear_scope(&bindings).unwrap();
-            assert!(output.contains(&emitter.slots[view_slot].clear));
+            assert!(
+                output.trim().is_empty(),
+                "word cells retire through state facts"
+            );
             let trace = emitter.occupancy_trace.borrow_mut().take().unwrap();
             assert!(
                 trace
@@ -7061,6 +7116,52 @@ mod tests {
     }
 
     #[test]
+    fn erased_thin_handles_keep_pointer_words_and_checked_anchors() {
+        let planning = prepare_generator(
+            "#async-fn-pinned",
+            "(#fn work (: seed #u64) #u64
+              (#let owner #u64 seed)
+              (#let view (#ref #u64) (#borrow owner))
+              (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+              (#return (#u64.+.wrap (#deref view) extra)))",
+            "",
+        );
+        let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let definitions = emitter.slot_definitions();
+        let mut handles = 0;
+        for (index, slot) in emitter
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.raw)
+        {
+            handles += 1;
+            let words = slot.words.as_ref().expect("erased handles need no tag");
+            assert_eq!(words.capacity, 1);
+            assert_eq!(words.owner, slot.storage);
+            assert!(matches!(words.owner, Type::RawPointer { .. }));
+            assert!(slot.anchor.is_some());
+            assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+            assert!(!definitions.contains(&format!("(#unsafe-fn {} ", slot.take)));
+            let read = emitter.read(index, false);
+            assert!(read.contains("#word-read (#ptr"));
+            assert!(!read.contains(&slot.peek));
+        }
+        assert!(handles > 0);
+        let generated = generate(&planning).unwrap();
+        let program = program(&planning, &generated).unwrap();
+        crate::CheckedProgram::validate_with_span(&program).unwrap();
+        for property in [crate::ThreadProperty::Send, crate::ThreadProperty::Sync] {
+            assert!(!crate::type_has_thread_property(
+                &program,
+                &Type::Named(generated[0].frame.clone()),
+                property
+            )
+            .unwrap());
+        }
+    }
+
+    #[test]
     fn contiguous_erasure_preserves_structural_thread_properties() {
         let function = "(#fn work (: seed #u64) #u64
           (#let-mut owner Owner (#struct-literal Owner (: kept seed
@@ -7089,7 +7190,7 @@ mod tests {
 
     #[test]
     fn specialized_physical_occupancy_matches_native_pending_cell_tags() {
-        let function = "(#fn work (: seed #u64) #u64
+        let function = "(#fn work (: seed #u64 : external (#ref #u64)) #u64
           (#let-mut owner Owner (#struct-literal Owner (: kept seed : item (#struct-literal Token (: value 1u64)))))
           (#let kept (#ref #u64) (#borrow (#get owner kept)))
           (#let moved Token (#get owner item)) (#forget moved)
@@ -7097,12 +7198,13 @@ mod tests {
           (#let last #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
           (#set-field owner item (#struct-literal Token (: value last)))
           (#let answer #u64 (#u64.+.wrap (#deref kept) extra))
+          (#assert (#u64.== (#deref external) 0u64))
           (#forget kept) (#forget owner) (#return answer))";
         let main = "(#struct Token (: value #u64)) (#linear Token)
           (#struct Owner (: kept #u64 : item Token))
           (#fn main () #u64
             (#let waker #u64 0u64)
-            (#let-mut task Work-frame (#call work (: seed 40u64)))
+            (#let-mut task Work-frame (#call work (: seed 40u64 : external (#borrow waker))))
             (#let-else (work-pending first) Work-poll-result (#call work-poll
               (: task (#pin-borrow-mut task) : waker (#borrow waker))) (#unreachable))
             (#let-else (work-pending second) Work-poll-result (#call work-poll
