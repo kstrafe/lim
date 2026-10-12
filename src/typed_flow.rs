@@ -17929,6 +17929,89 @@ mod tests {
     use super::*;
 
     #[test]
+    fn word_metadata_cannot_grant_extra_internal_alias_permissions() {
+        use crate::call_self_loans::Plan;
+        let source = "(#struct Link (: value #u64 : state #u32
+          : words (#array #u64 2) : view (#pin-ref #u64)))
+          (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
+            (#pin-set-field target view view) (#return target))
+          (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
+            (#pin-set-field target state 2u32) (#return target))
+          (#fn driver (: outside (#pin-ref #u64)) #u64
+            (#let-mut link Link (#struct-literal Link (: value 42u64 : state 0u32
+              : words (#array-repeat 0u64) : view outside)))
+            (#let-mut running (#pin-ref-mut Link) (#pin-borrow-mut link))
+            (#let installed (#pin-ref-mut Link) (#call install (: target running)))
+            (#set running installed)
+            (#let updated (#pin-ref-mut Link) (#call tick (: target running)))
+            (#set running updated) (#pin-set-field running view outside)
+            (#drop running) (#forget link) (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let mut declarations =
+            crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        declarations.staged_parameter_contents_summaries();
+        let body = &declarations.bodies["driver"];
+        let flow = &declarations.flows["driver"];
+        let tick = declarations.function_id("tick").unwrap();
+        let (event, value) = flow.nodes.iter().enumerate().find_map(|(index, node)| {
+            let FlowAction::Evaluate(value) = node.action else { return None; };
+            matches!(body.nodes[value.0].kind, NodeKind::Form { callee: Some(id), .. } if id == tick)
+                .then_some((FlowNodeId(index), value))
+        }).unwrap();
+        let baseline = Plan::for_call(
+            body,
+            flow,
+            event,
+            value,
+            &flow.loan_origins(body),
+            &declarations,
+        )
+        .unwrap();
+        assert_eq!(baseline.aliases.len(), 1);
+        let running = body
+            .bindings
+            .iter()
+            .position(|binding| binding.name == "running")
+            .unwrap();
+        for (field_name, word_metadata) in [("words", true), ("value", false)] {
+            let mut origins = flow.loan_origins(body);
+            for states in [&mut origins.before, &mut origins.after] {
+                for state in states.iter_mut().flatten() {
+                    let Some(mut ghost) = state[running]
+                        .iter()
+                        .find(|origin| origin.storage.is_empty())
+                        .cloned()
+                    else {
+                        continue;
+                    };
+                    ghost.storage = vec![
+                        Segment::Dereference,
+                        Segment::Field(
+                            declarations
+                                .field_id(&Type::Named("Link".into()), field_name)
+                                .unwrap(),
+                        ),
+                    ];
+                    if word_metadata {
+                        ghost.storage.push(Segment::Index(0));
+                    }
+                    ghost.storage.push(Segment::Dereference);
+                    state[running].push(ghost);
+                }
+            }
+            let result = Plan::for_call(body, flow, event, value, &origins, &declarations);
+            if word_metadata {
+                assert_eq!(result.unwrap(), baseline);
+            } else {
+                assert!(result
+                    .unwrap_err()
+                    .contains("cannot project Dereference from U64"));
+            }
+        }
+    }
+
+    #[test]
     fn dense_transfer_membership_preserves_independent_classes() {
         for count in [0, 1, 31, 1024] {
             let mut dense = TransferMembership::new(count);

@@ -1037,6 +1037,18 @@ fn project(mut ty: Type, path: &[Segment], declarations: &Declarations) -> Resul
     resolve_type(&ty, &declarations.aliases)
 }
 
+fn crosses_numeric_word_boundary(ty: &Type, path: &[Segment], declarations: &Declarations) -> bool {
+    path.iter().enumerate().any(|(index, segment)| {
+        if *segment != Segment::Dereference || index == 0
+            || !matches!(path[index - 1], Segment::Index(_)) {
+            return false;
+        }
+        matches!(project(ty.clone(), &path[..index], declarations), Ok(Type::U64))
+            && matches!(project(ty.clone(), &path[..index - 1], declarations),
+                Ok(Type::Array(element, _) | Type::Slice(element) | Type::MutableSlice(element)) if *element == Type::U64)
+    })
+}
+
 impl Alias {
     /// An incoming family exists only in the entry constructors containing its
     /// owner target AND its pointer storage. A later constructor assignment
@@ -1162,7 +1174,18 @@ impl Plan {
                 {
                     continue;
                 }
-                let pointer = project(ty.clone(), &parent.storage, declarations)?;
+                let pointer = match project(ty.clone(), &parent.storage, declarations) {
+                    Ok(pointer) => pointer,
+                    Err(error) => {
+                        // Word backing carries decoded-owner provenance past
+                        // numeric cells, not declared typed pointer fields.
+                        // Reject other malformed paths instead of hiding them.
+                        if crosses_numeric_word_boundary(ty, &parent.storage, declarations) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                };
                 if !is_owner_pointer(&pointer) {
                     continue;
                 }
@@ -2049,6 +2072,45 @@ mod tests {
         let plan = call_plan(&declarations, "driver", "relay");
         plan.check_owner_accesses(&declarations, &crate::linearcheck::LinearTypes::default())
             .expect("an inactive payload contains no retained child loan");
+    }
+
+    #[test]
+    fn numeric_backing_metadata_does_not_declare_typed_pointer_paths() {
+        let declarations = fixture(
+            "(#struct Packet (: words (#array #u64 2)
+          : scalar #u64 : references (#array (#ref #u64) 1) : narrow (#array #u32 2)))",
+        );
+        let packet = Type::Named("Packet".into());
+        let field = |name| Segment::Field(declarations.field_id(&packet, name).unwrap());
+        let ghost = vec![field("words"), Segment::Index(0), Segment::Dereference];
+        assert!(project(packet.clone(), &ghost, &declarations).is_err());
+        assert!(crosses_numeric_word_boundary(
+            &packet,
+            &ghost,
+            &declarations
+        ));
+        let mut borrowed = vec![Segment::Dereference];
+        borrowed.extend_from_slice(&ghost);
+        assert!(crosses_numeric_word_boundary(
+            &Type::Reference {
+                mutable: true,
+                target: Box::new(packet.clone()),
+            },
+            &borrowed,
+            &declarations
+        ));
+        for path in [
+            vec![field("scalar"), Segment::Dereference],
+            vec![field("words"), Segment::Index(2), Segment::Dereference],
+            vec![field("words"), Segment::Index(0), field("scalar")],
+            vec![field("references"), Segment::Index(0), Segment::Dereference],
+            vec![field("narrow"), Segment::Index(0), Segment::Dereference],
+        ] {
+            assert!(
+                !crosses_numeric_word_boundary(&packet, &path, &declarations),
+                "{path:?}"
+            );
+        }
     }
 
     #[test]

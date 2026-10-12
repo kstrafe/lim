@@ -1749,3 +1749,36 @@ the child handler does not run. General entry-state conditions need investigatio
 alongside stored exclusive-handle substitutions. Pinning, numeric zero and
 metadata retirement do not prove a reference slot inactive. The broader
 emitter experiment and the final uncommitted architecture HTML remain open.
+
+### Numeric backing is not a declared self-loan pointer slot
+
+The heap cancellation inventory exposed a type-projection error in internal
+owner planning: decoded-owner provenance retained behind a numeric cell was
+being interpreted as a declared reference field of the caller's argument.
+Planning now distinguishes metadata paths crossing an in-bounds u64 array
+(or u64 slice) cell from actual typed pointer slots. It skips those metadata
+candidates rather than attempting to dereference U64. Other malformed paths
+still fail, and validated typed self-aliases still undergo all existing checks.
+No permission is added for word metadata; its real loans and reader contracts
+remain separate checks.
+
+A path-classification regression covers direct and borrowed numeric backing,
+scalar fields, out-of-bounds indices, non-reference field access after a word,
+typed reference arrays and non-word arrays. A staged-plan regression injects
+numeric provenance beside a real stored self-loan: the resulting plan is
+exactly the original plan, with no extra aliases or permissions. An equivalent
+malformed scalar-pointer path still rejects. All 52 internal-owner tests and
+the new staged-plan test pass. All 93 word/cache/UI/entry tests pass, along with
+formatting, all-target and diff checks. The full library now passes 1,415 tests,
+with the same two failures and eight ignored cases (79.49 seconds).
+
+The whole heap-content target still has two passes and one failure; its failing
+cancellation case advances from the invalid U64 projection to missing cleanup
+result provenance. That is evidence for the distinction, not a successful heap
+cancellation acceptance test. Dependent cancellation remains eleven passes and
+three failures. Logs are /tmp/lim-self-loan-word-path-library.log,
+/tmp/lim-self-loan-word-path-heap-full.log and
+/tmp/lim-self-loan-word-path-integration.log. The earlier complete async matrix
+remains the acceptance inventory; this focused rerun is not a new complete
+matrix. State-conditional readers, nested optional owned-pointer sources,
+exclusive-entry substitutions and the uncommitted final HTML remain unfinished.
