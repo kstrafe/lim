@@ -25,12 +25,26 @@ pub(crate) struct Specialization {
 }
 
 impl Specialization {
+    #[cfg(test)]
     pub(crate) fn solve(
         entry: usize,
         successors: &[Vec<usize>],
         initial: Vec<bool>,
         limit: usize,
         transfer: impl Fn(usize, &mut Vec<bool>),
+    ) -> Result<Self, String> {
+        Self::solve_with_edges(entry, successors, initial, limit, transfer, |_, _, _| {})
+    }
+
+    /// Apply edge-local transfers after the block transfer. In particular,
+    /// Pending restoration is not an effect of the Ready edge.
+    pub(crate) fn solve_with_edges(
+        entry: usize,
+        successors: &[Vec<usize>],
+        initial: Vec<bool>,
+        limit: usize,
+        transfer: impl Fn(usize, &mut Vec<bool>),
+        edge_transfer: impl Fn(usize, usize, &mut Vec<bool>),
     ) -> Result<Self, String> {
         if entry >= successors.len()
             || successors
@@ -60,8 +74,15 @@ impl Specialization {
                 return Err("async initialization transfer changed the storage domain".into());
             }
             let mut next_states = Vec::new();
-            for &next in &successors[block] {
-                let key = (next, after.clone());
+            for (edge, &next) in successors[block].iter().enumerate() {
+                let mut incoming = after.clone();
+                edge_transfer(block, edge, &mut incoming);
+                if incoming.len() != after.len() {
+                    return Err(
+                        "async initialization edge transfer changed the storage domain".into(),
+                    );
+                }
+                let key = (next, incoming.clone());
                 let id = if let Some(&id) = identities.get(&key) {
                     id
                 } else {
@@ -74,7 +95,7 @@ impl Specialization {
                     identities.insert(key, id);
                     states.push(SpecializedState {
                         block: next,
-                        before: after.clone(),
+                        before: incoming,
                         after: Vec::new(),
                         successors: Vec::new(),
                     });
@@ -451,4 +472,37 @@ mod tests {
         assert_eq!(facts.after[1].as_ref().unwrap().fact(0), Fact::Full);
         assert_eq!(facts.before[2].as_ref().unwrap().fact(0), Fact::Full);
     }
+}
+#[test]
+fn ready_and_pending_transfers_keep_distinct_histories_at_the_same_target() {
+    let plan = Specialization::solve_with_edges(
+        0,
+        &[vec![1, 1], vec![]],
+        vec![true, false],
+        8,
+        |_, cells| cells[0] = false,
+        |_, edge, cells| {
+            if edge == 0 {
+                cells[1] = true;
+            } else {
+                cells[0] = true;
+            }
+        },
+    )
+    .unwrap();
+    assert_eq!(plan.states.len(), 3);
+    assert_eq!(plan.states[0].after, [false, false]);
+    assert_eq!(plan.states[0].successors, [1, 2]);
+    assert_eq!(plan.states[1].before, [false, true]);
+    assert_eq!(plan.states[2].before, [true, false]);
+    assert!(Specialization::solve_with_edges(
+        0,
+        &[vec![0]],
+        vec![false],
+        8,
+        |_, _| {},
+        |_, _, cells| cells.push(true),
+    )
+    .unwrap_err()
+    .contains("edge transfer changed the storage domain"));
 }

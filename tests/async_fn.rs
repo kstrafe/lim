@@ -739,7 +739,7 @@ fn example_source() -> String {
 
 fn example_without_cancel_work() -> String {
     let original = example_source();
-    let declaration = ": cancel (cancel-work ((step cancel-step) (await-0 cancel-step)))";
+    let declaration = ": cancel (cancel-work ((await-0 cancel-step)))";
     let invocation = "  (#call cancel-work (: task (#call work-poll-cleanup (: task (#call work (: offset 99u64))))))\n";
     assert_eq!(original.matches(declaration).count(), 1);
     assert_eq!(original.matches(invocation).count(), 1);
@@ -6747,11 +6747,8 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
         (#let first Work-poll-result (#call work-poll
           (: task (#call work (:)) : waker (#borrow waker))))
         (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let (Work-task-cleanup moved left right waiting) Work-task-cleanup
+        (#let (Work-task-cleanup moved right waiting) Work-task-cleanup
           (#call work-poll-cleanup (: task pending)))
-        (#match left
-          (#case Work-task-cleanup-pair.left-empty ())
-          (#case (Work-task-cleanup-pair.left-full unexpected) (#block (#forget unexpected) (#unreachable))))
         (#let-else (Work-task-cleanup-moved-full original) Work-task-cleanup-moved moved (#unreachable))
         (#let-else (Work-task-cleanup-pair.right-full sibling) Work-task-cleanup-pair.right right (#unreachable))
         (#forget waiting)
@@ -6759,11 +6756,15 @@ fn async_rebuilds_a_partially_moved_struct_after_suspension() {
         (#forget original) (#forget sibling)
         (#return result))"#
     );
-    build_and_run_partial_storage(&cancelled, 42);
+    let cleanup_source = build_and_run_partial_storage(&cancelled, 42);
+    assert!(
+        !cleanup_source.contains("Work-task-cleanup-pair.left"),
+        "a field always moved before Pending is not a cancellation obligation"
+    );
 
     let explicit_cancel = cancelled
         .replace("(#struct Pair (: left Resource : right Resource))", "(#struct Pair (: left Resource : right Resource)) (#linear Pair)")
-        .replace("Work-task-cleanup moved left right waiting", "Work-task-cleanup moved left right shell waiting")
+        .replace("Work-task-cleanup moved right waiting", "Work-task-cleanup moved right shell waiting")
         .replace("(#forget waiting)", "(#assert (#variant-is (#borrow shell) Work-task-cleanup-pair.shell-full)) (#forget shell) (#forget waiting)");
     build_and_run_partial_storage(&explicit_cancel, 42);
 
@@ -6898,11 +6899,8 @@ fn async_rebuilds_nested_partially_moved_structs() {
         (#let first Work-poll-result (#call work-poll
           (: task (#call work (:)) : waker (#borrow waker))))
         (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-        (#let (Work-task-cleanup moved left right spare waiting) Work-task-cleanup
+        (#let (Work-task-cleanup moved right spare waiting) Work-task-cleanup
           (#call work-poll-cleanup (: task pending)))
-        (#match left
-          (#case Work-task-cleanup-owner.inner.left-empty ())
-          (#case (Work-task-cleanup-owner.inner.left-full unexpected) (#block (#forget unexpected) (#unreachable))))
         (#let-else (Work-task-cleanup-moved-full original) Work-task-cleanup-moved moved (#unreachable))
         (#let-else (Work-task-cleanup-owner.inner.right-full sibling) Work-task-cleanup-owner.inner.right right (#unreachable))
         (#forget spare) (#forget waiting)
@@ -6917,7 +6915,7 @@ fn async_rebuilds_nested_partially_moved_structs() {
         "(#struct Pair (: left Resource : right Resource)) (#linear Pair)",
     );
     let nominal_main = cancelled.split_once("(#fn main () #u64").unwrap().1
-        .replace("Work-task-cleanup moved left right spare waiting", "Work-task-cleanup moved left right spare shell waiting")
+        .replace("Work-task-cleanup moved right spare waiting", "Work-task-cleanup moved right spare shell waiting")
         .replace("(#forget spare)", "(#assert (#variant-is (#borrow shell) Work-task-cleanup-owner.inner.shell-full)) (#forget shell) (#forget spare)");
     let nominal_cancel =
         format!("{nominal_prefix}(#return (#unreachable)))))\n(#fn main () #u64{nominal_main}");
@@ -7229,12 +7227,9 @@ fn async_deep_field_borrows_preserve_permissions_and_addresses() {
                           (#let first Work-poll-result (#call work-poll
                             (: task (#pin-borrow-mut frame) : waker (#borrow waker))))
                           (#let-else (work-pending pending) Work-poll-result first (#unreachable))
-                          (#let (Work-frame-cleanup moved left right shell waiting) Work-frame-cleanup
+                          (#let (Work-frame-cleanup moved right shell waiting) Work-frame-cleanup
                             (#call work-poll-cleanup (: task pending)))
                           (#forget frame)
-                          (#match left
-                            (#case Work-frame-cleanup-pair.left-empty ())
-                            (#case (Work-frame-cleanup-pair.left-full unexpected) (#block (#forget unexpected) (#unreachable))))
                           (#let-else (Work-frame-cleanup-pair.right-full retained) Work-frame-cleanup-pair.right right (#unreachable))
                           (#let result #u64 {retained})
                           (#forget moved) (#forget retained) (#forget shell) (#forget waiting)

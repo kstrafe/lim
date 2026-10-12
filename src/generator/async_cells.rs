@@ -262,6 +262,7 @@ impl Plan {
         Self::solve(graph, types, retirement, lending, false)
     }
 
+    #[cfg(test)]
     pub(crate) fn cancellation(
         graph: &Graph,
         types: &LinearTypes,

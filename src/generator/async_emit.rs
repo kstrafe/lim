@@ -64,6 +64,14 @@ struct OwnedIndex {
     slot: usize,
 }
 
+/// Assignments to real frame cells, recorded by the same helpers that emit
+/// their writes. Reads and alias permissions remain separate obligations.
+#[derive(Default)]
+struct OccupancyTrace {
+    writes: Vec<(usize, bool)>,
+    edges: HashMap<usize, Vec<(usize, bool)>>,
+}
+
 struct AggregateField {
     path: Vec<crate::typed_ir::FieldId>,
     name: String,
@@ -146,6 +154,7 @@ struct Emitter<'a> {
     address_retirement: Option<crate::generator::async_addresses::Plan>,
     initialization: Option<crate::generator::async_initialization::Specialization>,
     current_state: usize,
+    occupancy_trace: RefCell<Option<OccupancyTrace>>,
 }
 
 fn atom(name: &str) -> Expr {
@@ -260,6 +269,7 @@ impl<'a> Emitter<'a> {
             reserved: RefCell::new(reserved),
             next: Cell::new(0),
             initialization: None,
+            occupancy_trace: RefCell::new(None),
             current_state: 0,
             types,
             render: crate::generator::async_render::RenderContext::new(
@@ -1168,7 +1178,38 @@ impl<'a> Emitter<'a> {
         )
     }
 
+    fn occupancy_write(&self, slot: usize, initialized: bool) {
+        if let Some(trace) = self.occupancy_trace.borrow_mut().as_mut() {
+            trace.writes.push((slot, initialized));
+        }
+    }
+
+    fn occupancy_fork(&self) -> Option<usize> {
+        self.occupancy_trace
+            .borrow()
+            .as_ref()
+            .map(|trace| trace.writes.len())
+    }
+
+    fn occupancy_edge(&self, edge: usize, start: Option<usize>) {
+        if let Some(start) = start {
+            let mut trace = self.occupancy_trace.borrow_mut();
+            let trace = trace.as_mut().unwrap();
+            let writes = trace.writes.drain(start..).collect();
+            assert!(trace.edges.insert(edge, writes).is_none());
+        }
+    }
+
     fn read(&self, slot: usize, transfer: bool) -> String {
+        let descriptor = &self.slots[slot];
+        let takes = if descriptor.raw {
+            transfer && !descriptor.copy
+        } else {
+            !(descriptor.copy && (!transfer || self.types.contains_reference(&descriptor.ty)))
+        };
+        if takes {
+            self.occupancy_write(slot, false);
+        }
         let slot = &self.slots[slot];
         if slot.raw {
             let pointer = self.fresh("self-pointer");
@@ -1263,6 +1304,7 @@ impl<'a> Emitter<'a> {
     }
 
     fn put(&self, slot: usize, value: &str) -> String {
+        self.occupancy_write(slot, true);
         let slot = &self.slots[slot];
         if slot.raw {
             let pointer = self.fresh("stored-self-pointer");
@@ -1511,6 +1553,7 @@ impl<'a> Emitter<'a> {
                         && self.types.contains_reference(&slot.ty)
                 })
                 .map(|field| {
+                    self.occupancy_write(field.slot, false);
                     let slot = &self.slots[field.slot];
                     format!(
                         "(#call {} (: slot {}))",
@@ -1827,6 +1870,7 @@ impl<'a> Emitter<'a> {
             return aggregate
                 .cells()
                 .map(|index| {
+                    self.occupancy_write(index, false);
                     let slot = &self.slots[index];
                     format!(
                         "(#call {} (: slot {}))",
@@ -1840,6 +1884,7 @@ impl<'a> Emitter<'a> {
         self.bindings
             .get(&binding)
             .map_or_else(String::new, |slot| {
+                self.occupancy_write(*slot, false);
                 let slot = &self.slots[*slot];
                 let clear = format!(
                     "(#call {} (: slot {}))",
@@ -1897,6 +1942,7 @@ impl<'a> Emitter<'a> {
     fn clear_handle_slots(&self, slots: &[usize]) -> String {
         let mut clears = Vec::new();
         for &index in slots {
+            self.occupancy_write(index, false);
             let handle = self.fresh("retired-handle");
             let reference = self.fresh("retired-cell");
             let previous = self.fresh("retired-storage");
@@ -3198,10 +3244,93 @@ impl<'a> Emitter<'a> {
         ))
     }
 
-    /// Specialize source initialization histories and verify projected access
+    fn initial_occupancy(&self) -> Vec<bool> {
+        let mut initialized = vec![false; self.slots.len()];
+        for (&binding, &slot) in &self.bindings {
+            if binding.0 < self.function.graph.parameter_count {
+                if let Some(aggregate) = self.aggregates.get(&binding) {
+                    for cell in aggregate.cells() {
+                        initialized[cell] = true;
+                    }
+                } else {
+                    initialized[slot] = true;
+                }
+            }
+        }
+        for &slot in self.external_captures.values() {
+            initialized[slot] = true;
+        }
+        initialized
+    }
+
+    /// Render the actual cell-writing helpers once per reachable source block.
+    /// The probe has its own names/declarations: none escape into generated
+    /// code, and it performs no additional source or native semantic passes.
+    fn physical_occupancy(&self) -> Result<Vec<OccupancyTrace>, Error> {
+        let _timing = crate::timing::detail("generator.async.physical_occupancy");
+        let graph = &self.function.graph;
+        let mut probe = Self::new(self.planning, self.function)?;
+        assert_eq!(probe.slots.len(), self.slots.len());
+        assert!(probe
+            .slots
+            .iter()
+            .zip(&self.slots)
+            .all(|(left, right)| left.field == right.field
+                && left.storage == right.storage
+                && left.raw == right.raw
+                && left.copy == right.copy));
+        let mut traces = (0..graph.blocks.len())
+            .map(|_| OccupancyTrace::default())
+            .collect::<Vec<_>>();
+        let mut reachable = vec![false; graph.blocks.len()];
+        let mut pending = vec![graph.entry];
+        while let Some(block) = pending.pop() {
+            if std::mem::replace(&mut reachable[block.0], true) {
+                continue;
+            }
+            pending.extend(graph.successors(block));
+            probe.current_state = block.0;
+            *probe.occupancy_trace.borrow_mut() = Some(OccupancyTrace::default());
+            probe.clear_addresses(&probe.address_retirement.as_ref().unwrap().entry[block.0]);
+            let retired = probe
+                .retirement
+                .as_ref()
+                .map_or_else(Vec::new, |plan| plan.entry[block.0].clone());
+            probe.clear_values(&retired);
+            for (index, action) in graph.blocks[block.0].actions.iter().enumerate() {
+                probe.action(action)?;
+                probe.clear_addresses(
+                    probe
+                        .address_retirement
+                        .as_ref()
+                        .unwrap()
+                        .after
+                        .get(&(block.0, index))
+                        .map_or(&[], Vec::as_slice),
+                );
+                let retired = probe
+                    .retirement
+                    .as_ref()
+                    .map_or_else(Vec::new, |plan| plan.after_action[block.0][index].clone());
+                probe.clear_values(&retired);
+            }
+            probe.terminal(block, &graph.blocks[block.0].terminator)?;
+            let trace = probe.occupancy_trace.borrow_mut().take().unwrap();
+            if trace.edges.len() != graph.successors(block).len() {
+                return Err(fail(
+                    self.function,
+                    "physical async trace lost a successor edge",
+                ));
+            }
+            traces[block.0] = trace;
+        }
+        Ok(traces)
+    }
+
+    /// Specialize source and physical initialization histories and verify projected access
     /// in each history. Reconstructing an owner requires every field; restoring
     /// one field does not require unrelated fields to be Full. This is not yet
-    /// an occupancy proof for every physical temporary/reference cell. Source
+    /// a proof of permissions to access physical cells. Source
     /// ownership and loan validation remain mandatory.
     fn check_owned_cells(
         &self,
@@ -3233,6 +3362,9 @@ impl<'a> Emitter<'a> {
         for index in 0..graph.parameter_count {
             set_binding(&mut initial, BindingId(index), true);
         }
+        let physical_start = initial.len();
+        initial.extend(self.initial_occupancy());
+        let physical = self.physical_occupancy()?;
         let transfer = |located: &crate::generator::async_exec::LocatedAction,
                         full: &mut Vec<bool>| {
             match &located.action {
@@ -3341,18 +3473,27 @@ impl<'a> Emitter<'a> {
                     .collect()
             })
             .collect::<Vec<_>>();
-        let initialization = crate::generator::async_initialization::Specialization::solve(
-            graph.entry.0,
-            &successors,
-            initial,
-            16_384,
-            |block, full| {
-                for located in &graph.blocks[block].actions {
-                    transfer(located, full);
-                }
-            },
-        )
-        .map_err(|message| fail(self.function, message))?;
+        let initialization =
+            crate::generator::async_initialization::Specialization::solve_with_edges(
+                graph.entry.0,
+                &successors,
+                initial,
+                16_384,
+                |block, full| {
+                    for located in &graph.blocks[block].actions {
+                        transfer(located, full);
+                    }
+                    for &(cell, initialized) in &physical[block].writes {
+                        full[physical_start + cell] = initialized;
+                    }
+                },
+                |block, edge, full| {
+                    for &(cell, initialized) in &physical[block].edges[&edge] {
+                        full[physical_start + cell] = initialized;
+                    }
+                },
+            )
+            .map_err(|message| fail(self.function, message))?;
         for state in &initialization.states {
             let mut full = state.before.clone();
             for located in &graph.blocks[state.block].actions {
@@ -4173,6 +4314,7 @@ impl<'a> Emitter<'a> {
                         if let Some(field) = self.aggregate_exact_field(descriptor) {
                             let slot = &self.slots[field.slot];
                             if slot.copy && self.types.contains_reference(&slot.ty) {
+                                self.occupancy_write(field.slot, false);
                                 return Ok(format!(
                                     "(#call {} (: slot {}))",
                                     slot.clear,
@@ -4405,6 +4547,7 @@ impl<'a> Emitter<'a> {
         edge: &Edge,
         ready: Option<&str>,
     ) -> Result<String, Error> {
+        let fork = self.occupancy_fork();
         let parameters = &self.function.graph.blocks[edge.target.0].parameters;
         // Parallel edge transfer: read every source before overwriting a
         // destination. A backedge must not clobber another selected input.
@@ -4420,12 +4563,18 @@ impl<'a> Emitter<'a> {
             };
             let name = self.fresh("edge");
             stages.push(format!("(#let {name} {} {value})", crate::type_source(ty)));
-            stores.push(self.put_value(*parameter, &name));
+            stores.push((*parameter, name));
         }
+        let retired = self.retire_edge(block, index);
+        let stores = stores
+            .into_iter()
+            .map(|(parameter, name)| self.put_value(parameter, &name))
+            .collect::<Vec<_>>();
+        self.occupancy_edge(index, fork);
         Ok(format!(
             "{}\n{}\n{}\n{}\n(#continue)",
             stages.join("\n"),
-            self.retire_edge(block, index),
+            retired,
             stores.join("\n"),
             self.set_pc(self.successor_pc(index)?)
         ))
@@ -4439,6 +4588,13 @@ impl<'a> Emitter<'a> {
     }
 
     fn successor_pc(&self, edge: usize) -> Result<u32, Error> {
+        // Trace-only rendering has no specialized dispatcher yet. These PCs
+        // are discarded; ordinary production emission still requires a plan.
+        if self.initialization.is_none() && self.occupancy_trace.borrow().is_some() {
+            let target = self.function.graph.successors(BlockId(self.current_state))[edge];
+            return u32::try_from(target.0)
+                .map_err(|_| fail(self.function, "async state exceeds #u32 range"));
+        }
         let target = self
             .initialization
             .as_ref()
@@ -4493,8 +4649,9 @@ impl<'a> Emitter<'a> {
                 {
                     call = format!("(#unsafe {call})");
                 }
-                let store = self.put_value(*child, &next);
                 let edge = self.edge(block, 0, ready, Some(&result))?;
+                let fork = self.occupancy_fork();
+                let store = self.put_value(*child, &next);
                 let retired = self.retire_edge(block, 1);
                 let bindings = self.retirement.as_ref().map_or_else(Vec::new, |plan| {
                     plan.pending_bindings[block.0]
@@ -4504,6 +4661,7 @@ impl<'a> Emitter<'a> {
                 });
                 let retired_bindings = self.clear_handle_slots(&bindings);
                 let empty = self.expose_empty_reference_cells(block, false);
+                self.occupancy_edge(1, fork);
                 // A movable graph frame has no retained self-loans. Internal
                 // field pinning is retired by explicit unsafe extraction;
                 // forgetting a temporary pin must not authorize a safe move.
@@ -4628,8 +4786,42 @@ impl<'a> Emitter<'a> {
     }
 
     fn compute_cleanup_occupied(&self) -> HashSet<usize> {
-        use crate::generator::async_cells::Cell;
         let _timing = crate::timing::detail("generator.async.cancellation_cells");
+        if let Some(plan) = &self.initialization {
+            // Cancellation is possible at construction and after Pending,
+            // not at arbitrary internal dispatcher instructions. Use the
+            // actual cell effects, including retirement and partial moves.
+            let physical_start = plan.states[0].before.len() - self.slots.len();
+            let suspended = std::iter::once(0).chain(plan.states.iter().filter_map(|state| {
+                matches!(
+                    self.function.graph.blocks[state.block].terminator,
+                    Terminator::Await { .. }
+                )
+                .then(|| state.successors[1])
+            }));
+            let mut occupied = HashSet::new();
+            for state in suspended {
+                for (cell, slot) in self.slots.iter().enumerate() {
+                    if plan.states[state].before[physical_start + cell]
+                        && (slot.linear || self.types.contains_reference(&slot.ty))
+                    {
+                        occupied.insert(cell);
+                    }
+                }
+            }
+            return occupied;
+        }
+        // Keep the former union solver only as an independent test oracle.
+        // Production cleanup must use the plan that determines the emitted PC.
+        #[cfg(not(test))]
+        panic!("async cleanup requires specialized physical initialization");
+        #[cfg(test)]
+        self.legacy_cleanup_occupied()
+    }
+
+    #[cfg(test)]
+    fn legacy_cleanup_occupied(&self) -> HashSet<usize> {
+        use crate::generator::async_cells::Cell;
         crate::generator::async_cells::Plan::cancellation(
             &self.function.graph,
             self.types,
@@ -5737,6 +5929,128 @@ mod tests {
     }
 
     #[test]
+    fn specialized_physical_occupancy_matches_native_pending_cell_tags() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let-mut owner Owner (#struct-literal Owner (: kept seed : item (#struct-literal Token (: value 1u64)))))
+          (#let kept (#ref #u64) (#borrow (#get owner kept)))
+          (#let moved Token (#get owner item)) (#forget moved)
+          (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#let last #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+          (#set-field owner item (#struct-literal Token (: value last)))
+          (#let answer #u64 (#u64.+.wrap (#deref kept) extra))
+          (#forget kept) (#forget owner) (#return answer))";
+        let main = "(#struct Token (: value #u64)) (#linear Token)
+          (#struct Owner (: kept #u64 : item Token))
+          (#fn main () #u64
+            (#let waker #u64 0u64)
+            (#let-mut task Work-frame (#call work (: seed 40u64)))
+            (#let-else (work-pending first) Work-poll-result (#call work-poll
+              (: task (#pin-borrow-mut task) : waker (#borrow waker))) (#unreachable))
+            (#let-else (work-pending second) Work-poll-result (#call work-poll
+              (: task first : waker (#borrow waker))) (#unreachable))
+            (#let answer #u64 (#match (#call work-poll (: task second : waker (#borrow waker)))
+              (#case (work-ready value) value)
+              (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+            (#forget first) (#forget second) (#forget task) (#return answer))";
+        let planning = prepare_generator("#async-fn-pinned", function, main);
+        let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let specialization = emitter.check_owned_cells().unwrap();
+        let physical_start = specialization.states[0].before.len() - emitter.slots.len();
+        assert_eq!(
+            &specialization.states[0].before[physical_start..],
+            emitter.initial_occupancy()
+        );
+        let child = planning.functions[0]
+            .graph
+            .blocks
+            .iter()
+            .find_map(|block| match block.terminator {
+                Terminator::Await { child, .. } => Some(child),
+                _ => None,
+            })
+            .unwrap();
+        let child_slot = emitter.values[&child];
+        let await_state = specialization.states.iter().find(|state|
+            matches!(planning.functions[0].graph.blocks[state.block].terminator, Terminator::Await { child: value, .. } if value == child)).unwrap();
+        assert!(!await_state.after[physical_start + child_slot]);
+        assert!(
+            !specialization.states[await_state.successors[0]].before[physical_start + child_slot]
+        );
+        assert!(
+            specialization.states[await_state.successors[1]].before[physical_start + child_slot]
+        );
+        let cases = specialization
+            .states
+            .iter()
+            .enumerate()
+            .map(|(pc, state)| {
+                let checks = emitter
+                    .slots
+                    .iter()
+                    .enumerate()
+                    .map(|(cell, slot)| {
+                        format!(
+                            "(#assert (#variant-is {} {}))",
+                            Emitter::slot_ref(slot, false),
+                            if state.before[physical_start + cell] {
+                                &slot.full
+                            } else {
+                                &slot.empty
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("(#case {pc}u32 (#block {checks} ()))")
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let oracle = format!(
+            "(#fn graph-occupancy-oracle (: task (#pin-ref-mut {})) ()
+          (#match (#get task pc) {cases} (#case _ (#unreachable))) (#return ()))",
+            emitter.frame
+        );
+        let mut generated = generate(&planning).unwrap();
+        let pending = "(#return (work-pending task))";
+        assert!(generated[0].source.contains(pending));
+        let instrumented = generated[0].source.replace(
+            pending,
+            "(#call graph-occupancy-oracle (: task task)) (#return (work-pending task))",
+        );
+        generated[0].source =
+            crate::generator::format_generated_source(&format!("{instrumented}\n{oracle}"))
+                .unwrap();
+        let seed = &emitter.slots[emitter.bindings[&BindingId(0)]];
+        let correct = format!(
+            "(#assert (#variant-is {} {}))",
+            Emitter::slot_ref(seed, false),
+            seed.full
+        );
+        let incorrect = format!(
+            "(#assert (#variant-is {} {}))",
+            Emitter::slot_ref(seed, false),
+            seed.empty
+        );
+        assert!(oracle.contains(&correct));
+        let bad_oracle = oracle.replace(&correct, &incorrect);
+        let bad = Generated {
+            frame: generated[0].frame.clone(),
+            origin: generated[0].origin,
+            source: crate::generator::format_generated_source(&format!(
+                "{instrumented}\n{bad_oracle}"
+            ))
+            .unwrap(),
+        };
+        runtime_generated(planning, generated, 42);
+        // Prove that the native oracle is reached, not just type-checked.
+        runtime_generated_outcome(
+            prepare_generator("#async-fn-pinned", function, main),
+            vec![bad],
+            NativeOutcome::Signal(4),
+        );
+    }
+
+    #[test]
     fn copy_takes_skip_variant_checks_and_preserve_stack_and_heap_layouts() {
         let function = "(#fn work (: seed #u64) #u64
           (#let pair Pair (#struct-literal Pair (: left seed : right 0u64)))
@@ -6287,7 +6601,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_and_destroy_share_one_owner_inclusive_solve() {
+    fn cleanup_and_destroy_reuse_specialized_occupancy_with_legacy_oracle() {
         let planning = prepare_generator(
             "#async-fn-pinned",
             "(#fn work (: seed #u64) #u64
@@ -6335,7 +6649,7 @@ mod tests {
         let generated = Emitter::new(&planning, function).unwrap().emit().unwrap();
         assert_eq!(
             crate::generator::async_cells::CANCELLATION_SOLVES.with(|count| count.get()),
-            before + 1
+            before
         );
         crate::CheckedProgram::validate(&program(&planning, &[generated]).unwrap()).unwrap();
     }

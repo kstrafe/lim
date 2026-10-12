@@ -29,7 +29,7 @@ heap/global layouts. Casting an untagged address to an ascending payload is not
 valid for descending stack storage, even when the frame is pinned.
 
 Initialization analysis is separate from cell emission. Production now
-specializes the dispatcher by `(source block, exact source initialization)`.
+specializes the dispatcher by `(source block, source and physical initialization)`.
 Distinct incoming field histories remain distinct states; both Ready and
 Pending edges write the corresponding specialized PC. No runtime initialization
 bitset is added. Construction enters state zero, and loops deduplicate recurring
@@ -61,11 +61,45 @@ existing ignored tests; all 22 checked-expansion, dependent-cancellation,
 generated-boundary and unchecked-projection integration tests pass.
 All-target checking and whitespace checks pass.
 
-This domain currently describes source bindings, decomposed fields and nominal
-shell obligations. It is not yet an exact occupancy proof for every temporary,
-address and retired reference cell. Existing Empty/Full cells and their runtime
-operations have not yet been replaced; contiguous payload lowering, complete
-physical occupancy and state-specific partial cancellation remain required.
+The source domain describes bindings, decomposed fields and nominal shells.
+The physical domain additionally records assignments to actual frame cells
+through the emission helpers: takes, stores, explicit releases, address/index
+retirement and reference retirement. Edge-local effects preserve parallel
+argument staging and separate Ready consumption from Pending restoration.
+Initialization starts with the cells actually filled by the constructor,
+including aggregate parameter parts and external reference captures, not an
+unused aggregate root cell. Trace-only rendering uses a separate emitter and
+performs no additional source or native semantic checking; its cost is reported
+as `generator.async.physical_occupancy` in detailed stage timings.
+
+Production cleanup now takes the union of physical occupancy at construction
+and reachable Pending returns. It reuses the dispatcher specialization rather
+than running a second cancellation-cell solver. The former solver remains a
+test-only independent oracle. A native test inspects every emitted cell tag
+at two consecutive Pending returns while a sibling reference remains live,
+another aggregate field is moved and later restored, and temporary child
+cells are consumed on Ready and restored on Pending. These tag inspections
+are test instrumentation, not added runtime checks in normal generated code.
+An intentionally incorrect occupancy expectation traps in a native negative
+control, confirming that the test reaches the tag inspections.
+Cleanup schemas no longer export fields proved empty at every cancellation
+boundary. The async example and partial/nested cleanup callers have been
+updated, including removal of the redundant `step` cancellation handler.
+
+Verification: 1,382 library tests pass with seven existing ignored tests;
+all 61 graph/expansion/cancellation/array/restoration integration tests and
+38 heap/self-borrow/rejection/UI tests pass. The 236-case async run passed
+234 tests; one native launch hit `ETXTBSY` and one compilation timed out
+under parallel load. Both tests pass individually on rerun. All-target
+checking and whitespace checks pass. This records the harness/load issues,
+not a claim that they have been fixed.
+
+Physical occupancy is not permission to access a cell: source initialization,
+aliasing, escaping-reference and cancellation validation remain mandatory.
+Existing Empty/Full cells and their runtime operations have not yet been
+replaced; contiguous payload lowering and state-specific partial cancellation
+remain required. Broader physical/native parity coverage is also still needed
+before removing the representation's runtime tags.
 Earlier verification: all 1,374 library tests pass with seven existing ignored tests;
 23 cancellation, standalone generated-boundary, adversarial and UI integration
 tests pass. All-target and whitespace checks pass. A raw-address prototype was

@@ -49,7 +49,7 @@
 (@
   #async-fn
   (: protocol WorkAwait : waker LocalWaker
-   : cancel (cancel-work ((step cancel-step) (await-0 cancel-step)))
+   : cancel (cancel-work ((await-0 cancel-step)))
    : function (#fn work ((offset #u64)) #u64
     (#let started-text (#array #char 14) "work: started\n")
     (#call print-text (: text (#borrow-slice started-text)))
