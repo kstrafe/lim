@@ -1857,21 +1857,25 @@ impl<'a> Emitter<'a> {
                 Self::slot_ref(slot, false)
             )
         } else if self.types.contains_reference(&slot.ty) {
-            // An owned transfer must make Empty visible before any later
-            // suspension. A returned reference does not itself describe the
-            // input cell's definite tag; retain its pre-move provenance.
+            // Preserve the pre-move whole-cell provenance while publishing
+            // Empty. Checked source and physical occupancy prove the moved
+            // cell Full; only the subsequent local payload read is unchecked.
             format!(
                 "(#block
                   (#let {cell} (#pin-ref-mut {name}) {reference})
-                  (#let {previous} {name} (#unsafe (#pin-read {cell})))
+                  (#let-mut {previous} {name} (#unsafe (#pin-read {cell})))
                   (#unsafe (#pin-write {cell} ({empty})))
                   (#drop {cell})
-                  (#match {previous}
-                    (#case {empty} (#unreachable))
-                    (#case ({full} {value}) {value})))",
+                  (#let {payload} (#pin-ref-mut {ty})
+                    (#unsafe (#pin-get-payload-unchecked-mut
+                      (#pin-borrow-mut {previous}) {full} 0)))
+                  (#let {value} {ty} (#unsafe (#pin-read {payload})))
+                  (#forget {payload}) (#forget {previous}) {value})",
                 cell = self.fresh("taken-cell"),
                 previous = self.fresh("taken-storage"),
+                payload = self.fresh("taken-payload"),
                 value = self.fresh("taken-value"),
+                ty = crate::type_source(&slot.ty),
                 name = slot.name,
                 reference = Self::slot_ref(slot, true),
                 empty = slot.empty,
@@ -7394,6 +7398,43 @@ mod tests {
                  (#return answer)");
             runtime_planned(prepare_generator("#async-fn-pinned", function, &heap), 42);
         }
+    }
+
+    #[test]
+    fn owned_reference_transfers_preserve_whole_cell_provenance_without_a_tag_match() {
+        let planning = prepare_generator(
+            "#async-fn-pinned",
+            "(#fn work (: source (#ref #u64)) #u64
+              (#let holder Holder (#struct-literal Holder (: view source)))
+              (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
+              (#let answer #u64 (#deref (#get holder view)))
+              (#forget holder) (#return (#u64.+.wrap answer extra)))",
+            "(#struct Holder (: view (#ref #u64))) (#linear Holder)
+             (#fn main () #u64 (#return 0u64))",
+        );
+        let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let binding = planning.functions[0]
+            .graph
+            .bindings
+            .iter()
+            .position(|binding| binding.name == "holder")
+            .unwrap();
+        let index = emitter.bindings[&BindingId(binding)];
+        assert!(!emitter.slots[index].raw);
+        assert!(emitter.slots[index].words.is_none());
+        *emitter.physical_current.borrow_mut() = Some(vec![true; emitter.slots.len()]);
+        let transfer = emitter.read(index, true);
+        assert!(!transfer.contains("#match"), "{transfer}");
+        assert!(transfer.contains("#pin-get-payload-unchecked-mut"));
+        assert!(
+            transfer.find("#pin-write").unwrap()
+                < transfer.find("#pin-get-payload-unchecked-mut").unwrap(),
+            "publish Empty before reading the local pre-move snapshot: {transfer}"
+        );
+        assert!(!emitter.physical_current.borrow().as_ref().unwrap()[index]);
+        let generated = generate(&planning).unwrap();
+        crate::CheckedProgram::validate_with_span(&program(&planning, &generated).unwrap())
+            .unwrap();
     }
 
     #[test]

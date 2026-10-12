@@ -16430,6 +16430,34 @@ mod typed_ownership_tests {
     }
 
     #[test]
+    fn unchecked_typed_payload_transfer_preserves_exclusive_referent_contents() {
+        let source = "(#enum Holder (Empty (Full (#ref-mut #u64))))
+            (#unsafe-fn take (: slot (#pin-ref-mut Holder)) (#ref-mut #u64)
+              (#let payload (#pin-ref-mut (#ref-mut #u64))
+                (#unsafe (#pin-get-payload-unchecked-mut slot Full 0)))
+              (#let value (#ref-mut #u64) (#unsafe (#pin-read payload)))
+              (#forget payload)
+              (#unsafe (#pin-write slot Empty))
+              (#return value))
+            (#fn read (: value (#ref-mut #u64)) #u64 (#return (#deref value)))
+            (#fn clear (: slot (#pin-ref-mut Holder)) ()
+              (#forget (#unsafe (#pin-read slot)))
+              (#unsafe (#pin-write slot Empty)) (#return ()))
+            (#fn main () #u64
+              (#let-mut owner #u64 42u64)
+              (#let-mut holder Holder (Full (#borrow-mut owner)))
+              (#let view (#ref-mut #u64) (#unsafe (#call take (: slot (#pin-borrow-mut holder)))))
+              (#call clear (: slot (#pin-borrow-mut holder)))
+              (#let answer #u64 (#call read (: value view)))
+              (#forget view) (#forget holder) (#set owner 0u64) (#return answer))";
+        let program = crate::parse_program(source).unwrap();
+        crate::check_types(&program).unwrap();
+        let invalid = source.replace("(#let answer #u64", "(#set owner 0u64) (#let answer #u64");
+        let error = crate::check_types(&crate::parse_program(&invalid).unwrap()).unwrap_err();
+        assert!(error.contains("borrow"), "{error}");
+    }
+
+    #[test]
     fn staged_copy_valued_pin_reads_keep_parameter_contents() {
         let source = "(#struct Holder (: view (#ref #u64)))
             (#fn peek (: target (#pin-ref-mut Holder)) (#ref #u64)

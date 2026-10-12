@@ -795,6 +795,28 @@ it is not a new paired whole-compiler speedup measurement.
 
 ## Historical migration verification record
 
+### Remove the discriminator branch from owned reference transfers
+
+Owned transfers from typed reference-bearing cells now retain the pre-move
+whole-cell snapshot, publish Empty at the original frame address, and extract
+the Full payload through an explicitly unsafe local projection. Source ownership
+and physical PC occupancy prove that snapshot Full. The transfer no longer
+matches Empty/Full at runtime. This preserves typed provenance; it does not yet
+remove the cell's physical tag or authorize numeric words to invent references.
+
+A direct payload extraction from the original frame cell was tested and rejected:
+later cleanup reads could not establish the required referent contents. The
+accepted implementation preserves the entire pre-move snapshot rather than
+bypassing that ordinary checker failure. An emission regression asserts branch
+removal, Empty publication order and compile-time occupancy retirement, then
+checks the generated program normally. A separate non-async unchecked-payload
+transfer regression retains a returned exclusive loan after clearing its old
+holder and still rejects caller mutation while that loan is live.
+
+The library run passes 1,403 tests with eight existing ignored tests; the newly
+added emission regression also passes independently. This is branch removal,
+not a measured compilation-time speedup or complete reference-storage migration.
+
 ### Direct scalar reads through exclusive reference fields
 
 Checked nonmoving loads of exclusive reference fields can now feed one immediate,
