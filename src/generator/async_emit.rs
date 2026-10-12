@@ -4043,21 +4043,35 @@ impl<'a> Emitter<'a> {
     }
 
     /// Render the actual cell-writing helpers once per reachable source block.
-    /// The probe has its own names/declarations: none escape into generated
-    /// code, and it performs no additional source or native semantic passes.
-    fn physical_occupancy(&self) -> Result<Vec<OccupancyTrace>, Error> {
+    /// Restore emission scratch even on failure. Immutable checked plans are
+    /// reused; tracing must not rerun their analyses or publish helper names.
+    fn physical_occupancy(&mut self) -> Result<Vec<OccupancyTrace>, Error> {
         let _timing = crate::timing::detail("generator.async.physical_occupancy");
+        let reserved = self.reserved.borrow().clone();
+        let next = self.next.get();
+        let projections = self.projections.clone();
+        let snapshots = self.cell_snapshots.clone();
+        let arrays = self.array_anchors.clone();
+        let slices = self.slice_anchors.clone();
+        let state = self.current_state;
+        let trace = self.occupancy_trace.borrow_mut().take();
+        let current = self.physical_current.borrow_mut().take();
+        let result = self.trace_physical_occupancy();
+        *self.reserved.borrow_mut() = reserved;
+        self.next.set(next);
+        self.projections = projections;
+        self.cell_snapshots = snapshots;
+        self.array_anchors = arrays;
+        self.slice_anchors = slices;
+        self.current_state = state;
+        *self.occupancy_trace.borrow_mut() = trace;
+        *self.physical_current.borrow_mut() = current;
+        result
+    }
+
+    fn trace_physical_occupancy(&mut self) -> Result<Vec<OccupancyTrace>, Error> {
         let graph = &self.function.graph;
-        let mut probe = Self::new(self.planning, self.function)?;
-        assert_eq!(probe.slots.len(), self.slots.len());
-        assert!(probe
-            .slots
-            .iter()
-            .zip(&self.slots)
-            .all(|(left, right)| left.field == right.field
-                && left.storage == right.storage
-                && left.raw == right.raw
-                && left.copy == right.copy));
+        let probe = &mut *self;
         let mut traces = (0..graph.blocks.len())
             .map(|_| OccupancyTrace::default())
             .collect::<Vec<_>>();
@@ -4097,7 +4111,7 @@ impl<'a> Emitter<'a> {
             let trace = probe.occupancy_trace.borrow_mut().take().unwrap();
             if trace.edges.len() != graph.successors(block).len() {
                 return Err(fail(
-                    self.function,
+                    probe.function,
                     "physical async trace lost a successor edge",
                 ));
             }
@@ -4112,8 +4126,9 @@ impl<'a> Emitter<'a> {
     /// a proof of permissions to access physical cells. Source
     /// ownership and loan validation remain mandatory.
     fn check_owned_cells(
-        &self,
+        &mut self,
     ) -> Result<crate::generator::async_initialization::Specialization, Error> {
+        let physical = self.physical_occupancy()?;
         let graph = &self.function.graph;
         let mut field_slots = self
             .aggregates
@@ -4143,7 +4158,6 @@ impl<'a> Emitter<'a> {
         }
         let physical_start = initial.len();
         initial.extend(self.initial_occupancy());
-        let physical = self.physical_occupancy()?;
         let transfer = |located: &crate::generator::async_exec::LocatedAction,
                         full: &mut Vec<bool>| {
             match &located.action {
@@ -6894,7 +6908,7 @@ mod tests {
               (#forget task) (#return answer))"
             );
             let planning = prepare_generator("#async-fn-pinned", function, &main);
-            let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+            let mut emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
             let specialized = emitter.check_owned_cells().unwrap();
             let view = planning.functions[0]
                 .graph
@@ -7242,8 +7256,17 @@ mod tests {
               (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
             (#forget first) (#forget second) (#forget task) (#return answer))";
         let planning = prepare_generator("#async-fn-pinned", function, main);
-        let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let mut emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        let expected = Emitter::new(&planning, &planning.functions[0])
+            .unwrap()
+            .emit()
+            .unwrap()
+            .source;
         let specialization = emitter.check_owned_cells().unwrap();
+        // Tracing is repeatable and must not consume gensyms, retain probe
+        // helpers or alter the subsequent ordinary generated source.
+        assert_eq!(expected, emitter.emit().unwrap().source);
+        let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
         let physical_start = specialization.states[0].before.len() - emitter.slots.len();
         assert_eq!(
             &specialization.states[0].before[physical_start..],

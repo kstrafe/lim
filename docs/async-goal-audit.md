@@ -330,9 +330,28 @@ retirement and reference retirement. Edge-local effects preserve parallel
 argument staging and separate Ready consumption from Pending restoration.
 Initialization starts with the cells actually filled by the constructor,
 including aggregate parameter parts and external reference captures, not an
-unused aggregate root cell. Trace-only rendering uses a separate emitter and
-performs no additional source or native semantic checking; its cost is reported
-as `generator.async.physical_occupancy` in detailed stage timings.
+unused aggregate root cell. Trace-only rendering reuses the checked emitter's
+immutable plans and restores all mutable rendering scratch, including on error.
+It performs no additional source or native semantic checking; its cost is
+reported as `generator.async.physical_occupancy` in detailed stage timings.
+
+The reuse regression requires byte-identical ordinary output after a prior
+occupancy pass. A bounded side-effect audit found no action/terminal mutation
+outside the restored scratch. All 1,397 library tests, 34 graph-production
+tests and the layout, cancellation, contiguous, dynamic-array, boundary and
+self-borrow integrations passed. A parallel emitter executable launch failed
+with `ETXTBSY`; its serial rerun passed.
+
+A paired release benchmark used 21 alternating cold-cache checks per fixture,
+after two discarded warmup pairs, with both compilers pinned to CPU 8 and no
+concurrent test suites. Fresh source directories isolate caches; `--check
+--timings` includes semantic validation and publication, not native linking.
+Median occupancy times fell from 0.235 to 0.160 ms for composition (31.9%),
+0.365 to 0.224 ms for self-reference (38.6%), and 0.571 to 0.267 ms for the
+suspended reference guard (53.2%). Total medians were 31.370 to 31.272 ms,
+58.335 to 57.907 ms, and 394.988 to 398.170 ms respectively. The guard total
+worsened 0.8%; this is a local analysis improvement, not evidence of a
+meaningful whole-compiler speedup.
 
 Production cleanup now takes the union of physical occupancy at construction
 and reachable Pending returns. It reuses the dispatcher specialization rather

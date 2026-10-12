@@ -10,6 +10,7 @@ use crate::typed_ir::Declarations;
 use crate::typed_place::{Place, Segment};
 use crate::Type;
 
+#[derive(Clone)]
 pub(crate) struct Recipe {
     index: String,
     probe: String,
@@ -46,13 +47,14 @@ impl Recipe {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Recipes {
     entries: HashMap<(Place, usize), Recipe>,
     projections: HashMap<(Place, usize, bool), Projection>,
     pub declarations: Vec<String>,
 }
 
+#[derive(Clone)]
 struct Projection {
     name: String,
     owner: String,

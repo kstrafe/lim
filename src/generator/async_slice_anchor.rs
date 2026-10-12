@@ -8,6 +8,7 @@ use crate::typed_place::{Place, Segment};
 use crate::Type;
 use std::collections::HashMap;
 
+#[derive(Clone)]
 struct Recipe {
     project: [Option<String>; 2],
     index: String,
@@ -21,6 +22,7 @@ struct Recipe {
 
 // Reuse ordinary array geometry after selecting a slice element. The adapted
 // graph is a layout descriptor only; it is never used for source loan checking.
+#[derive(Clone)]
 struct Nested {
     place: Place,
     arrays: super::async_array_anchor::Recipes,
@@ -114,7 +116,7 @@ impl Nested {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Recipes {
     entries: HashMap<Place, Recipe>,
     pub declarations: Vec<String>,
