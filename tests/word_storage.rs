@@ -185,6 +185,52 @@ fn metadata_only_helpers_preserve_tags_but_never_restore_retired_loans() {
 }
 
 #[test]
+fn optional_word_outputs_preserve_absent_concrete_input_sources() {
+    let source = "(#enum Input ((NoInput) (HasInput (#ref #u64))))
+      (#enum Output ((NoOutput) (HasOutput (#ref #u64))))
+      (#struct Words (: words (#array #u64 2)))
+      (#fn convert (: storage (#ref-mut Words)) Output
+        (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
+        (#return (#match input (#case (NoInput) (NoOutput))
+          (#case (HasInput view) (HasOutput view)))))
+      (#fn main () #u64
+        (#let-mut amount #u64 42u64)
+        (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
+        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
+        (#let output Output (#call convert (: storage (#borrow-mut storage))))
+        (#let answer #u64 (#match output (#case (NoOutput) 42u64)
+          (#case (HasOutput view) (#deref view))))
+        (#forget storage) (#return answer))";
+    run(source);
+    let occupied = source.replace("(NoInput)))", "(HasInput (#borrow amount))))");
+    run(&occupied);
+    run(&source.replace("(#let answer", "(#set amount 0u64) (#let answer"));
+    assert_eq!(
+        compile(&occupied.replace("(#let answer", "(#set amount 0u64) (#let answer"))
+            .unwrap_err()
+            .code,
+        DiagnosticCode::Borrow
+    );
+    for invalid in [
+        source.replace(
+            "(#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))",
+            "",
+        ),
+        occupied.replace(
+            "(#let output",
+            "(#unsafe (#word-forget Input (#borrow-slice-mut (#get storage words)))) (#let output",
+        ),
+    ] {
+        let error = compile(&invalid).unwrap_err();
+        assert!(
+            error.message.contains("missing required input loan")
+                || error.message.contains("unresolved call inputs"),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
 fn helper_retirement_does_not_hide_later_byte_mutations() {
     let source = OPTIONAL_WORD_READER
         .replace(

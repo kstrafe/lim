@@ -1698,3 +1698,54 @@ the ordinary entry analysis must preserve a valid control-flow condition for
 the read. Neither pinning nor an opaque unsafe pointer grants a missing loan.
 The emitter experiment, two exclusive state joins, three pinned cancellation
 cases and final uncommitted HTML deliverable remain open.
+
+### Optional results sourced from concrete numeric backing
+
+A validated helper can return an owned enum whose optional payload contains a
+reference transferred from word memory. Return checking now recognizes that
+payload as impossible when every supplying source is a concrete local u64-array
+cell with no stored loan. It does not invent a buffer constructor or waive the
+callee's independent reader requirements. Globals, opaque addresses, further
+reference boundaries, unknown coordinates and bodyless callees remain
+conservative. Live output loans still restrict their actual referents.
+
+The native regression transforms an optional input cell into a different output
+enum. Empty and occupied inputs both return 42; empty outputs permit caller
+mutation, occupied outputs reject it, and unknown or retired occupied inputs
+still fail reader contracts. Disabling only the new absence proof reproduces
+the original missing-result-provenance failure in
+/tmp/lim-word-absence-baseline.log. An imported forwarder verifies identical
+cold/warm assembly with real cache hits and identical negative diagnostics.
+Semantic cache version seventeen excludes older checked-result summaries.
+
+All 59 word-storage, 21 semantic-cache, three UI and ten owner-entry tests pass
+serially in /tmp/lim-word-absence-final-serial.log. The parallel rerun hit one
+Linux ETXTBSY native-launch error, not a checker failure; the complete serial
+rerun passes. Formatting, all-target checking and diff checks pass. The printable
+async example compiles and emits started/pending/resumed/ready, exiting 42.
+The full library still has 1,413 passes, two failures and eight ignored tests.
+The aggregate-return library failure now advances from missing output
+provenance to a missing word-reader entry requirement at cleanup: output-source
+absence is not permission to execute a reader lacking its input loan.
+
+The complete all-async run, with no fail-fast target cutoff, exposes broader
+unfinished experimental work than the previously sampled cancellation gate:
+363 pass, 28 fail and three are ignored across 21 targets (394 tests), recorded
+in /tmp/lim-word-absence-all-async.log. Failed targets are contiguous storage
+(one unresolved entry contract), dependent cancellation (three missing input
+loans), async_fn (five missing input loans, one missing output provenance and
+one unresolved entry contract), graph production (one missing input loan and
+fifteen unresolved entry contracts), and heap contents (one incoming self-loan
+projection error). These failures must not be hidden by reverting to tagged
+split-owner storage or bypassing native checking. This run establishes the
+current acceptance inventory, not causality against an earlier full-matrix
+baseline. The narrower earlier gates were not a complete async certificate.
+
+Nested pinned cleanup retains a condition on its child argument's physical tag,
+but the parent currently exports a join of active and terminal cleanup paths.
+The actual child destroy writes Empty and retires its references; the parent
+summary cannot promise that write on an unstarted/already-terminal path where
+the child handler does not run. General entry-state conditions need investigation
+alongside stored exclusive-handle substitutions. Pinning, numeric zero and
+metadata retirement do not prove a reference slot inactive. The broader
+emitter experiment and the final uncommitted architecture HTML remain open.

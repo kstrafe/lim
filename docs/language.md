@@ -2953,6 +2953,15 @@ tag writes, raw mutations, unknown effects and ambiguous substitutions discard
 it conservatively. No runtime flags or conditional checks are added by these
 compile-time contracts.
 
+A checked helper's owned enum result may also contain an optional reference
+loaded from numeric storage. If every source for that result payload is a
+concrete local `#u64` array cell with no stored loan, the payload cannot be
+inhabited by that invocation. This is a result-provenance proof, not a
+constructor fact about the buffer or permission to read it. The call's reader
+requirements are still checked independently. Unknown addresses, globals,
+borrowed-reference boundaries and bodyless callees do not establish absence;
+live source loans continue to restrict the caller after the result is returned.
+
 ```lisp
 (#struct RefValue (: value (#ref #u64)))
 (#fn read-value (: words (#slice #u64)) #u64

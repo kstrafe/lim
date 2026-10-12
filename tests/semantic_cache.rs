@@ -47,6 +47,54 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 }
 
 #[test]
+fn imported_optional_word_results_preserve_absent_and_live_sources() {
+    let scratch = support::Scratch::new("semantic-optional-word-result");
+    let directory = scratch.path();
+    fs::write(directory.join("lib.lim"), "
+      (#enum Input ((NoInput) (HasInput (#ref #u64))))
+      (#enum Output ((NoOutput) (HasOutput (#ref #u64))))
+      (#struct Words (: words (#array #u64 2)))
+      (#fn convert (: storage (#ref-mut Words)) Output
+        (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
+        (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput view) (HasOutput view)))))
+      (#fn forward (: storage (#ref-mut Words)) Output
+        (#return (#call convert (: storage storage))))").unwrap();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut amount #u64 42u64)
+        (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
+        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
+        (#let output Output (#call forward (: storage (#borrow-mut storage))))
+        (#let answer #u64 (#match output (#case (NoOutput) 42u64) (#case (HasOutput view) (#deref view))))
+        (#forget storage) (#return answer))";
+    let config = CompileConfig::default();
+    let occupied = source.replace("(NoInput)))", "(HasInput (#borrow amount))))");
+    for valid in [source.to_owned(), occupied.clone()] {
+        let cold = compile(directory, &valid, &config).0.unwrap();
+        let (warm, report) = compile(directory, &valid, &config);
+        assert_eq!(cold, warm.unwrap());
+        assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+    }
+    for invalid in [
+        occupied.replace("(#let answer", "(#set amount 0u64) (#let answer"),
+        occupied.replace(
+            "(#let output",
+            "(#unsafe (#word-forget Input (#borrow-slice-mut (#get storage words)))) (#let output",
+        ),
+    ] {
+        let cold = compile(directory, &invalid, &config).0.unwrap_err();
+        let warm = compile(directory, &invalid, &config).0.unwrap_err();
+        assert_eq!(cold, warm);
+        assert!(
+            cold.code == lim::DiagnosticCode::Borrow
+                || cold.message.contains("missing required input loan")
+                || cold.message.contains("unresolved call inputs"),
+            "{cold:?}"
+        );
+    }
+}
+
+#[test]
 fn imported_typed_word_view_cleanup_exports_physical_tags_and_loans() {
     let scratch = support::Scratch::new("semantic-word-view-cleanup");
     let directory = scratch.path();

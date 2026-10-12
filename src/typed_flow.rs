@@ -9545,6 +9545,14 @@ impl FlowGraph {
                                             *argument,
                                             &source.input_storage,
                                             state,
+                                        ) || absent_owned_word_input(
+                                            body,
+                                            declarations,
+                                            self,
+                                            origins,
+                                            event,
+                                            *argument,
+                                            source,
                                         );
                                     }
                                     let bounds = value_variant_bounds(
@@ -9670,17 +9678,23 @@ impl FlowGraph {
                             .all(|(expected, actual)| storage_slot_matches(expected, actual))
                 })
                 .all(|source| {
-                    if source.global.is_some()
-                        || source
-                            .input_storage
-                            .iter()
-                            .any(|part| matches!(part, Segment::Dereference))
-                    {
+                    if source.global.is_some() {
                         return false;
                     }
                     let Some(argument) = children.get(source.parameter + 1) else {
                         return false;
                     };
+                    if source.input_storage.contains(&Segment::Dereference) {
+                        return absent_owned_word_input(
+                            body,
+                            declarations,
+                            self,
+                            origins,
+                            FlowNodeId(call_event),
+                            *argument,
+                            source,
+                        );
+                    }
                     let bounds = value_variant_bounds(
                         body,
                         *argument,
@@ -13053,6 +13067,83 @@ fn word_requirement_inactive(
         }
         any
     })
+}
+
+/// A checked return cannot inhabit an owned enum payload using a reference
+/// from a concrete numeric cell with no stored loan. This is absence of an
+/// input source, not permission to execute a reader or recover stale bytes.
+fn absent_owned_word_input(
+    body: &Body,
+    declarations: &crate::typed_ir::Declarations,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    argument: NodeId,
+    source: &crate::typed_body::ParameterLoanSummary,
+) -> bool {
+    if source.global.is_some()
+        || source.fresh_allocation.is_some()
+        || source.input_storage.first() != Some(&Segment::Dereference)
+        || source.input_storage[1..].contains(&Segment::Dereference)
+    {
+        return false;
+    }
+    let Some(state) = &origins.before[event.0] else {
+        return false;
+    };
+    let addresses = origins
+        .value_before(body, flow, event, argument)
+        .into_iter()
+        .filter(|origin| origin.storage.is_empty())
+        .collect::<Vec<_>>();
+    !addresses.is_empty()
+        && addresses.into_iter().all(|address| {
+            let PlaceRoot::Local(binding) = address.place.root else {
+                return false;
+            };
+            if address.lifetime_only {
+                return false;
+            }
+            let mut ty = body.bindings[binding.0].ty.clone();
+            let mut numeric_cell = false;
+            for segment in address
+                .place
+                .segments
+                .iter()
+                .chain(&source.input_storage[1..])
+            {
+                let Ok(resolved) = crate::typed_ir::resolve_type(&ty, &declarations.aliases) else {
+                    return false;
+                };
+                ty = match (resolved, segment) {
+                    (Type::Named(name), Segment::Field(field))
+                        if declarations.structs.contains_key(&name)
+                            && declarations.field_id(
+                                &Type::Named(name.clone()),
+                                &declarations.field(*field).name,
+                            ) == Some(*field) =>
+                    {
+                        declarations.field(*field).ty.clone()
+                    }
+                    (Type::Array(element, size), Segment::Index(index))
+                        if *index < size as u128 =>
+                    {
+                        numeric_cell = *element == Type::U64;
+                        *element
+                    }
+                    (Type::Tuple(elements), Segment::Tuple(index)) => {
+                        let Some(element) = elements.get(*index) else {
+                            return false;
+                        };
+                        element.clone()
+                    }
+                    _ => return false,
+                };
+            }
+            numeric_cell
+                && ty == Type::U64
+                && select_summary_inputs(address, &source.input_storage, state).is_empty()
+        })
 }
 
 fn word_input_available(
