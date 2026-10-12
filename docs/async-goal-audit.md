@@ -85,6 +85,19 @@ existing ignored tests. All 49 generator-boundary, graph-production and generic
 word-storage integration tests pass, as do all-target checking and whitespace
 checks. Reference-bearing storage conversion remains open.
 
+Primitive expression temporaries and frozen array-index cells now use the same
+untagged representation as primitive bindings. Slot assignment follows the
+deterministic slot sequence rather than a binding-only lookup. Tests assert
+that primitive temporary cells have neither enum declarations nor transfer
+helpers, and exercise stack/heap execution, repeated Pending, index selection,
+clone hooks and independent ordinary generated-code checking. The typed-cell
+fallback tests remain separate from production primitive storage selection.
+All 88 emitter tests pass (one existing ignored), all 1,386 library tests pass
+(seven existing ignored), and all 54 contiguous-storage, dependent-cancellation,
+dynamic-array, generator-boundary and self-borrow integration tests pass.
+All-target and whitespace checking pass. Whole aggregate value recipes and
+reference-bearing storage still need migration; this is not complete tag removal.
+
 The contiguous clone audit exposed and corrected a physical-occupancy bug:
 non-owning snapshots of linear word-backed leaves must not use the ordinary
 transfer reader. They now leave the original occupancy unchanged while the

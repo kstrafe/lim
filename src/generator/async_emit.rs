@@ -713,13 +713,16 @@ impl<'a> Emitter<'a> {
         .map_err(|message| fail(function, message))?;
         emitter.projections.append(&mut recipes.declarations);
         emitter.slice_anchors = recipes;
-        let mut primitive_bindings = emitter.bindings.values().copied().collect::<Vec<_>>();
-        primitive_bindings.sort_unstable();
-        for index in primitive_bindings {
+        // Primitive values need only their payload words. The specialized
+        // dispatcher already carries their initialization facts, including
+        // for expression temporaries and frozen array indices. Aggregate value
+        // recipes and actual reference holders retain their typed storage path.
+        for index in 0..emitter.slots.len() {
             let slot = &emitter.slots[index];
             let ty = crate::typed_ir::resolve_type(&slot.ty, &planning.declarations.aliases)
                 .map_err(|message| fail(function, message))?;
             if slot.words.is_some()
+                || slot.raw
                 || !matches!(
                     ty,
                     Type::Bool
@@ -748,10 +751,10 @@ impl<'a> Emitter<'a> {
                 &planning.declarations.enums,
             )
             .map_err(|message| fail(function, message))?;
-            let binding_field = emitter.slots[index].field.clone();
+            let storage_field = emitter.slots[index].field.clone();
             emitter.slots[index].words = Some(WordRegion {
-                field: emitter.fresh(&format!("{binding_field}-words")),
-                marker: emitter.fresh(&format!("{binding_field}-type")),
+                field: emitter.fresh(&format!("{storage_field}-words")),
+                marker: emitter.fresh(&format!("{storage_field}-type")),
                 owner: ty,
                 capacity,
                 start: 0,
@@ -6663,6 +6666,24 @@ mod tests {
             saved_words += 1;
         }
         assert_eq!(saved_words, 6);
+        let temporary_slots = emitter
+            .values
+            .values()
+            .filter(|index| {
+                let slot = &emitter.slots[**index];
+                matches!(slot.ty, Type::U64 | Type::I8 | Type::U128 | Type::F64 | Type::Bool)
+            })
+            .collect::<Vec<_>>();
+        assert!(!temporary_slots.is_empty());
+        for index in temporary_slots {
+            let slot = &emitter.slots[*index];
+            assert!(
+                slot.words.is_some(),
+                "primitive temporary {} is still tagged",
+                slot.field
+            );
+            assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+        }
     }
 
     #[test]
@@ -6839,7 +6860,18 @@ mod tests {
         let uninstrumented = generated[0].source.clone();
         let instrumented = uninstrumented.replace(pending, &format!("{oracle} {pending}"));
         generated[0].source = crate::generator::format_generated_source(&instrumented).unwrap();
-        let seed = &emitter.slots[child_slot];
+        let seed = emitter
+            .slots
+            .iter()
+            .find(|slot| {
+                slot.words.is_none()
+                    && oracle.contains(&format!(
+                        "(#assert (#variant-is {} {}))",
+                        Emitter::slot_ref(slot, false),
+                        slot.full
+                    ))
+            })
+            .expect("a pending owner or retained reference still has a typed cell");
         let correct = format!(
             "(#assert (#variant-is {} {}))",
             Emitter::slot_ref(seed, false),
@@ -6870,7 +6902,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_takes_skip_variant_checks_and_preserve_stack_and_heap_layouts() {
+    fn primitive_values_skip_cell_tags_and_preserve_stack_and_heap_layouts() {
         let function = "(#fn work (: seed #u64) #u64
           (#let pair Pair (#struct-literal Pair (: left seed : right 0u64)))
           (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
@@ -6911,27 +6943,23 @@ mod tests {
             );
             let planning = prepare_generator("#async-fn-pinned", function, &main);
             let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
-            let definitions = crate::parse(&emitter.slot_definitions()).unwrap();
+            let definitions = emitter.slot_definitions();
             let mut copies = 0;
             let mut owners = 0;
             for slot in &emitter.slots {
-                if slot.words.is_some() || emitter.types.contains_reference(&slot.storage) {
+                if slot.raw
+                    || emitter.types.contains_reference(&slot.storage)
+                    || matches!(slot.ty, Type::Unit | Type::Never)
+                {
                     continue;
                 }
-                let definition = definitions.iter().find(|node| matches!(&node.expr,
-                    crate::Expr::List(items) if items.get(1) == Some(&crate::Expr::Symbol(slot.take.clone())))).unwrap();
-                let source = crate::expression_source(&definition.expr).unwrap();
-                if slot.copy {
+                if slot.words.is_some() {
                     copies += 1;
-                    assert!(source.contains("#pin-get-payload-unchecked"));
-                    assert!(!source.contains("#match"));
-                    assert!(!source.contains("#variant-is"));
+                    assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+                    assert!(!definitions.contains(&format!("(#unsafe-fn {} ", slot.take)));
                 } else {
                     owners += 1;
-                    assert!(
-                        source.contains("#match"),
-                        "owning transfer must retain its check"
-                    );
+                    assert!(definitions.contains(&format!("(#enum {} ", slot.name)));
                 }
             }
             assert!(copies > 0 && owners > 0);
@@ -7551,11 +7579,11 @@ mod tests {
         assert!(inline.find("incoming-reference").unwrap() < guard);
         assert!(guard < inline.find("(#pin-read ").unwrap());
 
-        let copy = emitter
-            .slots
-            .iter()
-            .find(|slot| slot.ty == Type::U64 && slot.words.is_none())
-            .unwrap();
+        // Exercise the remaining typed-cell fallback independently of the
+        // production primitive word-storage selection.
+        let copy_index = emitter.add_slot("test-copy".into(), Type::U64);
+        let copy = &emitter.slots[copy_index];
+        let source = emitter.slot_definitions();
         let function = source.split(&format!("(#fn {} ", copy.put)).nth(1).unwrap();
         let function = function.split("(#fn ").next().unwrap();
         assert!(
