@@ -206,13 +206,12 @@ fn pinned_generated_child_is_cancelled_without_moving_its_frame() {
 }
 
 #[test]
-#[ignore = "heap-owned nested frame poll has an unresolved referent entry contract"]
 fn pinned_child_cancellation_preserves_heap_frame_layout() {
     let program = pinned_source()
         .replace("(#call parent-poll-destroy (: task pending))",
             "(#call parent-poll-destroy (: task pending)) (#forget pending)")
         .replace("(#let-mut task Parent-frame (#call parent ()))",
-            "(#let initial Parent-frame (#call parent ()))\n        (#let pointer (#ptr-mut Parent-frame) (#unsafe (#linux-syscall (#ptr-mut Parent-frame)\n          9usize (0usize (#size-of Parent-frame) 3usize 34usize -1i64 0usize))))\n        (#let-mut task (#pin-own Parent-frame) (#unsafe (#pin-own-of pointer initial)))")
+            "(#let pointer (#ptr-mut Parent-frame) (#unsafe (#linux-syscall (#ptr-mut Parent-frame)\n          9usize (0usize (#size-of Parent-frame) 3usize 34usize -1i64 0usize))))\n        (#let initial Parent-frame (#call parent ()))\n        (#let-mut task (#pin-own Parent-frame) (#unsafe (#pin-own-of pointer initial)))")
         .replace("(#pin-borrow-mut task)", "(#pin-own-borrow-mut task)")
         .replace("(#forget task)",
             "(#let raw (#ptr-mut Parent-frame) (#unsafe (#pin-release task)))\n        (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Parent-frame)))) 0i64))");
@@ -239,7 +238,7 @@ fn pinned_child_cancellation_preserves_heap_frame_layout() {
     let span = error
         .span
         .expect("the overlapping borrow needs a source span");
-    assert_eq!(&rejected[span.start..span.end], "#pin-own-borrow-mut");
+    assert_eq!(&rejected[span.start..span.end], "(#pin-release task)");
 }
 
 #[test]

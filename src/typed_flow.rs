@@ -2175,15 +2175,24 @@ fn inactive_referenced_variant_slot(
     if tail.contains(&Segment::Dereference)
         || !matches!(
             body.nodes[argument.0].ty,
-            Some(Type::Reference { .. } | Type::PinnedReference { .. })
+            Some(Type::Reference { .. } | Type::PinnedReference { .. } | Type::PinOwned(_))
         )
     {
         return false;
     }
-    let pointers = origins.value_before(body, flow, event, argument);
+    let mut pointers = origins.value_before(body, flow, event, argument);
+    let owned = matches!(body.nodes[argument.0].ty, Some(Type::PinOwned(_)));
+    if owned {
+        // Retained payload loans are not alternative allocation addresses.
+        // An owning input must still supply a real owned allocation identity.
+        pointers.retain(|pointer| pointer.storage.is_empty());
+    }
     !pointers.is_empty()
         && pointers.iter().all(|pointer| {
-            if !pointer.storage.is_empty() || pointer.lifetime_only {
+            if !pointer.storage.is_empty()
+                || pointer.lifetime_only
+                || (owned && !pointer.owned_allocation)
+            {
                 return false;
             }
             tail.iter().enumerate().any(|(index, segment)| {
@@ -2593,6 +2602,12 @@ impl FlowGraph {
                 | FlowAction::Assign { value, .. }
                 | FlowAction::Pattern { value, .. }
                 | FlowAction::Write { value, .. } => value,
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, children, callee: None, .. } if head == "pin-own-of" && children.len() == 3) =>
+                {
+                    value
+                }
                 _ => continue,
             };
             dependencies[index] = self.variant_snapshot_dependencies(body, origins, value);
@@ -2730,6 +2745,30 @@ impl FlowGraph {
                         !matches!(place.root,
                         PlaceRoot::Local(binding) if bindings.contains(&binding))
                     });
+                }
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, children, callee: None, .. }
+                        if head == "pin-own-of" && children.len() == 3) =>
+                {
+                    let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                        unreachable!()
+                    };
+                    let target = Place::root(PlaceRoot::Allocation(*value, Vec::new()));
+                    let incoming = value_variant_facts(
+                        body,
+                        children[2],
+                        &state,
+                        Some((self, origins, event, &before)),
+                    );
+                    state.retain(|place, _| !target.overlaps(place));
+                    if allocation_identity_is_fresh(origins.before[event.0].as_ref(), &target.root)
+                    {
+                        for (place, variant) in incoming {
+                            let mut destination = target.clone();
+                            destination.segments.extend(place.segments);
+                            state.insert(destination, variant);
+                        }
+                    }
                 }
                 FlowAction::Write { value, .. } | FlowAction::Evaluate(value)
                     if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, children, callee: None, .. }
@@ -2902,6 +2941,12 @@ impl FlowGraph {
                 FlowAction::Bind { value, .. }
                 | FlowAction::Assign { value, .. }
                 | FlowAction::Pattern { value, .. } => value,
+                FlowAction::Evaluate(value)
+                    if matches!(&body.nodes[value.0].kind,
+                    NodeKind::Form { head, children, callee: None, .. } if head == "pin-own-of" && children.len() == 3) =>
+                {
+                    value
+                }
                 _ => continue,
             };
             dependencies[index] = self.variant_snapshot_dependencies(body, origins, value);
@@ -3099,7 +3144,29 @@ impl FlowGraph {
                         }
                     }
                     FlowAction::Evaluate(value) => {
-                        if let NodeKind::Form { head, callee, .. } = &body.nodes[value.0].kind {
+                        if let NodeKind::Form {
+                            head,
+                            callee,
+                            children,
+                            ..
+                        } = &body.nodes[value.0].kind
+                        {
+                            if head == "pin-own-of" && callee.is_none() && children.len() == 3 {
+                                let incoming = value_storage_variant_bounds(
+                                    body,
+                                    children[2],
+                                    &state,
+                                    context,
+                                );
+                                let target = Place::root(PlaceRoot::Allocation(*value, Vec::new()));
+                                state.retain(|place, _| !target.overlaps(place));
+                                if allocation_identity_is_fresh(
+                                    origins.before[event.0].as_ref(),
+                                    &target.root,
+                                ) {
+                                    replace_storage_variant_bounds(&mut state, &target, incoming);
+                                }
+                            }
                             if callee.is_some() {
                                 match origins.call_tag_mutations(body, self, event, *value) {
                                     Some(targets) => {
@@ -8776,6 +8843,36 @@ impl FlowGraph {
             if value_has_only_unreachable_events(self, body, origins, alternative) {
                 continue;
             }
+            if let NodeKind::Form {
+                head,
+                children,
+                callee: None,
+                ..
+            } = &body.nodes[alternative.0].kind
+            {
+                if head == "unsafe" && children.len() == 2 {
+                    // The transparent wrapper's child is also enumerated by
+                    // returned_provenance_components and checked below.
+                    continue;
+                }
+                if head == "pin-own-of" && children.len() == 3 {
+                    // This operation initializes fresh owned storage from its
+                    // consumed value. Validate that value's reference slots,
+                    // rather than requiring origins for inactive payloads in
+                    // the owner's address wrapper.
+                    if self.value_missing_reference_provenance_inner(
+                        body,
+                        declarations,
+                        origins,
+                        event,
+                        children[2],
+                        visiting,
+                    ) {
+                        return true;
+                    }
+                    continue;
+                }
+            }
             let Some(ty) = &body.nodes[alternative.0].ty else {
                 continue;
             };
@@ -8857,6 +8954,21 @@ impl FlowGraph {
                 )
             });
             for slot in slots {
+                if matches!(ty, Type::PinOwned(_))
+                    && variant_states[event.0].as_ref().is_some_and(|state| {
+                        inactive_referenced_variant_slot(
+                            body,
+                            self,
+                            origins,
+                            event,
+                            alternative,
+                            &slot.storage,
+                            state,
+                        )
+                    })
+                {
+                    continue;
+                }
                 if slot.storage.iter().enumerate().any(|(index, segment)| {
                     matches!(segment, Segment::Payload(variant, _)
                         if constructor_variant_at_storage(body, alternative, &slot.storage[..index])
@@ -12249,6 +12361,43 @@ fn allocation_origin(site: NodeId, group: Vec<usize>, span: Option<Span>) -> Loa
         parameter_storage: None,
         storage_inputs: Vec::new(),
     }
+}
+
+// A loop can create more than one live allocation at one static site. The
+// analysis must not overwrite an older instance's tag facts with a new one's.
+fn allocation_identity_is_fresh(state: Option<&LoanState>, root: &PlaceRoot) -> bool {
+    state.is_some_and(|state| {
+        !state
+            .iter()
+            .flatten()
+            .chain(state.allocation_contents.values().flatten())
+            .chain(
+                state
+                    .parameter_contents
+                    .iter()
+                    .flat_map(|contents| contents.values().flatten()),
+            )
+            .any(|origin| &origin.place.root == root)
+    })
+}
+
+#[cfg(test)]
+#[test]
+fn allocation_tag_initialization_requires_a_fresh_identity() {
+    let root = PlaceRoot::Allocation(NodeId(12), Vec::new());
+    let mut state = LoanState::from(vec![Vec::new()]);
+    assert!(!allocation_identity_is_fresh(None, &root));
+    assert!(allocation_identity_is_fresh(Some(&state), &root));
+    state[0].push(allocation_origin(NodeId(13), Vec::new(), None));
+    assert!(allocation_identity_is_fresh(Some(&state), &root));
+    state[0].push(allocation_origin(NodeId(12), Vec::new(), None));
+    assert!(!allocation_identity_is_fresh(Some(&state), &root));
+    state[0].pop();
+    state.allocation_contents.insert(
+        (PlaceRoot::Allocation(NodeId(13), Vec::new()), Vec::new()),
+        vec![allocation_origin(NodeId(12), Vec::new(), None)],
+    );
+    assert!(!allocation_identity_is_fresh(Some(&state), &root));
 }
 
 fn replace_projected_origins(

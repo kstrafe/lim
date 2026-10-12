@@ -64,3 +64,58 @@ fn movable_heap_owners_initialize_native_scalars_and_large_aggregates() {
         run(&source, 42);
     }
 }
+
+#[test]
+fn pin_owned_reference_enum_initialization_preserves_inactive_and_live_slots() {
+    for initializer in ["Empty", "(Full (#borrow source))"] {
+        let source = format!(
+            "(#enum Slot ((Empty) (Full (#ref #u64))))
+          (#struct Holder (: slot Slot))
+          (#fn forward (: owner (#pin-own Holder)) (#pin-own Holder) (#return owner))
+          (#fn read (: view (#pin-ref Holder)) #u64
+            (#return (#if (#variant-is (#pin-borrow (#get view slot)) Empty) 42u64
+              (#deref (#deref (#pin-get-payload (#pin-borrow (#get view slot)) Full 0))))))
+          (#fn main () #u64
+            (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
+              (0usize (#size-of Holder) 3usize 34usize -1i64 0usize))))
+            (#let-mut source #u64 42u64)
+            (#let initial Holder (#struct-literal Holder (: slot {initializer})))
+            (#let-mut owner (#pin-own Holder) (#unsafe (#pin-own-of pointer initial)))
+            (#let view (#pin-ref Holder) (#pin-own-borrow owner))
+            (#let result #u64 (#call read (: view view))) (#forget view)
+            (#let moved (#pin-own Holder) (#call forward (: owner owner)))
+            (#let raw (#ptr-mut Holder) (#unsafe (#pin-release moved)))
+            (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (raw (#size-of Holder)))) 0i64))
+            (#return result))"
+        );
+        run(&source, 42);
+        if initializer == "Empty" {
+            let changed = source.replace("(#let view", "(#let update (#pin-ref-mut Holder) (#pin-own-borrow-mut owner))\n            (#unsafe (#forget (#pin-read (#pin-borrow-mut (#get update slot)))))\n            (#unsafe (#pin-write (#pin-borrow-mut (#get update slot)) (Full (#borrow source))))\n            (#forget update)\n            (#let view");
+            run(&changed, 42);
+            let invalid = changed.replace("(#let raw", "(#set source 99u64) (#let raw");
+            let scratch = support::Scratch::new("pin-owned-updated-enum-conflict");
+            let error = lim::compile_source_to_assembly(
+                &invalid,
+                &scratch.path().join("main.lim"),
+                &lim::CompileConfig::default(),
+                &scratch.path().join("cache"),
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            )
+            .expect_err("an initial Empty fact must not hide a newly stored live reference");
+            assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        }
+        if initializer.starts_with("(Full") {
+            let rejected = source.replace("(#let raw", "(#set source 99u64) (#let raw");
+            let scratch = support::Scratch::new("pin-owned-reference-enum-conflict");
+            let error = lim::compile_source_to_assembly(
+                &rejected,
+                &scratch.path().join("main.lim"),
+                &lim::CompileConfig::default(),
+                &scratch.path().join("cache"),
+                lim::TargetDescription::X86_64_SYSTEM_V,
+            )
+            .expect_err("the live stored reference must keep its source borrowed");
+            assert_eq!(error.code, lim::DiagnosticCode::Borrow, "{error:?}");
+        }
+    }
+}

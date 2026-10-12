@@ -111,15 +111,38 @@ different live children at two successive awaits, mixed internal/external
 references, mutable loans, nested pinned children on stack storage, and
 repeated cancellation.
 
-The heap-owned nested-child acceptance test remains ignored, explicitly
-unfinished: after correctly releasing the Pending reference before reborrowing
-the allocation, ordinary call-entry analysis rejects the first parent poll
-with an unresolved referent contract. Staging the initial frame before
-allocation does not fix it. This is not permission to bypass contract inference
-or introduce an async-specific exemption. Generic unchecked-projection tests
-already cover stack/heap layout, but do not establish that this nested heap
-future program compiles. Resolving its allocation-backed call contract remains
-part of the active goal.
+The formerly ignored heap-owned nested-child acceptance test is now enabled.
+Generic pin-owner analysis publishes the initializer's tag facts and variant
+bounds at the new allocation identity. It validates reference provenance on
+the consumed initializer rather than demanding origins for inactive payloads
+in the address wrapper; transparent unsafe wrappers still check their children.
+Inactive input-slot proofs also recognize an owning pointer, requiring a real
+owned allocation identity rather than mistaking retained loans for alternate
+addresses. No async-specific contract exemption is added.
+Tag initialization also requires a fresh allocation identity. A loop may have
+more than one live instance from one static allocation site; if an older
+address or retained alias still uses that identity, analysis invalidates its
+tag facts instead of replacing them with a new instance's tags. The freshness
+gate checks direct loans and stored allocation/parameter contents and has an
+independent regression test. This is a compile-time conservative check, not
+an added runtime flag.
+
+The native heap test allocates first, constructs into a named local, then
+initializes the pin owner, polls, cancels its nested child in place, cancels
+again and releases the allocation. It checks identical cold/warm assembly and
+inspects the actual generated cleanup code. A negative variant omitting release
+of the Pending handle fails at allocation release with a source-spanned borrow
+error. Generic, non-async tests cover initially Empty and Full reference enums,
+borrowing and forwarding their owners, Empty-to-Full writes, and rejection of
+source mutation while a stored reference remains live. Physical tag updates
+invalidate old facts rather than retaining a fictitious Empty proof.
+
+Construction deliberately follows the existing backend's named-local
+large-aggregate call convention. Directly nesting a large frame factory call
+inside `#pin-own-of` reaches the existing E5000 code-generation restriction;
+this change does not claim to implement arbitrary large aggregate expressions.
+An opaque syscall conservatively invalidates preexisting tag facts, so the
+test creates the initializer after allocation rather than before that syscall.
 
 The change exposed a backend bug in scalar matching: x86-64 memory comparisons
 sign-extend their 32-bit immediate, so a direct comparison against `u32::MAX`
@@ -132,15 +155,24 @@ Boundary Empty assertions, reference-bearing consuming matches and public
 cleanup optional wrappers remain; no claim is made that the payload has already
 become untagged or that pinning alone permits an unchecked access.
 
-Verification of the PC-selected cancellation change: 1,382 library tests pass
+Historical verification of the PC-selected cancellation change: 1,382 library tests pass
 with seven existing ignored tests; all 236 async integration cases pass with
 four test threads. All 65 checked-expansion, graph-production, dynamic-array,
 restoration, heap-contents, generated-boundary, rejection, self-borrow-cleanup
 and unchecked-projection integration cases pass. Eleven dependent-cancellation
-tests pass; the new nested heap acceptance case is explicitly ignored for the
-contract limitation above. All eleven jump-table/scalar integration tests,
+tests passed; the new nested heap acceptance case was explicitly ignored at
+that point and is enabled by the follow-up above. All eleven jump-table/scalar
+integration tests,
 all-target checking and whitespace checks pass. No temporary syscall probes
 or diagnostic artifact-retention code remains.
+
+Verification of the allocation-backed follow-up: all 1,383 library tests pass
+with seven existing ignored tests; all 236 async cases pass with four test
+threads. All 68 focused cancellation, checked-expansion, heap, generated-boundary,
+adversarial, pin-owner, pin-projection and unchecked-projection integration cases
+pass. The nested heap acceptance case is no longer ignored. All-target checking
+and whitespace checks pass. This resolves that call-contract gap, not the
+contiguous untagged frame representation still required below.
 
 Existing Empty/Full cells and their runtime operations have not yet been
 replaced; contiguous payload lowering and state-specific partial cancellation
