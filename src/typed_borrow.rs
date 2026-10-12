@@ -1506,6 +1506,19 @@ pub(crate) fn check_call_arguments_cached(
     let origins = cache.get_or_init(|| flow.loan_origins(body));
     let active = flow.definitely_active_bindings_before(body);
     let predecessors = OnceCell::new();
+    let mut argument_writes = HashMap::<NodeId, Vec<FlowNodeId>>::new();
+    for event in flow.reachable() {
+        let node = &flow.nodes[event.0];
+        let (FlowAction::Write { value, .. } | FlowAction::Evaluate(value)) = node.action else {
+            continue;
+        };
+        if matches!(&body.nodes[value.0].kind,
+            NodeKind::Form { head, callee: None, .. }
+                if matches!(head.as_str(), "deref-set" | "pin-write"))
+        {
+            argument_writes.entry(value).or_default().push(event);
+        }
+    }
     // Capture operand values at their reads, not after later operands have
     // reassigned their bindings. Share these immutable snapshots across all
     // uses and path alternatives in this function.
@@ -1591,6 +1604,11 @@ pub(crate) fn check_call_arguments_cached(
         let head = body
             .declaration_name(crate::typed_ir::DeclarationId::Function(callee.unwrap()))
             .expect("checked call declaration");
+        if let Some(event) = call_event {
+            if !argument_writes.is_empty() {
+                check_argument_writes(body, flow, origins, event, children, &argument_writes)?;
+            }
+        }
         let mut prior = vec![Vec::<DirectBorrow>::new()];
         for argument in children.iter().skip(1) {
             let alternatives = returned_borrows_with_bindings(body, *argument, head, &bindings)?;
@@ -1619,6 +1637,138 @@ pub(crate) fn check_call_arguments_cached(
             }
             prior = combine(prior, alternatives, head, node.span)?;
         }
+    }
+    Ok(())
+}
+
+/// Evaluated reference operands remain lent while subsequent operands run.
+/// Simultaneous argument checks alone miss writes hidden in a later operand.
+fn check_argument_writes(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    call: FlowNodeId,
+    children: &[NodeId],
+    write_events: &HashMap<NodeId, Vec<FlowNodeId>>,
+) -> Result<(), BorrowConflict> {
+    fn instructions(values: &[crate::typed_body::Instruction], pending: &mut Vec<NodeId>) {
+        for instruction in values {
+            match &instruction.control {
+                Control::Bind(_, value, _)
+                | Control::Assign(_, _, value)
+                | Control::Evaluate(value) => pending.push(*value),
+                Control::Destructure {
+                    value, otherwise, ..
+                } => {
+                    pending.push(*value);
+                    if let Some(otherwise) = otherwise {
+                        instructions(otherwise, pending);
+                    }
+                }
+                Control::While(condition, values) => {
+                    pending.push(*condition);
+                    instructions(values, pending);
+                }
+                Control::Loop(values) => instructions(values, pending),
+                Control::For(initial, condition, step, values) => {
+                    pending.push(*condition);
+                    instructions(std::slice::from_ref(initial.as_ref()), pending);
+                    instructions(std::slice::from_ref(step.as_ref()), pending);
+                    instructions(values, pending);
+                }
+                Control::Labeled(_, instruction) => {
+                    instructions(std::slice::from_ref(instruction.as_ref()), pending)
+                }
+                Control::Return(value) | Control::Break(_, value) => pending.extend(value),
+                Control::Continue(_) => {}
+            }
+        }
+    }
+    let mut held = Vec::<LoanOrigin>::new();
+    for argument in children.iter().skip(1) {
+        if !held.is_empty() {
+            let mut pending = vec![*argument];
+            let mut writes = HashSet::new();
+            while let Some(value) = pending.pop() {
+                match &body.nodes[value.0].kind {
+                    NodeKind::Form {
+                        head,
+                        children,
+                        callee,
+                        ..
+                    } => {
+                        if callee.is_none() && matches!(head.as_str(), "deref-set" | "pin-write") {
+                            writes.insert(value);
+                        }
+                        pending.extend(children.iter().skip(1));
+                    }
+                    NodeKind::If {
+                        condition,
+                        then_value,
+                        else_value,
+                        ..
+                    } => {
+                        pending.extend([*condition, *then_value]);
+                        pending.extend(else_value);
+                    }
+                    NodeKind::Match { value, arms, .. } => {
+                        pending.push(*value);
+                        pending.extend(arms);
+                    }
+                    NodeKind::MatchArm { values, .. } => pending.extend(values),
+                    NodeKind::Block(values) | NodeKind::Loop(values) => {
+                        instructions(values, &mut pending)
+                    }
+                    NodeKind::Labeled(_, value) => pending.push(*value),
+                    _ => {}
+                }
+            }
+            let mut events = writes
+                .iter()
+                .filter_map(|value| write_events.get(value))
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>();
+            events.sort_by_key(|event| {
+                (
+                    flow.nodes[event.0]
+                        .span
+                        .map(|span| span.start)
+                        .unwrap_or(usize::MAX),
+                    event.0,
+                )
+            });
+            for event in events {
+                let node = &flow.nodes[event.0];
+                let (FlowAction::Write { value, .. } | FlowAction::Evaluate(value)) = node.action
+                else {
+                    unreachable!()
+                };
+                let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                    continue;
+                };
+                let targets = origins.value_before(body, flow, event, children[1]);
+                if let Some(loan) = held.iter().find(|loan| {
+                    targets.iter().any(|target| {
+                        !target.lifetime_only
+                            && target.storage.is_empty()
+                            && call_referents_overlap(loan, target)
+                    })
+                }) {
+                    return Err(BorrowConflict {
+                        message: "cannot write through a reference while an earlier call argument retains its loan".into(),
+                        span: node.span,
+                        labels: loan.span.map(|span| (span, "earlier argument retains this reference".into())).into_iter().collect(),
+                    });
+                }
+            }
+        }
+        held.extend(
+            origins
+                .value_before(body, flow, call, *argument)
+                .into_iter()
+                .filter(|loan| !loan.lifetime_only && loan.storage.is_empty()),
+        );
     }
     Ok(())
 }
@@ -2927,6 +3077,36 @@ mod tests {
                     assert!(error.message.contains("local 'seed'"), "{error:?}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn earlier_reference_argument_blocks_writes_in_later_operands() {
+        let source = "(#struct Holder (: value (#ref-mut #u64) : other (#ref-mut #u64)))
+          (#fn read (: view (#ref-mut #u64) : amount #u64) #u64
+            (#return (#u64.+.wrap (#deref view) amount)))
+          (#fn work (: held Holder) #u64
+            (#let answer #u64 (#call read
+              (: view (#get held value)
+               : amount (#block (#deref-set (#get held value) 99u64) 2u64))))
+            (#forget held) (#return answer))";
+        let error =
+            crate::CheckedProgram::validate_with_span(&crate::parse_program(source).unwrap())
+                .err()
+                .unwrap();
+        assert_eq!(error.1, crate::DiagnosticCode::Borrow, "{}", error.0);
+        let span = error.2.unwrap();
+        assert!(source[span.start..span.end].contains("#deref-set"));
+        for expression in [
+            "(#block (#deref-set (#get held other) 99u64) 2u64)",
+            "(#block (#unreachable) (#deref-set (#get held value) 99u64) 2u64)",
+        ] {
+            let valid = source.replace(
+                "(#block (#deref-set (#get held value) 99u64) 2u64)",
+                expression,
+            );
+            crate::CheckedProgram::validate(&crate::parse_program(&valid).unwrap())
+                .unwrap_or_else(|error| panic!("{error}\n{valid}"));
         }
     }
 
