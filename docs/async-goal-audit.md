@@ -1969,3 +1969,54 @@ passes, the same two async failures and eight ignored tests (56.92 seconds).
 Logs are /tmp/lim-scalar-dispatch-gates-final.log and
 /tmp/lim-scalar-dispatch-library-final.log. All-target, formatting and diff
 checks pass. The full async goal, emitter experiment and final HTML remain open.
+
+### Confirm the entry-phase failure and protect physical-slot witnesses
+
+The serial 21-target matrix at /tmp/lim-scalar-dispatch-all-async.log is now
+terminal: 364 passes, 27 failures and three ignored tests. Its four failing
+targets are contiguous storage (one), dependent cancellation (three), async
+functions (seven) and graph production (sixteen). Frame restoration and heap
+contents both pass completely. All three timeouts from the previous parallel
+matrix pass in this run. The scalar-proof increment did not resolve the
+remaining phase-sensitive async contracts; this is a verified inventory,
+not a claim that those contracts are fixed.
+
+The returned-child library fixture was traced at its actual failing call,
+main:22:52. The poll contract demands a mutable loan at input path
+parameter 0 / dereference / Frame aggregate 3, field 3 / numeric index 0.
+This is the Holder buffer, initially absent. It is not the nearby identity
+lend helper's argument: the helper is merely adjacent generated text. The
+original view resides in a separate, declared Full reference slot. The graph
+creates and stores Holder before entering resume PC3; entry PC0 and PC1 reach
+that store before the subsequent read, so the Holder buffer is not their entry
+obligation. PC3 does need its existing stored loan. Evidence is in
+/tmp/lim-aggregate-child-missing-word-trace.log. Temporary tracing was removed.
+
+The next semantic work must preserve entry conditions, not merely test the
+current PC at an eventual read: a poll may change PC and continue through other
+blocks before returning. Required-word and referent-read contracts must share
+those conditions, and caller facts must come from real construction and writes.
+Unknown conditions cannot excuse a missing loan. A valid reference in another
+declared field cannot substitute for an uninitialized or retired numeric cell.
+
+A new non-async regression makes that last distinction explicit. A frame with
+a valid source reference but a zero-filled Holder buffer cannot call its typed
+reader. Writing Holder into the exact buffer permits native execution returning
+42; retiring the buffer's metadata rejects the call again while the source
+field remains valid. This protects against a blanket compatible-reference or
+empty-buffer workaround while the actual conditional-contract fix remains
+open. The focused result is /tmp/lim-declared-frame-word-witness.log.
+
+The first parallel focused rerun hit ETXTBSY while executing another freshly
+linked test binary. The subprocess harness now retries only that Linux launch
+error within the original wall-clock budget; other spawn errors, child exits,
+output limits and runtime timeouts are not retried. Deterministic tests hold a
+writable executable descriptor, release it for successful launch, retain it
+until timeout, and verify that a missing executable fails immediately. This is
+test infrastructure, not a compiler or language semantics change.
+
+The final focused run has 103 passes and no failures: 63 word-storage, 24 cache,
+ten owner-entry, three UI and three subprocess tests. Evidence is at
+/tmp/lim-frame-word-witness-gates-final.log. The full matrix above remains the
+latest broad async result; no semantic fix for its 27 failures is claimed here.
+The final HTML remains deferred until the original goal's completion gates pass.

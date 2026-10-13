@@ -14,6 +14,48 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 }
 
 #[test]
+fn declared_frame_references_do_not_initialize_unrelated_word_cells() {
+    let prefix = "(#struct Holder (: value (#ref #u64)))
+      (#struct Frame (: source (#ref #u64) : words (#array #u64 1)))
+      (#fn read (: frame (#ref-mut Frame)) #u64
+        (#let restored Holder (#unsafe (#word-take Holder (#borrow-slice-mut (#get frame words)))))
+        (#let answer #u64 (#deref (#get restored value)))
+        (#forget restored) (#return answer))";
+    let main = "(#fn main () #u64
+      (#let owner #u64 42u64)
+      (#let-mut frame Frame (#struct-literal Frame
+        (: source (#borrow owner) : words (#array-repeat 0u64))))
+      (#let answer #u64 (#call read (: frame (#borrow-mut frame))))
+      (#forget frame) (#return answer))";
+    let missing = format!("{prefix}\n{main}");
+    let error = compile(&missing)
+        .expect_err("a declared reference is not a witness for a separate numeric cell");
+    assert_eq!(error.code, DiagnosticCode::Linear);
+    assert!(
+        error.message.contains("missing required input loan")
+            || error.message.contains("unresolved call inputs"),
+        "{error:?}"
+    );
+    let written = main.replace(
+        "(#let answer",
+        "
+      (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
+        (#struct-literal Holder (: value (#get frame source)))))
+      (#let answer",
+    );
+    run(&format!("{prefix}\n{written}"));
+    let retired = written.replace(
+        "(#let answer",
+        "
+      (#unsafe (#word-forget Holder (#borrow-slice-mut (#get frame words))))
+      (#let answer",
+    );
+    let error = compile(&format!("{prefix}\n{retired}"))
+        .expect_err("the surviving source field cannot revive a retired word-cell loan");
+    assert_eq!(error.code, DiagnosticCode::Linear);
+}
+
+#[test]
 fn scalar_dispatch_does_not_require_loans_from_proven_unreachable_readers() {
     let source = "
       (#struct Holder (: value (#ref #u64)))
