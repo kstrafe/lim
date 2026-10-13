@@ -1764,6 +1764,32 @@ impl FlowLoanOrigins {
             .filter(|origin| origin.storage.is_empty())
             .collect::<Vec<_>>();
             if selected.is_empty()
+                && (absent_owned_word_input(body, flow, self, event, argument, summary)
+                    || (!reads_through_reference(body, argument)
+                        && !matches!(
+                            body.nodes[argument.0].ty,
+                            Some(
+                                Type::Reference { .. }
+                                    | Type::PinnedReference { .. }
+                                    | Type::PinOwned(_)
+                                    | Type::Slice(_)
+                                    | Type::MutableSlice(_)
+                                    | Type::RawPointer { .. }
+                            )
+                        )
+                        && summary
+                            .input_storage
+                            .iter()
+                            .any(|part| matches!(part, Segment::Payload(..)))
+                        && !summary.input_storage.contains(&Segment::Dereference)))
+            {
+                // A missing mandatory capability in an owned enum payload
+                // cannot supply a MAY write address. Independent argument
+                // provenance checking still rejects an inhabitable payload
+                // lacking that capability; this grants no read permission.
+                continue;
+            }
+            if selected.is_empty()
                 || selected.iter().any(|origin| {
                     !origin.has_concrete_address()
                         || has_dynamic_projection(&origin.referent_place())
@@ -2807,7 +2833,11 @@ impl FlowGraph {
                         record(targets)?;
                     }
                 }
-                FlowAction::Clone { .. } => return None,
+                FlowAction::Clone { value, .. } => {
+                    if !scalar::scalar_clone_is_pure(body, *value) {
+                        return None;
+                    }
+                }
                 FlowAction::Write { value, .. } | FlowAction::Evaluate(value) => {
                     let node = &body.nodes[value.0];
                     if let NodeKind::Form {
@@ -2819,6 +2849,28 @@ impl FlowGraph {
                     {
                         if callee.is_some() {
                             record(origins.call_scalar_mutations(body, self, event, *value)?)?;
+                            continue;
+                        }
+                        if matches!(
+                            head.as_str(),
+                            "atomic-store"
+                                | "atomic-fetch-add"
+                                | "atomic-exchange"
+                                | "atomic-compare-exchange"
+                                | "atomic-compare-exchange-weak"
+                        ) {
+                            let mut targets =
+                                origins.value_before(body, self, event, *children.get(1)?);
+                            targets.retain(|target| target.storage.is_empty());
+                            if targets.is_empty()
+                                || targets.iter().any(|target| {
+                                    !target.has_concrete_address()
+                                        || has_dynamic_projection(&target.referent_place())
+                                })
+                            {
+                                return None;
+                            }
+                            record(targets)?;
                             continue;
                         }
                         if head == "word-write" && children.len() == 4 {
@@ -5384,9 +5436,19 @@ impl FlowGraph {
                         return false;
                     }
                 }
-                FlowAction::Clone { .. } => return false,
+                FlowAction::Clone { value, .. } => {
+                    if !scalar::scalar_clone_is_pure(body, *value) {
+                        return false;
+                    }
+                }
                 FlowAction::Evaluate(value) => {
-                    if let NodeKind::Form { head, callee, .. } = &body.nodes[value.0].kind {
+                    if let NodeKind::Form {
+                        head,
+                        callee,
+                        children,
+                        ..
+                    } = &body.nodes[value.0].kind
+                    {
                         if let Some(callee) = callee {
                             if !body.call_parameter_clears.contains_key(callee) {
                                 return false;
@@ -5403,10 +5465,30 @@ impl FlowGraph {
                             }) {
                                 return false;
                             }
-                        } else if matches!(
-                            head.as_str(),
-                            "ptr-write" | "linux-syscall" | "asm" | "pin-read"
-                        ) || head.starts_with("atomic-")
+                        } else if head == "pin-read" {
+                            // Extraction retires the addressed cell's loans,
+                            // not every concealed reference in the function.
+                            // Unknown or overlapping targets still revoke the
+                            // backward initialization witness.
+                            let Some(target) = children.get(1) else {
+                                return false;
+                            };
+                            let addresses = origins
+                                .value_before(body, self, previous, *target)
+                                .into_iter()
+                                .filter(|address| address.storage.is_empty())
+                                .collect::<Vec<_>>();
+                            if addresses.is_empty()
+                                || addresses.iter().any(|address| {
+                                    !address.has_concrete_address()
+                                        || has_dynamic_projection(&address.referent_place())
+                                        || address.referent_place().overlaps(cell)
+                                })
+                            {
+                                return false;
+                            }
+                        } else if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm")
+                            || head.starts_with("atomic-")
                         {
                             return false;
                         }
@@ -10538,6 +10620,16 @@ impl FlowGraph {
                             source,
                         );
                     }
+                    if absent_owned_word_input(
+                        body,
+                        self,
+                        origins,
+                        FlowNodeId(call_event),
+                        *argument,
+                        source,
+                    ) {
+                        return true;
+                    }
                     let bounds = value_variant_bounds(
                         body,
                         *argument,
@@ -14536,6 +14628,56 @@ fn absent_owned_word_input(
     argument: NodeId,
     source: &crate::typed_body::ParameterLoanSummary,
 ) -> bool {
+    let Some(state) = &origins.before[event.0] else {
+        return false;
+    };
+    if source.global.is_none()
+        && source.fresh_allocation.is_none()
+        && !source.input_storage.is_empty()
+        && !source.input_storage.contains(&Segment::Dereference)
+        && !reads_through_reference(body, argument)
+        && !matches!(
+            body.nodes[argument.0].ty,
+            Some(
+                Type::Reference { .. }
+                    | Type::PinnedReference { .. }
+                    | Type::PinOwned(_)
+                    | Type::Slice(_)
+                    | Type::MutableSlice(_)
+                    | Type::RawPointer { .. }
+            )
+        )
+    {
+        if let Some(place) = Place::from_expression(body, argument) {
+            if let PlaceRoot::Local(binding) = place.root {
+                let path = place
+                    .segments
+                    .iter()
+                    .chain(&source.input_storage)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if !has_dynamic_projection(&Place {
+                    root: place.root,
+                    segments: path.clone(),
+                }) && body
+                    .binding_numeric_shapes
+                    .get(binding.0)
+                    .and_then(Option::as_ref)
+                    .is_some_and(|shape| shape.is_numeric_cell(&path))
+                {
+                    // An owned numeric slot can be absent without a reference
+                    // boundary. This excludes an impossible checked output;
+                    // it never authorizes executing a typed word reader.
+                    return origins
+                        .value_before(body, flow, event, argument)
+                        .into_iter()
+                        .all(|origin| {
+                            select_summary_inputs(origin, &source.input_storage, state).is_empty()
+                        });
+                }
+            }
+        }
+    }
     if source.global.is_some()
         || source.fresh_allocation.is_some()
         || source.input_storage.first() != Some(&Segment::Dereference)
@@ -14544,9 +14686,6 @@ fn absent_owned_word_input(
         return false;
     }
     let input = source.input_storage.as_slice();
-    let Some(state) = &origins.before[event.0] else {
-        return false;
-    };
     let addresses = origins
         .value_before(body, flow, event, argument)
         .into_iter()

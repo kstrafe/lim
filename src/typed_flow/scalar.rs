@@ -31,6 +31,7 @@ pub(super) fn scalar_clone_is_pure(body: &Body, value: NodeId) -> bool {
                 | Type::Usize
                 | Type::F32
                 | Type::F64
+                | Type::RawPointer { .. }
         )
     )
 }

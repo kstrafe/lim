@@ -2352,3 +2352,21 @@ unchanged. A 31-pair guard repeat after four warmups measures 230.370 / 225.627 
 113.216 / 110.831 ms. Total ranges still overlap at 224.952–243.404 /
 220.666–243.718 ms, so these are modest fixture-specific median improvements,
 not a universal speed guarantee or completion of the broader performance audit.
+
+## Exact primitive effects and absent owned word payloads
+
+Atomic writers now summarize all known concrete target addresses as MAY byte
+effects. Builtin raw-pointer cloning is a pure bit copy; custom clone calls
+remain opaque. Extracting a pinned cell preserves a neighbor's initialization
+witness only when its actual target is concrete and disjoint. None of these
+effects supplies a missing reference or establishes a MUST initialization fact.
+
+A concrete owned numeric slot with no retained loan cannot supply a checked
+reference-bearing output payload. Such absent payloads also cannot supply a
+mutation address. This excludes impossible call alternatives without licensing
+the actual word reader; occupied payloads still retain their source borrows,
+and numeric pointer bits without a real input loan still fail validation.
+
+The native gates pass 78 word-storage tests, four primitive-effect adversarial
+tests, 24 semantic-cache tests and five borrow-adversarial tests. The semantic
+cache version changes so earlier effect summaries cannot bypass the new rules.

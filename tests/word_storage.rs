@@ -1023,6 +1023,120 @@ fn optional_word_outputs_preserve_absent_concrete_input_sources() {
 }
 
 #[test]
+fn optional_owned_word_outputs_do_not_require_impossible_payloads() {
+    let source = "(#enum Input ((NoInput) (HasInput (#ref #u64))))
+      (#enum Output ((NoOutput) (HasOutput (#ref #u64))))
+      (#struct Words (: state #u64 : words (#array #u64 2)))
+      (#fn convert (: storage Words) Output
+        (#let output Output (#match (#get storage state)
+          (#case 0 (NoOutput))
+          (#case _ (#match (#unsafe (#word-read Input (#borrow-slice (#get storage words))))
+            (#case (NoInput) (NoOutput))
+            (#case (HasInput view) (HasOutput view))))))
+        (#forget storage) (#return output))
+      (#fn main () #u64
+        (#let-mut amount #u64 42u64)
+        (#let-mut storage Words (#struct-literal Words
+          (: state 0u64 : words (#array-repeat 0u64))))
+        (#let output Output (#call convert (: storage storage)))
+        (#set amount 42u64)
+        (#return (#match output (#case (NoOutput) 42u64)
+          (#case (HasOutput view) (#deref view)))))";
+    run(source);
+    let occupied = source
+        .replace(": state 0u64", ": state 1u64")
+        .replace("(#let output Output (#call convert", "(#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (HasInput (#borrow amount)))) (#let output Output (#call convert")
+        .replace("(#set amount 42u64)", "");
+    run(&occupied);
+    assert_eq!(
+        compile(&occupied.replace(
+            "(#return (#match output",
+            "(#set amount 0u64) (#return (#match output"
+        ))
+        .unwrap_err()
+        .code,
+        DiagnosticCode::Borrow
+    );
+    // Excluding an impossible output never licenses the actual word reader.
+    let invalid = source.replace(": state 0u64", ": state 1u64");
+    let error = compile(&invalid).unwrap_err();
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+    assert!(
+        error.message.contains("input loan") || error.message.contains("unresolved"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn absent_owned_mutation_payloads_preserve_disjoint_word_selectors() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Frame (: state #u64 : words (#array #u64 1)))
+      (#enum Handle ((Empty) (Full (#ref-mut #u64))))
+      (#fn empty () Handle (#return (Empty)))
+      (#fn mutate (: handle Handle) ()
+        (#match handle (#case (Empty) ())
+          (#case (Full target) (#block (#deref-set target 1u64) (#forget target) ())))
+        (#return ()))
+      (#fn read (: frame (#ref Frame)) #u64
+        (#return (#match (#get frame state)
+          (#case 0 42u64)
+          (#case _ (#block
+            (#let value Holder (#unsafe (#word-read Holder (#borrow-slice (#get frame words)))))
+            (#let answer #u64 (#deref (#get value value))) (#forget value) answer)))))
+      (#fn main () #u64
+        (#let-mut frame Frame (#struct-literal Frame (: state 0u64 : words (#array-repeat 0u64))))
+        (#call mutate (: handle (#call empty ())))
+        (#let answer #u64 (#call read (: frame (#borrow frame))))
+        (#forget frame) (#return answer))";
+    run(source);
+    let invalid = source.replace(
+        "(#call empty ())",
+        "(Full (#borrow-mut (#get frame state)))",
+    );
+    let error = compile(&invalid).unwrap_err();
+    assert!(
+        error.message.contains("input loan") || error.message.contains("unresolved"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn atomic_writers_preserve_disjoint_word_selectors() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Frame (: state #u64 : words (#array #u64 1)))
+      (#fn update (: count (#ref (#atomic #u64))) ()
+        (#atomic-store count 1u64 #memory-relaxed) (#return ()))
+      (#fn read (: frame (#ref Frame)) #u64
+        (#return (#match (#get frame state)
+          (#case 0 42u64)
+          (#case _ (#block
+            (#let value Holder (#unsafe (#word-read Holder (#borrow-slice (#get frame words)))))
+            (#let answer #u64 (#deref (#get value value))) (#forget value) answer)))))
+      (#fn main () #u64
+        (#let count (#atomic #u64) (#atomic-init #u64 0u64))
+        (#let frame Frame (#struct-literal Frame (: state 0u64 : words (#array-repeat 0u64))))
+        (#call update (: count (#borrow count)))
+        (#let answer #u64 (#call read (: frame (#borrow frame))))
+        (#forget count) (#forget frame) (#return answer))";
+    run(source);
+    for operation in [
+        "(#atomic-fetch-add count 1u64 #memory-relaxed)",
+        "(#atomic-exchange count 1u64 #memory-relaxed)",
+    ] {
+        run(&source.replace(
+            "(#atomic-store count 1u64 #memory-relaxed)",
+            &format!("(#let ignored #u64 {operation})"),
+        ));
+    }
+    for operation in ["atomic-compare-exchange", "atomic-compare-exchange-weak"] {
+        run(&source.replace(
+            "(#atomic-store count 1u64 #memory-relaxed)",
+            &format!("(#let ignored (#tuple #bool #u64) (#{operation} count 0u64 1u64 #memory-relaxed #memory-relaxed)) (#forget ignored)"),
+        ));
+    }
+}
+
+#[test]
 fn helper_retirement_does_not_hide_later_byte_mutations() {
     let source = OPTIONAL_WORD_READER
         .replace(
