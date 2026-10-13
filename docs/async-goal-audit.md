@@ -2479,3 +2479,24 @@ five adversarial-borrow, 24 semantic-cache, and three UI-test passes.
 `cargo check --all-targets` passes. The broader contiguous-storage suite still
 has four failures and the dependent-cancellation suite three; they are not
 claimed fixed. Diagnostic traces and rejected experiments were removed.
+
+## Follow-up: library and contiguous-storage regressions resolved
+
+All five remaining library failures now pass. The full library suite reports
+1,446 passes and eight ignored tests (`/tmp/lim-latest-verified-library.log`).
+The contiguous-storage suite reports 17 passes with no failures
+(`/tmp/lim-fresh-heap-contiguous.log`). Dependent cancellation still has three
+failures out of 14; these are not claimed resolved.
+
+Known physical word-cell addresses now retain their mutation footprints, even
+when their lifetime evidence cannot grant ownership. Finite MAY aliases
+invalidate all possible destinations but preserve disjoint scalar and tag
+facts. Forgetting or dropping a handle is not an arbitrary byte write, and
+known inactive payloads do not require mutation addresses for absent loans.
+Semantic cache revision 38 invalidates summaries made under the old rules.
+The word-storage suite has 75 passes, including a new alias/overlap regression.
+
+Fresh pinned heap allocations retain scalar initializer facts. The proof
+requires a fresh allocation identity, and subsequent alias writes invalidate
+those facts. The new positive and negative heap regression passes; this
+does not grant initialized reference cells from numeric selector values.

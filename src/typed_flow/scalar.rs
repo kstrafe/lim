@@ -726,6 +726,25 @@ fn transfer(
                 ..
             } = &body.nodes[value.0].kind
             {
+                if head == "pin-own-of" && children.len() == 3 {
+                    let target = Place::root(PlaceRoot::Allocation(*value, Vec::new()));
+                    let incoming = snapshot(&facts, body, children[2]);
+                    // Only a fresh static allocation identity can establish
+                    // initializer facts. Repeated live instances at one loop
+                    // site must not overwrite the older object's state.
+                    invalidate_footprint(
+                        &mut facts,
+                        Some(vec![allocation_origin(
+                            *value,
+                            Vec::new(),
+                            body.nodes[value.0].span,
+                        )]),
+                    );
+                    if allocation_identity_is_fresh(origins.before[event.0].as_ref(), &target.root)
+                    {
+                        write(&mut facts, &target, incoming);
+                    }
+                }
                 if matches!(
                     head.as_str(),
                     "pin-read" | "word-write" | "pin-write" | "pin-set-field" | "deref-set"
