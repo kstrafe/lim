@@ -92,6 +92,7 @@ pub(crate) mod async_self_borrow;
 pub(crate) mod async_slice_anchor;
 pub(crate) mod async_source;
 pub(crate) mod async_types;
+mod async_word_cleanup;
 pub(crate) mod builtins;
 pub(crate) mod frontend;
 pub(crate) use crate::capture_storage as async_storage;

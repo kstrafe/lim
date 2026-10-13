@@ -5552,6 +5552,17 @@ impl<'a> Emitter<'a> {
                     // Explicit release must actually empty the binding cell.
                     return Ok(self.clear_binding(binding));
                 }
+                if *kind == ReleaseKind::Forget {
+                    if let Some(&index) = self.bindings.get(&binding) {
+                        if let Some(region) = &self.slots[index].words {
+                            // A checked explicit whole-owner discard has no
+                            // payload read. Retire its retained loans directly;
+                            // projected releases keep their leaf-aware path.
+                            self.occupancy_write(index, false);
+                            return Ok(self.forget_word_region(region));
+                        }
+                    }
+                }
                 let value = self.read_binding(binding, true);
                 Ok(format!(
                     "(#{} {value})",
@@ -6312,6 +6323,17 @@ impl<'a> Emitter<'a> {
                     let reference = Self::slot_ref(slot, true);
                     let operation = if pinned {
                         if slot.words.is_some() {
+                            if self.word_cleanup_available(handler) {
+                                // A generated destroyer needs only occupied
+                                // payloads, not a typed view of discarded captures.
+                                operations.push(format!(
+                                    "(#unsafe (#call {handler}-words (: {parameter} {})))",
+                                    self.word_slice(slot.words.as_ref().unwrap(), true)
+                                ));
+                                operations
+                                    .push(self.forget_word_region(slot.words.as_ref().unwrap()));
+                                continue;
+                            }
                             operations.push(format!(
                                 "(#call {handler} (: {parameter} {}))",
                                 self.payload_ref(slot, true)
@@ -6491,7 +6513,7 @@ impl<'a> Emitter<'a> {
             let fields = self
                 .slots
                 .iter()
-                .filter(|slot| slot.words.is_none())
+                .filter(|slot| slot.words.is_none() && slot.linear)
                 .map(|slot| format!("({} {})", slot.field, slot.name))
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -6510,7 +6532,11 @@ impl<'a> Emitter<'a> {
             let pc = self.fresh("cleanup-pc");
             let mut takes = vec![format!("(#let {pc} #u32 (#get task pc))")];
             let mut captures = vec![format!("(pc {pc})")];
-            for slot in self.slots.iter().filter(|slot| slot.words.is_none()) {
+            for slot in self
+                .slots
+                .iter()
+                .filter(|slot| slot.words.is_none() && slot.linear)
+            {
                 let value = self.fresh("cleanup-extracted");
                 takes.push(format!(
                     "(#let {value} {} (#unsafe (#pin-read {})))\n(#unsafe (#pin-write {} ({})))",
@@ -6605,6 +6631,194 @@ impl<'a> Emitter<'a> {
             }
         }
         Ok(source)
+    }
+
+    /// The word-only entry is useful when captures are only retired, not
+    /// restored as reference-bearing handler arguments. Such arguments keep
+    /// the existing typed cancellation protocol and its contents contracts.
+    fn word_cleanup_available(&self, handler: &str) -> bool {
+        fn visit(emitter: &Emitter<'_>, handler: &str, active: &mut HashSet<String>) -> bool {
+            let Some(interface) = emitter.planning.interfaces.functions.get(handler) else {
+                return false;
+            };
+            if interface.provenance != crate::generator::async_interfaces::Provenance::GraphDestroy
+            {
+                let Some(parameter) = interface.declaration.parameters.first() else {
+                    return false;
+                };
+                let ty = crate::typed_ir::resolve_type(
+                    &parameter.ty,
+                    &emitter.planning.declarations.aliases,
+                )
+                .unwrap_or_else(|_| parameter.ty.clone());
+                let target = match &ty {
+                    Type::PinnedReference { target, .. } => target.as_ref(),
+                    _ => &ty,
+                };
+                return !emitter.types.contains_reference(target);
+            }
+            if !active.insert(handler.into()) {
+                return false;
+            }
+            let result = handler.strip_suffix("-destroy")
+                .and_then(|poll| emitter.planning.functions.iter().find(|function|
+                    function.source.generated_poll.as_deref() == Some(poll)))
+                .and_then(|function| function.cancel.as_ref())
+                .is_some_and(|config| match config {
+                    Expr::List(parts) => parts.get(1).is_some_and(|entries| match entries {
+                        Expr::List(entries) => entries.iter().all(|entry| matches!(entry, Expr::List(pair)
+                            if pair.get(1).is_some_and(|handler| matches!(handler, Expr::Symbol(handler) if visit(emitter, handler, active))))),
+                        _ => false,
+                    }),
+                    _ => false,
+                });
+            active.remove(handler);
+            result
+        }
+        self.planning
+            .interfaces
+            .functions
+            .get(handler)
+            .is_some_and(|interface| {
+                interface.provenance == crate::generator::async_interfaces::Provenance::GraphDestroy
+            })
+            && visit(self, handler, &mut HashSet::new())
+    }
+
+    /// Cancel a word-backed child without materializing discarded references.
+    /// The unsafe entry requires the stationary frame's exact physical layout
+    /// and a valid dispatcher state. Source occupancy/ownership checking and
+    /// ordinary checking of every typed handler input remain mandatory.
+    fn word_cleanup(&self, source: &str) -> Result<String, Error> {
+        if !self.pinned || !self.word_cleanup_available(&format!("{}-destroy", self.poll)) {
+            return Ok(String::new());
+        }
+        use super::async_word_cleanup::Layout;
+        let layout = Layout::new(source, &self.frame, &self.planning.declarations)
+            .map_err(|message| fail(self.function, message))?;
+        let occupied = self.cleanup_occupied();
+        let names = self.cleanup_names(occupied)?;
+        let handlers = self.cancellation_handlers()?;
+        let plan = self.initialization.as_ref().unwrap();
+        let physical_start = plan.states[0].before.len() - self.slots.len();
+        let region = |slot: &Slot, payload: bool| {
+            if let Some(words) = &slot.words {
+                let (base, _) = layout.fields[&words.field];
+                (base + words.start, words.length)
+            } else {
+                let (base, width) = layout.fields[&slot.field];
+                if payload {
+                    (base + 1, width - 1)
+                } else {
+                    (base, width)
+                }
+            }
+        };
+        let retire = |slot: &Slot| {
+            let (start, length) = region(slot, false);
+            format!(
+                "(#unsafe (#word-forget (#array #u64 {length}) {}))",
+                Layout::slice(start, length)
+            )
+        };
+        let mut cases = Vec::new();
+        for state in self.cancellation_states() {
+            let live = |index: usize| plan.states[state].before[physical_start + index];
+            let mut dependent = self
+                .slots
+                .iter()
+                .enumerate()
+                .filter(|(index, slot)| {
+                    slot.linear
+                        && occupied.contains(index)
+                        && live(*index)
+                        && self.cancels_in_place(slot)
+                })
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            let mut order = Vec::new();
+            while !dependent.is_empty() {
+                let next = dependent
+                    .iter()
+                    .position(|candidate| {
+                        !dependent.iter().any(|other| {
+                            other != candidate
+                                && self.slots[*other]
+                                    .dependencies
+                                    .iter()
+                                    .any(|binding| self.bindings.get(binding) == Some(candidate))
+                        })
+                    })
+                    .ok_or_else(|| fail(self.function, "cyclic async cancellation dependency"))?;
+                order.push(dependent.remove(next));
+            }
+            let lenders = order
+                .iter()
+                .flat_map(|index| &self.slots[*index].dependencies)
+                .filter_map(|binding| self.bindings.get(binding).copied())
+                .collect::<HashSet<_>>();
+            let references = self.reference_slots();
+            let retained = references
+                .iter()
+                .copied()
+                .filter(|index| lenders.contains(index))
+                .collect::<Vec<_>>();
+            let mut operations = references
+                .into_iter()
+                .filter(|index| !lenders.contains(index))
+                .map(|index| retire(&self.slots[index]))
+                .collect::<Vec<_>>();
+            let dependents = order.iter().copied().collect::<HashSet<_>>();
+            order.extend(
+                self.slots
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, slot)| {
+                        slot.linear
+                            && occupied.contains(index)
+                            && live(*index)
+                            && !dependents.contains(index)
+                    })
+                    .map(|(index, _)| index),
+            );
+            let mut retired_lenders = false;
+            for index in order {
+                let slot = &self.slots[index];
+                if !dependents.contains(&index) && !retired_lenders {
+                    // All dependent children have completed cancellation. The
+                    // remaining non-owning lender handles may now be retired.
+                    operations.extend(retained.iter().map(|index| retire(&self.slots[*index])));
+                    retired_lenders = true;
+                }
+                let handler = &handlers[&names[&index]];
+                let declaration = self.planning.interfaces.function(handler).unwrap();
+                let parameter = &declaration.parameters[0].name;
+                let pinned = matches!(declaration.parameters[0].ty, Type::PinnedReference { .. });
+                let (start, length) = region(slot, true);
+                let slice = Layout::slice(start, length);
+                if pinned && self.word_cleanup_available(handler) {
+                    operations.push(format!(
+                        "(#unsafe (#call {handler}-words (: {parameter} {slice})))"
+                    ));
+                } else if pinned {
+                    operations.push(format!("(#call {handler} (: {parameter} (#unsafe (#word-view (#pin-ref-mut {}) {slice}))))", crate::type_source(&slot.ty)));
+                } else {
+                    operations.push(format!(
+                        "(#call {handler} (: {parameter} (#unsafe (#word-take {} {slice}))))",
+                        crate::type_source(&slot.ty)
+                    ));
+                }
+                operations.push(retire(slot));
+            }
+            cases.push(format!(
+                "(#case {state}u32 (#block {} ()))",
+                operations.join("\n")
+            ));
+        }
+        cases.push(format!("(#case {}u32 ())", u32::MAX));
+        cases.push("(#case _ (#unreachable))".into());
+        Ok(format!("; Caller proves exact stationary layout and initialized dispatcher state.\n; Only occupied handler payloads are read; discarded captures are retired.\n(#unsafe-fn {}-destroy-words (: task (#slice-mut #u64)) ()\n(#assert (#usize.== (#slice-mut-len task) {}usize))\n(#match (#unsafe (#word-read #u32 {})) {})\n(#unsafe (#word-forget (#array #u64 {}) {}))\n(#unsafe (#word-write #u32 {} {}u32))\n(#forget task) (#return ()))",
+            self.poll, layout.words, Layout::slice(0, 1), cases.join("\n"), layout.words, Layout::slice(0, layout.words), Layout::slice(0, 1), u32::MAX))
     }
 
     /// The public names describe source parameters; private cell identities
@@ -7029,9 +7243,10 @@ impl<'a> Emitter<'a> {
         );
         let projections = self.projections.join("\n");
         let cleanup = self.cleanup_interface(&receiver)?;
+        let word_cleanup = self.word_cleanup(&format!("{source}\n{cleanup}"))?;
         let access = self.parameter_access()?;
         let source = crate::generator::format_generated_source(&format!(
-            "{source}\n{cleanup}\n{projections}\n{access}"
+            "{source}\n{cleanup}\n{word_cleanup}\n{projections}\n{access}"
         ))
         .map_err(|message| fail(self.function, message))?;
         Ok(Generated {

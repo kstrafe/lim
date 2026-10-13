@@ -327,13 +327,24 @@ impl Registry {
                 declaration.parameters.truncate(1);
                 declaration.return_type = Type::Unit;
                 self.functions.insert(
-                    name,
+                    name.clone(),
                     FunctionInterface {
                         declaration,
                         span,
                         provenance: Provenance::GraphDestroy,
                     },
                 );
+                let words = format!("{name}-words");
+                if self.reserved.contains_key(&words) {
+                    return Err(Error {
+                        message: format!(
+                            "async generated name '{words}' conflicts with an existing declaration"
+                        ),
+                        span,
+                    });
+                }
+                self.reserved.insert(words.clone(), span);
+                self.generated_names.insert(words.clone(), origin);
             }
         }
         Ok(())

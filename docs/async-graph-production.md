@@ -77,6 +77,33 @@ Graph is the only lowering implementation. No raw-state `poll-cancel` export or
 fixed public `Frame-state` type is generated; temporary extraction storage uses
 a fresh internal name. Both movable and pinned generators expose cleanup.
 
+### Cancelling numeric-backed stationary children
+
+For eligible pinned functions with configured destruction, the generator also
+emits an unsafe `poll-destroy-words` implementation. This is ordinary inspectable
+Lim, not a special native borrow-checker operation. Its caller must provide the
+exact stationary frame word region and a valid dispatcher state; the function
+checks the region length and dispatches by that state. Parent generators use
+this entry only for the corresponding generated destroy interface, never for
+an ordinary user handler with a similar name.
+
+Unused reference captures are retired with `#word-forget`, without reading them
+or constructing a typed view of the entire child. Occupied owning payloads are
+still restored with checked typed word operations before invoking their
+handlers. Dependent children are cancelled before their lenders or owners.
+Reference-bearing handler payloads retain the existing typed cancellation
+protocol; the word-only entry is not emitted for those functions. Nested
+eligible generated children use their own word destroyers recursively through
+the acyclic call graph. Repeated cancellation sees the terminal dispatcher and
+does not call a handler again.
+
+An explicit source `#forget` of a whole numeric-backed owner likewise retires
+metadata directly. It does not restore a reference-bearing payload solely to
+discard it. Source borrowing and linearity still reject forgetting an owner
+with a live child. Projected releases retain their leaf-aware checking path.
+Cleanup extraction records omit already-cleared non-owning handles, rather
+than copying their unused reference layouts into temporary aggregates.
+
 ## Post-terminal parameter access
 
 Pinned graph functions can explicitly request access to reference-free Copy

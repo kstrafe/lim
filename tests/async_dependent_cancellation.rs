@@ -206,6 +206,53 @@ fn pinned_generated_child_is_cancelled_without_moving_its_frame() {
 }
 
 #[test]
+fn generated_word_destroy_names_cannot_collide_with_source_functions() {
+    let program = format!(
+        "{}\n(#fn child-poll-destroy-words () () (#return ()))",
+        pinned_source()
+    );
+    let scratch = support::Scratch::new("async-word-destroy-name-collision");
+    let error = lim::compile_source_to_assembly(
+        &program,
+        &scratch.path().join("input.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        error.message.contains("child-poll-destroy-words") && error.message.contains("conflicts"),
+        "{error:?}"
+    );
+    assert!(!scratch.path().join("generated").exists());
+}
+
+#[test]
+fn metadata_discard_does_not_allow_forgetting_a_live_childs_owner() {
+    let program = pinned_source().replace(
+        "(#let answer #u64 (#await ChildAwait (#pin-borrow-mut nested)))",
+        "(#forget owner) (#let answer #u64 (#await ChildAwait (#pin-borrow-mut nested)))",
+    );
+    let scratch = support::Scratch::new("async-word-owner-live-child-rejection");
+    let error = lim::compile_source_to_assembly(
+        &program,
+        &scratch.path().join("input.lim"),
+        &lim::CompileConfig::default(),
+        &scratch.path().join("cache"),
+        lim::TargetDescription::X86_64_SYSTEM_V,
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            error.code,
+            lim::DiagnosticCode::Borrow | lim::DiagnosticCode::Linear
+        ),
+        "{error:?}"
+    );
+    assert!(!scratch.path().join("generated").exists());
+}
+
+#[test]
 fn reference_free_pinned_child_cancels_in_word_storage_exactly_once() {
     let program = pinned_source()
         .replace("#fn child (: view (#ref Owner))", "#fn child (: amount #u64)")
@@ -373,6 +420,7 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
     // Child occupancy comes from the externally visible dispatcher PC;
     // neither cleanup entry point may add a variant-is conditional per child.
     let mut inspected = 0;
+    let mut inspected_word_destroyers = 0;
     for entry in std::fs::read_dir(scratch.path().join("generated")).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().is_none_or(|extension| extension != "lim") {
@@ -383,6 +431,20 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
             let lim::Expr::List(parts) = node.expr else {
                 continue;
             };
+            if matches!(parts.first(), Some(lim::Expr::Symbol(head)) if head == "#unsafe-fn")
+                && matches!(parts.get(1), Some(lim::Expr::Symbol(name)) if name == "child-poll-destroy-words")
+            {
+                let source = format!("{parts:?}");
+                assert!(
+                    source.contains("#word-forget") && source.contains("#word-take"),
+                    "{generated}"
+                );
+                assert!(
+                    !source.contains("#word-view") && !source.contains("#pin-read"),
+                    "unused reference captures must not be reified: {generated}"
+                );
+                inspected_word_destroyers += 1;
+            }
             if !matches!(parts.first(), Some(lim::Expr::Symbol(head)) if head == "#fn")
                 || !matches!(parts.get(1), Some(lim::Expr::Symbol(name))
                     if ["work-poll-cleanup", "work-poll-destroy", "parent-poll-cleanup", "parent-poll-destroy"].contains(&name.as_str()))
@@ -417,7 +479,8 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
                     parts
                         .iter()
                         .any(|part| contains(part, "#pin-get-payload-unchecked-mut")
-                            || contains(part, "#word-view")),
+                            || contains(part, "#word-view")
+                            || contains(part, "child-poll-destroy-words")),
                     "{generated}"
                 );
                 assert!(
@@ -434,6 +497,12 @@ fn run_with_output(source: &str, label: &str, expected_stdout: &[u8]) {
         inspected, 2,
         "both dependent cleanup entry points must be inspected"
     );
+    if source.contains(": protocol ChildAwait") {
+        assert_eq!(
+            inspected_word_destroyers, 1,
+            "inspect the child word destroyer too"
+        );
+    }
     let binary = scratch.path().join("program");
     lim::link_native_binary(
         &warm,
