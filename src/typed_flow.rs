@@ -704,6 +704,7 @@ impl std::ops::Index<usize> for LoanSnapshots<'_> {
 /// conservatively rather than interpreting their absence as disjointness.
 pub(crate) struct FlowLoanOrigins {
     scalars: std::cell::OnceCell<scalar::Analysis>,
+    scalar_refinements: std::cell::OnceCell<Vec<Option<CallResultRefinement>>>,
     variants: std::cell::OnceCell<Vec<Option<HashMap<Place, VariantId>>>>,
     storage_variant_bounds: std::cell::OnceCell<StorageVariantSnapshots>,
     clear_refinements: Vec<Option<CallResultRefinement>>,
@@ -1665,11 +1666,22 @@ impl FlowLoanOrigins {
         event: FlowNodeId,
         value: NodeId,
     ) -> Option<Vec<LoanOrigin>> {
-        let tags = self
-            .variants
-            .get()
-            .and_then(|facts| facts.get(event.0))
-            .and_then(Option::as_ref);
+        // Only payload-sensitive effects need constructor facts. Computing
+        // them for pure calls or plain scalar destinations adds no precision.
+        let needs_tags = matches!(&body.nodes[value.0].kind,
+            NodeKind::Form { callee: Some(callee), .. }
+                if body.call_tag_mutations.get(callee).is_some_and(|effects|
+                    effects.iter().any(|effect|
+                        effect.input_storage.first() == Some(&Segment::Dereference)
+                            && effect.input_storage.iter().any(|part| matches!(part, Segment::Payload(..))))));
+        let tags = if needs_tags {
+            self.variants_before(body, flow, event)
+        } else {
+            self.variants
+                .get()
+                .and_then(|facts| facts.get(event.0))
+                .and_then(Option::as_ref)
+        };
         self.call_scalar_mutations_with_tags(body, flow, event, value, tags)
     }
 
@@ -1781,7 +1793,27 @@ impl FlowLoanOrigins {
                             .input_storage
                             .iter()
                             .any(|part| matches!(part, Segment::Payload(..)))
-                        && !summary.input_storage.contains(&Segment::Dereference)))
+                        && {
+                            let boundary = summary
+                                .input_storage
+                                .iter()
+                                .position(|part| *part == Segment::Dereference)
+                                .unwrap_or(summary.input_storage.len());
+                            let prefix = &summary.input_storage[..boundary];
+                            prefix
+                                .iter()
+                                .any(|part| matches!(part, Segment::Payload(..)))
+                                && value_loan_origins_at_events(
+                                    body,
+                                    flow,
+                                    LoanSnapshots::new(&self.before, &self.events_by_value),
+                                    argument,
+                                    state,
+                                )
+                                .into_iter()
+                                .flat_map(|origin| select_summary_inputs(origin, prefix, state))
+                                .all(|origin| !origin.storage.is_empty())
+                        }))
             {
                 // A missing mandatory capability in an owned enum payload
                 // cannot supply a MAY write address. Independent argument
@@ -6635,6 +6667,7 @@ impl FlowGraph {
         }
         FlowLoanOrigins {
             scalars: std::cell::OnceCell::new(),
+            scalar_refinements: std::cell::OnceCell::new(),
             before,
             after,
             events_by_value,

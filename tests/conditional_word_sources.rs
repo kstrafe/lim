@@ -168,3 +168,99 @@ fn word_forget_alias_revokes_returned_conditional_word_guarantee() {
         .expect_err("a summarized word-forget through an alias retires the conditional loan");
     assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
 }
+
+#[test]
+fn absent_owned_enum_payload_does_not_create_a_nested_write_footprint() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Frame (: state #u64 : words (#array #u64 1)))
+      (#struct Container (: target (#ref-mut #u64)))
+      (#enum Handle ((Empty) (Full (#ref-mut Container))))
+      (#fn empty () Handle (#return (Empty)))
+      (#fn mutate (: handle Handle) ()
+        (#match handle
+          (#case (Empty) ())
+          (#case (Full container) (#block
+            (#deref-set (#get container target) 1u64) (#forget container) ())))
+        (#return ()))
+      (#fn read (: frame (#ref Frame)) #u64
+        (#return (#match (#get frame state)
+          (#case 0 42u64)
+          (#case _ (#block
+            (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice (#get frame words)))))
+            (#let answer #u64 (#deref (#get holder value)))
+            (#forget holder) answer)))))
+      (#fn main () #u64
+        (#let-mut frame Frame (#struct-literal Frame (: state 0u64 : words (#array-repeat 0u64))))
+        (#call mutate (: handle (#call empty ())))
+        (#let-mut unrelated #u64 0u64)
+        (#let-mut container Container (#struct-literal Container (: target (#borrow-mut unrelated))))
+        (#call mutate (: handle (Full (#borrow-mut container))))
+        (#forget container)
+        (#let answer #u64 (#call read (: frame (#borrow frame))))
+        (#forget frame) (#return answer))";
+    compile(source).expect(
+        "an absent owned payload contributes no nested address, preserving the state-zero reader guard",
+    );
+
+    let invalid = source.replace(
+        "(#borrow-mut unrelated)",
+        "(#borrow-mut (#get frame state))",
+    );
+    let error = compile(&invalid).expect_err(
+        "an inhabited payload with a real target can activate the uninitialized reader",
+    );
+    assert!(
+        error.message.contains("input loan") || error.message.contains("unresolved"),
+        "{error:?}"
+    );
+}
+
+const CONDITIONAL_SCALAR_OUTCOME: &str = "(#struct Holder (: value (#ref #u64)))
+  (#struct Frame (: state #u64 : words (#array #u64 1)))
+  (#enum Outcome ((Empty) (Full)))
+  (#fn choose (: state (#ref-mut #u64) : full #bool) Outcome
+    (#if full
+      (#block (#deref-set state 1u64) (#return (Full)))
+      (#block (#deref-set state 0u64) (#return (Empty))))
+    (#return (Empty)))
+  (#fn read (: frame Frame) #u64
+    (#loop (#match (#get frame state)
+      (#case 1 (#block
+        (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice (#get frame words)))))
+        (#let answer #u64 (#deref (#get holder value)))
+        (#forget holder) (#forget frame) (#return answer)))
+      (#case _ (#block (#forget frame) (#return 42u64)))))
+    (#return 0u64))";
+
+fn conditional_outcome_main(intervening: &str) -> String {
+    format!(
+        "{CONDITIONAL_SCALAR_OUTCOME}
+         (#fn main () #u64
+           (#let-mut frame Frame (#struct-literal Frame
+             (: state 1u64 : words (#array-repeat 0u64))))
+           (#let counter (#atomic #u64) (#atomic-init #u64 0u64))
+           (#let full #bool (#u64.== (#atomic-load (#borrow counter) #memory-relaxed) 1u64))
+           (#let outcome Outcome (#call choose
+             (: state (#borrow-mut (#get frame state)) : full full)))
+           {intervening}
+           (#let answer #u64 (#match outcome
+             (#case Empty (#call read (: frame frame)))
+             (#case Full (#block (#forget frame) 7u64))))
+           (#forget counter) (#return answer))"
+    )
+}
+
+#[test]
+fn selected_empty_outcome_transfers_its_scalar_state_postcondition() {
+    let source = conditional_outcome_main("");
+    compile(&source)
+        .expect("matching Empty proves state zero, keeping the state-one word reader inactive");
+}
+
+#[test]
+fn scalar_outcome_postcondition_is_revoked_by_a_later_state_write() {
+    let source = conditional_outcome_main("(#set-field frame state 1u64)");
+    let error = compile(&source)
+        .expect_err("a write after the call can make the missing-loan reader reachable");
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+}

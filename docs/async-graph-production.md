@@ -2383,3 +2383,32 @@ The existing alias-occupancy unit regression additionally checks this address
 route. The suspended linear aggregate guard and all four direct-field tests
 pass, including nested structs/tuples, pinned exclusive fields and a conflicting
 caller borrow. Generated code remains independently checked as ordinary Lim.
+
+## Preserve guarded heap contents and selected scalar postconditions
+
+Conditional return proofs now carry guard-checked word-entry loans through
+pass-through returns, including actual retained pointee loans beside an owning
+heap address. This is a transfer of checked input metadata, not initialization
+from a type layout or numeric pointer bits. Known retired allocation contents
+remain retired. Typed word transfers no longer introduce a spurious entry
+obligation for a scratch cell's retained pointee after its checked owner write;
+the originating reader and the transferred value still need their real loans.
+
+Proven read-only calls preserve an owned result's producer lineage. Unknown
+effects, byte writes and metadata retirement still cut that lineage. An absent
+mandatory capability in an owned enum payload supplies no nested MAY write
+address; an occupied outer capability cannot use that rule to hide an unknown
+pointee. Constructor facts are calculated only for payload-sensitive effects.
+
+Selecting a callee's returned enum constructor now transfers its MUST scalar
+postconditions to concrete, unchanged caller destinations. Every reaching
+producer must agree, and an intervening write or unknown effect invalidates the
+refinement. Filtered outcome graphs exclude disconnected returns from the
+scalar intersection instead of treating their missing snapshots as unknown
+live returns. Scalar postconditions still cannot supply a missing loan.
+
+These ordinary compiler rules fix delayed owner cancellation, cancellation
+after Ready, and heap owners retaining references over repeated Pending polls.
+Native-only regressions also cover pass-through and moved heap word cells,
+source mutation while an owner is live, retirement, and pointer-byte forgery.
+Semantic cache v42 invalidates the older summaries without changing its schema.

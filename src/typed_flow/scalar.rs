@@ -613,6 +613,124 @@ fn edge_facts(
     Some(facts)
 }
 
+/// Selected result constructors expose MUST scalar postconditions, just as
+/// they expose stored-loan postconditions. They never supply a loan. Recover
+/// them only from every producer and only while the destination stays fresh.
+fn selected_call_scalar_stores(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+) -> HashMap<Place, Shape> {
+    let refinement = if origins
+        .clear_refinements
+        .get(event.0)
+        .is_some_and(Option::is_some)
+    {
+        &origins.clear_refinements
+    } else {
+        origins
+            .scalar_refinements
+            .get_or_init(|| flow.call_result_refinements(body))
+    };
+    let Some(Some((calls, variant, region))) = refinement.get(event.0) else {
+        return HashMap::new();
+    };
+    let mut common: Option<HashMap<Place, Shape>> = None;
+    for (call_event, call, path) in calls {
+        let Some(state) = &origins.before[call_event.0] else {
+            return HashMap::new();
+        };
+        let NodeKind::Form {
+            callee: Some(callee),
+            children,
+            ..
+        } = &body.nodes[call.0].kind
+        else {
+            return HashMap::new();
+        };
+        let summaries = if path.is_empty() {
+            body.call_store_variants
+                .get(callee)
+                .and_then(|groups| groups.get(variant))
+        } else {
+            body.call_output_store_variants
+                .get(callee)
+                .and_then(|groups| groups.get(&(path.clone(), *variant)))
+        };
+        let Some(summaries) = summaries else {
+            return HashMap::new();
+        };
+        let mut incoming = HashMap::new();
+        for summary in summaries {
+            if summary.scalars.is_empty() {
+                continue;
+            }
+            let Some(argument) = children.get(summary.destination.parameter + 1) else {
+                continue;
+            };
+            let targets = origins
+                .value_before(body, flow, *call_event, *argument)
+                .into_iter()
+                .flat_map(|origin| {
+                    apply_parameter_loan_summary(origin, &summary.destination, state)
+                })
+                .collect::<Vec<_>>();
+            if !one_concrete_store_destination(&targets) {
+                continue;
+            }
+            let target = targets[0].referent_place();
+            let stale = region.iter().any(|previous| match &flow.nodes[previous.0].action {
+                FlowAction::Assign { place, .. } | FlowAction::Release { place, .. } => place.overlaps(&target),
+                FlowAction::ScopeExit(bindings) => matches!(target.root,
+                    PlaceRoot::Local(binding) | PlaceRoot::Parameter(binding) if bindings.contains(&binding)),
+                FlowAction::Write { place, .. } => physical_write_places(body, origins, *previous, place)
+                    .is_none_or(|places| places.iter().any(|place| place.overlaps(&target))),
+                FlowAction::Clone { value, .. } => !scalar_clone_is_pure(body, *value),
+                FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
+                    NodeKind::Form { callee: Some(_), .. } => origins.call_scalar_mutations(body, flow, *previous, *value)
+                        .is_none_or(|targets| targets.iter().any(|address| address.referent_place().overlaps(&target))),
+                    NodeKind::Form { head, .. } => matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read" | "word-write")
+                        || head.starts_with("atomic-"),
+                    _ => false,
+                },
+                _ => false,
+            });
+            if stale {
+                continue;
+            }
+            incoming.insert(
+                target,
+                summary
+                    .scalars
+                    .iter()
+                    .map(|(path, values)| {
+                        (
+                            path.clone(),
+                            values
+                                .iter()
+                                .map(|value| crate::Expr::UnsignedInteger(*value))
+                                .collect(),
+                        )
+                    })
+                    .collect(),
+            );
+        }
+        if let Some(common) = &mut common {
+            common.retain(|place, shape| {
+                let Some(other) = incoming.get(place) else {
+                    return false;
+                };
+                join_map(shape, other);
+                !shape.is_empty()
+            });
+        } else {
+            common = Some(incoming);
+        }
+    }
+    common.unwrap_or_default()
+}
+
 fn transfer(
     flow: &FlowGraph,
     body: &Body,
@@ -783,6 +901,9 @@ fn transfer(
             // This analysis never tracks their typed restored contents.
         }
         FlowAction::Pattern { pattern, value } => {
+            for (place, shape) in selected_call_scalar_stores(flow, body, origins, event) {
+                write(&mut facts, &place, shape);
+            }
             let source = snapshot(&facts, body, *value);
             let mut bindings = HashSet::new();
             collect_pattern_bindings(body, *pattern, &mut bindings);
@@ -874,9 +995,13 @@ pub(super) fn returned_memory(
     origins: &FlowLoanOrigins,
 ) -> HashMap<Place, Vec<u128>> {
     let analysis = analyze_for_contract(flow, body, origins);
+    let reachable = flow.reachable();
     let mut result: Option<HashMap<Place, Vec<u128>>> = None;
     for (index, node) in flow.nodes.iter().enumerate() {
-        if !matches!(node.action, FlowAction::Return(_)) || origins.before[index].is_none() {
+        if !matches!(node.action, FlowAction::Return(_))
+            || origins.before[index].is_none()
+            || !reachable.contains(&FlowNodeId(index))
+        {
             continue;
         }
         let Some(facts) = &analysis.before[index] else {
