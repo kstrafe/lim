@@ -2,36 +2,47 @@
 
 ## Latest verification (2026-10-13)
 
-Four of the five previously failing library async regressions now pass:
-shared aggregate fields, returned shared holders, aggregate-returned children,
-and projected exclusive arguments across later suspension. Generic analysis
-now distinguishes physical entry cells from freshly written temporaries,
-proves borrowed-return cell initialization under scalar entry partitions,
-and retains evaluated selector snapshots without retaining stale alias facts.
-Primitive clones are pure; user-defined clone hooks remain opaque effects.
+All eight original library failures and the subsequently discovered guard,
+delayed-cancellation, and retained-heap-reference regressions are resolved.
+This section supersedes the historical partial-verification records below.
 
-The full library run passes 1,445 tests with one failure and eight existing
-ignored tests. Contiguous async storage passes 15 of 17 tests. Dependent
-cancellation passes 11 of 14 tests. The remaining failures are nested exclusive
-references, heap/exclusive reference-owner restoration, and pinned child
-cancellation. These are not completed items or waived checks.
+Final verification reports:
 
-The remaining nested-exclusive loop regression subsequently passes, including
-consecutive polls and cancellation/negative checks. The nearest-join query now
-compares borrow identity independently of possibly-absent flags while retaining
-each predecessor's original flags. It grants neither initialized storage nor
-additional borrow permissions. All 70 typed-borrow unit tests pass; adversarial
-and word-storage regressions remain enabled.
+- 1,448 library tests pass; eight manual benchmarks remain ignored.
+- All 21 `async_*` integration targets complete: 393 tests pass, with three
+  explicit manual timing/manifest audits ignored. This includes all 236 async
+  function tests, 45 production-route tests, 17 contiguous-storage tests,
+  16 dependent-cancellation tests, and three heap-content tests.
+- The committed build independently passes the 45 production tests, three
+  heap-content tests, and all five native-example manifest checks. Every
+  example produces its declared compilation/runtime outcome.
+- The focused native gates pass 78 word-storage, ten conditional-word-source,
+  four heap-word-transfer, four scalar-postcondition, 24 semantic-cache,
+  five adversarial-borrow, and three UI tests.
+- Nine pinning and conditional-cleanup targets pass all 94 tests.
+- `cargo check --all-targets` passes.
 
-Additional generic regressions cover guaranteed scalar writes by void callees,
-alternate return paths and later alias mutation, persistent versus transient
-word cells, and retained word-view addresses versus opaque pointer anchors.
-The word-storage suite passes 74 tests; semantic-cache tests pass 24, scalar
-postcondition tests three, UI tests three, adversarial borrow tests five, and
-generated-boundary tests five. All-target checking passes. Cache schema v37
-includes scalar storage postconditions and the separate known word-view address
-fact; that address fact does not grant ownership, pinning or initialized nested
-contents. Cold and warm compilation remain subject to the same safety gates.
+The final native fixes preserve producer lineage across proven read-only calls,
+carry guard-checked heap-entry loans through unchanged and transferred word
+cells, and propagate selected-result scalar postconditions only to unchanged
+concrete destinations. Unknown effects, retirement, raw pointer-byte writes,
+missing loans, and intervening selector writes still reject unsafe uses.
+Stationary guard previews reconstruct anchors from the original payload,
+not an uninitialized eventual owner cell. Strong retirement removes obsolete
+history epochs without weakening the physical-byte mutation checks or raising
+the specialization bounds. Semantic cache v42 invalidates older proof summaries.
+
+These changes introduce neither an async-specific native permission exemption
+nor hidden runtime occupancy flags. Source checking and final ordinary generated
+program checking remain mandatory, including on cache hits. The requested HTML
+architecture guide is a local, intentionally uncommitted deliverable.
+
+Verification logs are `/tmp/lim-final-library-after-all-fixes.log`,
+`/tmp/lim-final-all-async-release.log`,
+`/tmp/lim-final-committed-production-and-examples.log`,
+`/tmp/lim-final-committed-native-gates.log`,
+`/tmp/lim-final-pin-and-cleanup-gates.log`, and
+`/tmp/lim-final-committed-check.log`.
 
 This audit originally covered the five migration and cleanup improvements
 listed below. Their completion does not certify the subsequent aggregate-storage,

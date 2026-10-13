@@ -2402,7 +2402,8 @@ pointee. Constructor facts are calculated only for payload-sensitive effects.
 
 Selecting a callee's returned enum constructor now transfers its MUST scalar
 postconditions to concrete, unchanged caller destinations. Every reaching
-producer must agree, and an intervening write or unknown effect invalidates the
+producer must supply a proof, with all possible scalar values retained; an
+intervening write or unknown effect invalidates the
 refinement. Filtered outcome graphs exclude disconnected returns from the
 scalar intersection instead of treating their missing snapshots as unknown
 live returns. Scalar postconditions still cannot supply a missing loan.
