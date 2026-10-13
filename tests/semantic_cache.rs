@@ -47,6 +47,46 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 }
 
 #[test]
+fn scalar_reader_reachability_is_preserved_and_invalidated_on_cache_hits() {
+    let scratch = support::Scratch::new("semantic-scalar-reader");
+    let directory = scratch.path();
+    let library = "(#struct Holder (: value (#ref #u64)))
+      (#fn answer (: words (#slice #u64)) #u64
+        (#let selector #u64 1u64)
+        (#return (#match selector
+          (#case 0 (#block
+            (#let restored Holder (#unsafe (#word-read Holder words)))
+            (#let amount #u64 (#deref (#get restored value)))
+            (#forget restored) amount))
+          (#case 1 42u64) (#case _ 0u64))))";
+    fs::write(directory.join("lib.lim"), library).unwrap();
+    let source = "(#import \"lib.lim\") (#fn main () #u64
+      (#let words (#array #u64 1) (#array-repeat 0u64))
+      (#let amount #u64 (#call answer (: words (#borrow-slice words))))
+      (#forget words) (#return amount))";
+    let config = CompileConfig::default();
+    let cold = compile(directory, source, &config).0.unwrap();
+    let (warm, report) = compile(directory, source, &config);
+    assert_eq!(cold, warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+
+    fs::write(
+        directory.join("lib.lim"),
+        library.replace("#u64 1u64)", "#u64 0u64)"),
+    )
+    .unwrap();
+    let cold = compile(directory, source, &config).0.unwrap_err();
+    let warm = compile(directory, source, &config).0.unwrap_err();
+    assert_eq!(cold, warm);
+    assert_eq!(cold.code, lim::DiagnosticCode::Linear);
+    assert!(
+        cold.message.contains("missing required input loan")
+            || cold.message.contains("unresolved call inputs"),
+        "{cold:?}"
+    );
+}
+
+#[test]
 fn imported_word_owners_retain_pointee_loans_on_cache_hits() {
     let scratch = support::Scratch::new("semantic-word-owner-pointee");
     let directory = scratch.path();

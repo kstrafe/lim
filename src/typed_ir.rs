@@ -2046,12 +2046,13 @@ impl Declarations {
                     .unwrap()
                     .call_return_variant_bounds = Arc::new(needed);
             }
-            if include_parameter_contents {
-                self.flows
-                    .get_mut(&name)
-                    .unwrap()
-                    .prune_impossible_variant_patterns(&self.bodies[&name]);
-            }
+            // Scalar definitions require no entry contents assumptions. Prune
+            // them in the initial pass too, before dead readers become schema
+            // seeds. Owned-result bounds remain gated on the contents pass.
+            self.flows
+                .get_mut(&name)
+                .unwrap()
+                .prune_impossible_variant_patterns(&self.bodies[&name]);
             let body = &self.bodies[&name];
             let flow = &self.flows[&name];
             let facts = crate::semantic_cache::lookup(&name, include_parameter_contents, self)

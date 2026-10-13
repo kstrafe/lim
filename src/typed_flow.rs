@@ -132,6 +132,30 @@ fn merge_variant_partition(
     changed
 }
 
+fn scalar_pattern_value(body: &Body, value: NodeId) -> Option<crate::Expr> {
+    use crate::Expr;
+    match &body.nodes[value.0].kind {
+        NodeKind::Form {
+            head,
+            children,
+            callee: None,
+            ..
+        } if head == "literal" && children.len() == 3 => scalar_pattern_value(body, children[2]),
+        NodeKind::Literal(Expr::Integer(value)) if *value >= 0 => {
+            Some(Expr::UnsignedInteger(*value as u128))
+        }
+        NodeKind::Literal(
+            value @ (Expr::Integer(_) | Expr::UnsignedInteger(_) | Expr::Char(_)),
+        ) => Some(value.clone()),
+        NodeKind::Literal(Expr::Symbol(name))
+        | NodeKind::Symbol {
+            name,
+            binding: None,
+        } if matches!(name.as_str(), "true" | "false") => Some(Expr::Symbol(name.clone())),
+        _ => None,
+    }
+}
+
 fn boolean_variant_value(
     body: &Body,
     value: NodeId,
@@ -2291,20 +2315,27 @@ impl FlowGraph {
         }
     }
 
-    /// Exclude only patterns contradicted by actual owned-result bounds.
+    /// Exclude only patterns contradicted by actual owned-result bounds or
+    /// unchanged scalar definitions. Neither proof invents input provenance.
     /// Restore prior edges first so changed or removed callees cannot leave
     /// stale unreachable branches in a subsequent contract analysis.
     pub fn prune_impossible_variant_patterns(&mut self, body: &Body) {
         self.restore_variant_paths();
         if !self.nodes.iter().any(|node| {
             matches!(node.action,
-            FlowAction::Pattern { pattern, .. }
-                if constructor_variant_at_storage(body, pattern, &[]).is_some())
+            FlowAction::Pattern { pattern, value }
+                if (body.staged_parameter_contents
+                    && constructor_variant_at_storage(body, pattern, &[]).is_some())
+                    || (scalar_pattern_value(body, pattern).is_some()
+                        && (scalar_pattern_value(body, value).is_some()
+                            || matches!(body.nodes[value.0].kind,
+                                NodeKind::Symbol { binding: Some(_), .. }))))
         }) {
             return;
         }
         let origins = self.loan_origins(body);
-        if body.binding_numeric_shapes.iter().any(Option::is_some)
+        if body.staged_parameter_contents
+            && body.binding_numeric_shapes.iter().any(Option::is_some)
             && body
                 .call_return_reference_slots
                 .values()
@@ -2318,8 +2349,25 @@ impl FlowGraph {
                 continue;
             };
             let Some(variant) = constructor_variant_at_storage(body, pattern, &[]) else {
+                if let Some(wanted) = scalar_pattern_value(body, pattern) {
+                    if self
+                        .unchanged_scalar_values(
+                            body,
+                            &origins,
+                            FlowNodeId(index),
+                            value,
+                            &mut HashSet::new(),
+                        )
+                        .is_some_and(|possible| !possible.is_empty() && !possible.contains(&wanted))
+                    {
+                        impossible.push(FlowNodeId(index));
+                    }
+                }
                 continue;
             };
+            if !body.staged_parameter_contents {
+                continue;
+            }
             let bounds = self.unchanged_result_variant_bounds(
                 body,
                 &origins,
@@ -2338,6 +2386,55 @@ impl FlowGraph {
             self.variant_pruned_edges
                 .insert(event, std::mem::take(&mut self.nodes[event.0].successors));
         }
+    }
+
+    /// A small finite upper bound, not a guessed discriminator. Every reaching
+    /// definition must be known; calls and aliased writes stop local proofs.
+    /// Bounds are recomputed on the restored graph, never from pruned edges.
+    fn unchanged_scalar_values(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        event: FlowNodeId,
+        value: NodeId,
+        visiting: &mut HashSet<(FlowNodeId, NodeId)>,
+    ) -> Option<Vec<crate::Expr>> {
+        if !visiting.insert((event, value)) {
+            return None;
+        }
+        let result = (|| {
+            if let Some(literal) = scalar_pattern_value(body, value) {
+                return Some(vec![literal]);
+            }
+            let definitions = if let NodeKind::Symbol {
+                binding: Some(binding),
+                ..
+            } = body.nodes[value.0].kind
+            {
+                self.unchanged_local_definitions(body, origins, event, binding, value)?
+            } else {
+                // Keep this proof deliberately limited to literal definitions
+                // and aliases. Arithmetic, projections and call results remain
+                // unknown until their own transfer rules have been proved.
+                return None;
+            };
+            let mut possible = Vec::new();
+            for (definition, source) in definitions {
+                for literal in
+                    self.unchanged_scalar_values(body, origins, definition, source, visiting)?
+                {
+                    if !possible.contains(&literal) {
+                        possible.push(literal);
+                        if possible.len() > 16 {
+                            return None;
+                        }
+                    }
+                }
+            }
+            Some(possible)
+        })();
+        visiting.remove(&(event, value));
+        result
     }
 
     fn unchanged_result_variant_bounds(
@@ -3989,12 +4086,25 @@ impl FlowGraph {
                     {
                         continue;
                     }
+                    let mut found = false;
                     let mut evaluations =
                         self.nodes.iter().enumerate().filter_map(|(index, node)| {
-                            flow_action_has_value(&node.action, alternative)
-                                .then_some(FlowNodeId(index))
+                            if !flow_action_has_value(&node.action, alternative) {
+                                return None;
+                            }
+                            found = true;
+                            let event = FlowNodeId(index);
+                            reachable.contains(&event).then_some(event)
                         });
-                    let event = evaluations.next()?;
+                    let Some(event) = evaluations.next() else {
+                        // Syntax alternatives disconnected by a proved pattern
+                        // cannot invalidate stores from the reachable result.
+                        // Missing evaluation evidence is still unknown.
+                        if found {
+                            continue;
+                        }
+                        return None;
+                    };
                     if evaluations.next().is_some() {
                         return None;
                     }
@@ -9334,7 +9444,7 @@ impl FlowGraph {
                             ..
                         }
                     ) || matches!(&body.nodes[value.0].kind,
-                    NodeKind::Form { head, .. } if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "pin-read")) =>
+                    NodeKind::Form { head, .. } if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read" | "word-write" | "pin-write" | "pin-set-field")) =>
                 {
                     return None;
                 }
@@ -19238,6 +19348,165 @@ mod tests {
                 }
                 assert_eq!(actual.into_iter().collect::<HashSet<_>>(), expected);
             }
+        }
+    }
+
+    #[test]
+    fn scalar_pattern_bounds_widen_to_unknown_and_restore_changed_definitions() {
+        let arguments = (0..16)
+            .map(|index| format!("(flag{index} #bool)"))
+            .collect::<String>();
+        let choices = (0..16)
+            .map(|index| {
+                format!(
+                    "(#if flag{index} (#block (#set selector {}u64) ()) ())",
+                    index + 1
+                )
+            })
+            .collect::<String>();
+        let source = format!(
+            "(#fn work ({arguments}) #u64
+            (#let-mut selector #u64 0u64) {choices}
+            (#return (#match selector (#case 99 42u64) (#case _ 0u64))))"
+        );
+        let program = crate::parse_program(&source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["work"];
+        let mut flow = FlowGraph::lower(body).unwrap();
+        flow.prune_impossible_variant_patterns(body);
+        assert!(
+            flow.variant_pruned_edges.is_empty(),
+            "more than sixteen alternatives are unknown"
+        );
+
+        let program = crate::parse_program(
+            "(#fn work () #u64
+            (#let selector #u64 1u64)
+            (#return (#match selector (#case 0 0u64) (#case 1 42u64) (#case _ 2u64))))",
+        )
+        .unwrap();
+        let mut declarations =
+            crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        let body = declarations.bodies.get_mut("work").unwrap();
+        let mut flow = FlowGraph::lower(&body).unwrap();
+        flow.prune_impossible_variant_patterns(&body);
+        let initially_pruned = flow
+            .variant_pruned_edges
+            .keys()
+            .copied()
+            .collect::<HashSet<_>>();
+        let initializer = flow
+            .nodes
+            .iter()
+            .find_map(|node| {
+                if let FlowAction::Bind { value, .. } = node.action {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        let NodeKind::Form { children, .. } = &body.nodes[initializer.0].kind else {
+            panic!("typed literal");
+        };
+        let literal = children[2];
+        body.nodes[literal.0].kind = NodeKind::Literal(crate::Expr::Integer(0));
+        flow.prune_impossible_variant_patterns(&body);
+        let now_pruned = flow
+            .variant_pruned_edges
+            .keys()
+            .copied()
+            .collect::<HashSet<_>>();
+        assert_eq!(now_pruned.len(), 1);
+        assert!(initially_pruned.is_disjoint(&now_pruned));
+    }
+
+    #[test]
+    fn scalar_pattern_normalization_preserves_signed_wide_boolean_and_character_values() {
+        for (ty, literal, matching, other) in [
+            ("#i64", "-1i64", "-1", "1"),
+            (
+                "#u128",
+                "340282366920938463463374607431768211455u128",
+                "340282366920938463463374607431768211455",
+                "0",
+            ),
+            ("#bool", "true", "true", "false"),
+            ("#char", "#\\λ", "#\\λ", "#\\β"),
+        ] {
+            let source = format!(
+                "(#fn work () #u64
+                (#let selector {ty} {literal})
+                (#return (#match selector (#case {matching} 42u64)
+                    (#case {other} 0u64) (#case _ 1u64))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["work"];
+            let mut flow = FlowGraph::lower(body).unwrap();
+            flow.prune_impossible_variant_patterns(body);
+            assert_eq!(flow.variant_pruned_edges.len(), 1, "{source}");
+        }
+    }
+
+    #[test]
+    fn scalar_patterns_require_every_reaching_definition() {
+        let cases = [
+            ("", "1u64", vec![0, 2]),
+            ("(#let selector #u64 1u64)", "selector", vec![0, 2]),
+            ("(#let source #u64 1u64) (#let selector #u64 source)", "selector", vec![0, 2]),
+            ("(#let-mut selector #u64 0u64) (#set selector 1u64)", "selector", vec![0, 2]),
+            ("(#let-mut selector #u64 0u64) (#if condition (#block (#set selector 1u64) ()) (#block (#set selector 2u64) ()))", "selector", vec![0]),
+            ("(#let-mut selector #u64 1u64) (#if condition (#block (#set selector other) ()) ())", "selector", vec![]),
+            ("(#let selector #u64 other)", "selector", vec![]),
+            ("(#let selector #u64 (#u64.+.wrap other 1u64))", "selector", vec![]),
+            ("(#let-mut selector #u64 1u64) (#deref-set (#borrow-mut selector) 2u64)", "selector", vec![]),
+            ("(#let-mut selector #u64 1u64) (#call change (: value (#borrow-mut selector)))", "selector", vec![]),
+            ("(#let-mut selector #u64 1u64) (#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut selector)))) \"mov QWORD PTR [rdi], 0\"))", "selector", vec![]),
+            ("(#let-mut selector #u64 0u64) (#while condition (#set selector selector))", "selector", vec![]),
+        ];
+        for (setup, scrutinee, expected) in cases {
+            let source = format!(
+                "(#fn change (: value (#ref-mut #u64)) ()
+                    (#deref-set value 2u64) (#return ()))
+                 (#fn work (: condition #bool : other #u64) #u64
+                    {setup}
+                    (#return (#match {scrutinee}
+                        (#case 0 40u64) (#case 1 42u64)
+                        (#case 2 41u64) (#case _ 0u64))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let checked = crate::CheckedProgram::validate(&program).unwrap();
+            let body = &checked.declarations().bodies["work"];
+            let mut flow = FlowGraph::lower(body).unwrap();
+            flow.prune_impossible_variant_patterns(body);
+            let mut actual = flow
+                .variant_pruned_edges
+                .keys()
+                .map(|event| {
+                    let FlowAction::Pattern { pattern, .. } = flow.nodes[event.0].action else {
+                        panic!("only pattern continuations may be removed");
+                    };
+                    let Some(crate::Expr::UnsignedInteger(value)) =
+                        scalar_pattern_value(body, pattern)
+                    else {
+                        panic!("numeric pattern expected");
+                    };
+                    value
+                })
+                .collect::<Vec<_>>();
+            actual.sort_unstable();
+            assert_eq!(actual, expected, "{source}");
+            let pruned = flow.variant_pruned_edges.clone();
+            flow.prune_impossible_variant_patterns(body);
+            assert_eq!(flow.variant_pruned_edges, pruned, "reanalysis: {source}");
+            flow.restore_variant_paths();
+            assert!(flow.variant_pruned_edges.is_empty());
+            assert!(flow
+                .nodes
+                .iter()
+                .all(|node| !matches!(node.action, FlowAction::Pattern { .. })
+                    || !node.successors.is_empty()));
         }
     }
 

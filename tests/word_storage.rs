@@ -13,6 +13,36 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
     )
 }
 
+#[test]
+fn scalar_dispatch_does_not_require_loans_from_proven_unreachable_readers() {
+    let source = "
+      (#struct Holder (: value (#ref #u64)))
+      (#fn number () #u64 (#return 1u64))
+      (#fn main () #u64
+        (#let-mut selector #u64 1u64)
+        (#let words (#array #u64 1) (#array-repeat 0u64))
+        (#let result #u64 (#match selector
+          (#case 0 (#block
+            (#let restored Holder (#unsafe (#word-read Holder (#borrow-slice words))))
+            (#let amount #u64 (#deref (#get restored value)))
+            (#forget restored) amount))
+          (#case 1 42u64) (#case _ 0u64)))
+        (#forget words) (#return result))";
+    run(source);
+    for invalid in [
+        source.replace("#u64 1u64)", "#u64 0u64)"),
+        source.replace("#u64 1u64)", "#u64 (#call number ()))"),
+        source.replace(
+            "(#let result #u64",
+            "(#deref-set (#borrow-mut selector) 0u64) (#let result #u64",
+        ),
+    ] {
+        let error =
+            compile(&invalid).expect_err("an unknown or selected reader needs actual provenance");
+        assert_eq!(error.code, DiagnosticCode::Linear);
+    }
+}
+
 fn run(source: &str) {
     let assembly = compile(source).unwrap();
     let scratch = support::Scratch::new("word-storage-native");

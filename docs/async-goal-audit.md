@@ -1922,3 +1922,50 @@ A fresh 21-target async matrix is running at
 before claiming the remaining inventory changed beyond the verified heap gate.
 State-dependent cancellation readers, exclusive-entry substitutions and the
 final uncommitted HTML still remain within the active goal.
+
+### Prune scalar patterns from proved unchanged definitions
+
+The previous matrix is terminal: 361 passes, 30 failures and three ignored
+tests across 21 targets. Three additional failures were timeouts, not new
+semantic diagnostics: aggregate while-let capture compilation, the dormant
+slice-array branch trap and the pre-terminal frame-access trap. All three pass
+individually. This does not replace the matrix tally with an inferred result
+or establish why the timeouts occurred. The latest serial matrix is running
+at /tmp/lim-scalar-dispatch-all-async.log.
+
+A traced exclusive-field failure occurs at the caller's third poll. Its
+referent-read summary still requests the original source capture's numeric
+cell after the caller has advanced the frame. There is no proof that this
+entry obligation is inactive yet. Missing provenance must not be waived by
+unsafe code, a guessed state or a different slot's unrelated loan.
+
+The ordinary flow checker now removes scalar match continuations contradicted
+by every reaching unchanged literal definition. Local aliases and direct
+assignments retain bounded alternatives; unknown parameters, arithmetic,
+calls, aliased writes, assembly and cyclic definitions stop the proof. More
+than sixteen alternatives widen to unknown. Signed integers, full-width
+unsigned integers, characters and booleans have exact literal comparisons.
+Prior edges are restored before reanalysis, including after a changed literal.
+Unsupported projected discriminators remain unknown, so the generated frame's
+state-conditioned input contracts are not claimed solved by this increment.
+
+Scalar pruning also runs before initial summary inference, preventing a dead
+reader from becoming a later entry-schema requirement. Owned-result variant
+proofs remain limited to contents-aware inference. Result-producer correlation
+now skips alternatives only when actual flow events exist but are unreachable;
+missing event evidence still fails closed. This preserves guaranteed stores
+from the reachable result instead of joining a disconnected call alternative.
+Semantic cache version 22 invalidates earlier summaries. There are no emitted
+runtime flags, extra branches or async-specific borrow-checker exemptions.
+
+Native non-async dispatch returns 42 without constructing a reference from
+uninitialized words. Selecting that reader, supplying an unknown selector or
+mutating through a reference still fails compilation. Imported cold/warm
+compilation obtains semantic cache hits, and changing the library's selector
+to the reader arm invalidates the summary and preserves the diagnostic.
+All 99 focused word/cache/UI/entry tests pass. Three scalar proof tests and the
+branch-call guaranteed-store regression pass. The full library reports 1,422
+passes, the same two async failures and eight ignored tests (56.92 seconds).
+Logs are /tmp/lim-scalar-dispatch-gates-final.log and
+/tmp/lim-scalar-dispatch-library-final.log. All-target, formatting and diff
+checks pass. The full async goal, emitter experiment and final HTML remain open.
