@@ -57,6 +57,7 @@ pub(crate) fn capture_store_summaries(
                 preserves_bytes: store.preserves_bytes,
                 variants_definitely_written: store.variants_definitely_written,
                 variants: store.variants.clone(),
+                scalars: store.scalars.clone(),
             })
         })
         .collect()

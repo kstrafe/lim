@@ -7,6 +7,9 @@ use crate::typed_body::{ScalarReturnFact, WordReturnGuarantee};
 /// Reading a stable value at the return event must not re-evaluate an earlier
 /// call or borrow. Unsupported evaluated expressions yield no guarantees.
 fn stable_result(body: &Body, value: NodeId) -> bool {
+    if scalar_pattern_value(body, value).is_some() {
+        return true;
+    }
     match &body.nodes[value.0].kind {
         NodeKind::Symbol {
             binding: Some(_), ..
@@ -32,17 +35,37 @@ fn stable_result(body: &Body, value: NodeId) -> bool {
             children,
             callee: None,
             ..
-        } if head == "struct-literal"
-            || matches!(
-                children.first().map(|id| &body.nodes[id.0].kind),
-                Some(NodeKind::Declaration(
-                    DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
-                ))
-            ) =>
+        } if matches!(
+            head.as_str(),
+            "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+        ) && children.len() == 2 =>
         {
+            Place::from_expression(body, children[1])
+                .is_some_and(|place| !has_dynamic_projection(&place))
+        }
+        NodeKind::Form {
+            head,
+            children,
+            callee: None,
+            ..
+        } if matches!(
+            head.as_str(),
+            "struct-literal" | "tuple" | "array" | "array-of"
+        ) || matches!(
+            children.first().map(|id| &body.nodes[id.0].kind),
+            Some(NodeKind::Declaration(
+                DeclarationId::Aggregate(_) | DeclarationId::Variant(_)
+            ))
+        ) =>
+        {
+            let start = if matches!(head.as_str(), "tuple" | "array" | "array-of") {
+                constructor_values_start(body.nodes[value.0].ty.as_ref(), children.len())
+            } else {
+                1
+            };
             children
                 .iter()
-                .skip(1)
+                .skip(start)
                 .all(|child| stable_result(body, *child))
         }
         _ => false,
@@ -89,8 +112,43 @@ fn return_snapshot(
     event: FlowNodeId,
     value: NodeId,
 ) -> Option<(Shape, Vec<LoanOrigin>)> {
+    if let Some(literal) = scalar_pattern_value(body, value) {
+        return Some((HashMap::from([(Vec::new(), vec![literal])]), Vec::new()));
+    }
     if !stable_result(body, value) {
         return None;
+    }
+    if matches!(
+        body.nodes[value.0].ty,
+        Some(Type::Reference { .. } | Type::PinnedReference { .. })
+    ) {
+        let state = loans.before[event.0].as_ref()?;
+        let facts = scalars.before[event.0].as_ref()?;
+        let mut held = value_loan_origins(body, value, state);
+        let addresses = held
+            .iter()
+            .filter(|loan| loan.storage.is_empty() && !loan.lifetime_only)
+            .cloned()
+            .collect::<Vec<_>>();
+        if addresses.len() != 1 || has_dynamic_projection(&addresses[0].referent_place()) {
+            return None;
+        }
+        let address = &addresses[0];
+        let shape = stored_shape(facts, &address.referent_place())
+            .into_iter()
+            .map(|(path, values)| {
+                (
+                    std::iter::once(Segment::Dereference).chain(path).collect(),
+                    values,
+                )
+            })
+            .collect();
+        let loaded = select_summary_inputs(address.clone(), &[Segment::Dereference], state);
+        for mut loan in loaded {
+            loan.prepend_storage(&[Segment::Dereference]);
+            merge_loan_origins(&mut held, &[loan]);
+        }
+        return Some((shape, held));
     }
     if let NodeKind::Form {
         head,
@@ -143,7 +201,12 @@ fn return_snapshot(
         }
         let mut shape = Shape::new();
         let mut held = Vec::new();
-        for (index, child) in children.iter().skip(1).enumerate() {
+        let start = if matches!(head.as_str(), "tuple" | "array" | "array-of") {
+            constructor_values_start(body.nodes[value.0].ty.as_ref(), children.len())
+        } else {
+            1
+        };
+        for (index, child) in children.iter().skip(start).enumerate() {
             let slot = aggregate_slot(body, head, children, index)?;
             let (nested, mut incoming) =
                 return_snapshot(graph, body, loans, scalars, event, *child)?;
@@ -200,46 +263,74 @@ pub(in crate::typed_flow) fn word_and_scalar_return_guarantees(
     }
     let ordinary = contents.then(|| flow.loan_origins(body));
     let context_origins = ordinary.as_ref().unwrap_or(origins);
-    let Some(graph) = specialize(flow, body, context_origins, &[]) else {
-        return (Vec::new(), Vec::new());
-    };
-    let loans = if contents {
-        graph.staged_parameter_store_loan_origins(body)
-    } else {
-        graph.loan_origins(body)
-    };
-    let scalars = analyze_for_contract(&graph, body, &loans);
+    let mut entries = vec![(Vec::new(), Vec::new())];
+    if let Some((place, values)) = entry_partition(flow, body, context_origins) {
+        if values.len() > 16 {
+            return (Vec::new(), Vec::new());
+        }
+        entries = values
+            .iter()
+            .map(|value| {
+                (
+                    vec![(place.clone(), crate::Expr::UnsignedInteger(*value))],
+                    Vec::new(),
+                )
+            })
+            .collect();
+        entries.push((
+            Vec::new(),
+            vec![(
+                place,
+                values
+                    .into_iter()
+                    .map(crate::Expr::UnsignedInteger)
+                    .collect(),
+            )],
+        ));
+    }
     let mut returns = Vec::new();
     let mut selectors = HashSet::new();
     let mut slots = HashSet::new();
-    for (index, node) in graph.nodes.iter().enumerate() {
-        let FlowAction::Return(Some(value)) = node.action else {
-            continue;
+    for (entry, excluded) in entries {
+        let graph = if excluded.is_empty() {
+            specialize(flow, body, context_origins, &entry)
+        } else {
+            specialize_excluding(flow, body, context_origins, &excluded)
         };
-        let Some(_) = &loans.before[index] else {
-            continue;
-        };
-        let Some(_) = &scalars.before[index] else {
+        let Some(graph) = graph else {
             return (Vec::new(), Vec::new());
         };
-        // Context nodes can share expression IDs. Query this return's actual
-        // binding state, not the union of every evaluation of the same ID.
-        let (shape, held) =
-            return_snapshot(&graph, body, &loans, &scalars, FlowNodeId(index), value)
-                .unwrap_or_default();
-        for loan in &held {
-            if loan.word_stored {
-                slots.insert(loan.storage.clone());
-            }
-        }
-        for (path, values) in &shape {
-            for value in values {
-                if let crate::Expr::UnsignedInteger(value) = value {
-                    selectors.insert((path.clone(), *value));
+        let loans = graph.return_guarantee_loan_origins(body, contents, &entry, &excluded);
+        let scalars = analyze_for_contract_at_entry(&graph, body, &loans, &entry);
+        for (index, node) in graph.nodes.iter().enumerate() {
+            let FlowAction::Return(Some(value)) = node.action else {
+                continue;
+            };
+            let Some(_) = &loans.before[index] else {
+                continue;
+            };
+            let Some(_) = &scalars.before[index] else {
+                return (Vec::new(), Vec::new());
+            };
+            // Context nodes can share expression IDs. Query this return's actual
+            // binding state, not the union of every evaluation of the same ID.
+            let snapshot =
+                return_snapshot(&graph, body, &loans, &scalars, FlowNodeId(index), value);
+            let (shape, held) = snapshot.unwrap_or_default();
+            for loan in &held {
+                if loan.word_stored {
+                    slots.insert(loan.storage.clone());
                 }
             }
+            for (path, values) in &shape {
+                for value in values {
+                    if let crate::Expr::UnsignedInteger(value) = value {
+                        selectors.insert((path.clone(), *value));
+                    }
+                }
+            }
+            returns.push((value, shape, held));
         }
-        returns.push((value, shape, held));
     }
     // Bound only precision, never correctness. Failure produces no guarantee.
     if selectors.len() > 32 || slots.len() > 64 {
@@ -305,7 +396,7 @@ pub(in crate::typed_flow) fn word_and_scalar_return_guarantees(
                 !matching.is_empty()
                     && matching
                         .iter()
-                        .all(|loan| !loan.maybe_absent && !loan.lifetime_only)
+                        .all(|loan| !loan.maybe_absent && loan.has_concrete_address())
             });
             if valid && witnessed {
                 result.push(WordReturnGuarantee {
@@ -359,6 +450,34 @@ mod tests {
             "{facts:?}"
         );
         assert!(!facts.iter().any(|fact| fact.condition.values == [0]));
+    }
+
+    #[test]
+    fn borrowed_return_guarantees_describe_the_referent_not_the_handle() {
+        let source = SOURCE
+            .replace("(#fn make (: value (#ref #u64)", "(#fn make (: frame (#ref-mut Frame) : value (#ref #u64)")
+            .replace(") Frame\n", ") (#ref-mut Frame)\n")
+            .replace("(#let-mut frame Frame (#struct-literal Frame (: state 0u64 : words (#array-repeat 0u64))))", "(#deref-set (#borrow-mut (#get frame state)) 0u64)")
+            .replace("(#set-field frame state 1u64)", "(#deref-set (#borrow-mut (#get frame state)) 1u64)");
+        let facts = guarantees(&source);
+        assert!(
+            facts.iter().any(|fact| fact.condition.values == [1]
+                && fact.condition.storage.first() == Some(&Segment::Dereference)
+                && fact.storage.first() == Some(&Segment::Dereference)),
+            "{facts:?}"
+        );
+        for alternative in ["1u64", "unknown"] {
+            let bad = source.replace(
+                "1u64)) ())",
+                &format!("1u64)) (#deref-set (#borrow-mut (#get frame state)) {alternative}))"),
+            );
+            assert_ne!(source, bad);
+            assert!(!guarantees(&bad)
+                .iter()
+                .any(|fact| fact.condition.values == [1]));
+        }
+        let retired = source.replace("(#return frame)", "(#unsafe (#word-forget Holder (#borrow-slice-mut (#get frame words)))) (#return frame)");
+        assert!(guarantees(&retired).is_empty());
     }
 
     #[test]

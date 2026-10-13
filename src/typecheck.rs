@@ -22416,6 +22416,7 @@ mod typed_ownership_tests {
             lifetime_only: true,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
             reborrow: false,
             referent_projection: vec![Segment::Tuple(2)],
             input_storage: vec![Segment::Tuple(0), Segment::DynamicIndex],

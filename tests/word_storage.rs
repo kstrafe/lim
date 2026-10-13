@@ -2,6 +2,44 @@ mod support;
 
 use lim::{CompileConfig, DiagnosticCode, TargetDescription};
 
+#[test]
+fn stored_word_views_retain_addresses_without_granting_opaque_pointer_capabilities() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Frame (: state #u64 : words (#array #u64 1)))
+      (#fn make (: source (#ref (#array #u64 1))) Frame
+        (#let-mut frame Frame (#struct-literal Frame (: state 1u64 : words (#array-repeat 0u64))))
+        (#let view (#ref #u64) (#unsafe (#word-view (#ref #u64) (#borrow-slice (#deref source)))))
+        (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
+          (#struct-literal Holder (: value view))))
+        (#return frame))
+      (#fn read (: frame Frame) #u64
+        (#let answer #u64 (#match (#get frame state)
+          (#case 1 (#block
+            (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice (#get frame words)))))
+            (#let value #u64 (#deref (#get holder value))) (#forget holder) value))
+          (#case _ 0u64))) (#forget frame) (#return answer))
+      (#fn main () #u64
+        (#let-mut values (#array #u64 1) (#array-of 42u64))
+        (#let frame Frame (#call make (: source (#borrow values))))
+        (#let answer #u64 (#call read (: frame frame))) (#forget values) (#return answer))";
+    run(source);
+    let conflicting = source.replace(
+        "(#let answer #u64 (#call read",
+        "(#set values (#array-of 0u64)) (#let answer #u64 (#call read",
+    );
+    assert_eq!(
+        compile(&conflicting).unwrap_err().code,
+        DiagnosticCode::Borrow
+    );
+    let opaque = source.replace(
+        "(#unsafe (#word-view (#ref #u64) (#borrow-slice (#deref source))))",
+        "(#unsafe (#ptr-borrow source (#ptr-offset (#ref-ptr (#word-view (#ref #u64) (#borrow-slice (#deref source)))) 0usize)))",
+    );
+    let error = compile(&opaque)
+        .expect_err("an opaque pointer's lifetime anchor is not a known word-cell address");
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+}
+
 fn compile(source: &str) -> Result<String, lim::Diagnostic> {
     let scratch = support::Scratch::new("word-storage");
     lim::compile_source_to_assembly(
@@ -399,6 +437,51 @@ fn returned_state_guarantees_initialize_only_the_corresponding_owned_cells() {
         let error = compile(&invalid).expect_err("changed or unproved state cannot initialize a word cell");
         assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
     }
+}
+
+#[test]
+fn persistent_cells_and_transient_copies_have_distinct_entry_obligations() {
+    let source = "(#struct Stored (: view (#ref #u64)))
+      (#struct Frame (: pc #u64 : source (#ref #u64) : kept (#array #u64 1) : temporary (#array #u64 1)))
+      (#enum Poll ((Pending Frame) (Ready #u64)))
+      (#fn read (: value Stored) #u64 (#return (#deref (#get value view))))
+      (#fn step (: input Frame) Poll
+        (#let-mut frame Frame input)
+        (#loop (#match (#get frame pc)
+          (#case 0 (#block
+            (#let view (#ref #u64) (#get frame source))
+            (#unsafe (#word-write Stored (#borrow-slice-mut (#get frame kept))
+              (#struct-literal Stored (: view view))))
+            (#set-field frame pc 1u64)
+            (#return (Pending (#unsafe (#pin-read (#pin-borrow-mut frame))))) (#unreachable)))
+          (#case 1 (#block
+            (#let restored Stored (#unsafe (#word-read Stored (#borrow-slice (#get frame kept)))))
+            (#unsafe (#word-write Stored (#borrow-slice-mut (#get frame temporary)) restored))
+            (#let answer #u64 (#call read (: value (#unsafe (#word-read Stored (#borrow-slice (#get frame temporary)))))))
+            (#forget frame) (#return (Ready answer)) (#unreachable)))
+          (#case _ (#unreachable)))) (#forget frame) (#return (#unreachable)))
+      (#fn main () #u64
+        (#let-mut value #u64 42u64)
+        (#let frame Frame (#struct-literal Frame
+          (: pc 0u64 : source (#borrow value) : kept (#array-repeat 0u64) : temporary (#array-repeat 0u64))))
+        (#let first Poll (#call step (: input frame)))
+        (#let-else (Pending resumed) Poll first (#unreachable))
+        (#return (#match (#call step (: input resumed))
+          (#case (Ready answer) answer) (#case (Pending unexpected) (#block (#forget unexpected) (#unreachable))))))";
+    run(source);
+    let missing = source.replace(": pc 0u64", ": pc 1u64");
+    assert_eq!(compile(&missing).unwrap_err().code, DiagnosticCode::Linear);
+    let invalidated = source.replace(
+        "(#return (#match (#call step",
+        "(#set value 0u64) (#return (#match (#call step",
+    );
+    assert_eq!(
+        compile(&invalidated).unwrap_err().code,
+        DiagnosticCode::Borrow
+    );
+    let retired = source.replace("(Pending resumed)", "(Pending saved)")
+        .replace("(#return (#match (#call step", "(#let-mut resumed Frame saved) (#unsafe (#word-forget Stored (#borrow-slice-mut (#get resumed kept)))) (#return (#match (#call step");
+    assert_eq!(compile(&retired).unwrap_err().code, DiagnosticCode::Linear);
 }
 
 #[test]

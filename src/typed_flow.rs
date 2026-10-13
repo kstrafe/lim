@@ -436,6 +436,9 @@ pub(crate) struct LoanOrigin {
     /// Only concealed word-cell contents need an initialization guarantee
     /// beyond the initialization already enforced for ordinary typed fields.
     pub word_stored: bool,
+    /// Exact byte-view address, distinct from arbitrary pointer anchors. This
+    /// supplies no ownership or initialized contents for the viewed schema.
+    pub word_view_address: bool,
     pub span: Option<Span>,
     /// Immediate reference binding whose referent this loan reborrows.
     pub borrowed_from: Option<BindingId>,
@@ -481,6 +484,9 @@ impl PartialEq for LoanOrigin {
 impl Eq for LoanOrigin {}
 
 impl LoanOrigin {
+    fn has_concrete_address(&self) -> bool {
+        !self.lifetime_only || self.word_view_address
+    }
     pub fn parameter_summary(&self) -> Option<crate::typed_body::ParameterLoanSummary> {
         let (parameter, global) = match self.place.root {
             PlaceRoot::Parameter(binding) => (binding.0, None),
@@ -505,6 +511,7 @@ impl LoanOrigin {
             lifetime_only: self.lifetime_only,
             maybe_absent: self.maybe_absent,
             word_stored: self.word_stored,
+            word_view_address: self.word_view_address,
             reborrow: self.borrowed_from.is_some(),
             referent_projection: self.place.segments.clone(),
             input_storage: self.parameter_storage.clone().unwrap_or_default(),
@@ -3672,6 +3679,16 @@ impl FlowGraph {
         self.solve_loan_origins(body, true, true, true)
     }
 
+    fn return_guarantee_loan_origins(
+        &self,
+        body: &Body,
+        _contents: bool,
+        entry: &[(Place, crate::Expr)],
+        excluded: &[(Place, Vec<crate::Expr>)],
+    ) -> FlowLoanOrigins {
+        self.solve_loan_origins_with_aliases(body, true, true, true, &[], Some((entry, excluded)))
+    }
+
     /// Additional may-aliases established by actual caller storage. Keep the
     /// symbolic seeds too: an observed alias is not a definite initialization
     /// fact and cannot justify removing other incoming possibilities.
@@ -3680,7 +3697,7 @@ impl FlowGraph {
         body: &Body,
         aliases: &[crate::call_self_loans::Alias],
     ) -> FlowLoanOrigins {
-        self.solve_loan_origins_with_aliases(body, true, true, true, aliases)
+        self.solve_loan_origins_with_aliases(body, true, true, true, aliases, None)
     }
 
     /// Task captures remain borrowed until their linear handle is consumed,
@@ -3883,6 +3900,7 @@ impl FlowGraph {
                     FlowNodeId(index),
                     &predecessors,
                     false,
+                    false,
                     &reachable,
                 )?;
                 let mut calls = Vec::new();
@@ -4033,6 +4051,7 @@ impl FlowGraph {
             use_event,
             predecessors,
             replacements,
+            false,
             &reachable,
         )
     }
@@ -4044,6 +4063,7 @@ impl FlowGraph {
         use_event: FlowNodeId,
         predecessors: &[Vec<FlowNodeId>],
         replacements: bool,
+        references: bool,
         reachable: &ReachableNodes,
     ) -> Option<Vec<(NodeId, Vec<Segment>)>> {
         let mut pending_values = vec![(value, use_event, Vec::new(), Vec::new())];
@@ -4058,16 +4078,17 @@ impl FlowGraph {
             // Reference handles do not have their referent's owned output
             // layout. Following them needs a separate provenance proof.
             if reads_through_reference(body, value)
-                || matches!(
-                    body.nodes[value.0].ty.as_ref(),
-                    Some(
-                        Type::Reference { .. }
-                            | Type::PinnedReference { .. }
-                            | Type::RawPointer { .. }
-                            | Type::Slice(_)
-                            | Type::MutableSlice(_)
-                    )
-                )
+                || (!references
+                    && matches!(
+                        body.nodes[value.0].ty.as_ref(),
+                        Some(
+                            Type::Reference { .. }
+                                | Type::PinnedReference { .. }
+                                | Type::RawPointer { .. }
+                                | Type::Slice(_)
+                                | Type::MutableSlice(_)
+                        )
+                    ))
             {
                 return None;
             }
@@ -4197,7 +4218,11 @@ impl FlowGraph {
                             return None;
                         }
                         FlowAction::ScopeExit(locals) if locals.contains(&binding) => return None,
-                        FlowAction::Clone { .. } => return None,
+                        FlowAction::Clone { value, .. }
+                            if !scalar::scalar_clone_is_pure(body, *value) =>
+                        {
+                            return None
+                        }
                         FlowAction::Borrow { place, .. } if place.overlaps(&target) => return None,
                         FlowAction::Evaluate(value)
                             if matches!(
@@ -4208,7 +4233,9 @@ impl FlowGraph {
                                 }
                             ) || matches!(&body.nodes[value.0].kind,
                                 NodeKind::Form { head, .. } if matches!(head.as_str(),
-                                    "ptr-write" | "linux-syscall" | "pin-read" | "asm") || head.starts_with("atomic-")) =>
+                                    "ptr-write" | "linux-syscall" | "pin-read" | "asm"
+                                    | "word-write" | "word-take" | "word-forget"
+                                    | "deref-set" | "pin-write" | "pin-set-field") || head.starts_with("atomic-")) =>
                         {
                             return None;
                         }
@@ -4508,6 +4535,7 @@ impl FlowGraph {
                 preserves_bytes: true,
                 variants_definitely_written: false,
                 variants: HashMap::new(),
+                scalars: HashMap::new(),
             })
             .collect::<Contents>();
         let merge = |held: &mut Contents, incoming: &Contents| {
@@ -4552,7 +4580,9 @@ impl FlowGraph {
                 FlowAction::Write { place, .. } if events[event.0].is_empty() => {
                     Some(physical_write_places(body, origins, event, place))
                 }
-                FlowAction::Clone { .. } => Some(None),
+                FlowAction::Clone { value, .. } if !scalar::scalar_clone_is_pure(body, *value) => {
+                    Some(None)
+                }
                 FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
                     NodeKind::Form {
                         callee: Some(callee),
@@ -4728,7 +4758,24 @@ impl FlowGraph {
                 }
             }
         }
-        returned.unwrap_or_default()
+        let mut returned: Vec<ParameterStoreSummary> = returned.unwrap_or_default();
+        let scalars = scalar::returned_memory(self, body, origins);
+        for ((destination, _), summary) in destinations.iter().zip(&mut returned) {
+            summary.scalars = scalars
+                .iter()
+                .filter_map(|(place, values)| {
+                    (place.root == destination.root
+                        && place.segments.starts_with(&destination.segments))
+                    .then(|| {
+                        (
+                            place.segments[destination.segments.len()..].to_vec(),
+                            values.clone(),
+                        )
+                    })
+                })
+                .collect();
+        }
+        returned
     }
 
     /// Conditional final contents for explicit returned enum constructors.
@@ -4775,6 +4822,20 @@ impl FlowGraph {
         {
             return Vec::new();
         }
+        let mut predecessors = vec![Vec::new(); self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            for next in &node.successors {
+                predecessors[next.0].push(FlowNodeId(index));
+            }
+        }
+        let mut written_cells = HashMap::new();
+        let mut cell_written = |event, cell: &Place| {
+            *written_cells
+                .entry((event, cell.clone()))
+                .or_insert_with(|| {
+                    self.reference_cell_written_before(body, actual, event, cell, &predecessors)
+                })
+        };
         let mut result = Vec::new();
         for (index, event) in self.nodes.iter().enumerate() {
             let FlowAction::Evaluate(value) = event.action else {
@@ -4805,6 +4866,108 @@ impl FlowGraph {
                     .unwrap_or_default();
                 let root = Place::root(PlaceRoot::Local(BindingId(0)));
                 let view = matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "word-view");
+                // The source pointee may already be a declared reference,
+                // while the numeric destination cell is absent on an entry
+                // path. Infer the physical cell contract independently of
+                // that pointee's lineage.
+                if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
+                    let layout = &body.word_layouts[&value];
+                    let state = actual.before[index].as_ref().unwrap();
+                    for address in actual
+                        .value_before(body, self, FlowNodeId(index), children[2])
+                        .into_iter()
+                        .filter(|address| address.storage.is_empty() && !address.lifetime_only)
+                    {
+                        let restored =
+                            word_value_origins(body, value, vec![address.clone()], state);
+                        for slot in &layout.slots {
+                            if inactive_variant_slot(&tags, &root, &slot.path) {
+                                continue;
+                            }
+                            let mut path = slot.path.clone();
+                            if view {
+                                path.insert(0, Segment::Dereference);
+                            }
+                            let matching = restored
+                                .iter()
+                                .filter(|loan| loan.storage == path)
+                                .collect::<Vec<_>>();
+                            if !matching.is_empty()
+                                && matching
+                                    .iter()
+                                    .all(|loan| !loan.maybe_absent && loan.has_concrete_address())
+                            {
+                                continue;
+                            }
+                            let mut selected = address.clone();
+                            append_slice_index(
+                                &mut selected.place,
+                                Segment::Index(slot.offset as u128),
+                            );
+                            if cell_written(FlowNodeId(index), &selected.referent_place()) {
+                                continue;
+                            }
+                            let input = match selected.place.root {
+                                PlaceRoot::Parameter(parameter) => {
+                                    let mut input =
+                                        selected.parameter_storage.clone().unwrap_or_default();
+                                    input.push(Segment::Dereference);
+                                    input.extend(selected.place.segments.clone());
+                                    Some((parameter, input))
+                                }
+                                PlaceRoot::Local(_) => scalar::entry_parameter_place(
+                                    self,
+                                    body,
+                                    selected.place.clone(),
+                                )
+                                .and_then(|place| match place.root {
+                                    PlaceRoot::Local(parameter)
+                                        if parameter.0 < body.parameter_count =>
+                                    {
+                                        Some((parameter, place.segments))
+                                    }
+                                    PlaceRoot::Parameter(parameter) => {
+                                        let mut input = vec![Segment::Dereference];
+                                        input.extend(place.segments);
+                                        Some((parameter, input))
+                                    }
+                                    _ => None,
+                                }),
+                                _ => None,
+                            };
+                            let Some((parameter, input)) = input else {
+                                continue;
+                            };
+                            let loan = LoanOrigin {
+                                place: Place::root(PlaceRoot::Parameter(parameter)),
+                                parameter_storage: Some(input),
+                                storage: path,
+                                storage_inputs: Vec::new(),
+                                mutable: slot.mutable,
+                                pinned: slot.pinned,
+                                owned_allocation: slot.owned_allocation,
+                                lifetime_only: false,
+                                maybe_absent: false,
+                                word_stored: true,
+                                word_view_address: false,
+                                span: None,
+                                borrowed_from: None,
+                                reborrow_slot: None,
+                                call_reborrow: false,
+                                entry_loan: None,
+                            };
+                            let guards = word_input_guards(
+                                body,
+                                value,
+                                &loan,
+                                self,
+                                origins,
+                                FlowNodeId(index),
+                            );
+                            required.push((loan, guards, Vec::new(), false));
+                        }
+                    }
+                }
                 // A lineage established by real writes in this body is not
                 // an extra entry assumption. Infer only slots still missing
                 // when numeric inputs start without concealed references.
@@ -4821,6 +4984,35 @@ impl FlowGraph {
                                 };
                             if inactive_variant_slot(&tags, &root, path) {
                                 return false;
+                            }
+                            if let Some(slot) = body.word_layouts[&value]
+                                .slots
+                                .iter()
+                                .find(|slot| slot.path == path)
+                            {
+                                if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
+                                    let addresses = actual
+                                        .value_before(body, self, FlowNodeId(index), children[2])
+                                        .into_iter()
+                                        .filter(|address| {
+                                            address.storage.is_empty() && !address.lifetime_only
+                                        })
+                                        .collect::<Vec<_>>();
+                                    if !addresses.is_empty()
+                                        && addresses.into_iter().all(|mut address| {
+                                            append_slice_index(
+                                                &mut address.place,
+                                                Segment::Index(slot.offset as u128),
+                                            );
+                                            cell_written(
+                                                FlowNodeId(index),
+                                                &address.referent_place(),
+                                            )
+                                        })
+                                    {
+                                        return false;
+                                    }
+                                }
                             }
                             let matching =
                                 held.iter().filter(|known| known.storage == loan.storage);
@@ -4962,6 +5154,10 @@ impl FlowGraph {
                 summary.storage_inputs.clear();
                 summary.referent_projection.clear();
                 summary.reborrow = false;
+                // Both physical-cell inference and symbolic candidate
+                // inference describe the same concealed word-storage input.
+                // Canonicalize that representation before deduplicating.
+                summary.word_stored = true;
                 let requirement = crate::typed_body::WordInputRequirement {
                     loan: summary,
                     guards,
@@ -4974,6 +5170,141 @@ impl FlowGraph {
             }
         }
         result
+    }
+
+    /// A reference-bearing write can rely on an earlier reader's own entry
+    /// contract. Do not turn its freshly written destination into a second,
+    /// unrelated entry obligation. Retirement and weak effects do not count.
+    fn reference_cell_written_before(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        event: FlowNodeId,
+        cell: &Place,
+        predecessors: &[Vec<FlowNodeId>],
+    ) -> bool {
+        let mut pending = predecessors[event.0].clone();
+        let mut seen = HashSet::new();
+        let mut found = false;
+        while let Some(previous) = pending.pop() {
+            if !seen.insert(previous) || origins.before[previous.0].is_none() {
+                continue;
+            }
+            if origins
+                .clears_before(body, self, previous)
+                .iter()
+                .any(|clear| clear.lifetime_only || clear.referent_place().overlaps(cell))
+            {
+                return false;
+            }
+            let stores = origins.stores_before(body, self, previous);
+            let overlapping = stores
+                .iter()
+                .filter(|store| store.destination.referent_place().overlaps(cell))
+                .collect::<Vec<_>>();
+            if !overlapping.is_empty() {
+                let checked_reference_write =
+                    if let FlowAction::Evaluate(value) = self.nodes[previous.0].action {
+                        if let NodeKind::Form {
+                            head,
+                            children,
+                            callee: None,
+                            ..
+                        } = &body.nodes[value.0].kind
+                        {
+                            head == "word-write"
+                                && body.word_layouts.get(&value).is_some_and(|layout| {
+                                    origins
+                                        .value_before(body, self, previous, children[2])
+                                        .iter()
+                                        .filter(|address| {
+                                            address.storage.is_empty() && !address.lifetime_only
+                                        })
+                                        .any(|address| {
+                                            layout.slots.iter().any(|slot| {
+                                                let mut selected = address.clone();
+                                                append_slice_index(
+                                                    &mut selected.place,
+                                                    Segment::Index(slot.offset as u128),
+                                                );
+                                                selected.referent_place() == *cell
+                                            })
+                                        })
+                                })
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+                if overlapping.iter().all(|store| {
+                    store.definitely_written
+                        && place_covers(&store.destination.referent_place(), cell)
+                        && (!store.incoming.is_empty() || checked_reference_write)
+                        && !store.destination.lifetime_only
+                }) {
+                    found = true;
+                    continue;
+                }
+                return false;
+            }
+            match &self.nodes[previous.0].action {
+                FlowAction::Assign { place, .. } | FlowAction::Release { place, .. } => {
+                    if place.overlaps(cell) {
+                        return false;
+                    }
+                }
+                FlowAction::Write { place, .. } => {
+                    let Some(targets) = physical_write_places(body, origins, previous, place)
+                    else {
+                        return false;
+                    };
+                    if targets.iter().any(|target| target.overlaps(cell)) {
+                        return false;
+                    }
+                }
+                FlowAction::ScopeExit(bindings) => {
+                    if matches!(cell.root, PlaceRoot::Local(binding) if bindings.contains(&binding))
+                    {
+                        return false;
+                    }
+                }
+                FlowAction::Clone { .. } => return false,
+                FlowAction::Evaluate(value) => {
+                    if let NodeKind::Form { head, callee, .. } = &body.nodes[value.0].kind {
+                        if let Some(callee) = callee {
+                            if !body.call_parameter_clears.contains_key(callee) {
+                                return false;
+                            }
+                            let Some(targets) =
+                                origins.call_scalar_mutations(body, self, previous, *value)
+                            else {
+                                return false;
+                            };
+                            if targets.iter().any(|target| {
+                                target.lifetime_only
+                                    || !target.storage.is_empty()
+                                    || target.referent_place().overlaps(cell)
+                            }) {
+                                return false;
+                            }
+                        } else if matches!(
+                            head.as_str(),
+                            "ptr-write" | "linux-syscall" | "asm" | "pin-read"
+                        ) || head.starts_with("atomic-")
+                        {
+                            return false;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if matches!(self.nodes[previous.0].action, FlowAction::Entry) {
+                return false;
+            }
+            pending.extend_from_slice(&predecessors[previous.0]);
+        }
+        found
     }
 
     /// Conditional initial contracts. Entry values are proof obligations of
@@ -5016,6 +5347,7 @@ impl FlowGraph {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
             reborrow: false,
             referent_projection: place.segments.clone(),
             input_storage: Vec::new(),
@@ -5106,6 +5438,7 @@ impl FlowGraph {
                     lifetime_only: false,
                     maybe_absent: false,
                     word_stored: false,
+                    word_view_address: false,
                     reborrow: false,
                     referent_projection: Vec::new(),
                     input_storage: Vec::new(),
@@ -5121,7 +5454,11 @@ impl FlowGraph {
             }
             return summary;
         }
-        self.parameter_summary_unpartitioned(body, contents)
+        let mut summary = self.parameter_summary_unpartitioned(body, contents);
+        if !contents {
+            summary.word_inputs = self.partition_word_inputs(body, summary.word_inputs);
+        }
+        summary
     }
 
     fn parameter_summary_unpartitioned(&self, body: &Body, contents: bool) -> ParameterSummary {
@@ -5385,6 +5722,7 @@ impl FlowGraph {
             include_variant_stores,
             include_parameter_contents,
             &[],
+            None,
         )
     }
 
@@ -5395,6 +5733,7 @@ impl FlowGraph {
         include_variant_stores: bool,
         include_parameter_contents: bool,
         aliases: &[crate::call_self_loans::Alias],
+        entry: Option<(&[(Place, crate::Expr)], &[(Place, Vec<crate::Expr>)])>,
     ) -> FlowLoanOrigins {
         let _timing = crate::timing::detail("semantic.provenance");
         // Branch results are read at their evaluation events, before lexical
@@ -5518,10 +5857,14 @@ impl FlowGraph {
             let candidates = body
                 .word_parameter_candidates
                 .get(index)
-                .filter(|_| !include_parameter_contents)
+                .filter(|_| !include_parameter_contents && entry.is_none())
                 .into_iter()
                 .flatten();
-            for slot in slots.iter().chain(candidates) {
+            for slot in slots
+                .iter()
+                .chain(candidates)
+                .filter(|slot| entry_word_seed_allowed(body, index, &slot.storage, entry))
+            {
                 empty[index].push(LoanOrigin {
                     owned_allocation: slot.owned_allocation,
                     place: Place::root(PlaceRoot::Parameter(BindingId(index))),
@@ -5538,11 +5881,24 @@ impl FlowGraph {
                     lifetime_only: false,
                     maybe_absent: false,
                     word_stored: false,
+                    word_view_address: false,
                 });
             }
         }
         if include_parameter_contents {
             let mut contents = seed_parameter_contents(body);
+            if entry.is_some() {
+                for ((root, prefix), held) in &mut contents {
+                    if let PlaceRoot::Parameter(parameter) = root {
+                        held.retain(|loan| {
+                            let mut storage = prefix.clone();
+                            storage.push(Segment::Dereference);
+                            storage.extend(loan.storage.clone());
+                            entry_word_seed_allowed(body, parameter.0, &storage, entry)
+                        });
+                    }
+                }
+            }
             for (family, alias) in aliases.iter().enumerate() {
                 let boundary = alias
                     .storage
@@ -5561,6 +5917,7 @@ impl FlowGraph {
                     lifetime_only: false,
                     maybe_absent: false,
                     word_stored: false,
+                    word_view_address: false,
                     span: None,
                     borrowed_from: None,
                     reborrow_slot: None,
@@ -7133,7 +7490,9 @@ impl FlowGraph {
                                 // pointee origin; they are not missing access
                                 // alternatives. With only anchors, the final
                                 // selected_alternative check still fails closed.
-                                if source.lifetime_only {
+                                if source.lifetime_only
+                                    && (!initialized_unsafe_reads || source.storage.is_empty())
+                                {
                                     continue;
                                 }
                                 if selected_slot.first() == Some(&Segment::Dereference)
@@ -10084,14 +10443,11 @@ impl FlowGraph {
         requirement: &crate::typed_body::WordInputRequirement,
         state: &LoanState,
     ) -> bool {
-        let mut actual = origins.value_before(body, self, event, argument);
+        let actual = origins.value_before(body, self, event, argument);
         if word_input_available(actual.clone(), requirement, state) {
             return true;
         }
-        if requirement.unresolved
-            || requirement.input_storage.contains(&Segment::Dereference)
-            || body.call_word_returns.values().all(Vec::is_empty)
-        {
+        if requirement.unresolved || body.call_word_returns.values().all(Vec::is_empty) {
             return false;
         }
         let mut predecessors = vec![Vec::new(); self.nodes.len()];
@@ -10102,15 +10458,66 @@ impl FlowGraph {
         }
         // Trace unchanged owned results only. Intervening borrows, writes,
         // opaque calls, or replacements invalidate the producer's guarantee.
-        let Some(producers) =
-            self.owned_call_result_producers(body, argument, event, &predecessors, true)
-        else {
+        let Some(producers) = self.owned_call_result_producers_with_reachable(
+            body,
+            argument,
+            event,
+            &predecessors,
+            true,
+            true,
+            &self.reachable(),
+        ) else {
             return false;
         };
         if producers.is_empty() {
             return false;
         }
+        // A returned referent can carry a scalar selector just as an owned
+        // result does. Only unchanged producers are eligible: a subsequent
+        // mutation must not reuse this postcondition.
+        let producer_inactive = |call: &NodeId, prefix: &Vec<Segment>| {
+            let NodeKind::Form {
+                callee: Some(callee),
+                ..
+            } = body.nodes[call.0].kind
+            else {
+                return false;
+            };
+            let Some(facts) = body.call_scalar_returns.get(&callee) else {
+                return false;
+            };
+            requirement.scalar_guards.iter().any(|guard| {
+                if !guard.address.input_storage.is_empty()
+                    || guard.address.parameter != requirement.parameter
+                {
+                    return false;
+                }
+                let storage = prefix
+                    .iter()
+                    .cloned()
+                    .chain((!guard.by_value).then_some(Segment::Dereference))
+                    .chain(guard.address.referent_projection.clone())
+                    .collect::<Vec<_>>();
+                facts.iter().any(|fact| {
+                    fact.storage == storage
+                        && !fact.values.is_empty()
+                        && fact
+                            .values
+                            .iter()
+                            .all(|value| guard.values.contains(value) == guard.excluded)
+                })
+            })
+        };
+        if producers
+            .iter()
+            .all(|(call, prefix)| producer_inactive(call, prefix))
+        {
+            return true;
+        }
         let proved = producers.iter().all(|(call, prefix)| {
+            if producer_inactive(call, prefix) {
+                return true;
+            }
             let NodeKind::Form {
                 callee: Some(callee),
                 ..
@@ -10129,15 +10536,16 @@ impl FlowGraph {
             guarantees.iter().any(|guarantee| {
                 guarantee.storage == storage
                     && requirement.scalar_guards.iter().any(|guard| {
-                        guard.by_value
-                            && !guard.excluded
+                        !guard.excluded
+                            && guard.address.input_storage.is_empty()
                             && !guard.values.is_empty()
                             && guard.address.parameter == requirement.parameter
                             && guarantee.condition.storage
                                 == prefix
                                     .iter()
-                                    .chain(&guard.address.referent_projection)
                                     .cloned()
+                                    .chain((!guard.by_value).then_some(Segment::Dereference))
+                                    .chain(guard.address.referent_projection.clone())
                                     .collect::<Vec<_>>()
                             && guard
                                 .values
@@ -10149,14 +10557,9 @@ impl FlowGraph {
         if !proved {
             return false;
         }
-        for loan in &mut actual {
-            if loan.storage == requirement.input_storage {
-                loan.maybe_absent = false;
-            }
-        }
         // A conditional initialization fact is not a pointee witness. Require
         // the ordinary actual origins and permissions after proving presence.
-        word_input_available(actual, requirement, state)
+        word_input_available_with_presence(actual, requirement, state, true)
     }
 
     fn check_call_argument_reference_provenance(
@@ -10166,11 +10569,49 @@ impl FlowGraph {
         origins: &FlowLoanOrigins,
         moves: &FlowConsumptions,
     ) -> Result<(), ReleaseConflict> {
+        let active = moves.before.iter().map(Option::is_some).collect::<Vec<_>>();
+        let result = self.check_call_argument_reference_provenance_unpartitioned(
+            body,
+            declarations,
+            origins,
+            &active,
+        );
+        if result.is_ok() {
+            return result;
+        }
+        let Some(graph) = scalar::specialize_for_calls(self, body, origins) else {
+            return result;
+        };
+        let loans = graph.loan_origins(body);
+        let reachable = graph.reachable();
+        // Only reachability is consulted by the call-provenance checker;
+        // owned and referent consumption obligations were checked separately.
+        let active = graph
+            .nodes
+            .iter()
+            .enumerate()
+            .map(|(index, _)| reachable.contains(&FlowNodeId(index)))
+            .collect::<Vec<_>>();
+        graph.check_call_argument_reference_provenance_unpartitioned(
+            body,
+            declarations,
+            &loans,
+            &active,
+        )
+    }
+
+    fn check_call_argument_reference_provenance_unpartitioned(
+        &self,
+        body: &Body,
+        declarations: &crate::typed_ir::Declarations,
+        origins: &FlowLoanOrigins,
+        active: &[bool],
+    ) -> Result<(), ReleaseConflict> {
         for (index, node) in self.nodes.iter().enumerate() {
             let FlowAction::Evaluate(value) = node.action else {
                 continue;
             };
-            if moves.before[index].is_none() {
+            if !active[index] {
                 continue;
             }
             let NodeKind::Form {
@@ -12197,6 +12638,55 @@ fn merge_shared_loan_maps<K: Clone + Eq + std::hash::Hash>(
     changed
 }
 
+/// Conditional entry contracts cannot seed a postcondition proof on an entry
+/// where their precondition is unproved. Declared typed slots remain unchanged.
+fn entry_word_seed_allowed(
+    body: &Body,
+    parameter: usize,
+    storage: &[Segment],
+    entry: Option<(&[(Place, crate::Expr)], &[(Place, Vec<crate::Expr>)])>,
+) -> bool {
+    let Some((entry, excluded)) = entry else {
+        return true;
+    };
+    let required = body
+        .word_input_requirements
+        .iter()
+        .filter(|input| input.parameter == parameter && input.input_storage == storage)
+        .collect::<Vec<_>>();
+    required.is_empty()
+        || required.iter().any(|input| {
+            !input.unresolved
+                && input.guards.is_empty()
+                && input.scalar_guards.iter().all(|guard| {
+                    if !guard.address.input_storage.is_empty() {
+                        return false;
+                    }
+                    let root = if guard.by_value {
+                        PlaceRoot::Local(BindingId(guard.address.parameter))
+                    } else {
+                        PlaceRoot::Parameter(BindingId(guard.address.parameter))
+                    };
+                    let place = Place {
+                        root,
+                        segments: guard.address.referent_projection.clone(),
+                    };
+                    if let Some((_, crate::Expr::UnsignedInteger(value))) =
+                        entry.iter().find(|(known, _)| *known == place)
+                    {
+                        return guard.values.contains(value) != guard.excluded;
+                    }
+                    guard.excluded
+                        && excluded.iter().any(|(known, values)| {
+                            *known == place
+                                && guard.values.iter().all(|value| {
+                                    values.contains(&crate::Expr::UnsignedInteger(*value))
+                                })
+                        })
+                })
+        })
+}
+
 fn seed_parameter_contents(body: &Body) -> HashMap<(PlaceRoot, Vec<Segment>), Vec<LoanOrigin>> {
     let mut contents = HashMap::new();
     for (parameter, slots) in body.parameter_referent_loan_slots.iter().enumerate() {
@@ -12228,6 +12718,7 @@ fn seed_parameter_contents(body: &Body) -> HashMap<(PlaceRoot, Vec<Segment>), Ve
                 lifetime_only: false,
                 maybe_absent: false,
                 word_stored: false,
+                word_view_address: false,
             };
             merge_loan_origins(contents.entry(key).or_default(), &[held]);
         }
@@ -12847,6 +13338,7 @@ fn apply_parameter_loan_summary(
                 origin.owned_allocation = summary.owned_allocation;
                 origin.pinned = summary.pinned;
             }
+            origin.word_view_address |= summary.word_view_address && !origin.lifetime_only;
             origin.lifetime_only |= summary.lifetime_only;
             origin.maybe_absent |= summary.maybe_absent;
             origin.word_stored |= summary.word_stored;
@@ -13973,6 +14465,15 @@ fn word_input_available(
     requirement: &crate::typed_body::WordInputRequirement,
     state: &LoanState,
 ) -> bool {
+    word_input_available_with_presence(origins, requirement, state, false)
+}
+
+fn word_input_available_with_presence(
+    origins: Vec<LoanOrigin>,
+    requirement: &crate::typed_body::WordInputRequirement,
+    state: &LoanState,
+    proved_presence: bool,
+) -> bool {
     if requirement.unresolved {
         return false;
     }
@@ -14003,8 +14504,8 @@ fn word_input_available(
             // exclusive branch must not authorize a different shared branch.
             !loaded.is_empty()
                 && loaded.iter().all(|loan| {
-                    !loan.lifetime_only
-                        && !loan.maybe_absent
+                    loan.has_concrete_address()
+                        && (proved_presence || !loan.maybe_absent)
                         && (!requirement.mutable || loan.mutable)
                         && (!requirement.pinned || loan.pinned)
                         && (!requirement.owned_allocation || loan.owned_allocation)
@@ -14843,6 +15344,7 @@ pub(crate) fn global_summary_origin(
         lifetime_only: summary.lifetime_only,
         maybe_absent: summary.maybe_absent,
         word_stored: summary.word_stored,
+        word_view_address: summary.word_view_address,
         span: None,
         borrowed_from: None,
         reborrow_slot: None,
@@ -14867,6 +15369,7 @@ fn fresh_allocation_origin(
     origin.lifetime_only = summary.lifetime_only;
     origin.maybe_absent = summary.maybe_absent;
     origin.word_stored = summary.word_stored;
+    origin.word_view_address = summary.word_view_address;
     origin.storage = summary.storage.clone();
     Some(origin)
 }
@@ -14880,6 +15383,7 @@ fn allocation_origin(site: NodeId, group: Vec<usize>, span: Option<Span>) -> Loa
         lifetime_only: false,
         maybe_absent: false,
         word_stored: false,
+        word_view_address: false,
         span,
         borrowed_from: None,
         reborrow_slot: None,
@@ -15658,6 +16162,7 @@ fn global_storage_address(global: crate::typed_ir::GlobalId, span: Option<Span>)
         lifetime_only: false,
         maybe_absent: false,
         word_stored: false,
+        word_view_address: false,
         span,
         borrowed_from: None,
         reborrow_slot: None,
@@ -15802,6 +16307,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             for origin in &mut origins {
                 // An unsafe typed view retains its slice range as an alias
                 // and lifetime anchor, not as initialized typed storage.
+                origin.word_view_address |= !origin.lifetime_only;
                 origin.lifetime_only = true;
                 origin.pinned = false;
                 origin.mutable = matches!(
@@ -15834,6 +16340,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             let exact = identity_pointer_borrow(body, children);
             for origin in &mut origins {
                 origin.lifetime_only |= !exact;
+                origin.word_view_address &= exact;
                 if exact && origin.storage.is_empty() {
                     // This is a child of the actual exclusive handle. Keep
                     // that parent suspended while accesses follow this view,
@@ -16444,6 +16951,7 @@ fn value_loan_origins_at_events(
             let mut origins = value_loan_origins_at_events(body, flow, before, children[2], state);
             let contents = word_value_origins(body, value, origins.clone(), state);
             for origin in &mut origins {
+                origin.word_view_address |= !origin.lifetime_only;
                 origin.lifetime_only = true;
                 origin.pinned = false;
                 origin.mutable = matches!(
@@ -16476,6 +16984,7 @@ fn value_loan_origins_at_events(
             let exact = identity_pointer_borrow(body, children);
             for origin in &mut pointer_origins {
                 origin.lifetime_only |= !exact;
+                origin.word_view_address &= exact;
                 if exact && origin.storage.is_empty() {
                     // Keep event-sensitive and ordinary provenance aligned:
                     // only an exact outer-handle round trip is a reborrow.
@@ -16918,6 +17427,7 @@ fn reborrow_source_origins(
         lifetime_only: false,
         maybe_absent: false,
         word_stored: false,
+        word_view_address: false,
         span: None,
         borrowed_from: None,
         reborrow_slot: None,
@@ -20232,7 +20742,7 @@ mod tests {
             ("(#let selector #u64 other)", "selector", vec![]),
             ("(#let selector #u64 (#u64.+.wrap other 1u64))", "selector", vec![]),
             ("(#let-mut selector #u64 1u64) (#deref-set (#borrow-mut selector) 2u64)", "selector", vec![0, 1]),
-            ("(#let-mut selector #u64 1u64) (#call change (: value (#borrow-mut selector)))", "selector", vec![]),
+            ("(#let-mut selector #u64 1u64) (#call change (: value (#borrow-mut selector)))", "selector", vec![0, 1]),
             ("(#let-mut selector #u64 1u64) (#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut selector)))) \"mov QWORD PTR [rdi], 0\"))", "selector", vec![]),
             ("(#let-mut selector #u64 0u64) (#while condition (#set selector selector))", "selector", vec![1, 2]),
             ("(#let-mut selector #u64 0u64) (#while condition (#set selector 1u64))", "selector", vec![2]),
@@ -20511,6 +21021,7 @@ mod tests {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
             span: None,
             borrowed_from: None,
             reborrow_slot: None,
@@ -20565,6 +21076,7 @@ mod tests {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
             span: None,
             borrowed_from: None,
             reborrow_slot: None,
@@ -20845,6 +21357,7 @@ mod tests {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
         };
         let owner_path = vec![Segment::Dereference, Segment::Tuple(0)];
         let owner = LoanOrigin {
@@ -20898,6 +21411,7 @@ mod tests {
                 lifetime_only: true,
                 maybe_absent: false,
                 word_stored: false,
+                word_view_address: false,
                 ..owner.clone()
             },
         ] {
@@ -20948,6 +21462,7 @@ mod tests {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
         };
         let held = LoanOrigin {
             owned_allocation: false,
@@ -20965,6 +21480,7 @@ mod tests {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
         };
         let state: LoanState = vec![vec![held]].into();
         let mut wrapped = state[0][0].clone();
@@ -21017,6 +21533,7 @@ mod tests {
                 lifetime_only: true,
                 maybe_absent: false,
                 word_stored: false,
+                word_view_address: false,
                 ..address.clone()
             },
             LoanOrigin {
@@ -22734,6 +23251,7 @@ mod tests {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
         };
         let old_first = origin(1, vec![Segment::Tuple(0)]);
         let old_second = origin(2, vec![Segment::Tuple(1)]);
@@ -22765,6 +23283,7 @@ mod tests {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
             span: None,
             borrowed_from: None,
             reborrow_slot: None,
@@ -24820,6 +25339,7 @@ mod tests {
                     value,
                     event,
                     &predecessors,
+                    false,
                     false,
                     &graph.reachable(),
                 ),

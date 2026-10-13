@@ -4,11 +4,36 @@ use super::*;
 
 mod specialize;
 mod word_returns;
-pub(super) use specialize::{specialize, specialize_excluding};
+pub(super) use specialize::{specialize, specialize_excluding, specialize_for_calls};
 pub(super) use word_returns::word_and_scalar_return_guarantees;
 
 type Values = Vec<crate::Expr>;
 type Shape = HashMap<Vec<Segment>, Values>;
+
+pub(super) fn scalar_clone_is_pure(body: &Body, value: NodeId) -> bool {
+    matches!(
+        body.nodes[value.0].ty,
+        Some(
+            Type::Unit
+                | Type::Bool
+                | Type::Char
+                | Type::I8
+                | Type::I16
+                | Type::I32
+                | Type::I64
+                | Type::I128
+                | Type::Isize
+                | Type::U8
+                | Type::U16
+                | Type::U32
+                | Type::U64
+                | Type::U128
+                | Type::Usize
+                | Type::F32
+                | Type::F64
+        )
+    )
+}
 
 #[derive(Clone, Default, PartialEq)]
 struct Facts {
@@ -107,7 +132,11 @@ pub(super) fn entry_partition(
     selected
 }
 
-fn entry_parameter_place(flow: &FlowGraph, body: &Body, mut place: Place) -> Option<Place> {
+pub(super) fn entry_parameter_place(
+    flow: &FlowGraph,
+    body: &Body,
+    mut place: Place,
+) -> Option<Place> {
     for _ in 0..=body.bindings.len() {
         match place.root {
             PlaceRoot::Parameter(_) => return Some(place),
@@ -121,17 +150,60 @@ fn entry_parameter_place(flow: &FlowGraph, body: &Body, mut place: Place) -> Opt
                 return Some(place);
             }
             PlaceRoot::Local(binding) => {
+                if binding.0 < body.parameter_count {
+                    if matches!(
+                        body.bindings[binding.0].ty,
+                        Type::Reference { .. } | Type::PinnedReference { .. }
+                    ) {
+                        if place.segments.first() == Some(&Segment::Dereference) {
+                            place.segments.remove(0);
+                        }
+                        place.root = PlaceRoot::Parameter(binding);
+                        return Some(place);
+                    }
+                    return None;
+                }
                 let mut sources = flow.nodes.iter().filter_map(|node| match node.action {
                     FlowAction::Bind {
                         binding: bound,
                         value,
-                    } if bound == binding => Place::from_expression(body, value),
+                    } if bound == binding => Some(value),
                     _ => None,
                 });
-                let mut source = sources.next()?;
+                let mut value = sources.next()?;
                 if sources.next().is_some() {
                     return None;
                 }
+                // An entry selector may have been copied into a temporary
+                // aggregate before a destructive operation. Follow its exact
+                // constructor field, not the aggregate's unrelated fields.
+                while let Some(segment) = place.segments.first() {
+                    let NodeKind::Form {
+                        head,
+                        children,
+                        callee: None,
+                        ..
+                    } = &body.nodes[value.0].kind
+                    else {
+                        break;
+                    };
+                    let Some(child) =
+                        children
+                            .iter()
+                            .skip(1)
+                            .enumerate()
+                            .find_map(|(index, child)| {
+                                (aggregate_slot(body, head, children, index).as_ref()
+                                    == Some(segment))
+                                .then_some(*child)
+                            })
+                    else {
+                        break;
+                    };
+                    value = child;
+                    place.segments.remove(0);
+                }
+                let mut source = Place::from_expression(body, value)?;
                 source.segments.extend(place.segments);
                 place = source;
             }
@@ -264,7 +336,44 @@ fn evaluate(
     if let Some(place) = Place::from_expression(body, value) {
         if reads_through_reference(body, value) {
             if let Some(places) = physical_write_places(body, origins, event, &place) {
-                return read_shape(facts, &places);
+                let shape = read_shape(facts, &places);
+                if !shape.is_empty() {
+                    return shape;
+                }
+            }
+            if let NodeKind::Form { head, children, .. } = &body.nodes[value.0].kind {
+                if matches!(
+                    body.nodes[children[1].0].ty,
+                    Some(Type::Reference { .. } | Type::PinnedReference { .. })
+                ) {
+                    let mut prefix = vec![Segment::Dereference];
+                    if head != "deref" {
+                        let slot = match head.as_str() {
+                            "get" => match body.nodes[children[2].0].kind {
+                                NodeKind::Declaration(DeclarationId::Field(field)) => {
+                                    Segment::Field(field)
+                                }
+                                _ => {
+                                    let Some(index) =
+                                        crate::typed_place::literal_index(body, children[2])
+                                    else {
+                                        return Shape::new();
+                                    };
+                                    Segment::Tuple(index as usize)
+                                }
+                            },
+                            _ => return Shape::new(),
+                        };
+                        prefix.push(slot);
+                    }
+                    return snapshot(facts, body, children[1])
+                        .into_iter()
+                        .filter_map(|(path, values)| {
+                            path.strip_prefix(prefix.as_slice())
+                                .map(|path| (path.to_vec(), values))
+                        })
+                        .collect();
+                }
             }
             return Shape::new();
         } else if matches!(place.root, PlaceRoot::Local(_)) {
@@ -280,6 +389,31 @@ fn evaluate(
     else {
         return Shape::new();
     };
+    if matches!(
+        head.as_str(),
+        "borrow" | "borrow-mut" | "pin-borrow" | "pin-borrow-mut"
+    ) && children.len() == 2
+    {
+        let Some(place) = Place::from_expression(body, children[1]) else {
+            return Shape::new();
+        };
+        let shape = if reads_through_reference(body, children[1]) {
+            physical_write_places(body, origins, event, &place)
+                .map(|places| read_shape(facts, &places))
+                .unwrap_or_default()
+        } else {
+            stored_shape(facts, &place)
+        };
+        return shape
+            .into_iter()
+            .map(|(path, values)| {
+                (
+                    std::iter::once(Segment::Dereference).chain(path).collect(),
+                    values,
+                )
+            })
+            .collect();
+    }
     let declared = matches!(
         children.first().map(|child| &body.nodes[child.0].kind),
         Some(NodeKind::Declaration(
@@ -361,9 +495,23 @@ fn invalidate(facts: &mut Facts) {
     facts.memory.clear();
     facts.excluded_memory.clear();
     facts.reads.clear();
+    invalidate_referent_snapshots(facts);
+}
+
+// A scalar copied out of a referent remains a value snapshot. A scalar
+// recorded *behind* a returned reference is instead a live-memory fact and
+// must not survive a later mutation through any alias.
+fn invalidate_referent_snapshots(facts: &mut Facts) {
+    facts
+        .memory
+        .retain(|place, _| !place.segments.contains(&Segment::Dereference));
+    for shape in facts.values.values_mut() {
+        shape.retain(|path, _| !path.contains(&Segment::Dereference));
+    }
 }
 
 fn invalidate_footprint(facts: &mut Facts, targets: Option<Vec<LoanOrigin>>) {
+    invalidate_referent_snapshots(facts);
     let Some(targets) = targets else {
         invalidate(facts);
         return;
@@ -474,11 +622,19 @@ fn transfer(
     match &flow.nodes[event.0].action {
         FlowAction::Evaluate(value)
         | FlowAction::Read { value, .. }
+        | FlowAction::Borrow { value, .. }
         | FlowAction::Clone { value, .. } => {
             // A user clone hook can return different numeric fields. An
             // unknown hook result is not the source's pre-hook snapshot.
             let shape = if matches!(flow.nodes[event.0].action, FlowAction::Clone { .. }) {
-                Shape::new()
+                if scalar_clone_is_pure(body, *value) {
+                    match &body.nodes[value.0].kind {
+                        NodeKind::Form { children, .. } => snapshot(&facts, body, children[1]),
+                        _ => Shape::new(),
+                    }
+                } else {
+                    Shape::new()
+                }
             } else {
                 evaluate(&facts, body, origins, event, *value)
             };
@@ -494,7 +650,7 @@ fn transfer(
                 facts.reads.insert(*value, place);
             }
             if !shape.is_empty() {
-                facts.values.insert(*value, shape);
+                facts.values.insert(*value, shape.clone());
             }
             let call = matches!(
                 &body.nodes[value.0].kind,
@@ -508,7 +664,60 @@ fn transfer(
                     &mut facts,
                     origins.call_scalar_mutations(body, flow, event, *value),
                 );
-            } else if matches!(flow.nodes[event.0].action, FlowAction::Clone { .. }) {
+                let NodeKind::Form {
+                    callee: Some(callee),
+                    children,
+                    ..
+                } = &body.nodes[value.0].kind
+                else {
+                    unreachable!()
+                };
+                if let Some(state) = &origins.before[event.0] {
+                    for summary in body.call_store_origins.get(callee).into_iter().flatten() {
+                        if summary.scalars.is_empty() {
+                            continue;
+                        }
+                        let Some(argument) = children.get(summary.destination.parameter + 1) else {
+                            continue;
+                        };
+                        let mut targets = origins
+                            .value_before(body, flow, event, *argument)
+                            .into_iter()
+                            .flat_map(|origin| {
+                                apply_parameter_loan_summary(origin, &summary.destination, state)
+                            })
+                            .collect::<Vec<_>>();
+                        targets.dedup();
+                        if targets.len() != 1
+                            || targets[0].lifetime_only
+                            || targets[0].maybe_absent
+                            || !targets[0].storage.is_empty()
+                        {
+                            continue;
+                        }
+                        let incoming = summary
+                            .scalars
+                            .iter()
+                            .map(|(path, values)| {
+                                (
+                                    path.clone(),
+                                    values
+                                        .iter()
+                                        .map(|value| crate::Expr::UnsignedInteger(*value))
+                                        .collect(),
+                                )
+                            })
+                            .collect();
+                        write(&mut facts, &targets[0].referent_place(), incoming);
+                    }
+                }
+                // The call's own postconditions are newer than its writes.
+                if !shape.is_empty() {
+                    facts.values.insert(*value, shape);
+                }
+            } else if matches!(flow.nodes[event.0].action, FlowAction::Clone { .. })
+                && !scalar_clone_is_pure(body, *value)
+            {
                 invalidate(&mut facts);
             } else if let NodeKind::Form {
                 head,
@@ -590,6 +799,7 @@ fn transfer(
                 || place.segments.contains(&Segment::Dereference)
             {
                 invalidate(&mut facts);
+                write(&mut facts, place, incoming);
             } else {
                 write(&mut facts, place, incoming);
             }
@@ -638,12 +848,83 @@ pub(super) fn analyze(flow: &FlowGraph, body: &Body, origins: &FlowLoanOrigins) 
     analyze_with_entry(flow, body, origins, HashMap::new())
 }
 
+pub(super) fn returned_memory(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+) -> HashMap<Place, Vec<u128>> {
+    let analysis = analyze_for_contract(flow, body, origins);
+    let mut result: Option<HashMap<Place, Vec<u128>>> = None;
+    for (index, node) in flow.nodes.iter().enumerate() {
+        if !matches!(node.action, FlowAction::Return(_)) || origins.before[index].is_none() {
+            continue;
+        }
+        let Some(facts) = &analysis.before[index] else {
+            return HashMap::new();
+        };
+        let incoming = facts
+            .memory
+            .iter()
+            .filter_map(|(place, values)| {
+                if has_dynamic_projection(place)
+                    || place.segments.contains(&Segment::Dereference)
+                    || values.is_empty()
+                {
+                    return None;
+                }
+                let values = values
+                    .iter()
+                    .map(|value| match value {
+                        crate::Expr::UnsignedInteger(value) => Some(*value),
+                        _ => None,
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some((place.clone(), values))
+            })
+            .collect::<HashMap<_, _>>();
+        if let Some(held) = &mut result {
+            held.retain(|place, values| {
+                let Some(other) = incoming.get(place) else {
+                    return false;
+                };
+                for value in other {
+                    if !values.contains(value) {
+                        values.push(*value);
+                    }
+                }
+                values.len() <= 16
+            });
+        } else {
+            result = Some(incoming);
+        }
+    }
+    result.unwrap_or_default()
+}
+
 pub(super) fn analyze_for_contract(
     flow: &FlowGraph,
     body: &Body,
     origins: &FlowLoanOrigins,
 ) -> Analysis {
     analyze_impl(flow, body, origins, HashMap::new(), true)
+}
+
+fn analyze_for_contract_at_entry(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    entry: &[(Place, crate::Expr)],
+) -> Analysis {
+    analyze_impl(
+        flow,
+        body,
+        origins,
+        entry
+            .iter()
+            .map(|(place, value)| (place.clone(), vec![value.clone()]))
+            .collect(),
+        true,
+    )
 }
 
 /// Intersect fields across all reaching returns, and union finite values for
@@ -885,20 +1166,20 @@ mod tests {
     }
 
     #[test]
-    fn unknown_calls_and_assembly_do_not_preserve_live_field_facts() {
+    fn checked_call_postconditions_replace_facts_but_assembly_invalidates_them() {
         let prefix = "(#struct State (: pc #u64))
           (#fn change (: target (#ref-mut State)) ()
             (#deref-set target (#struct-literal State (: pc 0u64))) (#return ()))";
-        for write in [
-            "(#call change (: target (#borrow-mut state)))",
-            "(#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut state)))) \"mov QWORD PTR [rdi], 0\"))",
+        for (write, expected) in [
+            ("(#call change (: target (#borrow-mut state)))", vec![1]),
+            ("(#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut state)))) \"mov QWORD PTR [rdi], 0\"))", vec![]),
         ] {
             let source = format!(
                 "{prefix} (#fn work () #u64
               (#let-mut state State (#struct-literal State (: pc 1u64))) {write}
               (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64))))"
             );
-            assert!(pruned(&source).is_empty(), "{source}");
+            assert_eq!(pruned(&source), expected, "{source}");
         }
     }
 
@@ -924,12 +1205,18 @@ mod tests {
         ] {
             assert_eq!(pruned(&source(effect)), vec![0], "{effect}");
         }
-        for effect in [
-            "(#call forward (: target (#borrow-mut (#get state pc))))",
-            "(#call forward (: target (#if condition
+        for (effect, expected) in [
+            (
+                "(#call forward (: target (#borrow-mut (#get state pc))))",
+                vec![1],
+            ),
+            (
+                "(#call forward (: target (#if condition
               (#borrow-mut (#get state pc)) (#borrow-mut (#get state other)))))",
+                vec![],
+            ),
         ] {
-            assert!(pruned(&source(effect)).is_empty(), "{effect}");
+            assert_eq!(pruned(&source(effect)), expected, "{effect}");
         }
     }
 

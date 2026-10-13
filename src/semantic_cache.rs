@@ -20,7 +20,7 @@ use crate::{
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v35\0";
+const MAGIC: &[u8] = b"lim-semantic-v37\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -527,6 +527,7 @@ record_codec!(
     lifetime_only,
     maybe_absent,
     word_stored,
+    word_view_address,
     reborrow,
     referent_projection,
     input_storage,
@@ -540,7 +541,8 @@ record_codec!(
     definitely_written,
     preserves_bytes,
     variants_definitely_written,
-    variants
+    variants,
+    scalars
 );
 record_codec!(WordTagGuard, address, variant);
 record_codec!(crate::typed_body::ScalarReturnFact, storage, values);

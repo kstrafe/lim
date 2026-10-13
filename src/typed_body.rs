@@ -1182,6 +1182,7 @@ pub(crate) struct ParameterLoanSummary {
     pub maybe_absent: bool,
     /// Origin concealed by a word store rather than a typed reference field.
     pub word_stored: bool,
+    pub word_view_address: bool,
     /// The callee creates a child loan, rather than transferring a stored
     /// reference value out of its owner. Caller slot ancestry needs this
     /// distinction even when both results have identical pointee origins.
@@ -1275,6 +1276,9 @@ pub(crate) struct ParameterStoreSummary {
     /// Must-known constructors inside the written value, relative to its root.
     /// An empty loan set does not imply any constructor.
     pub variants: HashMap<Vec<crate::typed_place::Segment>, crate::typed_ir::VariantId>,
+    /// Finite scalar values known at this destination on every normal return.
+    /// These are byte postconditions, never initialized-loan capabilities.
+    pub scalars: HashMap<Vec<crate::typed_place::Segment>, Vec<u128>>,
 }
 
 #[derive(Clone, Debug)]

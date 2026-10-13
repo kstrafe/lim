@@ -31,6 +31,7 @@ fn snapshot_liveness(flow: &FlowGraph, body: &Body) -> Vec<HashSet<NodeId>> {
         match &node.action {
             FlowAction::Evaluate(value)
             | FlowAction::Read { value, .. }
+            | FlowAction::Borrow { value, .. }
             | FlowAction::Clone { value, .. } => {
                 defined[index] = Some(*value);
                 if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
@@ -322,7 +323,15 @@ pub(in super::super) fn specialize(
     origins: &FlowLoanOrigins,
     entry: &[(Place, crate::Expr)],
 ) -> Option<FlowGraph> {
-    specialize_impl(flow, body, origins, entry, &[])
+    specialize_impl(flow, body, origins, entry, &[], false)
+}
+
+pub(in super::super) fn specialize_for_calls(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+) -> Option<FlowGraph> {
+    specialize_impl(flow, body, origins, &[], &[], true)
 }
 
 pub(in super::super) fn specialize_excluding(
@@ -331,7 +340,7 @@ pub(in super::super) fn specialize_excluding(
     origins: &FlowLoanOrigins,
     excluding: &[(Place, Values)],
 ) -> Option<FlowGraph> {
-    specialize_impl(flow, body, origins, &[], excluding)
+    specialize_impl(flow, body, origins, &[], excluding, false)
 }
 
 fn specialize_impl(
@@ -340,6 +349,7 @@ fn specialize_impl(
     origins: &FlowLoanOrigins,
     entry: &[(Place, crate::Expr)],
     excluding: &[(Place, Values)],
+    checking_calls: bool,
 ) -> Option<FlowGraph> {
     let mut memory = HashMap::new();
     if excluding.iter().any(|(place, values)| {
@@ -464,13 +474,20 @@ fn specialize_impl(
         };
     result.entry = intern(flow.entry, initial, &mut result, &mut pending)?;
     while let Some((event, before, copied)) = pending.pop_front() {
-        if reads_uncertain_words(flow, body, origins, event, &before.uncertain)? {
+        let call = matches!(flow.nodes[event.0].action, FlowAction::Evaluate(value)
+            if matches!(body.nodes[value.0].kind, NodeKind::Form { callee: Some(_), .. }));
+        // Call checking consumes this graph only after checking every call's
+        // actual inputs. Do not abandon separation merely because the base
+        // may-store summary could not prove a call input before separation.
+        if !(checking_calls && call)
+            && reads_uncertain_words(flow, body, origins, event, &before.uncertain)?
+        {
             return None;
         }
         let mut words = before.words;
         let mut uncertain = before.uncertain;
         let mut opaque = before.opaque;
-        if matches!(flow.nodes[event.0].action, FlowAction::Clone { .. })
+        if matches!(flow.nodes[event.0].action, FlowAction::Clone { value, .. } if !scalar_clone_is_pure(body, value))
             || matches!(flow.nodes[event.0].action, FlowAction::Evaluate(value)
                 if matches!(&body.nodes[value.0].kind, NodeKind::Form { callee: Some(_), .. })
                     || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }

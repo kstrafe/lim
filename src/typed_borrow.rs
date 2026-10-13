@@ -2936,6 +2936,7 @@ mod tests {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
             span: None,
             borrowed_from: None,
             reborrow_slot: None,
@@ -4938,6 +4939,7 @@ mod tests {
                 lifetime_only: false,
                 maybe_absent: false,
                 word_stored: false,
+                word_view_address: false,
             },
             LoanOrigin {
                 owned_allocation: false,
@@ -4955,6 +4957,7 @@ mod tests {
                 lifetime_only: false,
                 maybe_absent: false,
                 word_stored: false,
+                word_view_address: false,
             },
         ];
         let alternatives = origin_alternatives(&held, None).unwrap().unwrap();
@@ -5008,6 +5011,7 @@ mod tests {
             lifetime_only: false,
             maybe_absent: false,
             word_stored: false,
+            word_view_address: false,
         };
         let mutually_exclusive =
             origin_alternatives(&[variant(first, 0), variant(second, 0)], None)

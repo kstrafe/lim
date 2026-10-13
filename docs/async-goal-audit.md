@@ -1,5 +1,31 @@
 # Async safety and lowering audit
 
+## Latest verification (2026-10-13)
+
+Four of the five previously failing library async regressions now pass:
+shared aggregate fields, returned shared holders, aggregate-returned children,
+and projected exclusive arguments across later suspension. Generic analysis
+now distinguishes physical entry cells from freshly written temporaries,
+proves borrowed-return cell initialization under scalar entry partitions,
+and retains evaluated selector snapshots without retaining stale alias facts.
+Primitive clones are pure; user-defined clone hooks remain opaque effects.
+
+The full library run passes 1,445 tests with one failure and eight existing
+ignored tests. Contiguous async storage passes 15 of 17 tests. Dependent
+cancellation passes 11 of 14 tests. The remaining failures are nested exclusive
+references, heap/exclusive reference-owner restoration, and pinned child
+cancellation. These are not completed items or waived checks.
+
+Additional generic regressions cover guaranteed scalar writes by void callees,
+alternate return paths and later alias mutation, persistent versus transient
+word cells, and retained word-view addresses versus opaque pointer anchors.
+The word-storage suite passes 74 tests; semantic-cache tests pass 24, scalar
+postcondition tests three, UI tests three, adversarial borrow tests five, and
+generated-boundary tests five. All-target checking passes. Cache schema v37
+includes scalar storage postconditions and the separate known word-view address
+fact; that address fact does not grant ownership, pinning or initialized nested
+contents. Cold and warm compilation remain subject to the same safety gates.
+
 This audit originally covered the five migration and cleanup improvements
 listed below. Their completion does not certify the subsequent aggregate-storage,
 cloning and analysis-performance goal, or formally verify the language's entire
