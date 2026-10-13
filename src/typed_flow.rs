@@ -13459,6 +13459,30 @@ fn word_value_origins(
                     loaded.pinned = slot.pinned;
                     loaded.owned_allocation = slot.owned_allocation;
                 }
+                if slot.owned_allocation && loaded.owned_allocation && loaded.storage.is_empty() {
+                    for seed in &slot.retained {
+                        for mut retained in
+                            select_summary_inputs(loaded.clone(), &seed.storage, state)
+                        {
+                            if state.parameter_contents.is_none()
+                                && retained.storage.is_empty()
+                                && !retained.lifetime_only
+                                && matches!(retained.place.root, PlaceRoot::Parameter(_))
+                            {
+                                retained.mutable = seed.mutable;
+                                retained.pinned = seed.pinned;
+                                retained.owned_allocation = seed.owned_allocation;
+                            }
+                            let mut path = slot.path.clone();
+                            path.extend_from_slice(&seed.storage);
+                            if view {
+                                path.insert(0, Segment::Dereference);
+                            }
+                            retained.prepend_storage(&path);
+                            merge_loan_origins(&mut result, &[retained]);
+                        }
+                    }
+                }
                 let mut path = slot.path.clone();
                 if view {
                     path.insert(0, Segment::Dereference);

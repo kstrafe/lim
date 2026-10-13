@@ -2973,6 +2973,14 @@ abstract numeric input storage into an allocation. Each actual caller must
 still supply a primary, non-lifetime owning loan with the required mutability
 and pinning; ordinary call and return substitution rejects non-owning slots.
 
+Restoring an owning pointer also retains the loans stored in its allocation.
+These are pointee metadata, not extra words in the backing array. A checked
+reader exports requirements for both the owning pointer and its retained
+reference fields, including through forwarding calls. Concrete restoration
+requires existing pointee loans; neither a layout nor an owner of a different
+reference-free pointee fabricates them. Mutation of a retained field's referent
+and release with a live owning-pin view remain borrow errors.
+
 ```lisp
 (#struct RefValue (: value (#ref #u64)))
 (#fn read-value (: words (#slice #u64)) #u64

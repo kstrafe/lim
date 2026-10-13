@@ -1848,3 +1848,37 @@ eleven passes/three failures and two passes/one failure respectively
 not claim to solve their distinct entry-state and nested-content failures.
 The earlier pre-forwarding async matrix remains running until its terminal
 result is recorded. The full async goal and final uncommitted HTML remain open.
+
+### Restore loans retained inside word-backed owning pointers
+
+An owning-pointer layout now records its pointee's retained loan paths apart
+from physical word offsets. A restored primary owner queries existing pointee
+provenance and retains it in the restored typed value. Abstract initial
+summaries describe the corresponding input obligations, which the actual
+contents-aware checks must satisfy. The pointer still occupies one word;
+ordinary borrowed pointers, non-owning sources and lifetime-only anchors do
+not acquire ownership or fabricated concrete pointee loans. No runtime state
+flags or extra emitted branches were introduced. Semantic cache version 20
+invalidates summaries that omitted the retained input requirements.
+
+A native Holder containing a borrowed scalar restores through a forwarding
+function and returns 42. Adversarial variants reject source mutation, release
+with a retained view, retired word metadata, and substituting an owner of a
+reference-free scalar allocation. Imported cold/warm compilation reuses actual
+cache hits and preserves the source-mutation diagnostic. All 97 focused
+word/cache/UI/entry tests and five geometry/inference tests pass. Logs are
+/tmp/lim-nested-word-owner-gates-final.log,
+/tmp/lim-nested-word-owner-shapes-final.log and
+/tmp/lim-nested-word-owner-cache.log. All-target, formatting and diff checks
+pass; examples/async_fn.lim prints its start/pending/resume/ready sequence and
+returns the expected exit status 42.
+
+The full library run has 1,418 passes, the same two failures and eight ignored
+tests (81.01 seconds; /tmp/lim-nested-word-owner-library.log). Dependent
+cancellation remains eleven passes/three failures and heap contents two
+passes/one failure (/tmp/lim-nested-word-owner-async.log). The heap case still
+reports missing cleanup-result slot provenance; this generic pointee
+restoration does not prove absence for its owned by-value optional source.
+State-conditioned readers, exclusive-entry substitutions and remaining broad
+async failures are still open. The pre-forwarding matrix is still running in
+/tmp/lim-owned-result-all-async.log; no new terminal matrix tally is claimed.

@@ -124,6 +124,9 @@ pub(crate) struct Slot {
     pub mutable: bool,
     pub pinned: bool,
     pub owned_allocation: bool,
+    /// Loans retained in an owning pointer's allocation, not additional words
+    /// in the numeric backing buffer.
+    pub retained: Vec<ParameterLoanSeed>,
 }
 
 #[derive(Clone, Debug)]
@@ -403,6 +406,15 @@ fn collect(
                 ),
                 pinned: matches!(&ty, Type::PinnedReference { .. } | Type::PinOwned(_)),
                 owned_allocation: matches!(&ty, Type::PinOwned(_)),
+                retained: if matches!(&ty, Type::PinOwned(_)) {
+                    declarations
+                        .reference_storage_slots(&ty)
+                        .into_iter()
+                        .filter(|seed| seed.storage.first() == Some(&Segment::Dereference))
+                        .collect()
+                } else {
+                    Vec::new()
+                },
             });
         }
         Type::Named(name) if declarations.structs.contains_key(name) => {
@@ -452,6 +464,35 @@ fn collect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn restored_word_owner_retains_its_pointee_reference_requirements() {
+        let program = crate::parse_program("(#struct Holder (: link (#ref #u64)))
+          (#struct Words (: words (#array #u64 1)))
+          (#fn restore (: storage (#ref-mut Words)) (#pin-own Holder)
+            (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words))))))
+          (#fn forward (: storage (#ref-mut Words)) (#pin-own Holder)
+            (#return (#call restore (: storage storage))))
+          (#fn main () #u64 (#return 0u64))").unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        for name in ["restore", "forward"] {
+            let inputs = &checked.declarations().bodies[name].word_input_requirements;
+            assert!(
+                inputs.iter().any(|input| input.owned_allocation),
+                "{name}: {inputs:?}"
+            );
+            assert!(
+                inputs.iter().any(|input| !input.owned_allocation
+                    && input
+                        .input_storage
+                        .iter()
+                        .filter(|segment| **segment == Segment::Dereference)
+                        .count()
+                        == 2),
+                "{name}: {inputs:?}"
+            );
+        }
+    }
 
     #[test]
     fn forwarding_owned_word_requirements_retains_the_ownership_obligation() {

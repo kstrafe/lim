@@ -47,6 +47,45 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 }
 
 #[test]
+fn imported_word_owners_retain_pointee_loans_on_cache_hits() {
+    let scratch = support::Scratch::new("semantic-word-owner-pointee");
+    let directory = scratch.path();
+    fs::write(
+        directory.join("lib.lim"),
+        "
+      (#struct Holder (: link (#ref #u64)))
+      (#struct Words (: words (#array #u64 1)))
+      (#fn restore (: storage (#ref-mut Words)) (#pin-own Holder)
+        (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words))))))
+      (#fn forward (: storage (#ref-mut Words)) (#pin-own Holder)
+        (#return (#call restore (: storage storage))))",
+    )
+    .unwrap();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut amount #u64 42u64)
+        (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
+          (0usize 4096usize 3usize 34usize -1i64 0usize))))
+        (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
+        (#unsafe (#word-write (#pin-own Holder) (#borrow-slice-mut (#get storage words))
+          (#pin-own-of pointer (#struct-literal Holder (: link (#borrow amount))))))
+        (#let owner (#pin-own Holder) (#call forward (: storage (#borrow-mut storage))))
+        (#let view (#pin-ref Holder) (#pin-own-borrow (#borrow owner)))
+        (#let answer #u64 (#deref (#get view link)))
+        (#forget view) (#forget owner) (#forget storage) (#return answer))";
+    let config = CompileConfig::default();
+    let cold = compile(directory, source, &config).0.unwrap();
+    let (warm, report) = compile(directory, source, &config);
+    assert_eq!(cold, warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+    let invalid = source.replace("(#let answer", "(#set amount 0u64) (#let answer");
+    let cold = compile(directory, &invalid, &config).0.unwrap_err();
+    let warm = compile(directory, &invalid, &config).0.unwrap_err();
+    assert_eq!(cold, warm);
+    assert_eq!(cold.code, lim::DiagnosticCode::Borrow);
+}
+
+#[test]
 fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
     let scratch = support::Scratch::new("semantic-optional-word-owner");
     let directory = scratch.path();

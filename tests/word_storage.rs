@@ -185,6 +185,42 @@ fn metadata_only_helpers_preserve_tags_but_never_restore_retired_loans() {
 }
 
 #[test]
+fn word_owner_restoration_preserves_borrowed_pointee_fields() {
+    let source = "(#struct Holder (: link (#ref #u64)))
+      (#struct Words (: words (#array #u64 1)))
+      (#fn restore (: storage (#ref-mut Words)) (#pin-own Holder)
+        (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words))))))
+      (#fn forward (: storage (#ref-mut Words)) (#pin-own Holder)
+        (#return (#call restore (: storage storage))))
+      (#fn main () #u64
+        (#let-mut amount #u64 42u64)
+        (#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder) 9usize
+          (0usize 4096usize 3usize 34usize -1i64 0usize))))
+        (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
+        (#unsafe (#word-write (#pin-own Holder) (#borrow-slice-mut (#get storage words))
+          (#pin-own-of pointer (#struct-literal Holder (: link (#borrow amount))))))
+        (#let owner (#pin-own Holder) (#call forward (: storage (#borrow-mut storage))))
+        (#let view (#pin-ref Holder) (#pin-own-borrow (#borrow owner)))
+        (#let answer #u64 (#deref (#get view link))) (#forget view)
+        (#let retired (#ptr-mut Holder) (#unsafe (#pin-release owner)))
+        (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (retired 4096usize))) 0i64))
+        (#forget storage) (#return answer))";
+    run(source);
+    for invalid in [
+        source.replace("(#let answer", "(#set amount 0u64) (#let answer"),
+        source.replace("(#forget view)", ""),
+        source.replace("(#let owner", "(#unsafe (#word-forget (#pin-own Holder) (#borrow-slice-mut (#get storage words)))) (#let owner"),
+        source.replace("(#let pointer (#ptr-mut Holder) (#unsafe (#linux-syscall (#ptr-mut Holder)", "(#let pointer (#ptr-mut #u64) (#unsafe (#linux-syscall (#ptr-mut #u64)")
+            .replace("(#word-write (#pin-own Holder)", "(#word-write (#pin-own #u64)")
+            .replace("(#struct-literal Holder (: link (#borrow amount)))", "42u64"),
+    ] {
+        let error = compile(&invalid).unwrap_err();
+        assert!(error.code == DiagnosticCode::Borrow || error.message.contains("missing slot provenance")
+            || error.message.contains("missing required input loan"), "{error:?}");
+    }
+}
+
+#[test]
 fn optional_owned_word_results_require_their_allocation_pointer() {
     let source = "(#enum Input ((NoInput) (HasInput (#pin-own #u64))))
       (#enum Output ((NoOutput) (HasOutput (#pin-own #u64))))
