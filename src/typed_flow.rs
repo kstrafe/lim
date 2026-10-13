@@ -1628,6 +1628,22 @@ impl FlowLoanOrigins {
         event: FlowNodeId,
         value: NodeId,
     ) -> Option<Vec<LoanOrigin>> {
+        let tags = self
+            .variants
+            .get()
+            .and_then(|facts| facts.get(event.0))
+            .and_then(Option::as_ref);
+        self.call_tag_mutations_with_tags(body, flow, event, value, tags)
+    }
+
+    fn call_tag_mutations_with_tags(
+        &self,
+        body: &Body,
+        flow: &FlowGraph,
+        event: FlowNodeId,
+        value: NodeId,
+        tags: Option<&HashMap<Place, VariantId>>,
+    ) -> Option<Vec<LoanOrigin>> {
         if let NodeKind::Form {
             callee: Some(callee),
             ..
@@ -1637,7 +1653,7 @@ impl FlowLoanOrigins {
                 return Some(Vec::new());
             }
         }
-        self.call_scalar_mutations(body, flow, event, value)
+        self.call_scalar_mutations_with_tags(body, flow, event, value, tags)
     }
 
     /// Complete byte mutation footprints cannot use the weaker tag-preserving
@@ -1648,6 +1664,22 @@ impl FlowLoanOrigins {
         flow: &FlowGraph,
         event: FlowNodeId,
         value: NodeId,
+    ) -> Option<Vec<LoanOrigin>> {
+        let tags = self
+            .variants
+            .get()
+            .and_then(|facts| facts.get(event.0))
+            .and_then(Option::as_ref);
+        self.call_scalar_mutations_with_tags(body, flow, event, value, tags)
+    }
+
+    fn call_scalar_mutations_with_tags(
+        &self,
+        body: &Body,
+        flow: &FlowGraph,
+        event: FlowNodeId,
+        value: NodeId,
+        tags: Option<&HashMap<Place, VariantId>>,
     ) -> Option<Vec<LoanOrigin>> {
         let NodeKind::Form {
             callee: Some(callee),
@@ -1666,6 +1698,28 @@ impl FlowLoanOrigins {
                 return None;
             }
             let argument = *children.get(summary.parameter + 1)?;
+            if let (Some(tags), Some(Segment::Dereference)) = (tags, summary.input_storage.first())
+            {
+                let addresses = self
+                    .value_before(body, flow, event, argument)
+                    .into_iter()
+                    .filter(|origin| origin.storage.is_empty())
+                    .collect::<Vec<_>>();
+                if !addresses.is_empty()
+                    && addresses.iter().all(|origin| {
+                        !origin.lifetime_only
+                            && inactive_variant_slot(
+                                tags,
+                                &origin.referent_place(),
+                                &summary.input_storage[1..],
+                            )
+                    })
+                {
+                    // An absent payload cannot supply a write target. This
+                    // removes a MAY effect, never initializes the missing loan.
+                    continue;
+                }
+            }
             if summary.input_storage.is_empty() {
                 if let Some(geometry) = word_view_write_geometry(
                     body,
@@ -1707,10 +1761,25 @@ impl FlowLoanOrigins {
             )
             .into_iter()
             .flat_map(|origin| apply_parameter_loan_summary(origin, summary, state))
+            .filter(|origin| origin.storage.is_empty())
             .collect::<Vec<_>>();
-            if !one_concrete_store_destination(&selected) {
+            if selected.is_empty()
+                || selected.iter().any(|origin| {
+                    !origin.has_concrete_address()
+                        || has_dynamic_projection(&origin.referent_place())
+                })
+            {
                 return None;
             }
+            // A MAY footprint invalidates every reaching address. It does
+            // not need the unique destination required for a strong store.
+            let selected = selected
+                .into_iter()
+                .map(|mut origin| {
+                    origin.lifetime_only = false;
+                    origin
+                })
+                .collect::<Vec<_>>();
             merge_loan_origins(&mut targets, &selected);
         }
         Some(targets)
@@ -2675,10 +2744,13 @@ impl FlowGraph {
     ) -> Option<Vec<crate::typed_body::ParameterLoanSummary>> {
         let mut result = Vec::new();
         let mut record = |targets: Vec<LoanOrigin>| -> Option<()> {
-            for target in targets {
-                if target.lifetime_only || !target.storage.is_empty() {
+            for mut target in targets {
+                if !target.has_concrete_address() || !target.storage.is_empty() {
                     return None;
                 }
+                // This is a possible byte-write address, not a typed-value
+                // initialization, ownership, or consumption permission.
+                target.lifetime_only = false;
                 match target.place.root {
                     PlaceRoot::Global(_) => return None,
                     PlaceRoot::Local(_) | PlaceRoot::Allocation(_, _) => {}
@@ -2747,6 +2819,20 @@ impl FlowGraph {
                     {
                         if callee.is_some() {
                             record(origins.call_scalar_mutations(body, self, event, *value)?)?;
+                            continue;
+                        }
+                        if head == "word-write" && children.len() == 4 {
+                            let stores = origins.stores_before(body, self, event);
+                            if stores.is_empty()
+                                && body
+                                    .word_layouts
+                                    .get(value)
+                                    .is_some_and(|layout| layout.words != 0)
+                            {
+                                return None;
+                            }
+                            // Include every physical word, not only loan slots.
+                            record(stores.into_iter().map(|store| store.destination).collect())?;
                             continue;
                         }
                         if matches!(head.as_str(), "drop" | "forget" | "pin-release")
@@ -3081,7 +3167,13 @@ impl FlowGraph {
                         }
                     ) =>
                 {
-                    match origins.call_tag_mutations(body, self, event, *value) {
+                    match origins.call_tag_mutations_with_tags(
+                        body,
+                        self,
+                        event,
+                        *value,
+                        Some(&state),
+                    ) {
                         Some(targets) => {
                             for target in targets {
                                 let target = target.referent_place();
@@ -4620,7 +4712,16 @@ impl FlowGraph {
                     }
                     NodeKind::Form {
                         head, callee: None, ..
-                    } if matches!(head.as_str(), "pin-read" | "ptr-borrow" | "ptr-borrow-mut") => {
+                    } if matches!(
+                        head.as_str(),
+                        "pin-read"
+                            | "ptr-borrow"
+                            | "ptr-borrow-mut"
+                            | "forget"
+                            | "drop"
+                            | "pin-release"
+                    ) =>
+                    {
                         None
                     }
                     _ if !tag_preserving_evaluation(body, *value, &HashSet::new())
@@ -17554,6 +17655,17 @@ fn tag_preserving_evaluation(
                         | "slice-idx"
                         | "deref"
                         | "ref-ptr"
+                        | "ptr-borrow"
+                        | "ptr-borrow-mut"
+                        | "pin-ptr-borrow"
+                        | "pin-ptr-borrow-mut"
+                        | "ptr-address"
+                        | "ptr-offset"
+                        | "ptr-is-null"
+                        | "ptr-null"
+                        | "ptr-cast"
+                        | "size-of"
+                        | "align-of"
                         | "get"
                         | "get-payload"
                         | "pin-get-payload"
@@ -23857,14 +23969,38 @@ mod tests {
                 .then_some((FlowNodeId(index), value))
         }).unwrap();
         let origins = flow.loan_origins(body);
-        assert!(origins
+        let mapped = origins
             .call_tag_mutations(body, flow, event, value)
-            .is_none());
+            .expect("a finite MAY footprint invalidates both possible destinations");
+        let binding = |name: &str| {
+            BindingId(
+                body.bindings
+                    .iter()
+                    .position(|binding| binding.name == name)
+                    .unwrap(),
+            )
+        };
+        let expected = ["left", "right"].map(|name| Place::root(PlaceRoot::Local(binding(name))));
+        assert_eq!(mapped.len(), expected.len());
+        for place in &expected {
+            assert!(mapped
+                .iter()
+                .any(|origin| origin.referent_place() == *place));
+        }
         let facts = flow.variant_facts_with_origins(body, &origins);
-        assert!(facts[flow.nodes[event.0].successors[0].0]
-            .as_ref()
-            .unwrap()
-            .is_empty());
+        let after = facts[flow.nodes[event.0].successors[0].0].as_ref().unwrap();
+        let cell = Place::root(PlaceRoot::Local(binding("cell")));
+        assert_eq!(
+            after.get(&cell),
+            facts[event.0].as_ref().unwrap().get(&cell)
+        );
+        assert!(after.contains_key(&cell));
+        for place in &expected {
+            assert!(
+                !after.contains_key(place),
+                "a MAY alias is not a strong Full write"
+            );
+        }
     }
 
     #[test]

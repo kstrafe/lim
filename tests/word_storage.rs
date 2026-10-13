@@ -1074,6 +1074,30 @@ fn word_reader_entry_loans_are_conditional_on_actual_payload_tags() {
 }
 
 #[test]
+fn word_writer_may_aliases_preserve_disjoint_constructor_facts() {
+    let prefix = OPTIONAL_WORD_READER.split("(#fn main").next().unwrap();
+    let source = format!("{prefix}
+      (#fn write-other (: words (#slice-mut #u64)) ()
+        (#unsafe (#word-write #u64 words 99u64)) (#return ()))
+      (#fn choose (: flag #bool) #u64
+        (#let-mut words (#array #u64 2) (#array-repeat 0u64))
+        (#let-mut second (#array #u64 1) (#array-repeat 0u64))
+        (#let-mut third (#array #u64 1) (#array-repeat 0u64))
+        (#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))
+        (#call write-other (: words (#if flag (#borrow-slice-mut second) (#borrow-slice-mut third))))
+        (#let discard #u64 0u64) (#forget discard)
+        (#let answer #u64 (#call inspect (: words (#borrow-slice words))))
+        (#forget words) (#forget second) (#forget third) (#return answer))
+      (#fn main () #u64 (#return (#call choose (: flag true))))");
+    run(&source);
+    run(&source.replace("(: flag true)", "(: flag false)"));
+    let overlapping = source.replace("(#borrow-slice-mut second)", "(#borrow-slice-mut words)");
+    let error = compile(&overlapping)
+        .expect_err("every possible written alias must invalidate overlapping tag facts");
+    assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+}
+
+#[test]
 fn word_reader_forwards_payload_conditions_through_checked_helpers() {
     let source = OPTIONAL_WORD_READER.replace("(#fn main", "(#fn forward (: words (#slice #u64)) #u64 (#return (#call inspect (: words words)))) (#fn main")
         .replace("#call inspect (: words (#borrow-slice words))", "#call forward (: words (#borrow-slice words))");
