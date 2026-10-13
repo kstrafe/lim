@@ -1800,6 +1800,7 @@ impl Declarations {
 
         let mut summaries = HashMap::new();
         let mut word_inputs = HashMap::new();
+        let mut scalar_returns = HashMap::new();
         let mut store_summaries = HashMap::new();
         let mut clear_summaries =
             HashMap::<FunctionId, Vec<crate::typed_body::ParameterLoanSummary>>::new();
@@ -1846,6 +1847,23 @@ impl Declarations {
                 .get_mut(&name)
                 .unwrap()
                 .call_word_input_requirements = Arc::new(needed_inputs);
+            let needed_scalars = self.bodies[&name]
+                .nodes
+                .iter()
+                .filter_map(|node| {
+                    let crate::typed_body::NodeKind::Form {
+                        callee: Some(callee),
+                        ..
+                    } = node.kind
+                    else {
+                        return None;
+                    };
+                    scalar_returns.get(&callee).map(
+                        |facts: &Vec<crate::typed_body::ScalarReturnFact>| (callee, facts.clone()),
+                    )
+                })
+                .collect();
+            self.bodies.get_mut(&name).unwrap().call_scalar_returns = Arc::new(needed_scalars);
             let candidates = crate::word_loans::parameter_candidates(&self.bodies[&name], self);
             self.bodies
                 .get_mut(&name)
@@ -2063,6 +2081,7 @@ impl Declarations {
                 });
             let crate::typed_flow::ParameterSummary {
                 word_inputs: required_inputs,
+                scalar_returns: returned_scalars,
                 returned,
                 stores,
                 mutations,
@@ -2074,6 +2093,7 @@ impl Declarations {
             self.bodies.get_mut(&name).unwrap().word_input_requirements = required_inputs.clone();
             if let Some(id) = self.function_id(&name) {
                 word_inputs.insert(id, required_inputs);
+                scalar_returns.insert(id, returned_scalars);
             }
             if let Some(id) = self.function_id(&name) {
                 self.complete_reference_variant_bounds(
@@ -2280,6 +2300,7 @@ impl Declarations {
         }
         let shared = Arc::new(summaries);
         let shared_word_inputs = Arc::new(word_inputs);
+        let shared_scalar_returns = Arc::new(scalar_returns);
         let shared_stores = Arc::new(store_summaries);
         let shared_variants = Arc::new(store_variants);
         let shared_clears = Arc::new(clear_summaries);
@@ -2291,6 +2312,7 @@ impl Declarations {
         for body in self.bodies.values_mut() {
             body.call_return_origins = shared.clone();
             body.call_word_input_requirements = shared_word_inputs.clone();
+            body.call_scalar_returns = shared_scalar_returns.clone();
             {
                 body.call_store_origins = shared_stores.clone();
                 body.call_store_variants = shared_variants.clone();

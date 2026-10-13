@@ -2176,3 +2176,47 @@ same seven failures, eight ignored tests, and 46.61 seconds, as recorded in
 excluded numeric guards and truncation. Constructor-return scalar metadata and
 interprocedural scalar stores/mutation precision remain missing; no broader
 async completion or failure reduction is claimed by this step.
+
+Scalar return summaries now retain only finite numeric fields present on every
+reachable return. Values are unioned across those returns; an opaque or missing
+field removes the guarantee. Summaries propagate in dependency order and are
+serialized with declaration-aware projections in cache format 28. A call's
+result snapshot is separate from live memory: calls still invalidate current
+storage facts, and user clone results are unknown rather than copies of the
+source's pre-hook fields. Round-trip tests cover constant constructors,
+multiple numeric returns, and a branch with an unknown field.
+
+Entry partitioning also handles owned parameters and copies into local frame
+state. Such guards inspect the evaluated owned argument, not a pointee loan.
+Forwarding composes projections relative to the new formal parameter. Native
+regressions cover constructor and forwarded-constructor PC0 entries, rejected
+PC1 constructors, owned frame entries, and clone hooks changing PC0 to PC1.
+A nested same-shaped-field regression passes the selected initial frame through
+two projected wrappers while leaving PC1 decoys alongside it; swapping the
+selected and decoy values correctly rejects. A review warning about projection
+coordinates was withdrawn after checking the formal parameter rebasing; this
+test now protects that boundary. Known constant scalar calls can now exclude
+unreachable readers, so their safe case executes while the return-0 case still
+rejects missing backing loans.
+
+Current-source verification: /tmp/lim-scalar-return-gates-final.log has all 107
+focused integration passes, /tmp/lim-scalar-return-codec-final.log has six codec
+unit passes, and /tmp/lim-scalar-return-check-final.log passes all-target checks.
+The full library at /tmp/lim-scalar-return-library.log has 1432 passes, four
+failures, eight ignored tests, and took 76.94 seconds. Computed projected clones,
+reused computed reference owners, and the native manifest now pass. The four
+remaining library failures are aggregate returned children, nested exclusive
+storage, returned shared-reference holders, and the guard-alias diagnostic.
+The first three still report missing actual word input loans; the last now
+reveals an ordinary-reference-to-permanent-pin error in generated code.
+
+Broader focused async evidence is not green: contiguous storage has 14 passes
+and three failures at /tmp/lim-scalar-return-async-focused.log; dependent
+cancellation has 11 passes and three failures at
+/tmp/lim-scalar-return-dependent.log. All six failures report generated code
+attempting a permanent pin through an ordinary task reference. The combined
+test command stopped at the first failing target, so the dependency target was
+run separately. These are concrete next emitter/projection obligations, not
+external blockers. The remaining whole async matrix has not been claimed
+fixed, and no test or safety rule was weakened to hide these failures. The
+active goal and deferred uncommitted HTML deliverable remain unchanged.

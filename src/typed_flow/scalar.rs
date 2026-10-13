@@ -25,6 +25,27 @@ pub(super) struct Analysis {
 }
 
 impl Analysis {
+    pub(super) fn unsigned_value_before(
+        &self,
+        event: FlowNodeId,
+        body: &Body,
+        value: NodeId,
+        path: &[Segment],
+    ) -> Option<Vec<u128>> {
+        let facts = self.before.get(event.0)?.as_ref()?;
+        let shape = snapshot(facts, body, value);
+        let values = shape.get(path)?;
+        if values.is_empty() {
+            return None;
+        }
+        values
+            .iter()
+            .map(|value| match value {
+                crate::Expr::UnsignedInteger(value) => Some(*value),
+                _ => None,
+            })
+            .collect()
+    }
     pub(super) fn unsigned_before(&self, event: FlowNodeId, place: &Place) -> Option<Vec<u128>> {
         let values = self.before.get(event.0)?.as_ref()?.memory.get(place)?;
         if values.is_empty() {
@@ -66,12 +87,11 @@ pub(super) fn entry_partition(
         let Some(crate::Expr::UnsignedInteger(number)) = scalar_pattern_value(body, pattern) else {
             continue;
         };
-        let Some(place) = read_place(body, origins, FlowNodeId(index), value) else {
+        let Some(place) = read_place(body, origins, FlowNodeId(index), value)
+            .and_then(|place| entry_parameter_place(flow, body, place))
+        else {
             continue;
         };
-        if !matches!(place.root, PlaceRoot::Parameter(_)) {
-            continue;
-        }
         if selected.is_none() {
             selected = Some((place.clone(), Vec::new()));
         }
@@ -84,6 +104,40 @@ pub(super) fn entry_partition(
         }
     }
     selected
+}
+
+fn entry_parameter_place(flow: &FlowGraph, body: &Body, mut place: Place) -> Option<Place> {
+    for _ in 0..=body.bindings.len() {
+        match place.root {
+            PlaceRoot::Parameter(_) => return Some(place),
+            PlaceRoot::Local(binding)
+                if binding.0 < body.parameter_count
+                    && !matches!(
+                        body.bindings[binding.0].ty,
+                        Type::Reference { .. } | Type::PinnedReference { .. }
+                    ) =>
+            {
+                return Some(place);
+            }
+            PlaceRoot::Local(binding) => {
+                let mut sources = flow.nodes.iter().filter_map(|node| match node.action {
+                    FlowAction::Bind {
+                        binding: bound,
+                        value,
+                    } if bound == binding => Place::from_expression(body, value),
+                    _ => None,
+                });
+                let mut source = sources.next()?;
+                if sources.next().is_some() {
+                    return None;
+                }
+                source.segments.extend(place.segments);
+                place = source;
+            }
+            _ => return None,
+        }
+    }
+    None
 }
 
 fn join_values(held: &mut Values, incoming: &Values) -> bool {
@@ -166,6 +220,30 @@ fn evaluate(
 ) -> Shape {
     if let Some(literal) = scalar_pattern_value(body, value) {
         return HashMap::from([(Vec::new(), vec![literal])]);
+    }
+    if let NodeKind::Form {
+        callee: Some(callee),
+        ..
+    } = &body.nodes[value.0].kind
+    {
+        return body
+            .call_scalar_returns
+            .get(callee)
+            .map(|facts| {
+                facts
+                    .iter()
+                    .map(|fact| {
+                        (
+                            fact.storage.clone(),
+                            fact.values
+                                .iter()
+                                .map(|value| crate::Expr::UnsignedInteger(*value))
+                                .collect(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
     }
     if let Some(place) = Place::from_expression(body, value) {
         if reads_through_reference(body, value) {
@@ -340,7 +418,13 @@ fn transfer(
         FlowAction::Evaluate(value)
         | FlowAction::Read { value, .. }
         | FlowAction::Clone { value, .. } => {
-            let shape = evaluate(&facts, body, origins, event, *value);
+            // A user clone hook can return different numeric fields. An
+            // unknown hook result is not the source's pre-hook snapshot.
+            let shape = if matches!(flow.nodes[event.0].action, FlowAction::Clone { .. }) {
+                Shape::new()
+            } else {
+                evaluate(&facts, body, origins, event, *value)
+            };
             facts.values.remove(value);
             facts.reads.remove(value);
             if let Some(place) = read_place(body, origins, event, *value) {
@@ -430,6 +514,55 @@ pub(super) fn analyze_for_contract(
     origins: &FlowLoanOrigins,
 ) -> Analysis {
     analyze_impl(flow, body, origins, HashMap::new(), true)
+}
+
+/// Intersect fields across all reaching returns, and union finite values for
+/// fields present on every return. Missing/opaque values remove a guarantee.
+pub(super) fn returned(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+) -> Vec<crate::typed_body::ScalarReturnFact> {
+    let analysis = origins
+        .scalars
+        .get_or_init(|| analyze_for_contract(flow, body, origins));
+    let mut common: Option<Shape> = None;
+    for (index, node) in flow.nodes.iter().enumerate() {
+        let FlowAction::Return(value) = node.action else {
+            continue;
+        };
+        let Some(facts) = &analysis.before[index] else {
+            continue;
+        };
+        let shape = value
+            .map(|value| snapshot(facts, body, value))
+            .unwrap_or_default();
+        if let Some(held) = &mut common {
+            join_map(held, &shape);
+        } else {
+            common = Some(shape);
+        }
+    }
+    let mut result = common
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(storage, values)| {
+            if values.is_empty() {
+                return None;
+            }
+            let mut values: Vec<u128> = values
+                .into_iter()
+                .map(|value| match value {
+                    crate::Expr::UnsignedInteger(value) => Some(value),
+                    _ => None,
+                })
+                .collect::<Option<_>>()?;
+            values.sort_unstable();
+            Some(crate::typed_body::ScalarReturnFact { storage, values })
+        })
+        .collect::<Vec<_>>();
+    result.sort_by(|a, b| a.storage.cmp(&b.storage));
+    result
 }
 
 fn analyze_with_entry(

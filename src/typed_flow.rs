@@ -2205,6 +2205,7 @@ pub(crate) type VariantBounds = HashMap<Vec<Segment>, HashSet<VariantId>>;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ParameterSummary {
     pub word_inputs: Vec<crate::typed_body::WordInputRequirement>,
+    pub scalar_returns: Vec<crate::typed_body::ScalarReturnFact>,
     pub returned: Vec<crate::typed_body::ParameterLoanSummary>,
     pub stores: Vec<crate::typed_body::ParameterStoreSummary>,
     pub mutations: Option<Vec<crate::typed_body::ParameterLoanSummary>>,
@@ -4970,8 +4971,10 @@ impl FlowGraph {
         let Some((place, values)) = scalar::entry_partition(self, body, &origins) else {
             return unconditional;
         };
-        let PlaceRoot::Parameter(parameter) = place.root else {
-            return unconditional;
+        let (parameter, by_value) = match place.root {
+            PlaceRoot::Parameter(parameter) => (parameter, false),
+            PlaceRoot::Local(parameter) if parameter.0 < body.parameter_count => (parameter, true),
+            _ => return unconditional,
         };
         let address = crate::typed_body::ParameterLoanSummary {
             fresh_allocation: None,
@@ -5000,6 +5003,7 @@ impl FlowGraph {
                     .scalar_guards
                     .push(crate::typed_body::WordScalarGuard {
                         address: address.clone(),
+                        by_value,
                         values: vec![*value],
                         excluded: false,
                     });
@@ -5015,6 +5019,7 @@ impl FlowGraph {
                 .scalar_guards
                 .push(crate::typed_body::WordScalarGuard {
                     address: address.clone(),
+                    by_value,
                     values: values.clone(),
                     excluded: true,
                 });
@@ -5120,6 +5125,7 @@ impl FlowGraph {
             }
         }
         ParameterSummary {
+            scalar_returns: scalar::returned(self, body, &origins),
             word_inputs: if contents {
                 body.word_input_requirements.clone()
             } else {
@@ -13402,6 +13408,36 @@ fn forward_word_scalar_guards(
         let Some(argument) = children.get(guard.address.parameter + 1) else {
             continue;
         };
+        if guard.by_value {
+            let Some(place) = Place::from_expression(body, *argument) else {
+                continue;
+            };
+            let PlaceRoot::Local(binding) = place.root else {
+                continue;
+            };
+            if binding.0 >= body.parameter_count
+                || matches!(
+                    body.bindings[binding.0].ty,
+                    Type::Reference { .. } | Type::PinnedReference { .. }
+                )
+                || place.segments.contains(&Segment::Dereference)
+            {
+                continue;
+            }
+            let mut address = guard.address.clone();
+            address.parameter = binding.0;
+            address.referent_projection = place.segments;
+            address
+                .referent_projection
+                .extend(guard.address.referent_projection.iter().cloned());
+            result.push(crate::typed_body::WordScalarGuard {
+                address,
+                by_value: true,
+                values: guard.values.clone(),
+                excluded: guard.excluded,
+            });
+            continue;
+        }
         let boundary = guard
             .address
             .input_storage
@@ -13440,6 +13476,7 @@ fn forward_word_scalar_guards(
         address.reborrow = false;
         result.push(crate::typed_body::WordScalarGuard {
             address,
+            by_value: false,
             values: guard.values.clone(),
             excluded: guard.excluded,
         });
@@ -13471,6 +13508,15 @@ fn scalar_word_requirement_inactive(
         let Some(argument) = children.get(guard.address.parameter + 1) else {
             return false;
         };
+        if guard.by_value {
+            return facts
+                .unsigned_value_before(event, body, *argument, &guard.address.referent_projection)
+                .is_some_and(|values| {
+                    values
+                        .iter()
+                        .all(|value| guard.values.contains(value) == guard.excluded)
+                });
+        }
         let boundary = guard
             .address
             .input_storage

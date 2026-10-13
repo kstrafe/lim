@@ -1201,9 +1201,19 @@ pub(crate) struct WordTagGuard {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct ScalarReturnFact {
+    pub storage: Vec<crate::typed_place::Segment>,
+    pub values: Vec<u128>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct WordScalarGuard {
-    /// Entry address, not the value of this address after a callee writes it.
+    /// Relative to this function's formal parameter, never a later callee's
+    /// selector. For by-value arguments the projection selects a value field;
+    /// otherwise it selects a physical pointee address at function entry.
     pub address: ParameterLoanSummary,
+    /// An owned argument's evaluated field, rather than a pointee address.
+    pub by_value: bool,
     pub values: Vec<u128>,
     /// False means one of `values`; true means every other unsigned value.
     pub excluded: bool,
@@ -1334,6 +1344,7 @@ pub(crate) struct Body {
         Arc<HashMap<crate::typed_ir::FunctionId, crate::typed_flow::VariantBounds>>,
     /// Interprocedural return-origin summaries shared by all checked bodies.
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
+    pub call_scalar_returns: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ScalarReturnFact>>>,
     /// Mandatory reference slots of real checked callees' owned returns.
     /// Used only to exclude impossible tagged outputs, not to invent loans.
     pub call_return_reference_slots:

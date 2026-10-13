@@ -20,7 +20,7 @@ use crate::{
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v27\0";
+const MAGIC: &[u8] = b"lim-semantic-v28\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -541,9 +541,11 @@ record_codec!(
     variants
 );
 record_codec!(WordTagGuard, address, variant);
+record_codec!(crate::typed_body::ScalarReturnFact, storage, values);
 record_codec!(
     crate::typed_body::WordScalarGuard,
     address,
+    by_value,
     values,
     excluded
 );
@@ -557,6 +559,7 @@ record_codec!(
 record_codec!(
     ParameterSummary,
     word_inputs,
+    scalar_returns,
     returned,
     stores,
     mutations,
@@ -589,11 +592,13 @@ mod tests {
             scalar_guards: vec![
                 crate::typed_body::WordScalarGuard {
                     address: loan.clone(),
+                    by_value: false,
                     values: vec![0, u128::MAX],
                     excluded: false,
                 },
                 crate::typed_body::WordScalarGuard {
                     address: loan,
+                    by_value: true,
                     values: vec![1],
                     excluded: true,
                 },
@@ -623,14 +628,41 @@ mod tests {
             (#deref-set slot value) (#return ()))
           (#fn project (: slot (#ref-mut (#ref-mut #u64))) (#ref-mut #u64)
             (#return (#borrow-mut (#deref (#deref slot)))))
+          (#struct Counter (: pc #u64))
+          (#fn make () Counter (#return (#struct-literal Counter (: pc 0u64))))
+          (#fn bounded (: flag #bool) Counter
+            (#if flag
+              (#block (#return (#struct-literal Counter (: pc 0u64))) (#unreachable))
+              (#block (#return (#struct-literal Counter (: pc 1u64))) (#unreachable)))
+            (#return (#unreachable)))
+          (#fn unknown (: flag #bool : pc #u64) Counter
+            (#if flag
+              (#block (#return (#struct-literal Counter (: pc 0u64))) (#unreachable))
+              (#block (#return (#struct-literal Counter (: pc pc))) (#unreachable)))
+            (#return (#unreachable)))
           (#fn main () #u64 (#return 42u64))",
         );
-        for name in ["choose", "set", "project", "main"] {
+        for name in [
+            "choose", "set", "project", "make", "bounded", "unknown", "main",
+        ] {
             for mode in [false, true] {
                 d.bodies.get_mut(name).unwrap().staged_parameter_contents = mode;
                 let facts = d.flows[name].parameter_summary(&d.bodies[name], mode);
                 if name == "project" {
                     assert!(facts.returned.iter().any(|loan| loan.reborrow));
+                }
+                if name == "make" || name == "bounded" {
+                    assert_eq!(facts.scalar_returns.len(), 1);
+                    assert_eq!(
+                        facts.scalar_returns[0].values,
+                        if name == "make" { vec![0] } else { vec![0, 1] }
+                    );
+                }
+                if name == "unknown" {
+                    assert!(
+                        facts.scalar_returns.is_empty(),
+                        "one unknown return must remove the whole field guarantee"
+                    );
                 }
                 let mut bytes = Vec::new();
                 facts.write(&mut bytes, &d);

@@ -71,9 +71,11 @@ fn scalar_dispatch_does_not_require_loans_from_proven_unreachable_readers() {
           (#case 1 42u64) (#case _ 0u64)))
         (#forget words) (#return result))";
     run(source);
+    let called_selector = source.replace("#u64 1u64)", "#u64 (#call number ()))");
+    run(&called_selector);
     for invalid in [
         source.replace("#u64 1u64)", "#u64 0u64)"),
-        source.replace("#u64 1u64)", "#u64 (#call number ()))"),
+        called_selector.replace("(#return 1u64)", "(#return 0u64)"),
         source.replace(
             "(#let result #u64",
             "(#deref-set (#borrow-mut selector) 0u64) (#let result #u64",
@@ -208,6 +210,105 @@ fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
     assert_eq!(error.code, DiagnosticCode::Linear);
     let initial_entry = source.replace(": pc 1u64", ": pc 0u64");
     run(&initial_entry);
+    let (owned_prefix, owned_main) = initial_entry.split_once("(#fn main").unwrap();
+    let owned_prefix = owned_prefix
+        .replace(
+            "(: frame (#ref-mut Frame)) #u64",
+            "(: frame Frame) #u64 (#let-mut state Frame frame)",
+        )
+        .replace("(#get frame", "(#get state")
+        .replace("(#return answer)", "(#forget state) (#return answer)")
+        .replace("(#return 0u64)", "(#forget state) (#return 0u64)");
+    let owned_main = owned_main
+        .replace("(: frame (#borrow-mut frame))", "(: frame frame)")
+        .replace("(#forget frame)", "");
+    let owned_entry = format!("{owned_prefix}(#fn main{owned_main}");
+    run(&owned_entry);
+    assert_eq!(
+        compile(&owned_entry.replace(": pc 0u64", ": pc 1u64"))
+            .expect_err("owned resume entries require the same real backing loans")
+            .code,
+        DiagnosticCode::Linear
+    );
+    let projected_wrapper = "(#struct Pair (: inner Frame : decoy Frame))
+      (#struct Nest (: selected Pair : decoy Pair))
+      (#fn from-pair (: root Pair) #u64
+        (#let answer #u64 (#call work (: frame (#get root inner))))
+        (#forget root) (#return answer))
+      (#fn from-nest (: root Nest) #u64
+        (#let answer #u64 (#call from-pair (: root (#get root selected))))
+        (#forget root) (#return answer))";
+    let selected = "(#struct-literal Frame
+      (: pc 0u64 : source (#borrow value) : words (#array-repeat 0u64)))";
+    let resumed = selected.replace(": pc 0u64", ": pc 1u64");
+    let pair = format!("(#struct-literal Pair (: inner {selected} : decoy {resumed}))");
+    let opposite = format!("(#struct-literal Pair (: inner {resumed} : decoy {selected}))");
+    let nested_main = format!(
+        "(#fn main () #u64
+      (#let value #u64 42u64)
+      (#return (#call from-nest (: root (#struct-literal Nest
+        (: selected {pair} : decoy {opposite}))))))"
+    );
+    run(&format!("{owned_prefix}{projected_wrapper}{nested_main}"));
+    let bad_nested_main = nested_main.replace(
+        &format!(": selected {pair} : decoy {opposite}"),
+        &format!(": selected {opposite} : decoy {pair}"),
+    );
+    assert_ne!(bad_nested_main, nested_main);
+    assert_eq!(
+        compile(&format!(
+            "{owned_prefix}{projected_wrapper}{bad_nested_main}"
+        ))
+        .expect_err("a nested decoy selector cannot waive the selected frame's obligation")
+        .code,
+        DiagnosticCode::Linear
+    );
+    let constructor = "(#fn make-frame (: source (#ref #u64)) Frame
+      (#return (#struct-literal Frame
+        (: pc 0u64 : source source : words (#array-repeat 0u64)))))";
+    let constructed = initial_entry.replace(
+        "(#struct-literal Frame\n          (: pc 0u64 : source (#borrow value) : words (#array-repeat 0u64)))",
+        "(#call make-frame (: source (#borrow value)))",
+    );
+    assert_ne!(constructed, initial_entry);
+    run(&format!("{constructor}\n{constructed}"));
+    let resumed_constructor = constructor.replace(": pc 0u64", ": pc 1u64");
+    assert_eq!(
+        compile(&format!("{resumed_constructor}\n{constructed}"))
+            .expect_err("returned numeric facts must reflect the actual constructor")
+            .code,
+        DiagnosticCode::Linear
+    );
+    let forwarded_constructor = "(#fn make-forward (: source (#ref #u64)) Frame
+      (#return (#call make-frame (: source source))))";
+    run(&format!(
+        "{constructor}\n{forwarded_constructor}\n{}",
+        constructed.replace("(#call make-frame", "(#call make-forward")
+    ));
+    let clone_hook = "(#fn Frame-clone (: source Frame) Frame
+      (#let owner (#ref #u64) (#get source source)) (#forget source)
+      (#return (#struct-literal Frame
+        (: pc 1u64 : source owner : words (#array-repeat 0u64)))))";
+    let cloned_entry = initial_entry
+        .replace(
+            "(#let answer #u64 (#call work",
+            "(#let-mut clone Frame (#clone frame))
+        (#let answer #u64 (#call work",
+        )
+        .replace(
+            "(: frame (#borrow-mut frame))))",
+            "(: frame (#borrow-mut clone))))",
+        )
+        .replace(
+            "(#forget frame) (#return answer)",
+            "(#forget clone) (#forget frame) (#return answer)",
+        );
+    assert_eq!(
+        compile(&format!("{clone_hook}\n{cloned_entry}"))
+            .expect_err("a clone hook result does not retain the source's numeric selector")
+            .code,
+        DiagnosticCode::Linear
+    );
     let changed_entry = initial_entry.replace(
         "(#let answer #u64 (#call work",
         "(#deref-set (#borrow-mut (#get frame pc)) 1u64)
