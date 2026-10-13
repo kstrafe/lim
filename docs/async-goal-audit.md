@@ -2075,3 +2075,36 @@ checks pass. No broad async failure has been claimed fixed. The actual next
 step is entry-conditioned contract analysis and propagation of real scalar
 construction/store summaries, not treating a seed or a discriminator as
 permission to read an absent loan. The goal remains active and incomplete.
+
+Scalar case edges now refine captured scrutinees. Successful literal cases
+establish that exact value; failed cases remove it only from an existing finite
+bound, while unknown failure bounds stay unknown. Refinement reaches physical
+memory only when a singleton resolved read remains fresh on every incoming
+path. Overlapping writes invalidate freshness without changing old snapshots;
+calls, clones and opaque writes invalidate all live memory/freshness. The
+solver activates edges as loop facts widen and prunes only after convergence.
+Analysis that did not run cannot report an event as unreachable.
+
+Three additional unit cases cover fresh parameter reads after a selected case,
+guard mutation, multiple physical referents, and later loop cases becoming
+reachable. A native regression proves a nested word reader unreachable from
+a selected parameter case; selecting the reader or writing the selector first
+still rejects missing provenance. The eight scalar module tests pass at
+/tmp/lim-scalar-refinement-unit.log. Existing focused tests have 105 passes at
+/tmp/lim-scalar-refinement-gates.log, and the new native case passes separately
+at /tmp/lim-scalar-refinement-native.log. The complete library has 1430 passes,
+the same two failures and eight ignored tests, in 60.79 seconds, at
+/tmp/lim-scalar-refinement-library.log. Semantic cache version is now 25.
+
+Do not reuse call_preserves_variant_tags as scalar purity: preserves_variant_tags
+explicitly permits writes_only_scalar_storage. A known enum discriminator is
+not evidence that an integer PC survives a call. The existing tag-mutation
+substitution can also skip these callees, so numeric-state propagation needs
+its own complete physical mutation proof.
+
+The main async contract work remains incomplete. Knowing entry PC0 cannot
+globally remove a resume PC1 case if the function writes PC1 and loops into it.
+Likewise, a current-PC case condition cannot be substituted for an entry-PC
+condition after writes. The remaining analysis must preserve the correlation
+between phase and real stored loans across those transitions, including callee
+effects; neither a discriminator nor an entry seed supplies a missing loan.

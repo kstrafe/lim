@@ -147,6 +147,41 @@ fn clone_hook_writes_cannot_leave_stale_scalar_reader_bounds() {
     run(&valid);
 }
 
+#[test]
+fn selected_parameter_cases_exclude_only_fresh_nested_word_readers() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Frame (: selector #u64 : words (#array #u64 1)))
+      (#fn read (: frame (#ref-mut Frame)) #u64
+        (#return (#match (#get frame selector)
+          (#case 1 (#block
+            (#let answer #u64 (#match (#get frame selector)
+              (#case 0 (#block
+                (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice (#get frame words)))))
+                (#let value #u64 (#deref (#get holder value)))
+                (#forget holder) value))
+              (#case _ 42u64))) answer))
+          (#case _ 0u64))))
+      (#fn main () #u64
+        (#let-mut frame Frame (#struct-literal Frame
+          (: selector 1u64 : words (#array-repeat 0u64))))
+        (#let answer #u64 (#call read (: frame (#borrow-mut frame))))
+        (#forget frame) (#return answer))";
+    run(source);
+    for reachable in [
+        source.replace("(#case 0 (#block", "(#case 1 (#block"),
+        source.replace(
+            "(#let answer #u64 (#match",
+            "(#deref-set (#borrow-mut (#get frame selector)) 0u64)
+            (#let answer #u64 (#match",
+        ),
+    ] {
+        let error = compile(&reachable).expect_err(
+            "the nested reader needs a loan if selected or reached after a selector write",
+        );
+        assert_eq!(error.code, DiagnosticCode::Linear);
+    }
+}
+
 fn run(source: &str) {
     let assembly = compile(source).unwrap();
     let scratch = support::Scratch::new("word-storage-native");

@@ -11,14 +11,21 @@ struct Facts {
     // Evaluated values are snapshots: a later write must not change a match's
     // already evaluated scrutinee. Each evaluation replaces its own snapshot.
     values: HashMap<NodeId, Shape>,
+    // A captured value constrains live memory only while its physical read
+    // remains fresh on every reaching path. Snapshots survive invalidation.
+    reads: HashMap<NodeId, Place>,
 }
 
 pub(super) struct Analysis {
     before: Vec<Option<Facts>>,
+    active: bool,
 }
 
 impl Analysis {
     pub(super) fn excludes(&self, event: FlowNodeId, value: NodeId, wanted: &crate::Expr) -> bool {
+        if self.active && self.before[event.0].is_none() {
+            return true;
+        }
         self.before[event.0]
             .as_ref()
             .and_then(|facts| facts.values.get(&value))
@@ -58,6 +65,8 @@ fn join(held: &mut Facts, incoming: &Facts) -> bool {
             false
         }
     });
+    held.reads
+        .retain(|node, place| incoming.reads.get(node) == Some(place));
     *held != previous
 }
 
@@ -155,6 +164,7 @@ fn evaluate(
 
 fn write(facts: &mut Facts, place: &Place, incoming: Shape) {
     facts.memory.retain(|source, _| !place.overlaps(source));
+    facts.reads.retain(|_, source| !place.overlaps(source));
     if place
         .segments
         .iter()
@@ -167,6 +177,104 @@ fn write(facts: &mut Facts, place: &Place, incoming: Shape) {
         destination.segments.extend(path);
         facts.memory.insert(destination, values);
     }
+}
+
+fn read_place(
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    value: NodeId,
+) -> Option<Place> {
+    let place = Place::from_expression(body, value)?;
+    let places = if reads_through_reference(body, value) {
+        physical_write_places(body, origins, event, &place)?
+    } else {
+        vec![place]
+    };
+    if places.len() != 1
+        || !matches!(
+            places[0].root,
+            PlaceRoot::Local(_) | PlaceRoot::Parameter(_)
+        )
+        || places[0].segments.iter().any(|part| {
+            matches!(
+                part,
+                Segment::DynamicIndex | Segment::SliceDynamicIndex | Segment::SliceRangeUnknown
+            )
+        })
+    {
+        return None;
+    }
+    Some(places[0].clone())
+}
+
+fn invalidate(facts: &mut Facts) {
+    facts.memory.clear();
+    facts.reads.clear();
+}
+
+/// Narrow a copied scrutinee, not a newly evaluated read. A guard may have
+/// changed the original variable; only a still-fresh singleton address can
+/// receive the same refinement. Missing bounds on failure stay unknown.
+fn constrain(facts: &mut Facts, value: NodeId, wanted: &crate::Expr, success: bool) -> bool {
+    let known = facts
+        .values
+        .get(&value)
+        .and_then(|shape| shape.get(&Vec::new()));
+    let narrowed = if success {
+        if known.is_some_and(|values| !values.contains(wanted)) {
+            return false;
+        }
+        Some(vec![wanted.clone()])
+    } else if let Some(values) = known {
+        let possible = values
+            .iter()
+            .filter(|value| *value != wanted)
+            .cloned()
+            .collect::<Vec<_>>();
+        if possible.is_empty() {
+            return false;
+        }
+        Some(possible)
+    } else {
+        None
+    };
+    if let Some(values) = narrowed {
+        facts
+            .values
+            .entry(value)
+            .or_default()
+            .insert(Vec::new(), values.clone());
+        if let Some(place) = facts.reads.get(&value) {
+            facts.memory.insert(place.clone(), values);
+        }
+    }
+    true
+}
+
+fn edge_facts(
+    flow: &FlowGraph,
+    body: &Body,
+    event: FlowNodeId,
+    edge: usize,
+    mut facts: Facts,
+) -> Option<Facts> {
+    if let FlowAction::Branch(pattern) = flow.nodes[event.0].action {
+        if let Some(wanted) = scalar_pattern_value(body, pattern) {
+            if let Some(success) = flow.nodes[event.0].successors.first() {
+                if let FlowAction::Pattern {
+                    pattern: selected,
+                    value,
+                } = flow.nodes[success.0].action
+                {
+                    if selected == pattern && !constrain(&mut facts, value, &wanted, edge == 0) {
+                        return None;
+                    }
+                }
+            }
+        }
+    }
+    Some(facts)
 }
 
 pub(super) fn analyze(flow: &FlowGraph, body: &Body, origins: &FlowLoanOrigins) -> Analysis {
@@ -184,7 +292,10 @@ fn analyze_with_entry(
         matches!(node.action,
         FlowAction::Pattern { pattern, .. } if scalar_pattern_value(body, pattern).is_some())
     }) {
-        return Analysis { before };
+        return Analysis {
+            before,
+            active: false,
+        };
     }
     before[flow.entry.0] = Some(Facts {
         memory,
@@ -202,6 +313,10 @@ fn analyze_with_entry(
             | FlowAction::Clone { value, .. } => {
                 let shape = evaluate(&facts, body, origins, event, *value);
                 facts.values.remove(value);
+                facts.reads.remove(value);
+                if let Some(place) = read_place(body, origins, event, *value) {
+                    facts.reads.insert(*value, place);
+                }
                 if !shape.is_empty() {
                     facts.values.insert(*value, shape);
                 }
@@ -216,7 +331,7 @@ fn analyze_with_entry(
                         if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read" | "word-write" | "pin-write" | "pin-set-field" | "deref-set")
                             || head.starts_with("atomic-"))
                 {
-                    facts.memory.clear();
+                    invalidate(&mut facts);
                 }
                 // word-take/word-forget retire loan metadata, not bytes.
                 // This analysis never tracks their typed restored contents.
@@ -235,7 +350,7 @@ fn analyze_with_entry(
                     if matches!(body.bindings[binding.0].ty, Type::Reference { .. } | Type::PinnedReference { .. }))
                     || place.segments.contains(&Segment::Dereference)
                 {
-                    facts.memory.clear();
+                    invalidate(&mut facts);
                 } else {
                     write(&mut facts, place, incoming);
                 }
@@ -259,27 +374,32 @@ fn analyze_with_entry(
                         let incoming = snapshot(&facts, body, *source);
                         write(&mut facts, &targets[0], incoming);
                     } else {
-                        facts.memory.clear();
+                        invalidate(&mut facts);
                     }
                 } else {
-                    facts.memory.clear();
+                    invalidate(&mut facts);
                 }
             }
             FlowAction::Release { place, .. } => {
                 facts.memory.retain(|source, _| !place.overlaps(source));
+                facts.reads.retain(|_, source| !place.overlaps(source));
             }
             FlowAction::ScopeExit(bindings) => {
                 facts.memory.retain(|place, _| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
+                facts.reads.retain(|_, place| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
             }
             _ => {}
         }
         // Solve the restored graph before pruning. A loop can widen an early
         // constant to unknown; early observations must not erase its backedge.
-        for next in &flow.nodes[event.0].successors {
+        for (edge, next) in flow.nodes[event.0].successors.iter().enumerate() {
+            let Some(incoming) = edge_facts(flow, body, event, edge, facts.clone()) else {
+                continue;
+            };
             let changed = if let Some(held) = &mut before[next.0] {
-                join(held, &facts)
+                join(held, &incoming)
             } else {
-                before[next.0] = Some(facts.clone());
+                before[next.0] = Some(incoming);
                 true
             };
             if changed && !queued[next.0] {
@@ -288,7 +408,10 @@ fn analyze_with_entry(
             }
         }
     }
-    Analysis { before }
+    Analysis {
+        before,
+        active: true,
+    }
 }
 
 #[cfg(test)]
@@ -316,6 +439,54 @@ mod tests {
             .collect::<Vec<_>>();
         result.sort_unstable();
         result
+    }
+
+    #[test]
+    fn selected_patterns_refine_fresh_parameter_reads_only() {
+        let source = "(#struct State (: pc #u64))
+          (#fn work (: view (#ref-mut State)) #u64
+            (#return (#match (#get view pc)
+              (#case 1 (#match (#get view pc) (#case 0 0u64) (#case _ 42u64)))
+              (#case _ 0u64))))";
+        assert_eq!(pruned(source), vec![0]);
+        let mutated = "(#struct State (: pc #u64))
+          (#fn work (: view (#ref-mut State)) #u64
+            (#return (#match (#get view pc)
+              (#case 1 (#when (#block
+                (#deref-set view (#struct-literal State (: pc 0u64))) true))
+                (#match (#get view pc) (#case 0 42u64) (#case 1 0u64) (#case _ 0u64)))
+              (#case _ 0u64))))";
+        assert_eq!(
+            pruned(mutated),
+            vec![1],
+            "a guard write invalidates the old physical-read refinement"
+        );
+    }
+
+    #[test]
+    fn a_selected_alias_does_not_refine_every_possible_referent() {
+        let source = "(#struct State (: pc #u64))
+          (#fn work (: condition #bool) #u64
+            (#let left State (#struct-literal State (: pc 0u64)))
+            (#let right State (#struct-literal State (: pc 1u64)))
+            (#let view (#ref State) (#if condition (#borrow left) (#borrow right)))
+            (#return (#match (#get view pc)
+              (#case 1 (#match (#get left pc) (#case 0 42u64) (#case 1 0u64) (#case _ 0u64)))
+              (#case _ 0u64))))";
+        assert_eq!(pruned(source), vec![1]);
+    }
+
+    #[test]
+    fn loop_widening_activates_later_pattern_edges_before_pruning() {
+        let source = "(#fn work (: condition #bool) #u64
+          (#let-mut selector #u64 0u64)
+          (#while condition (#match selector
+            (#case 0 (#block (#set selector 1u64) ()))
+            (#case 1 (#block (#set selector 2u64) ()))
+            (#case _ ())))
+          (#return (#match selector (#case 0 40u64) (#case 1 41u64)
+            (#case 2 42u64) (#case 99 0u64) (#case _ 0u64))))";
+        assert_eq!(pruned(source), vec![99]);
     }
 
     #[test]
