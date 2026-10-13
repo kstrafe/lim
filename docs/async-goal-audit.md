@@ -2309,3 +2309,34 @@ committed as a fix. Temporary instrumentation is also removed. The committed
 implementation and cache version remain unchanged from the verified safety
 fix above; this records the next precise proof obligation without claiming it
 has been implemented.
+
+Generic conditional owned-return initialization is now implemented. The proof
+intersects every compatible return context, including unknown scalar states;
+it never creates a pointee witness. Caller validation can use the guarantee
+only for unchanged owned call results with a matching positive scalar guard
+and actual retained loan capabilities. Clone, assembly, atomics, opaque calls,
+borrows, and writes invalidate producer tracing. Direct lexical owned pin-read
+captures retain their pre-read scalar and loan snapshot. Pattern bindings carry
+numeric facts, and residual entry partitions are proved with excluded states
+rather than treating unknown entry as an excluded domain. All metadata is
+analysis-only and serialized in semantic cache schema 33.
+
+Verification: /tmp/lim-conditional-final-scalar.log has 17 scalar unit passes,
+/tmp/lim-conditional-final-codec.log six serialization passes,
+/tmp/lim-conditional-final-gates.log 114 integration passes, and
+/tmp/lim-conditional-final-check.log all-target checking passes. A new native
+fixture accepts initialized state-correlated returns but rejects forged state,
+retired storage, and an uninitialized compatible alternative. The pin-read
+unit also rejects guarantees when an unknown alternative reaches the same
+capture. The focused projected-clone async regression passes in 7.03 seconds
+at /tmp/lim-return-capture-clone-v5.log (the earlier focused log is named
+/tmp/lim-conditional-return-clone-v5.log).
+
+The full library at /tmp/lim-return-capture-library.log has 1434 passes, eight
+failures, eight ignored tests, and took 88.43 seconds, before the last additional
+adversarial scalar unit. This resolves three of the eleven precision failures
+without relaxing initialization. Broader async gates remain failing:
+/tmp/lim-return-capture-async-gates.log records 13 passes/four failures for
+contiguous storage and 11 passes/three failures for dependent cancellation.
+The remaining failures and HTML deliverable are still outstanding. There is
+no external blocker and no completion claim.

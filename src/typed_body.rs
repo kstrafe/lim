@@ -1212,6 +1212,15 @@ pub(crate) struct ScalarReturnFact {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct WordReturnGuarantee {
+    /// Relative to the returned value, not the callee's input parameters.
+    pub condition: ScalarReturnFact,
+    /// A concealed cell initialized on every return compatible with condition.
+    /// This does not supply a pointee or grant borrow permissions.
+    pub storage: Vec<crate::typed_place::Segment>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct WordScalarGuard {
     /// Relative to this function's formal parameter, never a later callee's
     /// selector. For by-value arguments the projection selects a value field;
@@ -1350,6 +1359,7 @@ pub(crate) struct Body {
     /// Interprocedural return-origin summaries shared by all checked bodies.
     pub call_return_origins: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ParameterLoanSummary>>>,
     pub call_scalar_returns: Arc<HashMap<crate::typed_ir::FunctionId, Vec<ScalarReturnFact>>>,
+    pub call_word_returns: Arc<HashMap<crate::typed_ir::FunctionId, Vec<WordReturnGuarantee>>>,
     /// Mandatory reference slots of real checked callees' owned returns.
     /// Used only to exclude impossible tagged outputs, not to invent loans.
     pub call_return_reference_slots:

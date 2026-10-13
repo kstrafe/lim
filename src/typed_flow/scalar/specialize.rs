@@ -231,7 +231,42 @@ pub(in super::super) fn specialize(
     origins: &FlowLoanOrigins,
     entry: &[(Place, crate::Expr)],
 ) -> Option<FlowGraph> {
+    specialize_impl(flow, body, origins, entry, &[])
+}
+
+pub(in super::super) fn specialize_excluding(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    excluding: &[(Place, Values)],
+) -> Option<FlowGraph> {
+    specialize_impl(flow, body, origins, &[], excluding)
+}
+
+fn specialize_impl(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    entry: &[(Place, crate::Expr)],
+    excluding: &[(Place, Values)],
+) -> Option<FlowGraph> {
     let mut memory = HashMap::new();
+    if excluding.iter().any(|(place, values)| {
+        !matches!(place.root, PlaceRoot::Local(_) | PlaceRoot::Parameter(_))
+            || place.segments.iter().any(|part| {
+                matches!(
+                    part,
+                    Segment::DynamicIndex | Segment::SliceDynamicIndex | Segment::SliceRangeUnknown
+                )
+            })
+            || values.is_empty()
+            || values.len() > 16
+            || values
+                .iter()
+                .any(|value| !matches!(value, crate::Expr::UnsignedInteger(_)))
+    }) {
+        return None;
+    }
     for (place, value) in entry {
         if !matches!(place.root, PlaceRoot::Local(_) | PlaceRoot::Parameter(_))
             || place.segments.iter().any(|part| {
@@ -260,6 +295,7 @@ pub(in super::super) fn specialize(
     let initial = Context {
         scalar: Facts {
             memory,
+            excluded_memory: excluding.iter().cloned().collect(),
             ..Facts::default()
         },
         words: HashMap::new(),

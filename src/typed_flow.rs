@@ -2208,6 +2208,7 @@ pub(crate) type VariantBounds = HashMap<Vec<Segment>, HashSet<VariantId>>;
 pub(crate) struct ParameterSummary {
     pub word_inputs: Vec<crate::typed_body::WordInputRequirement>,
     pub scalar_returns: Vec<crate::typed_body::ScalarReturnFact>,
+    pub word_returns: Vec<crate::typed_body::WordReturnGuarantee>,
     pub returned: Vec<crate::typed_body::ParameterLoanSummary>,
     pub stores: Vec<crate::typed_body::ParameterStoreSummary>,
     pub mutations: Option<Vec<crate::typed_body::ParameterLoanSummary>>,
@@ -4178,6 +4179,7 @@ impl FlowGraph {
                             return None;
                         }
                         FlowAction::ScopeExit(locals) if locals.contains(&binding) => return None,
+                        FlowAction::Clone { .. } => return None,
                         FlowAction::Borrow { place, .. } if place.overlaps(&target) => return None,
                         FlowAction::Evaluate(value)
                             if matches!(
@@ -4188,7 +4190,7 @@ impl FlowGraph {
                                 }
                             ) || matches!(&body.nodes[value.0].kind,
                                 NodeKind::Form { head, .. } if matches!(head.as_str(),
-                                    "ptr-write" | "linux-syscall" | "pin-read")) =>
+                                    "ptr-write" | "linux-syscall" | "pin-read" | "asm") || head.starts_with("atomic-")) =>
                         {
                             return None;
                         }
@@ -4851,8 +4853,11 @@ impl FlowGraph {
                         }
                         if let Some(argument) = children.get(input.parameter + 1) {
                             if let Some(actual_state) = actual.before[index].as_ref() {
-                                let supplied = word_input_available(
-                                    actual.value_before(body, self, FlowNodeId(index), *argument),
+                                let supplied = self.word_input_available_from_return(
+                                    body,
+                                    actual,
+                                    FlowNodeId(index),
+                                    *argument,
                                     input,
                                     actual_state,
                                 );
@@ -5021,9 +5026,22 @@ impl FlowGraph {
                 }
             }
         }
-        // Other entry values keep the full unknown-entry requirement. The
-        // residual partition closes the domain, including wildcard cases.
-        for mut input in unconditional {
+        // Prove the residual domain with explicit excluded literals. Unknown
+        // is not equivalent to "not one of the selected entry states".
+        let excluded = values
+            .iter()
+            .copied()
+            .map(crate::Expr::UnsignedInteger)
+            .collect();
+        let Some(residual) =
+            scalar::specialize_excluding(self, body, &origins, &[(place, excluded)])
+        else {
+            return unconditional;
+        };
+        for mut input in residual
+            .parameter_summary_unpartitioned(body, false)
+            .word_inputs
+        {
             input
                 .scalar_guards
                 .push(crate::typed_body::WordScalarGuard {
@@ -5145,8 +5163,21 @@ impl FlowGraph {
                 }
             }
         }
+        let (word_returns, captured_scalars) =
+            scalar::word_and_scalar_return_guarantees(self, body, &origins, contents);
+        let mut scalar_returns = scalar::returned(self, body, &origins);
+        for captured in captured_scalars {
+            if !scalar_returns
+                .iter()
+                .any(|fact| fact.storage == captured.storage)
+            {
+                scalar_returns.push(captured);
+            }
+        }
+        scalar_returns.sort_by(|a, b| a.storage.cmp(&b.storage));
         ParameterSummary {
-            scalar_returns: scalar::returned(self, body, &origins),
+            word_returns,
+            scalar_returns,
             word_inputs: if contents {
                 body.word_input_requirements.clone()
             } else {
@@ -10026,6 +10057,90 @@ impl FlowGraph {
         })
     }
 
+    fn word_input_available_from_return(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        event: FlowNodeId,
+        argument: NodeId,
+        requirement: &crate::typed_body::WordInputRequirement,
+        state: &LoanState,
+    ) -> bool {
+        let mut actual = origins.value_before(body, self, event, argument);
+        if word_input_available(actual.clone(), requirement, state) {
+            return true;
+        }
+        if requirement.unresolved
+            || requirement.input_storage.contains(&Segment::Dereference)
+            || body.call_word_returns.values().all(Vec::is_empty)
+        {
+            return false;
+        }
+        let mut predecessors = vec![Vec::new(); self.nodes.len()];
+        for (index, node) in self.nodes.iter().enumerate() {
+            for successor in &node.successors {
+                predecessors[successor.0].push(FlowNodeId(index));
+            }
+        }
+        // Trace unchanged owned results only. Intervening borrows, writes,
+        // opaque calls, or replacements invalidate the producer's guarantee.
+        let Some(producers) =
+            self.owned_call_result_producers(body, argument, event, &predecessors, true)
+        else {
+            return false;
+        };
+        if producers.is_empty() {
+            return false;
+        }
+        let proved = producers.iter().all(|(call, prefix)| {
+            let NodeKind::Form {
+                callee: Some(callee),
+                ..
+            } = body.nodes[call.0].kind
+            else {
+                return false;
+            };
+            let Some(guarantees) = body.call_word_returns.get(&callee) else {
+                return false;
+            };
+            let storage = prefix
+                .iter()
+                .chain(&requirement.input_storage)
+                .cloned()
+                .collect::<Vec<_>>();
+            guarantees.iter().any(|guarantee| {
+                guarantee.storage == storage
+                    && requirement.scalar_guards.iter().any(|guard| {
+                        guard.by_value
+                            && !guard.excluded
+                            && !guard.values.is_empty()
+                            && guard.address.parameter == requirement.parameter
+                            && guarantee.condition.storage
+                                == prefix
+                                    .iter()
+                                    .chain(&guard.address.referent_projection)
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                            && guard
+                                .values
+                                .iter()
+                                .all(|value| guarantee.condition.values.contains(value))
+                    })
+            })
+        });
+        if !proved {
+            return false;
+        }
+        for loan in &mut actual {
+            if loan.storage == requirement.input_storage {
+                loan.maybe_absent = false;
+            }
+        }
+        // A conditional initialization fact is not a pointee witness. Require
+        // the ordinary actual origins and permissions after proving presence.
+        word_input_available(actual, requirement, state)
+    }
+
     fn check_call_argument_reference_provenance(
         &self,
         body: &Body,
@@ -10075,8 +10190,11 @@ impl FlowGraph {
                     let Some(argument) = children.get(requirement.parameter + 1) else {
                         continue;
                     };
-                    let available = word_input_available(
-                        origins.value_before(body, self, FlowNodeId(index), *argument),
+                    let available = self.word_input_available_from_return(
+                        body,
+                        origins,
+                        FlowNodeId(index),
+                        *argument,
                         requirement,
                         state,
                     );

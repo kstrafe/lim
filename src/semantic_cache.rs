@@ -20,7 +20,7 @@ use crate::{
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v31\0";
+const MAGIC: &[u8] = b"lim-semantic-v33\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -544,6 +544,7 @@ record_codec!(
 );
 record_codec!(WordTagGuard, address, variant);
 record_codec!(crate::typed_body::ScalarReturnFact, storage, values);
+record_codec!(crate::typed_body::WordReturnGuarantee, condition, storage);
 record_codec!(
     crate::typed_body::WordScalarGuard,
     address,
@@ -562,6 +563,7 @@ record_codec!(
     ParameterSummary,
     word_inputs,
     scalar_returns,
+    word_returns,
     returned,
     stores,
     mutations,
@@ -591,6 +593,15 @@ mod tests {
         // lifetime and a definitely initialized concealed word-cell value.
         facts.returned[0].word_stored = true;
         facts.returned[0].maybe_absent = true;
+        facts
+            .word_returns
+            .push(crate::typed_body::WordReturnGuarantee {
+                condition: crate::typed_body::ScalarReturnFact {
+                    storage: vec![crate::typed_place::Segment::Index(7)],
+                    values: vec![1, 2],
+                },
+                storage: vec![crate::typed_place::Segment::Index(0)],
+            });
         let loan = facts.returned[0].clone();
         facts.word_inputs.push(WordInputRequirement {
             loan: loan.clone(),

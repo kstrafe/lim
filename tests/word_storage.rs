@@ -329,6 +329,42 @@ fn conditional_call_effects_cannot_initialize_or_revive_word_loans() {
 }
 
 #[test]
+fn returned_state_guarantees_initialize_only_the_corresponding_owned_cells() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Frame (: state #u64 : words (#array #u64 1)))
+      (#fn make (: value (#ref #u64) : flag #bool) Frame
+        (#let-mut frame Frame (#struct-literal Frame (: state 0u64 : words (#array-repeat 0u64))))
+        (#if flag (#block
+          (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
+            (#struct-literal Holder (: value value))))
+          (#set-field frame state 1u64)) ())
+        (#return frame))
+      (#fn read (: frame Frame) #u64
+        (#loop (#match (#get frame state)
+          (#case 1 (#block
+            (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice (#get frame words)))))
+            (#let answer #u64 (#deref (#get holder value)))
+            (#forget holder) (#forget frame) (#return answer)))
+          (#case _ (#block (#forget frame) (#return 42u64)))))
+        (#return 0u64))
+      (#fn main () #u64
+        (#let value #u64 42u64)
+        (#let-mut frame Frame (#call make (: value (#borrow value) : flag false)))
+        (#return (#call read (: frame frame))))";
+    run(source);
+    run(&source.replace(": flag false", ": flag true"));
+    for invalid in [
+        source.replace("(#return (#call read", "(#set-field frame state 1u64) (#return (#call read"),
+        source.replace("(#return (#call read", "(#unsafe (#word-forget Holder (#borrow-slice-mut (#get frame words)))) (#return (#call read"),
+        source.replace("1u64)) ())", "1u64)) (#block (#set-field frame state 1u64)))"),
+    ] {
+        assert_ne!(invalid, source);
+        let error = compile(&invalid).expect_err("changed or unproved state cannot initialize a word cell");
+        assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+    }
+}
+
+#[test]
 fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
     let source = "(#struct Holder (: value (#ref #u64)))
       (#struct Frame (: pc #u64 : source (#ref #u64) : words (#array #u64 1)))

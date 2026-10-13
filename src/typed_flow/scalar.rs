@@ -3,7 +3,9 @@
 use super::*;
 
 mod specialize;
-pub(super) use specialize::specialize;
+mod word_returns;
+pub(super) use specialize::{specialize, specialize_excluding};
+pub(super) use word_returns::word_and_scalar_return_guarantees;
 
 type Values = Vec<crate::Expr>;
 type Shape = HashMap<Vec<Segment>, Values>;
@@ -11,6 +13,8 @@ type Shape = HashMap<Vec<Segment>, Values>;
 #[derive(Clone, Default, PartialEq)]
 struct Facts {
     memory: HashMap<Place, Values>,
+    excluded_memory: HashMap<Place, Values>,
+    excluded_values: HashMap<NodeId, Values>,
     // Evaluated values are snapshots: a later write must not change a match's
     // already evaluated scrutinee. Each evaluation replaces its own snapshot.
     values: HashMap<NodeId, Shape>,
@@ -162,6 +166,8 @@ fn join_map<K: Eq + std::hash::Hash>(held: &mut HashMap<K, Values>, incoming: &H
 
 fn join(held: &mut Facts, incoming: &Facts) -> bool {
     let previous = held.clone();
+    intersect_exclusions(&mut held.excluded_memory, &incoming.excluded_memory);
+    intersect_exclusions(&mut held.excluded_values, &incoming.excluded_values);
     join_map(&mut held.memory, &incoming.memory);
     held.values.retain(|node, shape| {
         if let Some(other) = incoming.values.get(node) {
@@ -174,6 +180,19 @@ fn join(held: &mut Facts, incoming: &Facts) -> bool {
     held.reads
         .retain(|node, place| incoming.reads.get(node) == Some(place));
     *held != previous
+}
+
+fn intersect_exclusions<K: Eq + std::hash::Hash>(
+    held: &mut HashMap<K, Values>,
+    incoming: &HashMap<K, Values>,
+) {
+    held.retain(|key, values| {
+        let Some(other) = incoming.get(key) else {
+            return false;
+        };
+        values.retain(|value| other.contains(value));
+        !values.is_empty()
+    });
 }
 
 fn stored_shape(facts: &Facts, place: &Place) -> Shape {
@@ -294,6 +313,9 @@ fn evaluate(
 
 fn write(facts: &mut Facts, place: &Place, incoming: Shape) {
     facts.memory.retain(|source, _| !place.overlaps(source));
+    facts
+        .excluded_memory
+        .retain(|source, _| !place.overlaps(source));
     facts.reads.retain(|_, source| !place.overlaps(source));
     if place
         .segments
@@ -340,6 +362,7 @@ fn read_place(
 
 fn invalidate(facts: &mut Facts) {
     facts.memory.clear();
+    facts.excluded_memory.clear();
     facts.reads.clear();
 }
 
@@ -347,6 +370,26 @@ fn invalidate(facts: &mut Facts) {
 /// changed the original variable; only a still-fresh singleton address can
 /// receive the same refinement. Missing bounds on failure stay unknown.
 fn constrain(facts: &mut Facts, value: NodeId, wanted: &crate::Expr, success: bool) -> bool {
+    if success
+        && facts
+            .excluded_values
+            .get(&value)
+            .is_some_and(|values| values.contains(wanted))
+    {
+        return false;
+    }
+    if !success {
+        let excluded = facts.excluded_values.entry(value).or_default();
+        if !excluded.contains(wanted) && excluded.len() < 16 {
+            excluded.push(wanted.clone());
+        }
+        if let Some(place) = facts.reads.get(&value) {
+            let excluded = facts.excluded_memory.entry(place.clone()).or_default();
+            if !excluded.contains(wanted) && excluded.len() < 16 {
+                excluded.push(wanted.clone());
+            }
+        }
+    }
     let known = facts
         .values
         .get(&value)
@@ -426,8 +469,14 @@ fn transfer(
                 evaluate(&facts, body, origins, event, *value)
             };
             facts.values.remove(value);
+            facts.excluded_values.remove(value);
             facts.reads.remove(value);
             if let Some(place) = read_place(body, origins, event, *value) {
+                if !matches!(flow.nodes[event.0].action, FlowAction::Clone { .. }) {
+                    if let Some(excluded) = facts.excluded_memory.get(&place) {
+                        facts.excluded_values.insert(*value, excluded.clone());
+                    }
+                }
                 facts.reads.insert(*value, place);
             }
             if !shape.is_empty() {
@@ -448,6 +497,28 @@ fn transfer(
             }
             // word-take/word-forget retire loan metadata, not bytes.
             // This analysis never tracks their typed restored contents.
+        }
+        FlowAction::Pattern { pattern, value } => {
+            let source = snapshot(&facts, body, *value);
+            let mut bindings = HashSet::new();
+            collect_pattern_bindings(body, *pattern, &mut bindings);
+            for binding in bindings {
+                let Some(prefix) = pattern_binding_path(body, *pattern, binding) else {
+                    continue;
+                };
+                let incoming = source
+                    .iter()
+                    .filter_map(|(path, values)| {
+                        path.strip_prefix(prefix.as_slice())
+                            .map(|path| (path.to_vec(), values.clone()))
+                    })
+                    .collect();
+                write(
+                    &mut facts,
+                    &Place::root(PlaceRoot::Local(binding)),
+                    incoming,
+                );
+            }
         }
         FlowAction::Bind { binding, value } => {
             let incoming = snapshot(&facts, body, *value);
@@ -493,10 +564,14 @@ fn transfer(
         }
         FlowAction::Release { place, .. } => {
             facts.memory.retain(|source, _| !place.overlaps(source));
+            facts
+                .excluded_memory
+                .retain(|source, _| !place.overlaps(source));
             facts.reads.retain(|_, source| !place.overlaps(source));
         }
         FlowAction::ScopeExit(bindings) => {
             facts.memory.retain(|place, _| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
+            facts.excluded_memory.retain(|place, _| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
             facts.reads.retain(|_, place| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
         }
         _ => {}
@@ -630,6 +705,33 @@ fn analyze_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn excluded_entry_facts_do_not_survive_writes_or_path_joins() {
+        let place = Place::root(PlaceRoot::Local(BindingId(0)));
+        let value = NodeId(0);
+        let wanted = crate::Expr::UnsignedInteger(1);
+        let mut facts = Facts::default();
+        facts
+            .excluded_memory
+            .insert(place.clone(), vec![wanted.clone()]);
+        facts.excluded_values.insert(value, vec![wanted.clone()]);
+        facts.reads.insert(value, place.clone());
+        write(&mut facts, &place, Shape::new());
+        assert!(facts.excluded_memory.is_empty());
+        assert!(
+            !constrain(&mut facts.clone(), value, &wanted, true),
+            "a captured old scrutinee is unchanged by a write"
+        );
+        let mut joined = facts.clone();
+        join(&mut joined, &Facts::default());
+        assert!(
+            joined.excluded_values.is_empty(),
+            "every incoming path must justify an exclusion"
+        );
+        invalidate(&mut facts);
+        assert!(facts.excluded_memory.is_empty());
+    }
 
     fn pruned(source: &str) -> Vec<u128> {
         let program = crate::parse_program(source).unwrap();
