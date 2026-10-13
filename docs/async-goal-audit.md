@@ -16,6 +16,13 @@ cancellation passes 11 of 14 tests. The remaining failures are nested exclusive
 references, heap/exclusive reference-owner restoration, and pinned child
 cancellation. These are not completed items or waived checks.
 
+The remaining nested-exclusive loop regression subsequently passes, including
+consecutive polls and cancellation/negative checks. The nearest-join query now
+compares borrow identity independently of possibly-absent flags while retaining
+each predecessor's original flags. It grants neither initialized storage nor
+additional borrow permissions. All 70 typed-borrow unit tests pass; adversarial
+and word-storage regressions remain enabled.
+
 Additional generic regressions cover guaranteed scalar writes by void callees,
 alternate return paths and later alias mutation, persistent versus transient
 word cells, and retained word-view addresses versus opaque pointer anchors.

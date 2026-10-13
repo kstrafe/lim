@@ -1334,11 +1334,25 @@ impl FlowLoanOrigins {
                 for path in &paths {
                     merge_loan_origins(&mut union, path);
                 }
-                // No origin can be removed or invented by this precision
-                // query. Pointee expansion or edge refinement differences
-                // fall back to the original conservative snapshot.
-                return (union.len() == held.len()
-                    && union.iter().all(|origin| held.contains(origin)))
+                // Presence is joined independently of MAY borrow identity.
+                // A read snapshot may contain both definite and maybe-absent
+                // versions of the same loan. Compare identities in both
+                // directions, but retain the predecessors' original flags:
+                // this query separates borrow alternatives, never proves
+                // initialized storage or supplies a new loan capability.
+                let same_borrow = |left: &LoanOrigin, right: &LoanOrigin| {
+                    let mut left = left.clone();
+                    let mut right = right.clone();
+                    left.maybe_absent = false;
+                    right.maybe_absent = false;
+                    left == right
+                };
+                return (union
+                    .iter()
+                    .all(|origin| held.iter().any(|other| same_borrow(origin, other)))
+                    && held
+                        .iter()
+                        .all(|origin| union.iter().any(|other| same_borrow(origin, other))))
                 .then_some(paths);
             }
             let &[previous] = incoming.as_slice() else {
