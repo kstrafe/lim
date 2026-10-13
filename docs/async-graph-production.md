@@ -2370,3 +2370,16 @@ and numeric pointer bits without a real input loan still fail validation.
 The native gates pass 78 word-storage tests, four primitive-effect adversarial
 tests, 24 semantic-cache tests and five borrow-adversarial tests. The semantic
 cache version changes so earlier effect summaries cannot bypass the new rules.
+
+## Stationary preview anchors precede word-storage reconstruction
+
+A suspended match guard's preview binding is an alias of the retained enum
+payload. Its eventual committed local owner may have word storage, but that
+storage is not initialized by previewing the pattern. Anchor reconstruction
+now routes active preview aliases through their original payload before
+considering a word-backed local or a split aggregate field.
+
+The existing alias-occupancy unit regression additionally checks this address
+route. The suspended linear aggregate guard and all four direct-field tests
+pass, including nested structs/tuples, pinned exclusive fields and a conflicting
+caller borrow. Generated code remains independently checked as ordinary Lim.

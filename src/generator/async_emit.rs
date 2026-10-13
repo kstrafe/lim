@@ -1139,7 +1139,8 @@ impl<'a> Emitter<'a> {
             crate::typed_body::PlaceRoot::Parameter(binding) => (binding, true),
             _ => unreachable!(),
         };
-        if !external {
+        let preview = !external && self.active_preview_aliases.contains(&binding);
+        if !external && !preview {
             let root = &self.slots[self.bindings[&binding]];
             if let Some(region) = &root.words {
                 // Form only the initialized selected referent, never a typed
@@ -1259,7 +1260,7 @@ impl<'a> Emitter<'a> {
                 );
             }
         }
-        let part = if !external && prefix > 0 {
+        let part = if !external && !preview && prefix > 0 {
             self.anchor_field(binding, &place.segments[..prefix])
         } else {
             None
@@ -7418,6 +7419,21 @@ mod tests {
             .unwrap();
         assert!(traces[commit].writes.contains(&(slot, true)));
         assert!(emitter.active_preview_aliases.is_empty());
+        // A preview is a stationary alias, not an initialized local owner.
+        // Recover its address through the original enum payload even when
+        // its eventual committed owner has a word-backed storage slot.
+        let mut anchor_emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
+        anchor_emitter.active_preview_aliases.insert(binding);
+        let anchor = anchor_emitter.anchor_project(
+            &crate::typed_place::Place::root(crate::typed_body::PlaceRoot::Local(binding)),
+            0,
+            false,
+            &HashMap::new(),
+        );
+        assert!(anchor.contains("Holding"), "{anchor}");
+        if let Some(region) = &emitter.slots[slot].words {
+            assert!(!anchor.contains(&region.field), "{anchor}");
+        }
         let actual = emitter.emit().unwrap();
         let expected = Emitter::new(&planning, &planning.functions[0])
             .unwrap()
