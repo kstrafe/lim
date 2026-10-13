@@ -2373,3 +2373,76 @@ evaluated scalar histories at loop heads did not resolve it (1.12 seconds at
 nor the earlier materialized-read aggregation is part of the committed proof.
 The next task needs a justified context-equivalence reduction that retains
 physical initialization histories, not a blind increase of the state cap.
+
+## Investigation of the eight remaining library failures
+
+Three of the original eight failures now pass. This is partial progress, not
+completion of async support or of the overall goal.
+
+Reference-bearing word-cell cleanup previously restored a typed reference
+only to discard it immediately. It now retires the cell's loan metadata
+directly with `#word-forget`, without reading or zeroing the bytes. Exact
+numeric field anchors retain the actual referent rather than only a lifetime
+anchor. These changes fix the internal scalar-reference holder example and
+the example retaining both frame-local and external owners. The new native
+cell-reuse regression also checks old-loan release, new-loan protection, and
+rejection of reads after retirement. Repeated retirement and neighboring or
+transferred loans remain covered by the existing word-storage tests.
+
+The guarded-match example exhausted the scalar specialization budget because
+it retained evaluated snapshots after their final possible use. Backwards
+snapshot liveness now removes those dead histories, including their freshness
+and exclusion records. Return uses conservatively retain nested constructor
+snapshots. Physical memory, storage epochs, and uncertain writes are not
+discarded. Sixteen history alternatives are permitted per exact syntactic
+dispatch state; unknown selectors share one bucket. Exceeding any bucket
+still discards the entire supplementary proof, never a feasible path. The
+budget-exhaustion regression now branches over independent physical storage
+effects instead of dead numeric snapshots, and still checks fail-closed
+behavior. No runtime occupancy flags or branches were added.
+
+Scalar facts also now survive proven disjoint writes. Complete byte-write
+footprints are distinct from the weaker variant-tag-preservation property:
+a scalar-only writer, including a transitive forwarding call, invalidates
+the changed selector. Unknown addresses, retained-storage-qualified origins,
+assembly, syscalls, raw writes, and atomics remain conservative. Semantic
+cache revision 35 prevents reuse of the previous validation assumptions.
+
+An attempted generalization of direct retirement to every linear `#forget`
+regressed projected clone and computed-owner provenance tests. It was removed;
+the cleanup change is restricted to the established cell-retirement paths.
+A supplementary context proof for reader calls did not resolve the remaining
+failures and was also removed rather than adding unused complexity.
+
+The five unresolved original failures are:
+
+- `projected_exclusive_arguments_snapshot_before_later_suspension`: the caller
+  loop joins the initially absent hidden cell with the initialized suspended
+  cell. Conditional owned-result guarantees do not describe initialization
+  through the returned pinned parameter reference.
+- `aggregate_returned_children_keep_evaluated_parents_across_later_awaits`:
+  another pinned-parameter output requires an outcome-specific initialized
+  storage postcondition, not just a retained pointee origin.
+- `returned_shared_reference_holders_retain_their_actual_pointees_across_pending`:
+  the returned handle retains its pointee, but the next call cannot establish
+  definite initialization of its concealed reference cell.
+- `shared_copy_aggregate_fields_keep_nested_references_across_pending`:
+  source reference availability is not proof that the numeric destination
+  cell is initialized in every reachable read context.
+- `nested_exclusive_pattern_storage_survives_loop_and_consecutive_polls`:
+  a caller join retains two exclusive origins to the same pointee in distinct
+  storage locations. They represent staged alternatives, but the ordinary
+  union treats them as simultaneous. Equal pointees alone cannot justify
+  deduplication, since real duplicate exclusive handles must remain invalid.
+
+These require stronger generic conditional storage/loan correlation. No
+async-specific permission, invented input loan, or alias exception was added.
+
+Final verification: `/tmp/lim-investigation-final-library.log` records 1440
+library passes, the five failures above, and eight ignored tests (89.34s).
+The focused scalar suite has 19 passes, including the physical-history budget
+failure test. `/tmp/lim-investigation-final-safety.log` records 72 word-storage,
+five adversarial-borrow, 24 semantic-cache, and three UI-test passes.
+`cargo check --all-targets` passes. The broader contiguous-storage suite still
+has four failures and the dependent-cancellation suite three; they are not
+claimed fixed. Diagnostic traces and rejected experiments were removed.

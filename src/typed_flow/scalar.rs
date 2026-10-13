@@ -102,9 +102,6 @@ pub(super) fn entry_partition(
         let (held, values) = selected.as_mut().unwrap();
         if *held == place && !values.contains(&number) {
             values.push(number);
-            if values.len() > 8 {
-                return None;
-            }
         }
     }
     selected
@@ -366,6 +363,23 @@ fn invalidate(facts: &mut Facts) {
     facts.reads.clear();
 }
 
+fn invalidate_footprint(facts: &mut Facts, targets: Option<Vec<LoanOrigin>>) {
+    let Some(targets) = targets else {
+        invalidate(facts);
+        return;
+    };
+    if targets
+        .iter()
+        .any(|target| target.lifetime_only || !target.storage.is_empty())
+    {
+        invalidate(facts);
+        return;
+    }
+    for target in targets {
+        write(facts, &target.referent_place(), Shape::new());
+    }
+}
+
 /// Narrow a copied scrutinee, not a newly evaluated read. A guard may have
 /// changed the original variable; only a still-fresh singleton address can
 /// receive the same refinement. Missing bounds on failure stay unknown.
@@ -482,18 +496,59 @@ fn transfer(
             if !shape.is_empty() {
                 facts.values.insert(*value, shape);
             }
-            if matches!(
+            let call = matches!(
                 &body.nodes[value.0].kind,
                 NodeKind::Form {
                     callee: Some(_),
                     ..
                 }
-            ) || matches!(flow.nodes[event.0].action, FlowAction::Clone { .. })
-                || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }
-                        if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read" | "word-write" | "pin-write" | "pin-set-field" | "deref-set")
-                            || head.starts_with("atomic-"))
-            {
+            );
+            if call {
+                invalidate_footprint(
+                    &mut facts,
+                    origins.call_scalar_mutations(body, flow, event, *value),
+                );
+            } else if matches!(flow.nodes[event.0].action, FlowAction::Clone { .. }) {
                 invalidate(&mut facts);
+            } else if let NodeKind::Form {
+                head,
+                children,
+                callee: None,
+                ..
+            } = &body.nodes[value.0].kind
+            {
+                if matches!(
+                    head.as_str(),
+                    "pin-read" | "word-write" | "pin-write" | "pin-set-field" | "deref-set"
+                ) {
+                    let operand = if head == "word-write" { 2 } else { 1 };
+                    let targets = children
+                        .get(operand)
+                        .map(|operand| {
+                            origins
+                                .value_before(body, flow, event, *operand)
+                                .into_iter()
+                                .collect::<Vec<_>>()
+                        })
+                        .filter(|targets| !targets.is_empty())
+                        .map(|mut targets| {
+                            if head == "pin-set-field" {
+                                if let NodeKind::Declaration(DeclarationId::Field(field)) =
+                                    body.nodes[children[2].0].kind
+                                {
+                                    for target in &mut targets {
+                                        target.place.segments.push(Segment::Field(field));
+                                    }
+                                }
+                            }
+                            targets
+                        });
+                    invalidate_footprint(&mut facts, targets);
+                } else if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm")
+                    || head.starts_with("atomic-")
+                {
+                    invalidate(&mut facts);
+                }
             }
             // word-take/word-forget retire loan metadata, not bytes.
             // This analysis never tracks their typed restored contents.
@@ -844,6 +899,37 @@ mod tests {
               (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64))))"
             );
             assert!(pruned(&source).is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn complete_scalar_mutation_footprints_preserve_only_disjoint_fields() {
+        let prefix = "(#struct State (: pc #u64 : other #u64 : words (#array #u64 1)))
+          (#fn erase (: target (#ref-mut #u64)) () (#deref-set target 0u64) (#return ()))
+          (#fn forward (: target (#ref-mut #u64)) ()
+            (#call erase (: target target)) (#return ()))";
+        let source = |effect: &str| {
+            format!(
+                "{prefix}
+          (#fn work (: condition #bool) #u64
+            (#let-mut state State (#struct-literal State
+              (: pc 1u64 : other 9u64 : words (#array-repeat 0u64))))
+            {effect}
+            (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64))))"
+            )
+        };
+        for effect in [
+            "(#call forward (: target (#borrow-mut (#get state other))))",
+            "(#unsafe (#word-write #u64 (#borrow-slice-mut (#get state words)) 9u64))",
+        ] {
+            assert_eq!(pruned(&source(effect)), vec![0], "{effect}");
+        }
+        for effect in [
+            "(#call forward (: target (#borrow-mut (#get state pc))))",
+            "(#call forward (: target (#if condition
+              (#borrow-mut (#get state pc)) (#borrow-mut (#get state other)))))",
+        ] {
+            assert!(pruned(&source(effect)).is_empty(), "{effect}");
         }
     }
 

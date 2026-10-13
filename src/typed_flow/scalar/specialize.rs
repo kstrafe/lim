@@ -2,7 +2,9 @@
 //! solver runs on the resulting paths; scalar facts never supply a loan.
 use super::*;
 
-const STATES_PER_EVENT: usize = 16;
+// Bound history alternatives within each proven scalar dispatch state. Unknown
+// and multi-valued selectors share one bucket; no feasible path is discarded.
+const STATES_PER_DISPATCH: usize = 16;
 
 #[derive(Clone, PartialEq)]
 struct Context {
@@ -17,6 +19,95 @@ struct Context {
     // Separate histories across opaque effects. Neither this discriminator
     // nor a storage epoch supplies initialized contents or a loan capability.
     opaque: Option<FlowNodeId>,
+}
+
+/// Snapshots are needed until their next use, not for the entire invocation.
+/// Ordinary backwards liveness removes only snapshots overwritten before any
+/// possible use. Physical memory and word epochs remain separate and intact.
+fn snapshot_liveness(flow: &FlowGraph, body: &Body) -> Vec<HashSet<NodeId>> {
+    let mut used = vec![HashSet::new(); flow.nodes.len()];
+    let mut defined = vec![None; flow.nodes.len()];
+    for (index, node) in flow.nodes.iter().enumerate() {
+        match &node.action {
+            FlowAction::Evaluate(value)
+            | FlowAction::Read { value, .. }
+            | FlowAction::Clone { value, .. } => {
+                defined[index] = Some(*value);
+                if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
+                    used[index].extend(children.iter().copied());
+                }
+            }
+            FlowAction::Bind { value, .. }
+            | FlowAction::Assign { value, .. }
+            | FlowAction::Pattern { value, .. } => {
+                used[index].insert(*value);
+            }
+            FlowAction::Write { value, .. } => {
+                if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
+                    used[index].extend(children.iter().copied());
+                }
+            }
+            FlowAction::Branch(pattern) => {
+                used[index].insert(*pattern);
+                if let Some(success) = node.successors.first() {
+                    if let FlowAction::Pattern { value, .. } = flow.nodes[success.0].action {
+                        used[index].insert(value);
+                    }
+                }
+            }
+            FlowAction::Return(Some(value))
+            | FlowAction::Break {
+                value: Some(value), ..
+            } => {
+                // Return summaries can recursively inspect stable aggregate
+                // constructors and unsafe wrappers, not only the outer value.
+                let mut pending = vec![*value];
+                while let Some(value) = pending.pop() {
+                    if used[index].insert(value) {
+                        if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
+                            pending.extend(children.iter().copied());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let candidates = defined
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|value| scalar_pattern_value(body, *value).is_none())
+        .collect::<HashSet<_>>();
+    for values in &mut used {
+        values.retain(|value| candidates.contains(value));
+    }
+    let mut predecessors = vec![Vec::new(); flow.nodes.len()];
+    for (index, node) in flow.nodes.iter().enumerate() {
+        for next in &node.successors {
+            predecessors[next.0].push(index);
+        }
+    }
+    let mut live = used;
+    let mut pending = (0..flow.nodes.len()).collect::<VecDeque<_>>();
+    let mut queued = vec![true; flow.nodes.len()];
+    while let Some(index) = pending.pop_front() {
+        queued[index] = false;
+        for &previous in &predecessors[index] {
+            let additions = live[index]
+                .iter()
+                .filter(|value| Some(**value) != defined[previous])
+                .copied()
+                .collect::<Vec<_>>();
+            let count = live[previous].len();
+            live[previous].extend(additions);
+            if live[previous].len() != count && !queued[previous] {
+                queued[previous] = true;
+                pending.push_back(previous);
+            }
+        }
+    }
+    live
 }
 
 fn word_effects(
@@ -320,19 +411,47 @@ fn specialize_impl(
     result.nodes[0].successors.clear();
     let dead = FlowNodeId(1);
     let mut states: Vec<Vec<(Context, FlowNodeId)>> = vec![Vec::new(); flow.nodes.len()];
+    let live_snapshots = snapshot_liveness(flow, body);
+    let partition = entry_partition(flow, body, origins);
+    let dispatch = |facts: &Context| {
+        let (place, choices) = partition.as_ref()?;
+        let values = facts.scalar.memory.get(place)?;
+        let [crate::Expr::UnsignedInteger(value)] = values.as_slice() else {
+            return None;
+        };
+        choices.contains(value).then_some(*value)
+    };
     let mut pending = VecDeque::new();
     let mut intern =
         |event: FlowNodeId,
-         facts: Context,
+         mut facts: Context,
          result: &mut FlowGraph,
          pending: &mut VecDeque<(FlowNodeId, Context, FlowNodeId)>| {
             if event == flow.exit {
                 return Some(result.exit);
             }
+            facts
+                .scalar
+                .values
+                .retain(|value, _| live_snapshots[event.0].contains(value));
+            facts
+                .scalar
+                .reads
+                .retain(|value, _| live_snapshots[event.0].contains(value));
+            facts
+                .scalar
+                .excluded_values
+                .retain(|value, _| live_snapshots[event.0].contains(value));
             if let Some((_, id)) = states[event.0].iter().find(|(held, _)| held == &facts) {
                 return Some(*id);
             }
-            if states[event.0].len() == STATES_PER_EVENT {
+            let key = dispatch(&facts);
+            if states[event.0]
+                .iter()
+                .filter(|(held, _)| dispatch(held) == key)
+                .count()
+                == STATES_PER_DISPATCH
+            {
                 return None;
             }
             let id = FlowNodeId(result.nodes.len());
@@ -517,15 +636,17 @@ mod tests {
     }
 
     #[test]
-    fn specialization_budget_loss_never_discharges_wildcard_entry_slots() {
+    fn overwritten_scalar_snapshots_do_not_spend_the_storage_history_budget() {
         let arguments = (0..5)
             .map(|index| format!(" : flag{index} #bool"))
             .collect::<String>();
         let choices = (0..5)
             .map(|index| {
                 format!(
-            "(#if flag{index} (#block (#set selector {}u64) ()) (#block (#set selector {}u64) ()))",
-            2 * index + 1, 2 * index + 2)
+                    "(#if flag{index} (#block (#set selector {}u64) ()) (#block (#set selector {}u64) ()))",
+                    2 * index + 1,
+                    2 * index + 2,
+                )
             })
             .collect::<String>();
         let source = PHASE_SOURCE
@@ -533,11 +654,38 @@ mod tests {
                 "(: frame (#ref-mut Frame))",
                 &format!("(: frame (#ref-mut Frame){arguments})"),
             )
-            .replace("(#array #u64 1)", "(#array #u64 2)")
             .replace(
                 "(#loop",
                 &format!("(#let-mut selector #u64 0u64) {choices} (#loop"),
             );
+        let program = crate::parse_program(&source).unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = FlowGraph::lower(body).unwrap();
+        assert!(specialize(&flow, body, &flow.loan_origins(body), &[]).is_some());
+    }
+
+    #[test]
+    fn specialization_budget_loss_never_discharges_wildcard_entry_slots() {
+        let arguments = (0..5)
+            .map(|index| format!(" : flag{index} #bool"))
+            .collect::<String>();
+        let choices = (0..5)
+            .map(|index| {
+                format!(
+            "(#if flag{index}
+              (#unsafe (#word-write #u64 (#borrow-slice-mut (#get frame words) {}usize {}usize) 1u64))
+              (#unsafe (#word-forget #u64 (#borrow-slice-mut (#get frame words) {}usize {}usize))))",
+            index + 1, index + 2, index + 1, index + 2)
+            })
+            .collect::<String>();
+        let source = PHASE_SOURCE
+            .replace(
+                "(: frame (#ref-mut Frame))",
+                &format!("(: frame (#ref-mut Frame){arguments})"),
+            )
+            .replace("(#array #u64 1)", "(#array #u64 6)")
+            .replace("(#loop", &format!("{choices} (#loop"));
         let program = crate::parse_program(&source).unwrap();
         let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
         let body = &declarations.bodies["work"];

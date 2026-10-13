@@ -1607,6 +1607,27 @@ impl FlowLoanOrigins {
         event: FlowNodeId,
         value: NodeId,
     ) -> Option<Vec<LoanOrigin>> {
+        if let NodeKind::Form {
+            callee: Some(callee),
+            ..
+        } = &body.nodes[value.0].kind
+        {
+            if body.call_preserves_variant_tags.contains(callee) {
+                return Some(Vec::new());
+            }
+        }
+        self.call_scalar_mutations(body, flow, event, value)
+    }
+
+    /// Complete byte mutation footprints cannot use the weaker tag-preserving
+    /// shortcut: an ordinary integer write can still change a scalar selector.
+    pub(crate) fn call_scalar_mutations(
+        &self,
+        body: &Body,
+        flow: &FlowGraph,
+        event: FlowNodeId,
+        value: NodeId,
+    ) -> Option<Vec<LoanOrigin>> {
         let NodeKind::Form {
             callee: Some(callee),
             children,
@@ -1615,9 +1636,6 @@ impl FlowLoanOrigins {
         else {
             return None;
         };
-        if body.call_preserves_variant_tags.contains(callee) {
-            return Some(Vec::new());
-        }
         let summaries = body.call_tag_mutations.get(callee)?;
         let state = self.before[event.0].as_ref()?;
         let mut targets = Vec::new();
@@ -2707,7 +2725,7 @@ impl FlowGraph {
                     } = &node.kind
                     {
                         if callee.is_some() {
-                            record(origins.call_tag_mutations(body, self, event, *value)?)?;
+                            record(origins.call_scalar_mutations(body, self, event, *value)?)?;
                             continue;
                         }
                         if matches!(head.as_str(), "drop" | "forget" | "pin-release")
