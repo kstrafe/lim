@@ -56,6 +56,43 @@ fn declared_frame_references_do_not_initialize_unrelated_word_cells() {
 }
 
 #[test]
+fn loop_dispatch_proves_initialization_in_every_reachable_read_context() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#fn work (: flag #bool) #u64
+        (#let amount #u64 42u64)
+        (#let-mut result #u64 0u64)
+        (#let-mut state #u64 0u64)
+        (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+        (#loop (#match state
+          (#case 0 (#block
+            (#unsafe (#word-write Holder (#borrow-slice-mut words)
+              (#struct-literal Holder (: value (#borrow amount)))))
+            (#set state 1u64) (#continue) (#unreachable)))
+          (#case 1 (#block
+            (#let restored Holder (#unsafe (#word-take Holder (#borrow-slice-mut words))))
+            (#let answer #u64 (#deref (#get restored value)))
+            (#forget restored) (#set result answer)
+            (#set state 2u64) (#continue) (#unreachable)))
+          (#case 2 (#block (#forget words) (#return result) (#unreachable)))
+          (#case _ (#unreachable))))
+        (#forget words) (#return 0u64))
+      (#fn main () #u64 (#return (#call work (: flag true))))";
+    run(source);
+    let write = "(#unsafe (#word-write Holder (#borrow-slice-mut words)
+              (#struct-literal Holder (: value (#borrow amount)))))";
+    for replacement in [
+        String::new(),
+        format!("(#if flag (#block {write}) ())"),
+        format!("{write} (#unsafe (#word-forget Holder (#borrow-slice-mut words)))"),
+    ] {
+        let invalid = source.replace(write, &replacement);
+        assert_ne!(invalid, source);
+        let error = compile(&invalid).expect_err("every reachable read needs real initialization");
+        assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
+    }
+}
+
+#[test]
 fn scalar_dispatch_does_not_require_loans_from_proven_unreachable_readers() {
     let source = "
       (#struct Holder (: value (#ref #u64)))

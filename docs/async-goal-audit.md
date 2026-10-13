@@ -2329,8 +2329,7 @@ fixture accepts initialized state-correlated returns but rejects forged state,
 retired storage, and an uninitialized compatible alternative. The pin-read
 unit also rejects guarantees when an unknown alternative reaches the same
 capture. The focused projected-clone async regression passes in 7.03 seconds
-at /tmp/lim-return-capture-clone-v5.log (the earlier focused log is named
-/tmp/lim-conditional-return-clone-v5.log).
+at /tmp/lim-conditional-return-clone-v5.log.
 
 The full library at /tmp/lim-return-capture-library.log has 1434 passes, eight
 failures, eight ignored tests, and took 88.43 seconds, before the last additional
@@ -2340,3 +2339,37 @@ without relaxing initialization. Broader async gates remain failing:
 contiguous storage and 11 passes/three failures for dependent cancellation.
 The remaining failures and HTML deliverable are still outstanding. There is
 no external blocker and no completion claim.
+
+Native word reads now have a lazy bounded-context initialization proof when
+ordinary CFG joining loses presence. Every reachable instance of the read is
+checked against its own pre-read loan state, and every possible backing address
+must supply every active slot. Unknown or lifetime-only addresses, unsupported
+effects, and context-budget exhaustion reject the supplementary proof. A first
+experiment incorrectly aggregated materialized reads across contexts; review
+caught it, it was removed, and its apparent async successes are not evidence.
+The final proof caches the context graph, loan solution, and variant solution
+once per function validation. Semantic cache revision 34 invalidates older
+validation assumptions; no runtime bits or branches were introduced.
+
+The new native loop fixture writes in state zero, takes in state one, and
+returns in state two. With the supplementary proof temporarily disabled, it
+fails at the read (/tmp/lim-context-read-loop-baseline.log). With the proof
+enabled it executes successfully and rejects missing, conditional, and retired
+initialization (/tmp/lim-context-read-loop-refinement.log). The temporary
+disable switch and diagnostic tracing have been removed. Verification at
+/tmp/lim-context-read-verified-gates.log records 115 integration passes. The
+full final library at /tmp/lim-context-read-final-library.log has 1435 passes,
+the same eight failures, eight ignored tests, and took 88.97 seconds. Broader
+async gates still have four contiguous-storage and three cancellation failures
+at /tmp/lim-context-read-final-gates.log. This fixes a generic native loop
+precision limitation, not the remaining async failures.
+
+Temporary rejection tracing establishes that the linear-guard preview test
+exhausts the 16-context bound at its generated loop head (event three, generated
+line 282), rather than failing because of an uncertain write footprint. The
+evidence is /tmp/lim-linear-guard-context-cause.log. An experiment forgetting
+evaluated scalar histories at loop heads did not resolve it (1.12 seconds at
+/tmp/lim-linear-guard-loop-snapshots.log) and was removed. Neither that experiment
+nor the earlier materialized-read aggregation is part of the committed proof.
+The next task needs a justified context-equivalence reduction that retains
+physical initialization histories, not a blind increase of the state cap.

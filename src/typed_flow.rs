@@ -10235,6 +10235,7 @@ impl FlowGraph {
         origins: &FlowLoanOrigins,
         moves: &FlowConsumptions,
     ) -> Result<(), ReleaseConflict> {
+        let contextual = std::cell::OnceCell::new();
         if body
             .word_input_requirements
             .iter()
@@ -10314,7 +10315,7 @@ impl FlowGraph {
                             })
                             .unwrap_or_default();
                         let root = Place::root(PlaceRoot::Local(BindingId(0)));
-                        if layout.slots.iter().any(|slot| {
+                        let missing = layout.slots.iter().any(|slot| {
                             if inactive_variant_slot(&tags, &root, &slot.path) {
                                 return false;
                             }
@@ -10326,7 +10327,15 @@ impl FlowGraph {
                                 || held
                                     .iter()
                                     .any(|loan| loan.storage == path && loan.maybe_absent)
-                        }) {
+                        });
+                        if missing
+                            && !self.word_read_initialized_in_contexts(
+                                body,
+                                origins,
+                                value,
+                                &contextual,
+                            )
+                        {
                             return Err(ReleaseConflict {
                                 message: "cannot read reference-bearing word storage: missing slot provenance".into(),
                                 span: node.span, labels: Vec::new(),
@@ -10375,6 +10384,82 @@ impl FlowGraph {
             }
         }
         Ok(())
+    }
+
+    /// A plain CFG join can lose initialization when a loop dispatches on a
+    /// scalar state. Prove all reachable contexts, never select a convenient
+    /// one or turn numeric state into an origin. Unsupported effects or a
+    /// context-budget failure discard the entire supplementary proof.
+    fn word_read_initialized_in_contexts(
+        &self,
+        body: &Body,
+        origins: &FlowLoanOrigins,
+        value: NodeId,
+        contextual: &std::cell::OnceCell<Option<(FlowGraph, FlowLoanOrigins)>>,
+    ) -> bool {
+        let Some((graph, loans)) = contextual.get_or_init(|| {
+            let graph = scalar::specialize(self, body, origins, &[])?;
+            let loans = graph.loan_origins(body);
+            Some((graph, loans))
+        }) else {
+            return false;
+        };
+        let variants = loans
+            .variants
+            .get_or_init(|| graph.variant_facts_with_origins(body, loans));
+        let layout = &body.word_layouts[&value];
+        let view = matches!(&body.nodes[value.0].kind,
+            NodeKind::Form { head, .. } if head == "word-view");
+        graph.nodes.iter().enumerate().all(|(index, node)| {
+            if !matches!(node.action, FlowAction::Evaluate(found) if found == value) {
+                return true;
+            }
+            let Some(state) = &loans.before[index] else {
+                return true;
+            };
+            let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
+                return false;
+            };
+            let addresses = loans.value_before(body, graph, FlowNodeId(index), children[2]);
+            let addresses = addresses
+                .into_iter()
+                .filter(|address| address.storage.is_empty())
+                .collect::<Vec<_>>();
+            if addresses.is_empty() || addresses.iter().any(|address| address.lifetime_only) {
+                return false;
+            }
+            let tags = variants[index]
+                .as_ref()
+                .map(|state| {
+                    word_memory_variant_facts(
+                        body,
+                        value,
+                        state,
+                        (graph, loans, FlowNodeId(index), variants),
+                    )
+                })
+                .unwrap_or_default();
+            let root = Place::root(PlaceRoot::Local(BindingId(0)));
+            addresses.into_iter().all(|address| {
+                // Do not query the value's aggregated expression history:
+                // each cloned read must load from its own pre-read state,
+                // and every possible backing address must contain the slot.
+                let held = word_value_origins(body, value, vec![address], state);
+                layout.slots.iter().all(|slot| {
+                    if inactive_variant_slot(&tags, &root, &slot.path) {
+                        return true;
+                    }
+                    let mut path = slot.path.clone();
+                    if view {
+                        path.insert(0, Segment::Dereference);
+                    }
+                    held.iter().any(|loan| loan.storage == path)
+                        && held
+                            .iter()
+                            .all(|loan| loan.storage != path || !loan.maybe_absent)
+                })
+            })
+        })
     }
 
     fn check_referent_replacements_and_entry_requirements(
