@@ -2304,6 +2304,14 @@ impl FlowGraph {
             return;
         }
         let origins = self.loan_origins(body);
+        if body.binding_numeric_shapes.iter().any(Option::is_some)
+            && body
+                .call_return_reference_slots
+                .values()
+                .any(|slots| !slots.is_empty())
+        {
+            self.prepare_storage_variant_bounds(body, &origins);
+        }
         let mut impossible = Vec::new();
         for (index, node) in self.nodes.iter().enumerate() {
             let FlowAction::Pattern { pattern, value } = node.action else {
@@ -2379,7 +2387,25 @@ impl FlowGraph {
                 value_variant_bounds(body, value, &HashMap::new(), None)
             }
         } else {
-            value_variant_bounds(body, value, &HashMap::new(), None)
+            if let Some(snapshots) = origins.storage_variant_bounds.get() {
+                if let Some(state) = &snapshots[event.0] {
+                    value_storage_variant_bounds(
+                        body,
+                        value,
+                        state,
+                        StorageVariantContext {
+                            flow: self,
+                            origins,
+                            event,
+                            snapshots,
+                        },
+                    )
+                } else {
+                    HashMap::new()
+                }
+            } else {
+                value_variant_bounds(body, value, &HashMap::new(), None)
+            }
         };
         visiting.remove(&(event, value));
         result
@@ -9546,13 +9572,7 @@ impl FlowGraph {
                                             &source.input_storage,
                                             state,
                                         ) || absent_owned_word_input(
-                                            body,
-                                            declarations,
-                                            self,
-                                            origins,
-                                            event,
-                                            *argument,
-                                            source,
+                                            body, self, origins, event, *argument, source,
                                         );
                                     }
                                     let bounds = value_variant_bounds(
@@ -9687,7 +9707,6 @@ impl FlowGraph {
                     if source.input_storage.contains(&Segment::Dereference) {
                         return absent_owned_word_input(
                             body,
-                            declarations,
                             self,
                             origins,
                             FlowNodeId(call_event),
@@ -13074,7 +13093,6 @@ fn word_requirement_inactive(
 /// input source, not permission to execute a reader or recover stale bytes.
 fn absent_owned_word_input(
     body: &Body,
-    declarations: &crate::typed_ir::Declarations,
     flow: &FlowGraph,
     origins: &FlowLoanOrigins,
     event: FlowNodeId,
@@ -13088,6 +13106,7 @@ fn absent_owned_word_input(
     {
         return false;
     }
+    let input = source.input_storage.as_slice();
     let Some(state) = &origins.before[event.0] else {
         return false;
     };
@@ -13104,45 +13123,18 @@ fn absent_owned_word_input(
             if address.lifetime_only {
                 return false;
             }
-            let mut ty = body.bindings[binding.0].ty.clone();
-            let mut numeric_cell = false;
-            for segment in address
+            let path = address
                 .place
                 .segments
                 .iter()
-                .chain(&source.input_storage[1..])
-            {
-                let Ok(resolved) = crate::typed_ir::resolve_type(&ty, &declarations.aliases) else {
-                    return false;
-                };
-                ty = match (resolved, segment) {
-                    (Type::Named(name), Segment::Field(field))
-                        if declarations.structs.contains_key(&name)
-                            && declarations.field_id(
-                                &Type::Named(name.clone()),
-                                &declarations.field(*field).name,
-                            ) == Some(*field) =>
-                    {
-                        declarations.field(*field).ty.clone()
-                    }
-                    (Type::Array(element, size), Segment::Index(index))
-                        if *index < size as u128 =>
-                    {
-                        numeric_cell = *element == Type::U64;
-                        *element
-                    }
-                    (Type::Tuple(elements), Segment::Tuple(index)) => {
-                        let Some(element) = elements.get(*index) else {
-                            return false;
-                        };
-                        element.clone()
-                    }
-                    _ => return false,
-                };
-            }
-            numeric_cell
-                && ty == Type::U64
-                && select_summary_inputs(address, &source.input_storage, state).is_empty()
+                .chain(&input[1..])
+                .cloned()
+                .collect::<Vec<_>>();
+            body.binding_numeric_shapes
+                .get(binding.0)
+                .and_then(Option::as_ref)
+                .is_some_and(|shape| shape.is_numeric_cell(&path))
+                && select_summary_inputs(address, input, state).is_empty()
         })
 }
 
@@ -16396,7 +16388,9 @@ fn value_storage_variant_bounds(
                         return false;
                     };
                     if source.input_storage.contains(&Segment::Dereference) {
-                        return origins
+                        return absent_owned_word_input(
+                            body, flow, origins, event, *argument, source,
+                        ) || origins
                             .variants
                             .get()
                             .and_then(|facts| facts[event.0].as_ref())

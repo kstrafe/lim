@@ -47,6 +47,47 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 }
 
 #[test]
+fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
+    let scratch = support::Scratch::new("semantic-optional-word-owner");
+    let directory = scratch.path();
+    fs::write(directory.join("lib.lim"), "
+      (#enum Input ((NoInput) (HasInput (#pin-own #u64))))
+      (#enum Output ((NoOutput) (HasOutput (#pin-own #u64))))
+      (#struct Words (: words (#array #u64 2)))
+      (#fn convert (: storage (#ref-mut Words)) Output
+        (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
+        (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput owner) (HasOutput owner)))))
+      ").unwrap();
+    let source = "(#import \"lib.lim\")
+      (#fn main () #u64
+        (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
+        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
+        (#let output Output (#call convert (: storage (#borrow-mut storage))))
+        (#let answer #u64 (#match output (#case (NoOutput) 42u64)
+          (#case (HasOutput owner) (#block
+            (#let view (#pin-ref #u64) (#pin-own-borrow (#borrow owner)))
+            (#let answer #u64 (#deref view)) (#forget view) (#forget owner) answer))))
+        (#forget storage) (#return answer))";
+    let config = CompileConfig::default();
+    let cold = compile(directory, source, &config).0.unwrap();
+    let (warm, report) = compile(directory, source, &config);
+    assert_eq!(cold, warm.unwrap());
+    assert!(semantic_decisions(&report, "hit") > 0, "{report}");
+    let unknown = source.replace(
+        "(#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))",
+        "",
+    );
+    let cold = compile(directory, &unknown, &config).0.unwrap_err();
+    let warm = compile(directory, &unknown, &config).0.unwrap_err();
+    assert_eq!(cold, warm);
+    assert!(
+        cold.message.contains("missing required input loan")
+            || cold.message.contains("unresolved call inputs"),
+        "{cold:?}"
+    );
+}
+
+#[test]
 fn imported_optional_word_results_preserve_absent_and_live_sources() {
     let scratch = support::Scratch::new("semantic-optional-word-result");
     let directory = scratch.path();

@@ -1456,7 +1456,7 @@ fn flat_spanned_expression(expression: &SpannedExpr, source: &str) -> String {
 }
 
 /// Rust-like scalar types understood by the first typed AST pass.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Type {
     Unit,
     Never,

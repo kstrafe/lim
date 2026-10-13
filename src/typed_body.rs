@@ -1264,6 +1264,8 @@ pub(crate) struct Body {
     /// Flat-word offsets of typed memory operations. A schema describes where
     /// existing loans may be stored or loaded; it never initializes a loan.
     pub word_layouts: HashMap<NodeId, crate::word_loans::Layout>,
+    /// Owned numeric backing geometry only; never a stored-loan witness.
+    pub binding_numeric_shapes: Vec<Option<Arc<crate::word_loans::Shape>>>,
     pub nodes: Vec<Node>,
     pub bindings: Vec<Binding>,
     pub instructions: Vec<Instruction>,

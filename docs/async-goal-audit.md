@@ -1782,3 +1782,39 @@ three failures. Logs are /tmp/lim-self-loan-word-path-library.log,
 remains the acceptance inventory; this focused rerun is not a new complete
 matrix. State-conditional readers, nested optional owned-pointer sources,
 exclusive-entry substitutions and the uncommitted final HTML remain unfinished.
+
+### Optional owned word results and impossible match paths
+
+The concrete numeric-cell absence proof now also refines a checked callee's
+owned-result variant bounds. Unchanged result definitions retain those bounds
+when pruning impossible match paths. This avoids asking an unreachable owning
+pin arm for an allocation identity, without making absent metadata permission
+to read an occupied cell. Compact, shared binding geometry supplies the same
+owned U64-array type and bounds checks to transfer validation and variant
+analysis; scalar, narrow, dynamic, out-of-bounds and reference-crossing paths
+remain conservative. Semantic summaries use version 18.
+
+The owning-pointer native regression exercises empty and occupied results,
+rejects releasing the allocation with a retained view, and rejects a reader
+after metadata retirement. A direct imported conversion reuses real semantic
+cache hits and rejects unknown inputs identically on cold and warm runs.
+The word/cache/UI/entry gate passes 94 tests, plus the new imported-owner test;
+the three geometry tests pass. Formatting, all-target checking and diff checks
+pass. The full library has 1,416 passes, two failures and eight ignored cases.
+Logs: /tmp/lim-owned-result-gates.log, /tmp/lim-owned-result-cache-owner.log,
+/tmp/lim-owned-result-shapes-final.log and /tmp/lim-owned-result-library.log.
+
+This does not finish nested owned-pointer contents. The initial regression
+with a pinned Holder containing a reference progressed past the impossible
+owning-pin arm but fails its typed word-take transfer inside the conversion.
+It is not counted as passing acceptance. An imported forwarding wrapper for
+the simpler owning-pointer conversion also exposes a missing reader input
+loan, while a direct import passes. That forwarding contract remains work,
+not a reason to suppress the loan check. The heap target still has two passes
+and one failure; the ordinary heap-reference, pin-box and pin-ownership targets
+pass 21, four and three tests respectively (/tmp/lim-owned-result-heap.log).
+
+A new complete async matrix is running in /tmp/lim-owned-result-all-async.log.
+Until its terminal result is recorded, the prior complete matrix remains the
+authoritative remaining-failure inventory. No completion claim or final HTML
+is made; the emitter experiment and unrelated user files remain uncommitted.

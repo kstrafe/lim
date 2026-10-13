@@ -1604,6 +1604,19 @@ impl Declarations {
         for (name, layouts) in word_layouts {
             self.bodies.get_mut(&name).unwrap().word_layouts = layouts;
         }
+        let numeric_shapes = self
+            .bodies
+            .iter()
+            .map(|(name, body)| {
+                (
+                    name.clone(),
+                    crate::word_loans::binding_numeric_shapes(body, self),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (name, shapes) in numeric_shapes {
+            self.bodies.get_mut(&name).unwrap().binding_numeric_shapes = shapes;
+        }
         let candidates = self
             .bodies
             .iter()

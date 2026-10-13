@@ -35,6 +35,35 @@ pub(crate) fn parameter_candidates(
     result
 }
 
+pub(crate) fn binding_numeric_shapes(
+    body: &Body,
+    declarations: &Declarations,
+) -> Vec<Option<std::sync::Arc<Shape>>> {
+    let mut shared = HashMap::new();
+    body.bindings
+        .iter()
+        .map(|binding| {
+            shared
+                .entry(binding.ty.clone())
+                .or_insert_with(|| {
+                    let mut cells = Vec::new();
+                    collect_numeric_arrays(
+                        &binding.ty,
+                        declarations,
+                        &mut Vec::new(),
+                        &mut std::collections::HashSet::new(),
+                        &mut cells,
+                    );
+                    (!cells.is_empty())
+                        .then(|| Shape::build(&binding.ty, declarations).ok())
+                        .flatten()
+                        .map(std::sync::Arc::new)
+                })
+                .clone()
+        })
+        .collect()
+}
+
 fn collect_numeric_arrays(
     ty: &Type,
     declarations: &Declarations,
@@ -109,6 +138,7 @@ pub(crate) struct Layout {
 #[derive(Clone, Debug)]
 pub(crate) struct Shape {
     words: usize,
+    numeric_word: bool,
     fields: Vec<(Segment, Shape)>,
     array: Option<(Box<Shape>, usize)>,
     variants: Vec<crate::typed_ir::VariantId>,
@@ -118,6 +148,7 @@ impl Shape {
     fn build(ty: &Type, declarations: &Declarations) -> Result<Self, String> {
         let ty = crate::typed_ir::resolve_type(ty, &declarations.aliases)?;
         let mut shape = Self {
+            numeric_word: ty == Type::U64,
             words: crate::codegen::storage_word_count(
                 &ty,
                 &declarations.structs,
@@ -270,6 +301,21 @@ impl Shape {
         }
         None
     }
+
+    /// Only an in-bounds cell of an owned U64 array is numeric backing.
+    /// Scalar words and paths crossing a reference are not storage witnesses.
+    pub(crate) fn is_numeric_cell(&self, path: &[Segment]) -> bool {
+        let Some((Segment::Index(index), parent)) = path.split_last() else {
+            return false;
+        };
+        let Some((_, shape)) = self.project_shape(parent) else {
+            return false;
+        };
+        shape
+            .array
+            .as_ref()
+            .is_some_and(|(element, length)| element.numeric_word && *index < *length as u128)
+    }
 }
 
 pub(crate) fn layouts(body: &Body, declarations: &Declarations) -> HashMap<NodeId, Layout> {
@@ -406,6 +452,33 @@ fn collect(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numeric_backing_geometry_rejects_scalar_reference_and_unknown_paths() {
+        let program = crate::parse_program(
+            "(#struct Words (: words (#array #u64 2) : scalar #u64 : view (#ref (#array #u64 2))))
+          (#fn main () #u64 (#return 0u64))",
+        )
+        .unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        let ty = Type::Named("Words".into());
+        let shape = Shape::build(&ty, declarations).unwrap();
+        let field = |name| Segment::Field(declarations.field_id(&ty, name).unwrap());
+        assert!(shape.is_numeric_cell(&[field("words"), Segment::Index(1)]));
+        for path in [
+            vec![field("words"), Segment::Index(2)],
+            vec![field("words"), Segment::DynamicIndex],
+            vec![field("scalar")],
+            vec![field("scalar"), Segment::Index(0)],
+            vec![field("view"), Segment::Dereference, Segment::Index(0)],
+            vec![field("words"), Segment::Index(0), Segment::Dereference],
+        ] {
+            assert!(!shape.is_numeric_cell(&path), "{path:?}");
+        }
+        let narrow = Shape::build(&Type::Array(Box::new(Type::U32), 2), declarations).unwrap();
+        assert!(!narrow.is_numeric_cell(&[Segment::Index(0)]));
+    }
 
     #[test]
     fn flat_shape_projects_owned_fields_and_keeps_large_arrays_compact() {

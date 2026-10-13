@@ -185,6 +185,53 @@ fn metadata_only_helpers_preserve_tags_but_never_restore_retired_loans() {
 }
 
 #[test]
+fn optional_owned_word_results_require_their_allocation_pointer() {
+    let source = "(#enum Input ((NoInput) (HasInput (#pin-own #u64))))
+      (#enum Output ((NoOutput) (HasOutput (#pin-own #u64))))
+      (#struct Words (: words (#array #u64 2)))
+      (#fn convert (: storage (#ref-mut Words)) Output
+        (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
+        (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput owner) (HasOutput owner)))))
+      (#fn main () #u64
+        (#let pointer (#ptr-mut #u64) (#unsafe (#linux-syscall (#ptr-mut #u64) 9usize
+          (0usize 4096usize 3usize 34usize -1i64 0usize))))
+        (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
+        (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
+        (#let output Output (#call convert (: storage (#borrow-mut storage))))
+        (#let answer #u64 (#match output
+          (#case (NoOutput) (#block
+            (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64)) 42u64))
+          (#case (HasOutput owner) (#block
+            (#let view (#pin-ref #u64) (#pin-own-borrow (#borrow owner)))
+            (#let answer #u64 (#deref view)) (#forget view)
+            (#let retired (#ptr-mut #u64) (#unsafe (#pin-release owner)))
+            (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (retired 4096usize))) 0i64)) answer))))
+        (#forget storage) (#return answer))";
+    let occupied = source.replace(
+        "(NoInput)))",
+        "(HasInput (#unsafe (#pin-own-of pointer 42u64)))))",
+    );
+    lim::parse(&occupied).expect("occupied owned-input fixture parses");
+    run(source);
+    run(&occupied);
+    let retained_view = occupied.replace("(#forget view)", "");
+    assert_eq!(
+        compile(&retained_view).unwrap_err().code,
+        DiagnosticCode::Borrow
+    );
+    let retired = occupied.replace(
+        "(#let output",
+        "(#unsafe (#word-forget Input (#borrow-slice-mut (#get storage words)))) (#let output",
+    );
+    let error = compile(&retired).unwrap_err();
+    assert!(
+        error.message.contains("missing required input loan")
+            || error.message.contains("unresolved call inputs"),
+        "{error:?}"
+    );
+}
+
+#[test]
 fn optional_word_outputs_preserve_absent_concrete_input_sources() {
     let source = "(#enum Input ((NoInput) (HasInput (#ref #u64))))
       (#enum Output ((NoOutput) (HasOutput (#ref #u64))))

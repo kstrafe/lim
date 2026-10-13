@@ -2961,6 +2961,11 @@ constructor fact about the buffer or permission to read it. The call's reader
 requirements are still checked independently. Unknown addresses, globals,
 borrowed-reference boundaries and bodyless callees do not establish absence;
 live source loans continue to restrict the caller after the result is returned.
+The same proof applies to an optional owning allocation pointer. Proven absent
+payloads are excluded from unchanged owned-result match paths, so an impossible
+owning-pin arm does not require a fabricated allocation identity. Occupied or
+unknown input slots still require their real loans; this does not authorize
+access to a live pointer's pointee or retire any of its nested references.
 
 ```lisp
 (#struct RefValue (: value (#ref #u64)))
