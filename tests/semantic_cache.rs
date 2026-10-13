@@ -57,12 +57,14 @@ fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
         (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput owner) (HasOutput owner)))))
+      (#fn forward (: storage (#ref-mut Words)) Output
+        (#return (#call convert (: storage storage))))
       ").unwrap();
     let source = "(#import \"lib.lim\")
       (#fn main () #u64
         (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
         (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
-        (#let output Output (#call convert (: storage (#borrow-mut storage))))
+        (#let output Output (#call forward (: storage (#borrow-mut storage))))
         (#let answer #u64 (#match output (#case (NoOutput) 42u64)
           (#case (HasOutput owner) (#block
             (#let view (#pin-ref #u64) (#pin-own-borrow (#borrow owner)))

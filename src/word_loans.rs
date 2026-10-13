@@ -454,6 +454,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn forwarding_owned_word_requirements_retains_the_ownership_obligation() {
+        let source = "(#struct Words (: words (#array #u64 1)))
+          (#fn restore (: storage (#ref-mut Words)) (#pin-own #u64)
+            (#return (#unsafe (#word-take (#pin-own #u64) (#borrow-slice-mut (#get storage words))))))
+          (#fn forward (: storage (#ref-mut Words)) (#pin-own #u64)
+            (#return (#call restore (: storage storage))))
+          (#fn forward-again (: storage (#ref-mut Words)) (#pin-own #u64)
+            (#return (#call forward (: storage storage))))
+          (#fn main () #u64 (#return 0u64))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let declarations = checked.declarations();
+        for name in ["restore", "forward", "forward-again"] {
+            let inputs = &declarations.bodies[name].word_input_requirements;
+            assert_eq!(inputs.len(), 1, "{name}: {inputs:?}");
+            assert!(inputs[0].owned_allocation, "{name}: {inputs:?}");
+            assert!(inputs[0].mutable && inputs[0].pinned);
+        }
+        let invalid = source.replace("(#fn main () #u64 (#return 0u64))", "
+          (#fn main () #u64
+            (#let amount #u64 42u64)
+            (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
+            (#unsafe (#word-write (#ref #u64) (#borrow-slice-mut (#get storage words)) (#borrow amount)))
+            (#let owner (#pin-own #u64) (#call forward-again (: storage (#borrow-mut storage))))
+            (#forget owner) (#forget storage) (#return 0u64))");
+        let error = crate::CheckedProgram::validate(&crate::parse_program(&invalid).unwrap())
+            .err()
+            .unwrap();
+        assert!(
+            error.contains("missing required input loan")
+                || error.contains("missing slot provenance"),
+            "{error:?}"
+        );
+    }
+
+    #[test]
     fn numeric_backing_geometry_rejects_scalar_reference_and_unknown_paths() {
         let program = crate::parse_program(
             "(#struct Words (: words (#array #u64 2) : scalar #u64 : view (#ref (#array #u64 2))))

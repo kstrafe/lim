@@ -192,12 +192,14 @@ fn optional_owned_word_results_require_their_allocation_pointer() {
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
         (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput owner) (HasOutput owner)))))
+      (#fn forward (: storage (#ref-mut Words)) Output
+        (#return (#call convert (: storage storage))))
       (#fn main () #u64
         (#let pointer (#ptr-mut #u64) (#unsafe (#linux-syscall (#ptr-mut #u64) 9usize
           (0usize 4096usize 3usize 34usize -1i64 0usize))))
         (#let-mut storage Words (#struct-literal Words (: words (#array-repeat 0u64))))
         (#unsafe (#word-write Input (#borrow-slice-mut (#get storage words)) (NoInput)))
-        (#let output Output (#call convert (: storage (#borrow-mut storage))))
+        (#let output Output (#call forward (: storage (#borrow-mut storage))))
         (#let answer #u64 (#match output
           (#case (NoOutput) (#block
             (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64)) 42u64))

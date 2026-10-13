@@ -1818,3 +1818,33 @@ A new complete async matrix is running in /tmp/lim-owned-result-all-async.log.
 Until its terminal result is recorded, the prior complete matrix remains the
 authoritative remaining-failure inventory. No completion claim or final HTML
 is made; the emitter experiment and unrelated user files remain uncommitted.
+
+### Preserve owning requirements through checked forwarding functions
+
+The forwarding failure came from reusing actual return substitution during
+requirement inference. That substitution correctly rejects non-owning numeric
+origins, but an abstract input origin is precisely where the inferred owning
+obligation must be recorded. Inference now substitutes only the required path
+and records the callee's owning capability on the propagated requirement.
+Actual call authorization and returned owning-slot identity remain strict;
+this helper grants no access and is used only in requirement collection.
+Semantic summaries use version 19 to discard earlier erased obligations.
+
+The imported optional-owner fixture now calls its forwarding wrapper instead
+of bypassing it, and still obtains real cold/warm cache hits and identical
+unknown-input rejections. The native fixture also uses the wrapper for empty
+and occupied owners, retained-view release rejection and retired-input
+rejection. A library regression inspects the ownership, mutability and pinning
+requirements through two forwarding levels and rejects substituting a shared
+reference for an owner.
+
+All 95 word/cache/UI/entry tests pass (/tmp/lim-forward-owned-gates.log), as do
+the direct and chained inference regressions. The full library has 1,417 passes,
+the same two failures and eight ignored tests (80.85 seconds;
+/tmp/lim-forward-owned-library.log). All-target, formatting and diff checks
+pass. The complete dependent-cancellation and heap-content targets still have
+eleven passes/three failures and two passes/one failure respectively
+(/tmp/lim-forward-owned-cancellation.log); forwarding this capability does
+not claim to solve their distinct entry-state and nested-content failures.
+The earlier pre-forwarding async matrix remains running until its terminal
+result is recorded. The full async goal and final uncommitted HTML remain open.

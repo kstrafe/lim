@@ -2967,6 +2967,12 @@ owning-pin arm does not require a fabricated allocation identity. Occupied or
 unknown input slots still require their real loans; this does not authorize
 access to a live pointer's pointee or retire any of its nested references.
 
+Checked forwarding functions propagate a word reader's owning-pointer
+requirement as an entry obligation. Inferring that obligation does not turn
+abstract numeric input storage into an allocation. Each actual caller must
+still supply a primary, non-lifetime owning loan with the required mutability
+and pinning; ordinary call and return substitution rejects non-owning slots.
+
 ```lisp
 (#struct RefValue (: value (#ref #u64)))
 (#fn read-value (: words (#slice #u64)) #u64

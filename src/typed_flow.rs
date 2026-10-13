@@ -4744,7 +4744,7 @@ impl FlowGraph {
                                     input,
                                 );
                                 required.extend(
-                                    apply_parameter_loan_summary(argument, input, state)
+                                    forward_word_requirement_origins(argument, input, state)
                                         .into_iter()
                                         .map(|loan| (loan, guards.clone())),
                                 );
@@ -13176,6 +13176,27 @@ fn word_input_available(
                         && (!requirement.owned_allocation || loan.owned_allocation)
                 })
         })
+}
+
+/// Propagate a callee's requirement, not a permission to call it. Abstract
+/// numeric input slots have no allocation identity yet; rejecting them as
+/// non-owners here would erase the very obligation the caller must satisfy.
+/// Actual call and return substitution keeps its strict owning-slot check.
+fn forward_word_requirement_origins(
+    argument: LoanOrigin,
+    input: &crate::typed_body::ParameterLoanSummary,
+    state: &LoanState,
+) -> Vec<LoanOrigin> {
+    let mut path = input.clone();
+    path.owned_allocation = false;
+    apply_parameter_loan_summary(argument, &path, state)
+        .into_iter()
+        .filter(|origin| origin.storage.is_empty() && !origin.lifetime_only)
+        .map(|mut origin| {
+            origin.owned_allocation = input.owned_allocation;
+            origin
+        })
+        .collect()
 }
 
 /// Decode only constructor facts established at the actual numeric backing
