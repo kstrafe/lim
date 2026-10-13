@@ -206,6 +206,23 @@ fn word_owner_restoration_preserves_borrowed_pointee_fields() {
         (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (retired 4096usize))) 0i64))
         (#forget storage) (#return answer))";
     run(source);
+    let owned = source.replace(
+        "(#fn restore (: storage (#ref-mut Words)) (#pin-own Holder)\n        (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words))))))",
+        "(#fn restore (: storage Words) (#pin-own Holder)
+          (#let-mut working Words storage)
+          (#let restored (#pin-own Holder) (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get working words)))))
+          (#forget working) (#return restored))",
+    ).replace("(#struct Words (: words (#array #u64 1)))", "(#struct Words (: words (#array #u64 1))) (#linear Words)")
+        .replace("(#fn forward (: storage (#ref-mut Words))", "(#fn forward (: storage Words)")
+        .replace("(#call forward (: storage (#borrow-mut storage)))", "(#call forward (: storage storage))")
+        .replace("(#forget storage)", "");
+    assert!(owned.contains("(#let-mut working Words storage)"));
+    run(&owned);
+    let invalid_owned = owned.replace("(#let answer", "(#set amount 0u64) (#let answer");
+    assert_eq!(
+        compile(&invalid_owned).unwrap_err().code,
+        DiagnosticCode::Borrow
+    );
     for invalid in [
         source.replace("(#let answer", "(#set amount 0u64) (#let answer"),
         source.replace("(#forget view)", ""),

@@ -1882,3 +1882,43 @@ restoration does not prove absence for its owned by-value optional source.
 State-conditioned readers, exclusive-entry substitutions and remaining broad
 async failures are still open. The pre-forwarding matrix is still running in
 /tmp/lim-owned-result-all-async.log; no new terminal matrix tally is claimed.
+
+### Preserve input-owner contents across registration and typed word writes
+
+The pre-forwarding async matrix is now terminal: 21 target summaries,
+363 passes, 28 failures and three ignored cases (394 total), with the same
+five failing targets. Its log is /tmp/lim-owned-result-all-async.log. It tests
+the earlier result-reachability change, not the later forwarding, pointee or
+input-cache fixes; it is not evidence for the current final failure count.
+
+Tracing the heap cancellation failure showed an empty allocation cache entry
+shadowing the retained pointee loans already in a by-value input's referent
+schema. On first registration, the cache now imports those existing loans
+through the selected owner view, attenuating mutability rather than fabricating
+permissions. Existing entries are never reinitialized from the entry schema
+after a clear or replacement. Typed word writes also register their actual
+stored owner/pointee loans for allocation lookups. Semantic cache version 21
+invalidates summaries inferred with the shadowed contents.
+
+The complete heap-content target now passes all three tests, including native
+before-owner cancellation, live-owner cancellation, destruction counters and
+referent-mutation rejection. Dependent cancellation remains eleven passes and
+three failures (/tmp/lim-owned-input-shadow-async-final.log). The non-async
+native fixture now also restores a linear word container by value through a
+forwarding function and rejects mutation of the retained referent. A snapshot
+regression covers first import, preservation of an authoritative empty cache,
+branch snapshot isolation and conservative union of a retired/live join.
+All 97 focused word/cache/UI/entry tests pass, as does the snapshot regression.
+The full library has 1,419 passes, the same two failures and eight ignored cases
+(80.79 seconds). All-target, formatting and diff checks pass. Evidence is in
+/tmp/lim-owned-input-shadow-gates-final.log,
+/tmp/lim-owned-input-shadow-unit-final.log and
+/tmp/lim-owned-input-shadow-library-final.log.
+
+Temporary source-specific traces and the ineffective caller-side absence
+experiment were removed. No async-specific checker exception was introduced.
+A fresh 21-target async matrix is running at
+/tmp/lim-owned-input-shadow-all-async.log; its terminal result must be inspected
+before claiming the remaining inventory changed beyond the verified heap gate.
+State-dependent cancellation readers, exclusive-entry substitutions and the
+final uncommitted HTML still remain within the active goal.

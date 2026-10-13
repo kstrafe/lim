@@ -2981,6 +2981,13 @@ requires existing pointee loans; neither a layout nor an owner of a different
 reference-free pointee fabricates them. Mutation of a retained field's referent
 and release with a live owning-pin view remain borrow errors.
 
+Moving an input owner preserves pointee loans supplied by its checked entry
+contract, even when those loans are not adjacent slots in the moved value.
+Allocation contents are initialized from that existing provenance only on
+first registration. A later clear or replacement remains authoritative and
+does not re-import stale entry loans. Typed word writes likewise register the
+actual owner and pointee loans they store; raw bytes alone do not register them.
+
 ```lisp
 (#struct RefValue (: value (#ref #u64)))
 (#fn read-value (: words (#slice #u64)) #u64

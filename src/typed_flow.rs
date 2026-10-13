@@ -5673,6 +5673,10 @@ impl FlowGraph {
                     seed_allocation_contents(&mut state, Some(*binding));
                 }
                 FlowAction::Pattern { .. } => seed_allocation_contents(&mut state, None),
+                FlowAction::Evaluate(value) if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if head == "word-write") =>
+                {
+                    seed_allocation_contents(&mut state, None);
+                }
                 _ => {}
             }
             for successor in &self.nodes[id.0].successors {
@@ -11965,10 +11969,21 @@ fn seed_allocation_contents(state: &mut LoanState, binding: Option<BindingId>) {
             }
             let mut path = address.storage.clone();
             path.push(Segment::Dereference);
-            let contents = state
-                .allocation_contents
-                .entry(allocation_contents_key(address))
-                .or_default();
+            let key = allocation_contents_key(address);
+            if !state.allocation_contents.contains_key(&key) {
+                // A moved input owner may carry its pointee loans in the
+                // referent entry schema rather than adjacent value slots.
+                // Seed that existing contents before installing a cache entry;
+                // an empty entry would otherwise shadow those real loans.
+                // Never re-import the entry schema after a known retirement
+                // or replacement has already established allocation contents.
+                let mut view = address.clone();
+                view.storage.clear();
+                view.storage_inputs.clear();
+                let held = loaded_parameter_value_origins(&view, state);
+                state.allocation_contents.insert(key.clone(), held);
+            }
+            let contents = state.allocation_contents.entry(key).or_default();
             for loan in origins {
                 if loan.storage.starts_with(&path) {
                     let mut loan = loan.clone();
@@ -18854,6 +18869,44 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn input_owner_cache_retains_entry_loans_without_resurrecting_retired_contents() {
+        let mut owner = allocation_origin(NodeId(0), Vec::new(), None);
+        owner.place.root = PlaceRoot::Parameter(BindingId(0));
+        owner.parameter_storage = Some(vec![Segment::Index(0)]);
+        owner.storage = vec![Segment::Index(0)];
+        let key = allocation_contents_key(&owner);
+        let mut held = allocation_origin(NodeId(1), Vec::new(), None);
+        held.place.root = PlaceRoot::Parameter(BindingId(0));
+        held.owned_allocation = false;
+        held.mutable = false;
+        held.pinned = false;
+        held.storage = vec![Segment::Tuple(0)];
+        held.parameter_storage = Some(vec![
+            Segment::Index(0),
+            Segment::Dereference,
+            Segment::Tuple(0),
+        ]);
+        let mut state: LoanState = vec![vec![owner]].into();
+        state.parameter_contents = Some(HashMap::from([(key.clone(), vec![held.clone()])]).into());
+        seed_allocation_contents(&mut state, Some(BindingId(0)));
+        assert_eq!(state.allocation_contents[&key], vec![held.clone()]);
+        let original = state.clone();
+        state.allocation_contents.get_mut(&key).unwrap().clear();
+        seed_allocation_contents(&mut state, Some(BindingId(0)));
+        assert!(state.allocation_contents[&key].is_empty());
+        assert_eq!(
+            state.parameter_contents.as_ref().unwrap()[&key],
+            vec![held.clone()]
+        );
+        assert_eq!(original.allocation_contents[&key], vec![held.clone()]);
+        let mut joined = state.clone();
+        assert!(merge_loan_states(&mut joined, &original));
+        seed_allocation_contents(&mut joined, Some(BindingId(0)));
+        assert_eq!(joined.allocation_contents[&key], vec![held]);
+        assert!(state.allocation_contents[&key].is_empty());
     }
 
     #[test]
