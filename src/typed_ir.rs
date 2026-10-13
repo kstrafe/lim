@@ -1693,6 +1693,11 @@ impl Declarations {
             }
             if include_parameter_contents {
                 for input in &body.word_input_requirements {
+                    // Proof loss is a rejecting obligation, not a loan at
+                    // its unused placeholder parameter or empty storage path.
+                    if input.unresolved {
+                        continue;
+                    }
                     let seed = crate::typed_body::ParameterLoanSeed {
                         storage: input.input_storage.clone(),
                         mutable: input.mutable,
@@ -1711,6 +1716,9 @@ impl Declarations {
             if include_parameter_contents {
                 let body = self.bodies.get_mut(name).unwrap();
                 for input in &body.word_input_requirements {
+                    if input.unresolved {
+                        continue;
+                    }
                     if !input
                         .input_storage
                         .contains(&crate::typed_place::Segment::Dereference)
@@ -2834,6 +2842,61 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unresolved_word_obligations_never_seed_parameter_capabilities() {
+        let program = crate::parse_program(
+            "(#fn pinned (: frame (#pin-ref-mut #u64)) #u64 (#return (#deref frame)))
+             (#fn main () #u64 (#return 0u64))",
+        )
+        .unwrap();
+        let mut declarations =
+            crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        for placeholder in [0, usize::MAX] {
+            let requirement = crate::typed_body::WordInputRequirement {
+                loan: crate::typed_body::ParameterLoanSummary {
+                    fresh_allocation: None,
+                    global: None,
+                    parameter: placeholder,
+                    owned_allocation: false,
+                    mutable: false,
+                    pinned: false,
+                    lifetime_only: false,
+                    reborrow: false,
+                    referent_projection: Vec::new(),
+                    input_storage: Vec::new(),
+                    storage: Vec::new(),
+                    storage_inputs: Vec::new(),
+                },
+                guards: Vec::new(),
+                scalar_guards: Vec::new(),
+                unresolved: true,
+            };
+            for name in ["pinned", "main"] {
+                declarations
+                    .bodies
+                    .get_mut(name)
+                    .unwrap()
+                    .word_input_requirements = vec![requirement.clone()];
+            }
+            declarations.staged_parameter_contents_summaries();
+            let pinned = &declarations.bodies["pinned"];
+            assert_eq!(pinned.parameter_loan_slots[0].len(), 1);
+            assert!(pinned.parameter_loan_slots[0][0].pinned);
+            assert!(pinned.parameter_referent_loan_slots[0]
+                .iter()
+                .all(|slot| slot.pinned));
+            let main = &declarations.bodies["main"];
+            assert!(main.parameter_loan_slots.is_empty());
+            assert!(main.parameter_referent_loan_slots.is_empty());
+            assert!(
+                main.word_input_requirements
+                    .iter()
+                    .any(|input| input.unresolved),
+                "discarding a fake capability must not discard the rejecting obligation"
+            );
+        }
+    }
 
     #[test]
     fn reference_variant_completion_skips_large_scalar_arrays_and_pointer_boundaries() {

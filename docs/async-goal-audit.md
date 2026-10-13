@@ -2220,3 +2220,34 @@ run separately. These are concrete next emitter/projection obligations, not
 external blockers. The remaining whole async matrix has not been claimed
 fixed, and no test or safety rule was weakened to hide these failures. The
 active goal and deferred uncommitted HTML deliverable remain unchanged.
+
+The reported permanent-pin errors were traced to compiler metadata rather than
+an ordinary emitter receiver: task's type was already a pinned mutable frame
+reference. Its entry origins nevertheless included both the legitimate pinned
+root and an unpinned empty-storage root. The contents pass was seeding the
+unresolved word-contract marker as an actual parameter loan in both the direct
+and referent schemas. Both loops now skip unresolved markers. The rejecting
+obligation is retained; skipping its fake capability does not make a body safe.
+Cache format is version 29. A unit test covers a pinned parameter plus a
+zero-parameter function, using both zero and usize::MAX as the marker's unused
+placeholder index. Neither case creates a capability or indexes an absent
+parameter, and the unresolved obligation survives recomputation.
+
+The affected child-cancellation case now reports the real unsupported context
+contract instead of an artificial pin error. Temporary tracing identified a
+child-poll call with conditional (not definitely-written) stores, including
+empty incoming loan sets. The context factory currently rejects these effects;
+this was not a state-count overflow. Do not simply waive weak stores: possible
+initialization cannot guarantee an entry loan, and possible retirement must not
+leave a stale may-origin authorizing a reader. The next task needs definite
+word-cell initialization/retirement evidence and precise conditional call
+effects. All tracing has been removed, and no pinning rule was relaxed.
+
+Verification is /tmp/lim-unproved-entry-seeding-unit.log (one new unit pass),
+/tmp/lim-unproved-seed-gates.log (107 integration passes), and
+/tmp/lim-unproved-seed-check.log (all-target checking passes). The full library
+at /tmp/lim-unproved-seed-library.log has 1433 passes, the same four failures,
+eight ignored tests, and took 77.27 seconds. The pin-to-contract diagnostic
+transition is recorded in /tmp/lim-pin-cleanup-seed-fix.log; the unsupported
+conditional-store evidence is /tmp/lim-pin-cleanup-context-trace.log. There is
+no external blocker and no completion claim; the full goal remains active.
