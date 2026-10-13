@@ -14,6 +14,8 @@ use crate::typed_place::owned_output_projection;
 use crate::typed_place::{reads_through_reference, Place, Segment};
 use crate::{Span, Type};
 
+mod scalar;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct FlowNodeId(pub usize);
 
@@ -2323,17 +2325,15 @@ impl FlowGraph {
         self.restore_variant_paths();
         if !self.nodes.iter().any(|node| {
             matches!(node.action,
-            FlowAction::Pattern { pattern, value }
+            FlowAction::Pattern { pattern, .. }
                 if (body.staged_parameter_contents
                     && constructor_variant_at_storage(body, pattern, &[]).is_some())
-                    || (scalar_pattern_value(body, pattern).is_some()
-                        && (scalar_pattern_value(body, value).is_some()
-                            || matches!(body.nodes[value.0].kind,
-                                NodeKind::Symbol { binding: Some(_), .. }))))
+                    || scalar_pattern_value(body, pattern).is_some())
         }) {
             return;
         }
         let origins = self.loan_origins(body);
+        let scalar = scalar::analyze(self, body);
         if body.staged_parameter_contents
             && body.binding_numeric_shapes.iter().any(Option::is_some)
             && body
@@ -2350,15 +2350,18 @@ impl FlowGraph {
             };
             let Some(variant) = constructor_variant_at_storage(body, pattern, &[]) else {
                 if let Some(wanted) = scalar_pattern_value(body, pattern) {
-                    if self
-                        .unchanged_scalar_values(
-                            body,
-                            &origins,
-                            FlowNodeId(index),
-                            value,
-                            &mut HashSet::new(),
-                        )
-                        .is_some_and(|possible| !possible.is_empty() && !possible.contains(&wanted))
+                    if scalar.excludes(FlowNodeId(index), value, &wanted)
+                        || self
+                            .unchanged_scalar_values(
+                                body,
+                                &origins,
+                                FlowNodeId(index),
+                                value,
+                                &mut HashSet::new(),
+                            )
+                            .is_some_and(|possible| {
+                                !possible.is_empty() && !possible.contains(&wanted)
+                            })
                     {
                         impossible.push(FlowNodeId(index));
                     }
@@ -19463,7 +19466,8 @@ mod tests {
             ("(#let-mut selector #u64 1u64) (#deref-set (#borrow-mut selector) 2u64)", "selector", vec![]),
             ("(#let-mut selector #u64 1u64) (#call change (: value (#borrow-mut selector)))", "selector", vec![]),
             ("(#let-mut selector #u64 1u64) (#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut selector)))) \"mov QWORD PTR [rdi], 0\"))", "selector", vec![]),
-            ("(#let-mut selector #u64 0u64) (#while condition (#set selector selector))", "selector", vec![]),
+            ("(#let-mut selector #u64 0u64) (#while condition (#set selector selector))", "selector", vec![1, 2]),
+            ("(#let-mut selector #u64 0u64) (#while condition (#set selector 1u64))", "selector", vec![2]),
         ];
         for (setup, scrutinee, expected) in cases {
             let source = format!(

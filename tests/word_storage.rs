@@ -85,6 +85,29 @@ fn scalar_dispatch_does_not_require_loans_from_proven_unreachable_readers() {
     }
 }
 
+#[test]
+fn scalar_loop_field_bounds_exclude_only_proven_unreachable_word_readers() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct State (: pc #u64))
+      (#fn dispatch (: condition #bool) #u64
+        (#let-mut state State (#struct-literal State (: pc 0u64)))
+        (#let words (#array #u64 1) (#array-repeat 0u64))
+        (#while condition (#set state (#struct-literal State (: pc 1u64))))
+        (#let answer #u64 (#match (#get state pc)
+          (#case 2 (#block
+            (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice words))))
+            (#let amount #u64 (#deref (#get holder value)))
+            (#forget holder) amount))
+          (#case _ 42u64)))
+        (#forget words) (#return answer))
+      (#fn main () #u64 (#return (#call dispatch (: condition false))))";
+    run(source);
+    let selected = source.replace("(: pc 1u64)", "(: pc 2u64)");
+    let error =
+        compile(&selected).expect_err("a reachable reader still needs its exact stored loan");
+    assert_eq!(error.code, DiagnosticCode::Linear);
+}
+
 fn run(source: &str) {
     let assembly = compile(source).unwrap();
     let scratch = support::Scratch::new("word-storage-native");

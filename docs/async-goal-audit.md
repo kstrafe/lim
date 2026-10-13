@@ -2020,3 +2020,30 @@ ten owner-entry, three UI and three subprocess tests. Evidence is at
 /tmp/lim-frame-word-witness-gates-final.log. The full matrix above remains the
 latest broad async result; no semantic fix for its 27 failures is claimed here.
 The final HTML remains deferred until the original goal's completion gates pass.
+
+The next implementation adds generic forward scalar facts in the separate
+typed_flow/scalar module. It tracks owned local scalar and aggregate fields,
+keeps evaluated scrutinees separate from live storage, and solves the restored
+CFG to a fixed point before removing contradicted literal-pattern continuations.
+Every incoming path must provide a fact; unions wider than sixteen values are
+unknown. Reference writes, opaque calls, pointer writes, assembly, syscalls and
+atomic operations invalidate live storage facts. It does not track reference,
+heap or parameter-pointee scalar storage yet, and never establishes a loan.
+Metadata-only word retirement preserves bytes, not permission to restore them.
+
+New tests cover loop-carried field changes, unchanged loop-carried scalars,
+unknown aggregate inputs, guard-side mutation after capturing a scrutinee,
+calls and aliased/assembly writes. A native non-async regression accepts an
+unreachable word reader outside a proven loop-state bound, but rejects the
+reader when its state becomes reachable. Existing domain-widening and graph
+restoration tests remain passing. Cached semantic summaries use version 23.
+
+Evidence: /tmp/lim-forward-scalar-facts.log has three new unit passes;
+/tmp/lim-forward-scalar-native.log has the new native pass; and
+/tmp/lim-forward-scalar-gates.log has all 103 existing focused passes.
+/tmp/lim-forward-scalar-library.log has 1425 passes, the same two async failures
+and eight ignored tests, in 59.53 seconds. This is groundwork, not completion:
+entry-conditioned word and referent contracts, interprocedural scalar stores,
+and physical parameter/heap state facts remain necessary. The previous broad
+async matrix remains authoritative; its 27 failures have not been resolved by
+this commit. The emitter experiment and the final HTML remain uncommitted.
