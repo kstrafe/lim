@@ -2333,7 +2333,7 @@ impl FlowGraph {
             return;
         }
         let origins = self.loan_origins(body);
-        let scalar = scalar::analyze(self, body);
+        let scalar = scalar::analyze(self, body, &origins);
         if body.staged_parameter_contents
             && body.binding_numeric_shapes.iter().any(Option::is_some)
             && body
@@ -9437,7 +9437,9 @@ impl FlowGraph {
                 {
                     return None;
                 }
-                FlowAction::Write { .. } | FlowAction::Entry => return None,
+                FlowAction::Write { .. } | FlowAction::Clone { .. } | FlowAction::Entry => {
+                    return None
+                }
                 FlowAction::ScopeExit(bindings) if bindings.contains(&binding) => return None,
                 FlowAction::Evaluate(value)
                     if matches!(
@@ -9447,7 +9449,7 @@ impl FlowGraph {
                             ..
                         }
                     ) || matches!(&body.nodes[value.0].kind,
-                    NodeKind::Form { head, .. } if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read" | "word-write" | "pin-write" | "pin-set-field")) =>
+                    NodeKind::Form { head, .. } if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read" | "word-write" | "pin-write" | "pin-set-field") || head.starts_with("atomic-")) =>
                 {
                     return None;
                 }
@@ -19463,7 +19465,7 @@ mod tests {
             ("(#let-mut selector #u64 1u64) (#if condition (#block (#set selector other) ()) ())", "selector", vec![]),
             ("(#let selector #u64 other)", "selector", vec![]),
             ("(#let selector #u64 (#u64.+.wrap other 1u64))", "selector", vec![]),
-            ("(#let-mut selector #u64 1u64) (#deref-set (#borrow-mut selector) 2u64)", "selector", vec![]),
+            ("(#let-mut selector #u64 1u64) (#deref-set (#borrow-mut selector) 2u64)", "selector", vec![0, 1]),
             ("(#let-mut selector #u64 1u64) (#call change (: value (#borrow-mut selector)))", "selector", vec![]),
             ("(#let-mut selector #u64 1u64) (#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut selector)))) \"mov QWORD PTR [rdi], 0\"))", "selector", vec![]),
             ("(#let-mut selector #u64 0u64) (#while condition (#set selector selector))", "selector", vec![1, 2]),

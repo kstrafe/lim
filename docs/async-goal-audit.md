@@ -2047,3 +2047,31 @@ entry-conditioned word and referent contracts, interprocedural scalar stores,
 and physical parameter/heap state facts remain necessary. The previous broad
 async matrix remains authoritative; its 27 failures have not been resolved by
 this commit. The emitter experiment and the final HTML remain uncommitted.
+
+The following change extends scalar reads and writes through existing resolved
+reference and pinned-reference places. Reads intersect facts from every
+possible physical target; writes establish facts only at a single local or
+parameter destination. Ambiguous aliases, unsupported roots and unresolved
+projections cannot initialize scalar facts. Heap allocation identities remain
+unsupported for strong scalar updates. A private entry-seeding analysis path
+is tested with ordinary and pinned references; production callers still supply
+no entry assumptions. Tests verify that a later store overrides an entry value
+and that branch-joined aliases do not strongly update multiple objects.
+
+This review also found a mutation barrier missing from scalar proofs: an
+explicit user-defined clone can write through a raw pointer stored in its
+value. Both forward and backward proofs now stop live-storage assumptions at
+cloning; the backward proof also treats atomic operations conservatively.
+A native regression rejects an uninitialized word reader selected after such
+a clone hook. Its safe counterpart returns 42 only if the hook really changed
+the selector, protecting against an accidentally skipped clone invocation.
+Cached semantic summaries now use version 24.
+
+The final evidence is /tmp/lim-physical-scalar-facts-final.log (five unit passes),
+/tmp/lim-physical-scalar-gates-final.log (105 focused passes), and
+/tmp/lim-physical-scalar-library-final.log (1427 passes, the same two async
+failures, eight ignored, 60.00 seconds). All-target checking and diff/format
+checks pass. No broad async failure has been claimed fixed. The actual next
+step is entry-conditioned contract analysis and propagation of real scalar
+construction/store summaries, not treating a seed or a discriminator as
+permission to read an absent loan. The goal remains active and incomplete.

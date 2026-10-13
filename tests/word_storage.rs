@@ -108,6 +108,45 @@ fn scalar_loop_field_bounds_exclude_only_proven_unreachable_word_readers() {
     assert_eq!(error.code, DiagnosticCode::Linear);
 }
 
+#[test]
+fn clone_hook_writes_cannot_leave_stale_scalar_reader_bounds() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Payload (: target (#ptr-mut #u64)))
+      (#fn Payload-clone (: value Payload) Payload
+        (#unsafe (#ptr-write (#get value target) 1u64)) (#return value))
+      (#fn main () #u64
+        (#let-mut selector #u64 0u64)
+        (#let payload Payload (#struct-literal Payload
+          (: target (#ref-ptr (#borrow-mut selector)))))
+        (#let cloned Payload (#clone payload))
+        (#let words (#array #u64 1) (#array-repeat 0u64))
+        (#let answer #u64 (#match selector
+          (#case 1 (#block
+            (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice words))))
+            (#let amount #u64 (#deref (#get holder value)))
+            (#forget holder) amount))
+          (#case _ 42u64)))
+        (#forget words) (#return answer))";
+    let error =
+        compile(source).expect_err("a custom clone can mutate a selector through its raw pointer");
+    assert_eq!(error.code, DiagnosticCode::Linear);
+    assert!(
+        error.message.contains("loan")
+            || error.message.contains("unresolved")
+            || error.message.contains("missing slot provenance"),
+        "{error:?}"
+    );
+    let valid = source.replace(
+        "(#case 1 (#block
+            (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice words))))
+            (#let amount #u64 (#deref (#get holder value)))
+            (#forget holder) amount))
+          (#case _ 42u64)",
+        "(#case 1 42u64) (#case _ 0u64)",
+    );
+    run(&valid);
+}
+
 fn run(source: &str) {
     let assembly = compile(source).unwrap();
     let scratch = support::Scratch::new("word-storage-native");

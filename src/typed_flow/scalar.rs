@@ -83,17 +83,37 @@ fn snapshot(facts: &Facts, body: &Body, value: NodeId) -> Shape {
     facts.values.get(&value).cloned().unwrap_or_default()
 }
 
-fn evaluate(facts: &Facts, body: &Body, value: NodeId) -> Shape {
+fn read_shape(facts: &Facts, places: &[Place]) -> Shape {
+    let mut common = None;
+    for place in places {
+        let incoming = stored_shape(facts, place);
+        if let Some(held) = &mut common {
+            join_map(held, &incoming);
+        } else {
+            common = Some(incoming);
+        }
+    }
+    common.unwrap_or_default()
+}
+
+fn evaluate(
+    facts: &Facts,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    value: NodeId,
+) -> Shape {
     if let Some(literal) = scalar_pattern_value(body, value) {
         return HashMap::from([(Vec::new(), vec![literal])]);
     }
-    // Only owned places are read here. Reference/atomic/heap projections stay
-    // unknown until their physical identity and mutation rules are modeled.
-    if !reads_through_reference(body, value) {
-        if let Some(place) = Place::from_expression(body, value) {
-            if matches!(place.root, PlaceRoot::Local(_)) {
-                return stored_shape(facts, &place);
+    if let Some(place) = Place::from_expression(body, value) {
+        if reads_through_reference(body, value) {
+            if let Some(places) = physical_write_places(body, origins, event, &place) {
+                return read_shape(facts, &places);
             }
+            return Shape::new();
+        } else if matches!(place.root, PlaceRoot::Local(_)) {
+            return stored_shape(facts, &place);
         }
     }
     let NodeKind::Form {
@@ -149,7 +169,16 @@ fn write(facts: &mut Facts, place: &Place, incoming: Shape) {
     }
 }
 
-pub(super) fn analyze(flow: &FlowGraph, body: &Body) -> Analysis {
+pub(super) fn analyze(flow: &FlowGraph, body: &Body, origins: &FlowLoanOrigins) -> Analysis {
+    analyze_with_entry(flow, body, origins, HashMap::new())
+}
+
+fn analyze_with_entry(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    memory: HashMap<Place, Values>,
+) -> Analysis {
     let mut before = vec![None; flow.nodes.len()];
     if !flow.nodes.iter().any(|node| {
         matches!(node.action,
@@ -157,7 +186,10 @@ pub(super) fn analyze(flow: &FlowGraph, body: &Body) -> Analysis {
     }) {
         return Analysis { before };
     }
-    before[flow.entry.0] = Some(Facts::default());
+    before[flow.entry.0] = Some(Facts {
+        memory,
+        ..Facts::default()
+    });
     let mut pending = VecDeque::from([flow.entry]);
     let mut queued = vec![false; flow.nodes.len()];
     queued[flow.entry.0] = true;
@@ -168,7 +200,7 @@ pub(super) fn analyze(flow: &FlowGraph, body: &Body) -> Analysis {
             FlowAction::Evaluate(value)
             | FlowAction::Read { value, .. }
             | FlowAction::Clone { value, .. } => {
-                let shape = evaluate(&facts, body, *value);
+                let shape = evaluate(&facts, body, origins, event, *value);
                 facts.values.remove(value);
                 if !shape.is_empty() {
                     facts.values.insert(*value, shape);
@@ -179,7 +211,8 @@ pub(super) fn analyze(flow: &FlowGraph, body: &Body) -> Analysis {
                         callee: Some(_),
                         ..
                     }
-                ) || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }
+                ) || matches!(flow.nodes[event.0].action, FlowAction::Clone { .. })
+                    || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }
                         if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read" | "word-write" | "pin-write" | "pin-set-field" | "deref-set")
                             || head.starts_with("atomic-"))
                 {
@@ -207,7 +240,31 @@ pub(super) fn analyze(flow: &FlowGraph, body: &Body) -> Analysis {
                     write(&mut facts, place, incoming);
                 }
             }
-            FlowAction::Write { .. } => facts.memory.clear(),
+            FlowAction::Write { place, value } => {
+                let source = match &body.nodes[value.0].kind {
+                    NodeKind::Form { head, children, .. } if head == "pin-set-field" => {
+                        children.get(3)
+                    }
+                    NodeKind::Form { children, .. } => children.get(2),
+                    _ => None,
+                };
+                let targets = physical_write_places(body, origins, event, place);
+                if let (Some(source), Some(targets)) = (source, targets) {
+                    if targets.len() == 1
+                        && matches!(
+                            targets[0].root,
+                            PlaceRoot::Local(_) | PlaceRoot::Parameter(_)
+                        )
+                    {
+                        let incoming = snapshot(&facts, body, *source);
+                        write(&mut facts, &targets[0], incoming);
+                    } else {
+                        facts.memory.clear();
+                    }
+                } else {
+                    facts.memory.clear();
+                }
+            }
             FlowAction::Release { place, .. } => {
                 facts.memory.retain(|source, _| !place.overlaps(source));
             }
@@ -287,13 +344,12 @@ mod tests {
     }
 
     #[test]
-    fn unknown_calls_and_aliased_writes_do_not_preserve_live_field_facts() {
+    fn unknown_calls_and_assembly_do_not_preserve_live_field_facts() {
         let prefix = "(#struct State (: pc #u64))
           (#fn change (: target (#ref-mut State)) ()
             (#deref-set target (#struct-literal State (: pc 0u64))) (#return ()))";
         for write in [
             "(#call change (: target (#borrow-mut state)))",
-            "(#deref-set (#borrow-mut state) (#struct-literal State (: pc 0u64)))",
             "(#unsafe (#asm () ((rdi (#ref-ptr (#borrow-mut state)))) \"mov QWORD PTR [rdi], 0\"))",
         ] {
             let source = format!(
@@ -302,6 +358,121 @@ mod tests {
               (#return (#match (#get state pc) (#case 0 0u64) (#case 1 42u64) (#case _ 0u64))))"
             );
             assert!(pruned(&source).is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn resolved_reference_writes_update_only_the_actual_owned_place() {
+        for setup in [
+            "(#let view (#ref-mut State) (#borrow-mut state))
+             (#deref-set view (#struct-literal State (: pc 1u64)))",
+            "(#let view (#pin-ref-mut State) (#pin state)) (#pin-set-field view pc 1u64)",
+        ] {
+            let source = format!(
+                "(#struct State (: pc #u64))
+              (#fn work () #u64
+                (#let-mut state State (#struct-literal State (: pc 0u64))) {setup}
+                (#return (#match (#get view pc)
+                  (#case 0 0u64) (#case 1 42u64) (#case 2 2u64) (#case _ 3u64))))"
+            );
+            assert_eq!(pruned(&source), vec![0, 2], "{source}");
+        }
+        let ambiguous = "(#struct State (: pc #u64))
+          (#fn work (: condition #bool) #u64
+            (#let-mut left State (#struct-literal State (: pc 0u64)))
+            (#let-mut right State (#struct-literal State (: pc 0u64)))
+            (#let view (#ref-mut State) (#if condition (#borrow-mut left) (#borrow-mut right)))
+            (#deref-set view (#struct-literal State (: pc 1u64)))
+            (#return (#match (#get view pc) (#case 0 0u64) (#case 1 42u64) (#case _ 2u64))))";
+        assert!(
+            pruned(ambiguous).is_empty(),
+            "an abstract alias cannot strongly update both owners"
+        );
+    }
+
+    #[test]
+    fn entry_scalar_assumptions_are_distinct_from_later_parameter_writes() {
+        for reference in ["#ref-mut", "#pin-ref-mut"] {
+            let source = format!(
+                "(#struct State (: pc #u64))
+              (#fn work (: view ({reference} State)) #u64
+                (#return (#match (#get view pc) (#case 0 0u64)
+                  (#case 1 42u64) (#case _ 2u64))))"
+            );
+            let program = crate::parse_program(&source).unwrap();
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["work"];
+            let flow = FlowGraph::lower(body).unwrap();
+            let origins = flow.loan_origins(body);
+            let pc = body
+                .nodes
+                .iter()
+                .find_map(|node| match node.kind {
+                    NodeKind::Declaration(DeclarationId::Field(field)) => Some(field),
+                    _ => None,
+                })
+                .unwrap();
+            let place = Place {
+                root: PlaceRoot::Parameter(BindingId(0)),
+                segments: vec![Segment::Field(pc)],
+            };
+            let seeded = analyze_with_entry(
+                &flow,
+                body,
+                &origins,
+                HashMap::from([(place, vec![crate::Expr::UnsignedInteger(1)])]),
+            );
+            let unknown = analyze(&flow, body, &origins);
+            let mut count = 0;
+            for (index, node) in flow.nodes.iter().enumerate() {
+                if let FlowAction::Pattern { pattern, value } = node.action {
+                    if let Some(wanted) = scalar_pattern_value(body, pattern) {
+                        assert!(!unknown.excludes(FlowNodeId(index), value, &wanted));
+                        if wanted == crate::Expr::UnsignedInteger(0) {
+                            assert!(
+                                seeded.excludes(FlowNodeId(index), value, &wanted),
+                                "{reference}"
+                            );
+                            count += 1;
+                        }
+                    }
+                }
+            }
+            assert_eq!(count, 1);
+
+            let write = if reference == "#pin-ref-mut" {
+                "(#pin-set-field view pc 2u64)"
+            } else {
+                "(#deref-set view (#struct-literal State (: pc 2u64)))"
+            };
+            let written = source.replace("(#return", &format!("{write} (#return"));
+            let program = crate::parse_program(&written).unwrap();
+            let declarations =
+                crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+            let body = &declarations.bodies["work"];
+            let flow = FlowGraph::lower(body).unwrap();
+            let origins = flow.loan_origins(body);
+            let entry = Place {
+                root: PlaceRoot::Parameter(BindingId(0)),
+                segments: vec![Segment::Field(pc)],
+            };
+            let facts = analyze_with_entry(
+                &flow,
+                body,
+                &origins,
+                HashMap::from([(entry, vec![crate::Expr::UnsignedInteger(1)])]),
+            );
+            for (index, node) in flow.nodes.iter().enumerate() {
+                if let FlowAction::Pattern { pattern, value } = node.action {
+                    if let Some(wanted) = scalar_pattern_value(body, pattern) {
+                        assert!(
+                            facts.excludes(FlowNodeId(index), value, &wanted),
+                            "an entry value cannot override a subsequent store: {reference}"
+                        );
+                    }
+                }
+            }
         }
     }
 }
