@@ -195,7 +195,12 @@ fn word_effects(
             return None;
         }
         words.retain(|held, _| !held.overlaps(&place));
-        words.insert(place.clone(), event);
+        // A definite metadata retirement leaves no initialized word loan to
+        // distinguish. The ordinary solver still executes the retirement;
+        // byte writes and weak effects retain their separate histories.
+        if !store.definitely_written || !store.preserves_bytes {
+            words.insert(place.clone(), event);
+        }
         if store.definitely_written {
             uncertain.retain(|held| !place_covers(&place, held));
         } else {
@@ -680,6 +685,39 @@ mod tests {
         let body = &declarations.bodies["work"];
         let flow = FlowGraph::lower(body).unwrap();
         assert!(specialize(&flow, body, &flow.loan_origins(body), &[]).is_some());
+    }
+
+    #[test]
+    fn definite_retirements_do_not_retain_dead_word_epochs() {
+        let arguments = (0..5)
+            .map(|index| format!(" : flag{index} #bool"))
+            .collect::<String>();
+        let choices = (0..5).map(|index| format!(
+            "(#if flag{index}
+              (#block
+                (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words) {}usize {}usize)
+                  (#struct-literal Holder (: value (#get frame source)))))
+                (#unsafe (#word-forget Holder (#borrow-slice-mut (#get frame words) {}usize {}usize))))
+              (#unsafe (#word-forget Holder (#borrow-slice-mut (#get frame words) {}usize {}usize))))",
+            index+1, index+2, index+1, index+2, index+1, index+2)).collect::<String>();
+        let source = PHASE_SOURCE
+            .replace(
+                "(: frame (#ref-mut Frame))",
+                &format!("(: frame (#ref-mut Frame){arguments})"),
+            )
+            .replace("(#array #u64 1)", "(#array #u64 6)")
+            .replace("(#loop", &format!("{choices} (#loop"));
+        let program = crate::parse_program(&source).unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = FlowGraph::lower(body).unwrap();
+        let origins = flow.loan_origins(body);
+        assert!(specialize(&flow, body, &origins, &[]).is_some());
+        assert!(flow
+            .parameter_summary(body, false)
+            .word_inputs
+            .iter()
+            .all(|input| !input.unresolved));
     }
 
     #[test]
