@@ -791,13 +791,15 @@ impl<'a> Emitter<'a> {
             }
             let ty = crate::typed_ir::resolve_type(&slot.storage, &planning.declarations.aliases)
                 .map_err(|message| fail(function, message))?;
-            let reference_free_value = (value_slots.contains(&index)
+            let word_backed_value = (value_slots.contains(&index)
                 || binding_slots.contains(&index))
                 && !matches!(ty, Type::Unit | Type::Never)
-                && !types.contains_reference(&ty);
+                && (!types.contains_reference(&ty)
+                    || matches!(&ty, Type::Tuple(_))
+                    || matches!(&ty, Type::Named(name) if planning.declarations.structs.contains_key(name)));
             if slot.words.is_some()
                 || (!slot.raw
-                    && !reference_free_value
+                    && !word_backed_value
                     && !matches!(
                         ty,
                         Type::Bool
@@ -1216,6 +1218,16 @@ impl<'a> Emitter<'a> {
                     };
                 }
                 let length = count(&ty);
+                // A #u64 word is already the declared numeric backing type.
+                // Borrow its actual slot instead of manufacturing an opaque
+                // typed view, which would retain only a lifetime anchor.
+                if ty == Type::U64 && terms.is_empty() {
+                    return format!(
+                        "(#pin-borrow{} (#index (#get task {}) {offset}usize))",
+                        if mutable { "-mut" } else { "" },
+                        region.field
+                    );
+                }
                 let slice = if terms.is_empty() {
                     self.word_slice(
                         &WordRegion {
@@ -1534,6 +1546,33 @@ impl<'a> Emitter<'a> {
             if !self.anchor_in_bounds(place) {
                 return "(#unreachable)".into();
             }
+            // One statically selected local word names its referent exactly.
+            // Recover it from an exact address round trip, not by trusting a
+            // saved raw address. Dynamic, external and tagged selections keep the
+            // existing pointer/selection protocol.
+            let static_word = !pinned
+                && matches!(place.root,
+                crate::typed_body::PlaceRoot::Local(binding)
+                    if self.slots[self.bindings[&binding]].words.is_some())
+                && place.segments.iter().all(|segment| {
+                    matches!(
+                        segment,
+                        crate::typed_place::Segment::Field(_)
+                            | crate::typed_place::Segment::Tuple(_)
+                            | crate::typed_place::Segment::Index(_)
+                    )
+                })
+                && matches!(&slot.storage,
+                    Type::RawPointer { target, .. } if **target == Type::U64);
+            if static_word {
+                let anchor = self.internal_anchor(place, mutable, pointer);
+                let name = self.fresh("exact-word-anchor");
+                return format!(
+                        "(#block (#let {name} (#pin-ref{} #u64) {anchor}) (#unsafe (#ptr-borrow{} {name} (#ref-ptr {name}))))",
+                        if mutable { "-mut" } else { "" },
+                        if mutable { "-mut" } else { "" }
+                    );
+            }
             return materialize(place);
         }
         // The raw address retains the choice made by the source expression.
@@ -1670,6 +1709,14 @@ impl<'a> Emitter<'a> {
             mutable,
             &self.fresh("word-anchor"),
             &self.fresh("word-view"),
+        )
+    }
+
+    fn forget_word_region(&self, region: &WordRegion) -> String {
+        format!(
+            "(#unsafe (#word-forget (#array #u64 {}) {}))",
+            region.length,
+            self.word_slice(region, true)
         )
     }
 
@@ -2615,9 +2662,9 @@ impl<'a> Emitter<'a> {
                         .is_none_or(|cells| cells[index]);
                     self.occupancy_write(index, false);
                     let slot = &self.slots[index];
-                    if slot.words.is_some() {
+                    if let Some(region) = &slot.words {
                         return if occupied && !slot.raw && self.types.contains_reference(&slot.ty) {
-                            format!("(#forget {})", self.read(index, true))
+                            self.forget_word_region(region)
                         } else {
                             String::new()
                         };
@@ -2642,9 +2689,9 @@ impl<'a> Emitter<'a> {
                 self.occupancy_write(*slot, false);
                 let index = *slot;
                 let slot = &self.slots[index];
-                if slot.words.is_some() {
+                if let Some(region) = &slot.words {
                     return if occupied && !slot.raw && self.types.contains_reference(&slot.ty) {
-                        format!("(#forget {})", self.read(index, true))
+                        self.forget_word_region(region)
                     } else {
                         String::new()
                     };
@@ -2706,7 +2753,8 @@ impl<'a> Emitter<'a> {
         let mut clears = Vec::new();
         for &index in slots {
             self.occupancy_write(index, false);
-            if self.slots[index].words.is_some() {
+            if let Some(region) = &self.slots[index].words {
+                clears.push(self.forget_word_region(region));
                 continue;
             }
             let handle = self.fresh("retired-handle");
@@ -6268,6 +6316,7 @@ impl<'a> Emitter<'a> {
                                 "(#call {handler} (: {parameter} {}))",
                                 self.payload_ref(slot, true)
                             ));
+                            operations.push(self.forget_word_region(slot.words.as_ref().unwrap()));
                             continue;
                         }
                         // The externally visible PC proves this child Full.
@@ -6301,8 +6350,8 @@ impl<'a> Emitter<'a> {
         // by ordinary stored-internal-loan checking at that access boundary.
         output.extend(order.iter().map(|index| {
             let slot = &self.slots[*index];
-            if slot.words.is_some() {
-                return String::new();
+            if let Some(region) = &slot.words {
+                return self.forget_word_region(region);
             }
             format!(
                 "(#assert (#variant-is {} {}))",
@@ -7498,7 +7547,7 @@ mod tests {
     }
 
     #[test]
-    fn owned_reference_transfers_preserve_whole_cell_provenance_without_a_tag_match() {
+    fn owned_reference_transfers_take_contiguous_storage_without_a_tag_match() {
         let planning = prepare_generator(
             "#async-fn-pinned",
             "(#fn work (: source (#ref #u64)) #u64
@@ -7518,16 +7567,12 @@ mod tests {
             .unwrap();
         let index = emitter.bindings[&BindingId(binding)];
         assert!(!emitter.slots[index].raw);
-        assert!(emitter.slots[index].words.is_none());
+        assert!(emitter.slots[index].words.is_some());
         *emitter.physical_current.borrow_mut() = Some(vec![true; emitter.slots.len()]);
         let transfer = emitter.read(index, true);
         assert!(!transfer.contains("#match"), "{transfer}");
-        assert!(transfer.contains("#pin-get-payload-unchecked-mut"));
-        assert!(
-            transfer.find("#pin-write").unwrap()
-                < transfer.find("#pin-get-payload-unchecked-mut").unwrap(),
-            "publish Empty before reading the local pre-move snapshot: {transfer}"
-        );
+        assert!(transfer.contains("#word-take"), "{transfer}");
+        assert!(!transfer.contains("#pin-write"), "{transfer}");
         assert!(!emitter.physical_current.borrow().as_ref().unwrap()[index]);
         let generated = generate(&planning).unwrap();
         crate::CheckedProgram::validate_with_span(&program(&planning, &generated).unwrap())
@@ -9998,6 +10043,29 @@ mod tests {
             }
             runtime_generated(planning, generated, 42);
         }
+    }
+
+    #[test]
+    fn internal_scalar_reference_inside_holder_survives_repeated_poll() {
+        let function = "(#fn work (: seed #u64) #u64
+          (#let owner Source (#struct-literal Source (: amount (#borrow seed))))
+          (#let view (#pin-ref (#ref #u64)) (#pin-borrow (#get owner amount)))
+          (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
+          (#let observed #u64 (#deref (#deref view)))
+          (#drop view) (#forget owner)
+          (#return (#u64.+.wrap observed child)))";
+        let main = "(#struct Source (: amount (#ref #u64)))
+          (#fn main () #u64 (#let waker #u64 0u64)
+            (#let-mut task Work-frame (#call work (: seed 40u64)))
+            (#let first Work-poll-result (#call work-poll
+              (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+            (#let-else (work-pending next) Work-poll-result first (#unreachable))
+            (#let answer #u64 (#match (#call work-poll (: task next : waker (#borrow waker)))
+              (#case (work-ready result) result)
+              (#case (work-pending bad) (#block (#forget bad) (#unreachable)))))
+            (#forget task) (#return answer))";
+        let generated = runtime_planned(prepare_generator("#async-fn-pinned", function, main), 42);
+        assert!(generated[0].source.contains("exact-word-anchor"));
     }
 
     #[test]

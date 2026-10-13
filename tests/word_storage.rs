@@ -1832,6 +1832,32 @@ fn word_forget_retires_loans_without_loading_or_zeroing_memory() {
 }
 
 #[test]
+fn retired_word_cells_can_be_reused_without_reviving_old_loans() {
+    let source = "(#fn main () #u64
+      (#let-mut old #u64 0u64) (#let-mut current #u64 42u64)
+      (#let-mut words (#array #u64 1) (#array-repeat 0u64))
+      (#unsafe (#word-write (#ref-mut #u64) (#borrow-slice-mut words) (#borrow-mut old)))
+      (#unsafe (#word-forget (#array #u64 1) (#borrow-slice-mut words)))
+      (#set old 1u64)
+      (#unsafe (#word-write (#ref-mut #u64) (#borrow-slice-mut words) (#borrow-mut current)))
+      (#set old 2u64)
+      (#let restored (#ref-mut #u64) (#unsafe (#word-take (#ref-mut #u64) (#borrow-slice-mut words))))
+      (#let answer #u64 (#deref restored))
+      (#forget restored) (#forget words) (#return answer))";
+    run(source);
+    let still_borrowed = source.replace("(#set old 2u64)", "(#set current 0u64)");
+    assert_eq!(
+        compile(&still_borrowed).unwrap_err().code,
+        DiagnosticCode::Borrow
+    );
+    let retired = source.replace(
+        "(#let restored",
+        "(#unsafe (#word-forget (#array #u64 1) (#borrow-slice-mut words))) (#let restored",
+    );
+    assert_eq!(compile(&retired).unwrap_err().code, DiagnosticCode::Linear);
+}
+
+#[test]
 fn word_forget_does_not_end_transferred_or_neighboring_loans() {
     let source = "(#fn main () #u64
       (#let-mut seed #u64 42u64)
