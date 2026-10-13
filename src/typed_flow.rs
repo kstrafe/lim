@@ -5157,10 +5157,16 @@ impl FlowGraph {
                             if inactive_variant_slot(&tags, &root, path) {
                                 return false;
                             }
-                            if let Some(slot) = body.word_layouts[&value]
-                                .slots
-                                .iter()
-                                .find(|slot| slot.path == path)
+                            if let Some(slot) =
+                                body.word_layouts[&value].slots.iter().find(|slot| {
+                                    slot.path == path
+                                        || slot.retained.iter().any(|retained| {
+                                            slot.path
+                                                .iter()
+                                                .chain(&retained.storage)
+                                                .eq(path.iter())
+                                        })
+                                })
                             {
                                 if let NodeKind::Form { children, .. } = &body.nodes[value.0].kind {
                                     let addresses = actual
@@ -6082,7 +6088,16 @@ impl FlowGraph {
                     storage_inputs: (0..slot.storage.len()).map(Some).collect(),
                     lifetime_only: false,
                     maybe_absent: false,
-                    word_stored: false,
+                    // Only the conditional return-proof solver can carry
+                    // checked numeric entry cells through a pass-through
+                    // return. Its filter above proves the entry guard; a
+                    // declared type or pointer layout alone supplies no cell.
+                    word_stored: entry.is_some()
+                        && body.word_input_requirements.iter().any(|input| {
+                            !input.unresolved
+                                && input.parameter == index
+                                && input.input_storage == slot.storage
+                        }),
                     word_view_address: false,
                 });
             }
@@ -6092,10 +6107,15 @@ impl FlowGraph {
             if entry.is_some() {
                 for ((root, prefix), held) in &mut contents {
                     if let PlaceRoot::Parameter(parameter) = root {
-                        held.retain(|loan| {
+                        held.retain_mut(|loan| {
                             let mut storage = prefix.clone();
                             storage.push(Segment::Dereference);
                             storage.extend(loan.storage.clone());
+                            loan.word_stored = body.word_input_requirements.iter().any(|input| {
+                                !input.unresolved
+                                    && input.parameter == parameter.0
+                                    && input.input_storage == storage
+                            });
                             entry_word_seed_allowed(body, parameter.0, &storage, entry)
                         });
                     }
@@ -6144,6 +6164,15 @@ impl FlowGraph {
             empty.parameter_contents = Some(contents.into());
         }
         seed_allocation_contents(&mut empty, None);
+        if entry.is_some() {
+            // Include already seeded, guard-checked pointee contents beside
+            // their input owner. Returning the owner without loading it must
+            // not drop its real retained loans. Known empty allocation caches
+            // remain empty after retirement; this never reloads old bytes.
+            for held in &mut empty.bindings {
+                refresh_allocation_origins(held, &empty.allocation_contents);
+            }
+        }
         let mut before: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
         let mut after: Vec<Option<LoanState>> = vec![None; self.nodes.len()];
         let mut queued = vec![false; self.nodes.len()];
