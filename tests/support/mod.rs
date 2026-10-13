@@ -68,13 +68,28 @@ pub fn run(
     budget: Duration,
     output_limit: usize,
 ) -> Result<(ExitStatus, Vec<u8>, Vec<u8>), String> {
+    let started = Instant::now();
     // Every child gets a new group. Never send a signal to our own group.
-    let mut child = command
-        .process_group(0)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| error.to_string())?;
+    let mut child = loop {
+        match command
+            .process_group(0)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => break child,
+            // A writable descriptor still held elsewhere can briefly prevent
+            // executing a freshly linked file. Retry only this Linux launch
+            // failure, never a running child's exit or another spawn error.
+            Err(error) if cfg!(target_os = "linux") && error.raw_os_error() == Some(26) => {
+                if started.elapsed() >= budget {
+                    return Err(format!("timeout after {budget:?} starting child: {error}"));
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    };
     let pid = i32::try_from(child.id()).expect("Linux process ID fits #i32");
     assert!(pid > 1);
     let exceeded = Arc::new(AtomicBool::new(false));
@@ -84,7 +99,6 @@ pub fn run(
     let err_flag = exceeded.clone();
     let out = thread::spawn(move || capture(stdout, output_limit, out_flag));
     let err = thread::spawn(move || capture(stderr, output_limit, err_flag));
-    let started = Instant::now();
     let result = loop {
         if exceeded.load(Ordering::Relaxed) {
             break Err("output limit exceeded".to_owned());

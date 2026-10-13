@@ -2,6 +2,57 @@ mod support;
 use std::{process::Command, time::Duration};
 
 #[test]
+#[cfg(target_os = "linux")]
+fn busy_executable_launch_retries_within_the_same_deadline() {
+    let scratch = support::Scratch::new("busy-executable");
+    let binary = scratch.path().join("program");
+    std::fs::copy(std::env::current_exe().unwrap(), &binary).unwrap();
+    let writer = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&binary)
+        .unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        drop(writer);
+    });
+    let result = support::run(
+        Command::new(&binary).arg("--list"),
+        Duration::from_secs(3),
+        4096,
+    );
+    release.join().unwrap();
+    assert!(result.unwrap().0.success());
+
+    let writer = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&binary)
+        .unwrap();
+    let started = std::time::Instant::now();
+    let error = support::run(
+        Command::new(&binary).arg("--list"),
+        Duration::from_millis(30),
+        4096,
+    )
+    .unwrap_err();
+    drop(writer);
+    assert!(
+        error.contains("timeout") && error.contains("starting child"),
+        "{error}"
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+    let error = support::run(
+        &mut Command::new(scratch.path().join("missing")),
+        Duration::from_secs(3),
+        4096,
+    )
+    .unwrap_err();
+    assert!(
+        !error.contains("timeout"),
+        "non-busy launch errors are not retried: {error}"
+    );
+}
+
+#[test]
 fn output_is_drained_and_bounded_on_both_streams() {
     let output = support::run(
         Command::new("sh").args([
