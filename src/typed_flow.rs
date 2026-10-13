@@ -686,6 +686,7 @@ impl std::ops::Index<usize> for LoanSnapshots<'_> {
 /// call effects, and referent provenance. Consumers must treat unknown origins
 /// conservatively rather than interpreting their absence as disjointness.
 pub(crate) struct FlowLoanOrigins {
+    scalars: std::cell::OnceCell<scalar::Analysis>,
     variants: std::cell::OnceCell<Vec<Option<HashMap<Place, VariantId>>>>,
     storage_variant_bounds: std::cell::OnceCell<StorageVariantSnapshots>,
     clear_refinements: Vec<Option<CallResultRefinement>>,
@@ -4811,7 +4812,7 @@ impl FlowGraph {
                                 origins,
                                 FlowNodeId(index),
                             );
-                            (loan, guards, false)
+                            (loan, guards, Vec::new(), false)
                         }),
                 );
             }
@@ -4865,14 +4866,28 @@ impl FlowGraph {
                                 required.extend(
                                     forward_word_requirement_origins(argument, input, state)
                                         .into_iter()
-                                        .map(|loan| (loan, guards.clone(), input.unresolved)),
+                                        .map(|loan| {
+                                            (
+                                                loan,
+                                                guards.clone(),
+                                                forward_word_scalar_guards(
+                                                    body,
+                                                    self,
+                                                    origins,
+                                                    FlowNodeId(index),
+                                                    value,
+                                                    input,
+                                                ),
+                                                input.unresolved,
+                                            )
+                                        }),
                                 );
                             }
                         }
                     }
                 }
             }
-            for (origin, guards, unresolved) in required {
+            for (origin, guards, scalar_guards, unresolved) in required {
                 let Some(mut summary) = origin.parameter_summary() else {
                     continue;
                 };
@@ -4919,6 +4934,7 @@ impl FlowGraph {
                 let requirement = crate::typed_body::WordInputRequirement {
                     loan: summary,
                     guards,
+                    scalar_guards,
                     unresolved,
                 };
                 if !result.contains(&requirement) {
@@ -4942,6 +4958,73 @@ impl FlowGraph {
         Some(graph.parameter_summary_unpartitioned(body, false))
     }
 
+    fn partition_word_inputs(
+        &self,
+        body: &Body,
+        unconditional: Vec<crate::typed_body::WordInputRequirement>,
+    ) -> Vec<crate::typed_body::WordInputRequirement> {
+        if unconditional.is_empty() || unconditional.iter().any(|input| input.unresolved) {
+            return unconditional;
+        }
+        let origins = self.loan_origins(body);
+        let Some((place, values)) = scalar::entry_partition(self, body, &origins) else {
+            return unconditional;
+        };
+        let PlaceRoot::Parameter(parameter) = place.root else {
+            return unconditional;
+        };
+        let address = crate::typed_body::ParameterLoanSummary {
+            fresh_allocation: None,
+            global: None,
+            parameter: parameter.0,
+            owned_allocation: false,
+            mutable: false,
+            pinned: false,
+            lifetime_only: false,
+            reborrow: false,
+            referent_projection: place.segments.clone(),
+            input_storage: Vec::new(),
+            storage: Vec::new(),
+            storage_inputs: Vec::new(),
+        };
+        let mut result = Vec::new();
+        for value in &values {
+            let Some(summary) = self.parameter_summary_at_scalar_entry(
+                body,
+                &[(place.clone(), crate::Expr::UnsignedInteger(*value))],
+            ) else {
+                return unconditional;
+            };
+            for mut input in summary.word_inputs {
+                input
+                    .scalar_guards
+                    .push(crate::typed_body::WordScalarGuard {
+                        address: address.clone(),
+                        values: vec![*value],
+                        excluded: false,
+                    });
+                if !result.contains(&input) {
+                    result.push(input);
+                }
+            }
+        }
+        // Other entry values keep the full unknown-entry requirement. The
+        // residual partition closes the domain, including wildcard cases.
+        for mut input in unconditional {
+            input
+                .scalar_guards
+                .push(crate::typed_body::WordScalarGuard {
+                    address: address.clone(),
+                    values: values.clone(),
+                    excluded: true,
+                });
+            if !result.contains(&input) {
+                result.push(input);
+            }
+        }
+        result
+    }
+
     pub fn parameter_summary(&self, body: &Body, contents: bool) -> ParameterSummary {
         if !contents
             && body
@@ -4955,7 +5038,7 @@ impl FlowGraph {
         {
             if let Some(context) = self.parameter_summary_at_scalar_entry(body, &[]) {
                 let mut summary = self.parameter_summary_unpartitioned(body, false);
-                summary.word_inputs = context.word_inputs;
+                summary.word_inputs = self.partition_word_inputs(body, context.word_inputs);
                 return summary;
             }
             // No partial context graph may discharge an entry obligation.
@@ -4978,6 +5061,7 @@ impl FlowGraph {
                     storage_inputs: Vec::new(),
                 },
                 guards: Vec::new(),
+                scalar_guards: Vec::new(),
                 unresolved: true,
             };
             if !summary.word_inputs.contains(&requirement) {
@@ -5882,6 +5966,7 @@ impl FlowGraph {
             after[id.0] = Some(state);
         }
         FlowLoanOrigins {
+            scalars: std::cell::OnceCell::new(),
             before,
             after,
             events_by_value,
@@ -13253,6 +13338,175 @@ fn forward_word_input_guards(
     result
 }
 
+/// Do not forward a current scalar selector as an entry selector after any
+/// possible mutation. This deliberately over-approximates the footprint;
+/// losing a guard retains an unconditional obligation, never permission.
+fn scalar_entry_unchanged(flow: &FlowGraph, body: &Body, event: FlowNodeId) -> bool {
+    let mut predecessors = vec![Vec::new(); flow.nodes.len()];
+    for (index, node) in flow.nodes.iter().enumerate() {
+        for next in &node.successors {
+            predecessors[next.0].push(FlowNodeId(index));
+        }
+    }
+    let mut pending = predecessors[event.0].clone();
+    let mut seen = HashSet::new();
+    while let Some(previous) = pending.pop() {
+        if !seen.insert(previous) {
+            continue;
+        }
+        match &flow.nodes[previous.0].action {
+            FlowAction::Assign { .. }
+            | FlowAction::Write { .. }
+            | FlowAction::Release { .. }
+            | FlowAction::Clone { .. } => return false,
+            FlowAction::Evaluate(value) => {
+                if matches!(
+                    &body.nodes[value.0].kind,
+                    NodeKind::Form {
+                        callee: Some(_),
+                        ..
+                    }
+                ) || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }
+                        if matches!(head.as_str(), "word-write" | "pin-read" | "pin-write" | "pin-set-field"
+                            | "deref-set" | "ptr-write" | "linux-syscall" | "asm") || head.starts_with("atomic-"))
+                {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        pending.extend(predecessors[previous.0].iter().copied());
+    }
+    true
+}
+
+fn forward_word_scalar_guards(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    call: NodeId,
+    requirement: &crate::typed_body::WordInputRequirement,
+) -> Vec<crate::typed_body::WordScalarGuard> {
+    if requirement.scalar_guards.is_empty() || !scalar_entry_unchanged(flow, body, event) {
+        return Vec::new();
+    }
+    let NodeKind::Form { children, .. } = &body.nodes[call.0].kind else {
+        return Vec::new();
+    };
+    let Some(state) = &origins.before[event.0] else {
+        return Vec::new();
+    };
+    let mut result = Vec::new();
+    for guard in &requirement.scalar_guards {
+        let Some(argument) = children.get(guard.address.parameter + 1) else {
+            continue;
+        };
+        let boundary = guard
+            .address
+            .input_storage
+            .iter()
+            .position(|part| *part == Segment::Dereference)
+            .unwrap_or(guard.address.input_storage.len());
+        let mut addresses = Vec::new();
+        for source in origins
+            .value_before(body, flow, event, *argument)
+            .into_iter()
+            .filter(|source| source.storage == guard.address.input_storage[..boundary])
+        {
+            merge_loan_origins(
+                &mut addresses,
+                &apply_parameter_loan_summary(source, &guard.address, state),
+            );
+        }
+        if addresses.len() != 1 {
+            continue;
+        }
+        let source = &addresses[0];
+        if source.lifetime_only
+            || !source.storage.is_empty()
+            || has_dynamic_projection(&source.referent_place())
+        {
+            continue;
+        }
+        let Some(mut address) = source.parameter_summary() else {
+            continue;
+        };
+        if address.global.is_some() || address.fresh_allocation.is_some() {
+            continue;
+        }
+        address.storage.clear();
+        address.storage_inputs.clear();
+        address.reborrow = false;
+        result.push(crate::typed_body::WordScalarGuard {
+            address,
+            values: guard.values.clone(),
+            excluded: guard.excluded,
+        });
+    }
+    result
+}
+
+fn scalar_word_requirement_inactive(
+    body: &Body,
+    flow: &FlowGraph,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    call: NodeId,
+    requirement: &crate::typed_body::WordInputRequirement,
+) -> bool {
+    if requirement.scalar_guards.is_empty() {
+        return false;
+    }
+    let NodeKind::Form { children, .. } = &body.nodes[call.0].kind else {
+        return false;
+    };
+    let Some(state) = &origins.before[event.0] else {
+        return false;
+    };
+    let facts = origins
+        .scalars
+        .get_or_init(|| scalar::analyze_for_contract(flow, body, origins));
+    requirement.scalar_guards.iter().any(|guard| {
+        let Some(argument) = children.get(guard.address.parameter + 1) else {
+            return false;
+        };
+        let boundary = guard
+            .address
+            .input_storage
+            .iter()
+            .position(|part| *part == Segment::Dereference)
+            .unwrap_or(guard.address.input_storage.len());
+        let mut any = false;
+        for source in origins
+            .value_before(body, flow, event, *argument)
+            .into_iter()
+            .filter(|source| source.storage == guard.address.input_storage[..boundary])
+        {
+            let addresses = apply_parameter_loan_summary(source, &guard.address, state);
+            if addresses.is_empty() {
+                return false;
+            }
+            for address in addresses {
+                if address.lifetime_only || !address.storage.is_empty() {
+                    return false;
+                }
+                let Some(values) = facts.unsigned_before(event, &address.referent_place()) else {
+                    return false;
+                };
+                if !values
+                    .iter()
+                    .all(|value| guard.values.contains(value) == guard.excluded)
+                {
+                    return false;
+                }
+                any = true;
+            }
+        }
+        any
+    })
+}
+
 fn word_requirement_inactive(
     body: &Body,
     flow: &FlowGraph,
@@ -13263,6 +13517,9 @@ fn word_requirement_inactive(
 ) -> bool {
     if requirement.unresolved {
         return false;
+    }
+    if scalar_word_requirement_inactive(body, flow, origins, event, call, requirement) {
+        return true;
     }
     if requirement.guards.is_empty() {
         return false;

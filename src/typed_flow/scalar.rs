@@ -25,6 +25,19 @@ pub(super) struct Analysis {
 }
 
 impl Analysis {
+    pub(super) fn unsigned_before(&self, event: FlowNodeId, place: &Place) -> Option<Vec<u128>> {
+        let values = self.before.get(event.0)?.as_ref()?.memory.get(place)?;
+        if values.is_empty() {
+            return None;
+        }
+        values
+            .iter()
+            .map(|value| match value {
+                crate::Expr::UnsignedInteger(value) => Some(*value),
+                _ => None,
+            })
+            .collect()
+    }
     pub(super) fn excludes(&self, event: FlowNodeId, value: NodeId, wanted: &crate::Expr) -> bool {
         if self.active && self.before[event.0].is_none() {
             return true;
@@ -35,6 +48,42 @@ impl Analysis {
             .and_then(|shape| shape.get(&Vec::new()))
             .is_some_and(|values| !values.is_empty() && !values.contains(wanted))
     }
+}
+
+/// Candidate entry partitions only choose an exact physical parameter field.
+/// The actual proof comes from re-solving each complete context graph, not
+/// from assuming the field remains unchanged at a later pattern event.
+pub(super) fn entry_partition(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+) -> Option<(Place, Vec<u128>)> {
+    let mut selected: Option<(Place, Vec<u128>)> = None;
+    for (index, node) in flow.nodes.iter().enumerate() {
+        let FlowAction::Pattern { pattern, value } = node.action else {
+            continue;
+        };
+        let Some(crate::Expr::UnsignedInteger(number)) = scalar_pattern_value(body, pattern) else {
+            continue;
+        };
+        let Some(place) = read_place(body, origins, FlowNodeId(index), value) else {
+            continue;
+        };
+        if !matches!(place.root, PlaceRoot::Parameter(_)) {
+            continue;
+        }
+        if selected.is_none() {
+            selected = Some((place.clone(), Vec::new()));
+        }
+        let (held, values) = selected.as_mut().unwrap();
+        if *held == place && !values.contains(&number) {
+            values.push(number);
+            if values.len() > 8 {
+                return None;
+            }
+        }
+    }
+    selected
 }
 
 fn join_values(held: &mut Values, incoming: &Values) -> bool {
@@ -375,17 +424,37 @@ pub(super) fn analyze(flow: &FlowGraph, body: &Body, origins: &FlowLoanOrigins) 
     analyze_with_entry(flow, body, origins, HashMap::new())
 }
 
+pub(super) fn analyze_for_contract(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+) -> Analysis {
+    analyze_impl(flow, body, origins, HashMap::new(), true)
+}
+
 fn analyze_with_entry(
     flow: &FlowGraph,
     body: &Body,
     origins: &FlowLoanOrigins,
     memory: HashMap<Place, Values>,
 ) -> Analysis {
+    analyze_impl(flow, body, origins, memory, false)
+}
+
+fn analyze_impl(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    memory: HashMap<Place, Values>,
+    force: bool,
+) -> Analysis {
     let mut before = vec![None; flow.nodes.len()];
-    if !flow.nodes.iter().any(|node| {
-        matches!(node.action,
+    if !force
+        && !flow.nodes.iter().any(|node| {
+            matches!(node.action,
         FlowAction::Pattern { pattern, .. } if scalar_pattern_value(body, pattern).is_some())
-    }) {
+        })
+    {
         return Analysis {
             before,
             active: false,

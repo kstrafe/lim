@@ -206,6 +206,30 @@ fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
     let error =
         compile(source).expect_err("a store on a different loop path is not an entry loan witness");
     assert_eq!(error.code, DiagnosticCode::Linear);
+    let initial_entry = source.replace(": pc 1u64", ": pc 0u64");
+    run(&initial_entry);
+    let changed_entry = initial_entry.replace(
+        "(#let answer #u64 (#call work",
+        "(#deref-set (#borrow-mut (#get frame pc)) 1u64)
+        (#let answer #u64 (#call work",
+    );
+    assert_eq!(
+        compile(&changed_entry)
+            .expect_err(
+                "the actual entry value, not the original constructor, selects the contract"
+            )
+            .code,
+        DiagnosticCode::Linear
+    );
+    let unknown_entry = source.replace(": pc 1u64", ": pc (#call number ())");
+    assert_eq!(
+        compile(&format!(
+            "(#fn number () #u64 (#return 1u64))\n{unknown_entry}"
+        ))
+        .expect_err("unknown entry values retain the required backing loans")
+        .code,
+        DiagnosticCode::Linear
+    );
     let initialized = source.replace(
         "(#let answer #u64 (#call work",
         "(#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
@@ -241,6 +265,41 @@ fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
         "(#call forward (: frame (#borrow-mut frame)))",
     );
     run(&format!("{wrapper}\n{forwarded_initialized}"));
+    run(&format!(
+        "{wrapper}\n{}",
+        initial_entry.replace(
+            "(#call work (: frame (#borrow-mut frame)))",
+            "(#call forward (: frame (#borrow-mut frame)))",
+        )
+    ));
+    let changed_wrapper = wrapper.replace(
+        "(#return",
+        "(#deref-set (#borrow-mut (#get frame pc)) 1u64) (#return",
+    );
+    let forwarded_initial = initial_entry.replace(
+        "(#call work (: frame (#borrow-mut frame)))",
+        "(#call forward (: frame (#borrow-mut frame)))",
+    );
+    assert_eq!(
+        compile(&format!("{changed_wrapper}\n{forwarded_initial}"))
+            .expect_err("forwarding after a selector write cannot retain an entry guard")
+            .code,
+        DiagnosticCode::Linear
+    );
+
+    let wildcard_reader = source.replace(
+        "(#case _ (#block (#return 0u64) (#unreachable)))",
+        "(#case _ (#block
+          (#let fallback-holder Holder (#unsafe (#word-take Holder (#borrow-slice-mut (#get frame words)))))
+          (#let fallback-answer #u64 (#deref (#get fallback-holder value)))
+          (#forget fallback-holder) (#return fallback-answer) (#unreachable)))",
+    ).replace(": pc 1u64", ": pc 2u64");
+    assert_eq!(
+        compile(&wildcard_reader)
+            .expect_err("the residual partition must retain wildcard reader requirements")
+            .code,
+        DiagnosticCode::Linear
+    );
 }
 
 fn run(source: &str) {

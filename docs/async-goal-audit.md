@@ -2151,3 +2151,28 @@ and the corresponding referent-effect correlation remain to be implemented.
 The older broad async matrix has not been rerun or claimed fixed. The emitter
 experiment and unrelated user changes remain uncommitted. The goal is active;
 the requested final HTML remains deferred until its completion gates pass.
+
+Entry-conditioned word contracts now partition one exact physical parameter
+selector into up to eight literal entry states. Each state is proved by a
+complete context solve, rather than substituting a current-state case guard
+after writes. A residual excluded-values guard retains the full unknown-entry
+contract for every other value. Budget or address loss keeps the unconditional
+contract. Caller checks require all concrete reaching addresses and all known
+values to contradict a guard before waiving it; unknown values never waive it.
+Forwarding drops numeric guards after any possible mutation. Scalar snapshots
+are cached only within the particular loan-origin solve, and simple callers
+without matches also receive a real forward scalar solve. These are generic
+contracts, not async-specific compiler rules. Cache format is now version 27.
+
+The native loop regression now also proves that an empty PC0 frame really
+writes its own backing storage, transitions to PC1, and returns 42, including
+through forwarding. Direct PC1, selector writes before entry, unknown selectors,
+retired buffers, mutating forwarding wrappers, and wildcard readers with an
+uninitialized residual entry all reject. The focused gates still have 107
+passes at /tmp/lim-entry-guard-gates.log; all-target checking passes at
+/tmp/lim-entry-guard-check.log. The full library remains at 1429 passes, the
+same seven failures, eight ignored tests, and 46.61 seconds, as recorded in
+/tmp/lim-entry-guard-library.log. The codec unit covers both positive and
+excluded numeric guards and truncation. Constructor-return scalar metadata and
+interprocedural scalar stores/mutation precision remain missing; no broader
+async completion or failure reduction is claimed by this step.

@@ -20,7 +20,7 @@ use crate::{
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v26\0";
+const MAGIC: &[u8] = b"lim-semantic-v27\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -541,7 +541,19 @@ record_codec!(
     variants
 );
 record_codec!(WordTagGuard, address, variant);
-record_codec!(WordInputRequirement, loan, guards, unresolved);
+record_codec!(
+    crate::typed_body::WordScalarGuard,
+    address,
+    values,
+    excluded
+);
+record_codec!(
+    WordInputRequirement,
+    loan,
+    guards,
+    scalar_guards,
+    unresolved
+);
 record_codec!(
     ParameterSummary,
     word_inputs,
@@ -572,8 +584,20 @@ mod tests {
         let mut facts = d.flows["identity"].parameter_summary(&d.bodies["identity"], false);
         let loan = facts.returned[0].clone();
         facts.word_inputs.push(WordInputRequirement {
-            loan,
+            loan: loan.clone(),
             guards: Vec::new(),
+            scalar_guards: vec![
+                crate::typed_body::WordScalarGuard {
+                    address: loan.clone(),
+                    values: vec![0, u128::MAX],
+                    excluded: false,
+                },
+                crate::typed_body::WordScalarGuard {
+                    address: loan,
+                    values: vec![1],
+                    excluded: true,
+                },
+            ],
             unresolved: true,
         });
         let mut bytes = Vec::new();

@@ -1201,11 +1201,21 @@ pub(crate) struct WordTagGuard {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct WordScalarGuard {
+    /// Entry address, not the value of this address after a callee writes it.
+    pub address: ParameterLoanSummary,
+    pub values: Vec<u128>,
+    /// False means one of `values`; true means every other unsigned value.
+    pub excluded: bool,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct WordInputRequirement {
     pub loan: ParameterLoanSummary,
     /// The loan is required only while all these enclosing payloads are active.
     /// Unknown tags retain the requirement; only proven inactive tags waive it.
     pub guards: Vec<WordTagGuard>,
+    pub scalar_guards: Vec<WordScalarGuard>,
     /// Context separation could not prove a complete entry contract. This
     /// obligation is never discharged by matching a wildcard numeric slot.
     pub unresolved: bool,
