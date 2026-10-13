@@ -4386,9 +4386,14 @@ impl FlowGraph {
                             if matches!(
                                 &body.nodes[value.0].kind,
                                 NodeKind::Form {
-                                    callee: Some(_),
+                                    callee: Some(callee),
                                     ..
-                                }
+                                } if !body.call_tag_mutations.get(callee).is_some_and(Vec::is_empty)
+                                    || !body.call_parameter_clears.get(callee).is_some_and(Vec::is_empty)
+                                    || !body.call_store_origins.get(callee).is_some_and(Vec::is_empty)
+                                    || body.call_clear_variants.get(callee).is_some_and(|variants| variants.values().any(|clears| !clears.is_empty()))
+                                    || body.call_output_clear_variants.get(callee).is_some_and(|variants| variants.values().any(|clears| !clears.is_empty()))
+                                    || body.call_output_store_variants.get(callee).is_some_and(|variants| variants.values().any(|stores| !stores.is_empty()))
                             ) || matches!(&body.nodes[value.0].kind,
                                 NodeKind::Form { head, .. } if matches!(head.as_str(),
                                     "ptr-write" | "linux-syscall" | "pin-read" | "asm"
@@ -25672,7 +25677,8 @@ mod tests {
         for (replacement, expected) in [
             ("(#set saved (#call second ()))", Some(1)),
             ("(#set saved (#call second ())) (#let view (#ref Outcome) (#borrow saved)) (#drop view)", None),
-            ("(#set saved (#call second ())) (#call touch ())", None),
+            ("(#set saved (#call second ())) (#call touch ())", Some(1)),
+            ("(#set saved (#call second ())) (#call opaque ())", None),
             ("(#if selected (#block (#set saved (#call first ())) ()) (#block (#set saved (#call second ())) ()))", Some(2)),
             ("(#if selected (#block (#set saved (#call second ())) ()) (#block (#set saved Pending) ()))", None),
             ("(#set saved Pending)", None),
@@ -25681,6 +25687,7 @@ mod tests {
               (#fn first () Outcome (#return Ready))
               (#fn second () Outcome (#return Pending))
               (#fn touch () () (#return ()))
+              (#fn opaque () () (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
               (#fn main ((selected #bool)) #u64
                 (#let-mut saved Outcome (#call first ()))
                 {replacement}
