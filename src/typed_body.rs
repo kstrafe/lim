@@ -1206,6 +1206,9 @@ pub(crate) struct WordInputRequirement {
     /// The loan is required only while all these enclosing payloads are active.
     /// Unknown tags retain the requirement; only proven inactive tags waive it.
     pub guards: Vec<WordTagGuard>,
+    /// Context separation could not prove a complete entry contract. This
+    /// obligation is never discharged by matching a wildcard numeric slot.
+    pub unresolved: bool,
 }
 
 impl std::ops::Deref for WordInputRequirement {

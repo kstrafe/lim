@@ -20,7 +20,7 @@ use crate::{
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v25\0";
+const MAGIC: &[u8] = b"lim-semantic-v26\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -541,7 +541,7 @@ record_codec!(
     variants
 );
 record_codec!(WordTagGuard, address, variant);
-record_codec!(WordInputRequirement, loan, guards);
+record_codec!(WordInputRequirement, loan, guards, unresolved);
 record_codec!(
     ParameterSummary,
     word_inputs,
@@ -564,6 +564,28 @@ mod tests {
             false,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn unproved_word_entry_obligations_survive_summary_serialization() {
+        let d = declarations("(#fn identity (: value (#ref #u64)) (#ref #u64) (#return value))");
+        let mut facts = d.flows["identity"].parameter_summary(&d.bodies["identity"], false);
+        let loan = facts.returned[0].clone();
+        facts.word_inputs.push(WordInputRequirement {
+            loan,
+            guards: Vec::new(),
+            unresolved: true,
+        });
+        let mut bytes = Vec::new();
+        facts.write(&mut bytes, &d);
+        let mut reader = Reader(&bytes);
+        let restored = ParameterSummary::read(&mut reader, &d).unwrap();
+        assert_eq!(restored, facts);
+        assert!(restored.word_inputs[0].unresolved);
+        assert!(reader.0.is_empty());
+        for end in 0..bytes.len() {
+            assert!(ParameterSummary::read(&mut Reader(&bytes[..end]), &d).is_none());
+        }
     }
 
     #[test]

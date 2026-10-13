@@ -2,6 +2,9 @@
 //! values, never ownership, initialized references, or permission to read.
 use super::*;
 
+mod specialize;
+pub(super) use specialize::specialize;
+
 type Values = Vec<crate::Expr>;
 type Shape = HashMap<Vec<Segment>, Values>;
 
@@ -277,6 +280,97 @@ fn edge_facts(
     Some(facts)
 }
 
+fn transfer(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    mut facts: Facts,
+) -> Facts {
+    match &flow.nodes[event.0].action {
+        FlowAction::Evaluate(value)
+        | FlowAction::Read { value, .. }
+        | FlowAction::Clone { value, .. } => {
+            let shape = evaluate(&facts, body, origins, event, *value);
+            facts.values.remove(value);
+            facts.reads.remove(value);
+            if let Some(place) = read_place(body, origins, event, *value) {
+                facts.reads.insert(*value, place);
+            }
+            if !shape.is_empty() {
+                facts.values.insert(*value, shape);
+            }
+            if matches!(
+                &body.nodes[value.0].kind,
+                NodeKind::Form {
+                    callee: Some(_),
+                    ..
+                }
+            ) || matches!(flow.nodes[event.0].action, FlowAction::Clone { .. })
+                || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }
+                        if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read" | "word-write" | "pin-write" | "pin-set-field" | "deref-set")
+                            || head.starts_with("atomic-"))
+            {
+                invalidate(&mut facts);
+            }
+            // word-take/word-forget retire loan metadata, not bytes.
+            // This analysis never tracks their typed restored contents.
+        }
+        FlowAction::Bind { binding, value } => {
+            let incoming = snapshot(&facts, body, *value);
+            write(
+                &mut facts,
+                &Place::root(PlaceRoot::Local(*binding)),
+                incoming,
+            );
+        }
+        FlowAction::Assign { place, value } => {
+            let incoming = snapshot(&facts, body, *value);
+            if matches!(place.root, PlaceRoot::Local(binding)
+                    if matches!(body.bindings[binding.0].ty, Type::Reference { .. } | Type::PinnedReference { .. }))
+                || place.segments.contains(&Segment::Dereference)
+            {
+                invalidate(&mut facts);
+            } else {
+                write(&mut facts, place, incoming);
+            }
+        }
+        FlowAction::Write { place, value } => {
+            let source = match &body.nodes[value.0].kind {
+                NodeKind::Form { head, children, .. } if head == "pin-set-field" => children.get(3),
+                NodeKind::Form { children, .. } => children.get(2),
+                _ => None,
+            };
+            let targets = physical_write_places(body, origins, event, place);
+            if let (Some(source), Some(targets)) = (source, targets) {
+                if targets.len() == 1
+                    && matches!(
+                        targets[0].root,
+                        PlaceRoot::Local(_) | PlaceRoot::Parameter(_)
+                    )
+                {
+                    let incoming = snapshot(&facts, body, *source);
+                    write(&mut facts, &targets[0], incoming);
+                } else {
+                    invalidate(&mut facts);
+                }
+            } else {
+                invalidate(&mut facts);
+            }
+        }
+        FlowAction::Release { place, .. } => {
+            facts.memory.retain(|source, _| !place.overlaps(source));
+            facts.reads.retain(|_, source| !place.overlaps(source));
+        }
+        FlowAction::ScopeExit(bindings) => {
+            facts.memory.retain(|place, _| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
+            facts.reads.retain(|_, place| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
+        }
+        _ => {}
+    }
+    facts
+}
+
 pub(super) fn analyze(flow: &FlowGraph, body: &Body, origins: &FlowLoanOrigins) -> Analysis {
     analyze_with_entry(flow, body, origins, HashMap::new())
 }
@@ -306,90 +400,7 @@ fn analyze_with_entry(
     queued[flow.entry.0] = true;
     while let Some(event) = pending.pop_front() {
         queued[event.0] = false;
-        let mut facts = before[event.0].clone().unwrap();
-        match &flow.nodes[event.0].action {
-            FlowAction::Evaluate(value)
-            | FlowAction::Read { value, .. }
-            | FlowAction::Clone { value, .. } => {
-                let shape = evaluate(&facts, body, origins, event, *value);
-                facts.values.remove(value);
-                facts.reads.remove(value);
-                if let Some(place) = read_place(body, origins, event, *value) {
-                    facts.reads.insert(*value, place);
-                }
-                if !shape.is_empty() {
-                    facts.values.insert(*value, shape);
-                }
-                if matches!(
-                    &body.nodes[value.0].kind,
-                    NodeKind::Form {
-                        callee: Some(_),
-                        ..
-                    }
-                ) || matches!(flow.nodes[event.0].action, FlowAction::Clone { .. })
-                    || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }
-                        if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read" | "word-write" | "pin-write" | "pin-set-field" | "deref-set")
-                            || head.starts_with("atomic-"))
-                {
-                    invalidate(&mut facts);
-                }
-                // word-take/word-forget retire loan metadata, not bytes.
-                // This analysis never tracks their typed restored contents.
-            }
-            FlowAction::Bind { binding, value } => {
-                let incoming = snapshot(&facts, body, *value);
-                write(
-                    &mut facts,
-                    &Place::root(PlaceRoot::Local(*binding)),
-                    incoming,
-                );
-            }
-            FlowAction::Assign { place, value } => {
-                let incoming = snapshot(&facts, body, *value);
-                if matches!(place.root, PlaceRoot::Local(binding)
-                    if matches!(body.bindings[binding.0].ty, Type::Reference { .. } | Type::PinnedReference { .. }))
-                    || place.segments.contains(&Segment::Dereference)
-                {
-                    invalidate(&mut facts);
-                } else {
-                    write(&mut facts, place, incoming);
-                }
-            }
-            FlowAction::Write { place, value } => {
-                let source = match &body.nodes[value.0].kind {
-                    NodeKind::Form { head, children, .. } if head == "pin-set-field" => {
-                        children.get(3)
-                    }
-                    NodeKind::Form { children, .. } => children.get(2),
-                    _ => None,
-                };
-                let targets = physical_write_places(body, origins, event, place);
-                if let (Some(source), Some(targets)) = (source, targets) {
-                    if targets.len() == 1
-                        && matches!(
-                            targets[0].root,
-                            PlaceRoot::Local(_) | PlaceRoot::Parameter(_)
-                        )
-                    {
-                        let incoming = snapshot(&facts, body, *source);
-                        write(&mut facts, &targets[0], incoming);
-                    } else {
-                        invalidate(&mut facts);
-                    }
-                } else {
-                    invalidate(&mut facts);
-                }
-            }
-            FlowAction::Release { place, .. } => {
-                facts.memory.retain(|source, _| !place.overlaps(source));
-                facts.reads.retain(|_, source| !place.overlaps(source));
-            }
-            FlowAction::ScopeExit(bindings) => {
-                facts.memory.retain(|place, _| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
-                facts.reads.retain(|_, place| !matches!(place.root, PlaceRoot::Local(binding) if bindings.contains(&binding)));
-            }
-            _ => {}
-        }
+        let facts = transfer(flow, body, origins, event, before[event.0].clone().unwrap());
         // Solve the restored graph before pruning. A loop can widen an early
         // constant to unknown; early observations must not erase its backedge.
         for (edge, next) in flow.nodes[event.0].successors.iter().enumerate() {

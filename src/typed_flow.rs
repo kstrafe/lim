@@ -4811,7 +4811,7 @@ impl FlowGraph {
                                 origins,
                                 FlowNodeId(index),
                             );
-                            (loan, guards)
+                            (loan, guards, false)
                         }),
                 );
             }
@@ -4824,6 +4824,12 @@ impl FlowGraph {
                 if let Some(inputs) = body.call_word_input_requirements.get(callee) {
                     let state = origins.before[index].as_ref().unwrap();
                     for input in inputs {
+                        if input.unresolved {
+                            if !result.contains(input) {
+                                result.push(input.clone());
+                            }
+                            continue;
+                        }
                         if word_requirement_inactive(
                             body,
                             self,
@@ -4859,14 +4865,14 @@ impl FlowGraph {
                                 required.extend(
                                     forward_word_requirement_origins(argument, input, state)
                                         .into_iter()
-                                        .map(|loan| (loan, guards.clone())),
+                                        .map(|loan| (loan, guards.clone(), input.unresolved)),
                                 );
                             }
                         }
                     }
                 }
             }
-            for (origin, guards) in required {
+            for (origin, guards, unresolved) in required {
                 let Some(mut summary) = origin.parameter_summary() else {
                     continue;
                 };
@@ -4913,6 +4919,7 @@ impl FlowGraph {
                 let requirement = crate::typed_body::WordInputRequirement {
                     loan: summary,
                     guards,
+                    unresolved,
                 };
                 if !result.contains(&requirement) {
                     result.push(requirement);
@@ -4922,7 +4929,66 @@ impl FlowGraph {
         result
     }
 
+    /// Conditional initial contracts. Entry values are proof obligations of
+    /// the caller, not initialized loan seeds. Discard the entire context
+    /// graph if bounded specialization cannot represent every feasible path.
+    pub fn parameter_summary_at_scalar_entry(
+        &self,
+        body: &Body,
+        entry: &[(Place, crate::Expr)],
+    ) -> Option<ParameterSummary> {
+        let origins = self.loan_origins(body);
+        let graph = scalar::specialize(self, body, &origins, entry)?;
+        Some(graph.parameter_summary_unpartitioned(body, false))
+    }
+
     pub fn parameter_summary(&self, body: &Body, contents: bool) -> ParameterSummary {
+        if !contents
+            && body
+                .word_layouts
+                .values()
+                .any(|layout| !layout.slots.is_empty())
+            && self
+                .nodes
+                .iter()
+                .any(|node| matches!(node.action, FlowAction::LoopHead))
+        {
+            if let Some(context) = self.parameter_summary_at_scalar_entry(body, &[]) {
+                let mut summary = self.parameter_summary_unpartitioned(body, false);
+                summary.word_inputs = context.word_inputs;
+                return summary;
+            }
+            // No partial context graph may discharge an entry obligation.
+            // On proof loss, retain an explicitly unproved obligation, not a
+            // wildcard slot that could match a different initialized element.
+            let mut summary = self.parameter_summary_unpartitioned(body, false);
+            let requirement = crate::typed_body::WordInputRequirement {
+                loan: crate::typed_body::ParameterLoanSummary {
+                    fresh_allocation: None,
+                    global: None,
+                    parameter: 0, // Unused for an unproved obligation.
+                    owned_allocation: false,
+                    mutable: false,
+                    pinned: false,
+                    lifetime_only: false,
+                    reborrow: false,
+                    referent_projection: Vec::new(),
+                    input_storage: Vec::new(),
+                    storage: Vec::new(),
+                    storage_inputs: Vec::new(),
+                },
+                guards: Vec::new(),
+                unresolved: true,
+            };
+            if !summary.word_inputs.contains(&requirement) {
+                summary.word_inputs.push(requirement);
+            }
+            return summary;
+        }
+        self.parameter_summary_unpartitioned(body, contents)
+    }
+
+    fn parameter_summary_unpartitioned(&self, body: &Body, contents: bool) -> ParameterSummary {
         let origins = if contents {
             self.staged_parameter_store_loan_origins(body)
         } else {
@@ -9873,6 +9939,13 @@ impl FlowGraph {
             {
                 let state = origins.before[index].as_ref().unwrap();
                 for requirement in required {
+                    if requirement.unresolved {
+                        return Err(ReleaseConflict {
+                            message: "cannot prove typed word reader entry contract".into(),
+                            span: node.span,
+                            labels: Vec::new(),
+                        });
+                    }
                     if word_requirement_inactive(
                         body,
                         self,
@@ -9928,6 +10001,29 @@ impl FlowGraph {
         origins: &FlowLoanOrigins,
         moves: &FlowConsumptions,
     ) -> Result<(), ReleaseConflict> {
+        if body
+            .word_input_requirements
+            .iter()
+            .any(|input| input.unresolved)
+        {
+            let span = self.nodes.iter().find_map(|node| match node.action {
+                FlowAction::Evaluate(value)
+                    if body
+                        .word_layouts
+                        .get(&value)
+                        .is_some_and(|layout| !layout.slots.is_empty()) =>
+                {
+                    node.span
+                }
+                _ => None,
+            });
+            return Err(ReleaseConflict {
+                message: "cannot prove typed word-state entry contract within the context bound"
+                    .into(),
+                span,
+                labels: Vec::new(),
+            });
+        }
         for (index, node) in self.nodes.iter().enumerate() {
             if let FlowAction::Evaluate(value) = node.action {
                 if let Some(layout) = body.word_layouts.get(&value) {
@@ -13165,6 +13261,9 @@ fn word_requirement_inactive(
     call: NodeId,
     requirement: &crate::typed_body::WordInputRequirement,
 ) -> bool {
+    if requirement.unresolved {
+        return false;
+    }
     if requirement.guards.is_empty() {
         return false;
     }
@@ -13270,9 +13369,12 @@ fn absent_owned_word_input(
 
 fn word_input_available(
     origins: Vec<LoanOrigin>,
-    requirement: &crate::typed_body::ParameterLoanSummary,
+    requirement: &crate::typed_body::WordInputRequirement,
     state: &LoanState,
 ) -> bool {
+    if requirement.unresolved {
+        return false;
+    }
     let boundary = requirement
         .input_storage
         .iter()

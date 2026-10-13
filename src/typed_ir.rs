@@ -2135,6 +2135,9 @@ impl Declarations {
                     // Validate its word-loan requirements before launching it.
                     word_inputs.insert(spawn, word_inputs[&id].clone());
                     for input in &word_inputs[&id] {
+                        if input.unresolved {
+                            continue;
+                        }
                         let captured =
                             crate::typed_place::Segment::ThreadCapture(owner, input.parameter);
                         let mut retained = input.loan.clone();

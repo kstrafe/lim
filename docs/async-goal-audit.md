@@ -2108,3 +2108,46 @@ Likewise, a current-PC case condition cannot be substituted for an entry-PC
 condition after writes. The remaining analysis must preserve the correlation
 between phase and real stored loans across those transitions, including callee
 effects; neither a discriminator nor an entry seed supplies a missing loan.
+
+Bounded scalar context graphs now separate entry paths from later loop paths
+without adding runtime branches or occupancy flags. The ordinary loan solver
+runs on each copied path; numeric facts and storage-effect epochs never grant
+an initialized loan. One shared exit preserves intersection of must-store
+guarantees. Infeasible edges retain their positions and lead to divergence.
+The entire context result is discarded when an address or state budget cannot
+be represented. Such proof loss is an explicit unresolved entry obligation,
+not a wildcard cell that could accidentally match another array element.
+Unresolved obligations survive forwarding, thread capture, and serialization;
+no-argument bodies also reject them. Semantic cache format is now version 26.
+
+A native adversarial case exposed a real acceptance hole: a caller entered
+PC1 with zero-filled reference backing storage, and a possible PC0 backedge
+write was mistaken for an entry witness. The invalid assembly was inspected
+but never executed. This case now rejects. A caller that really writes the
+exact backing cell first returns 42, including through a forwarding function;
+retiring that cell first rejects. Projected assignment epochs resolve the
+physical referent, while rebinding a reference itself records the local slot.
+Consuming pin reads and opaque effects separate pre/post-effect contexts.
+
+Current-source evidence: /tmp/lim-context-unit-current.log has 11 scalar unit
+passes, including bounded fallback, no-argument rejection, and alias epoch
+checks. /tmp/lim-context-gates-verified.log has 107 integration passes (word
+storage, semantic cache, internal owner tags, UI, subprocess). The new codec
+unit test preserves unresolved obligations and rejects every truncated record.
+All-target checking passes at /tmp/lim-context-check-verified.log. The full
+library at /tmp/lim-context-library-verified.log has 1429 passes, seven
+failures, eight ignored tests, and took 48.32 seconds. This is progress on a
+safety defect, not a claim that async is finished or all tests pass.
+
+The seven failures are aggregate returned children, nested exclusive storage,
+computed projected clones, reused computed reference owners, returned shared
+reference holders, the staged native manifest, and the guard-alias diagnostic
+test. Four positive cases now expose unresolved call inputs; the negative
+guard-alias case fails earlier than its expected diagnostic. Temporary tracing
+confirmed the computed clone failure is not context-budget loss. Do not weaken
+these requirements or change the negative test merely to obtain a green run.
+Entry-conditioned caller contracts, scalar constructor/store propagation,
+and the corresponding referent-effect correlation remain to be implemented.
+The older broad async matrix has not been rerun or claimed fixed. The emitter
+experiment and unrelated user changes remain uncommitted. The goal is active;
+the requested final HTML remains deferred until its completion gates pass.

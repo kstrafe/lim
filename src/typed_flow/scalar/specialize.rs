@@ -1,0 +1,429 @@
+//! Bounded context graphs for scalar entry assumptions. The ordinary loan
+//! solver runs on the resulting paths; scalar facts never supply a loan.
+use super::*;
+
+const STATES_PER_EVENT: usize = 16;
+
+#[derive(Clone, PartialEq)]
+struct Context {
+    scalar: Facts,
+    // Last strong storage effect at each exact backing cell. Equal numeric
+    // state alone must not merge an entry cell with a written/retired cell.
+    words: HashMap<Place, FlowNodeId>,
+    // Separate histories across opaque effects. Neither this discriminator
+    // nor a storage epoch supplies initialized contents or a loan capability.
+    opaque: Option<FlowNodeId>,
+}
+
+fn word_effects(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    words: &mut HashMap<Place, FlowNodeId>,
+) -> Option<()> {
+    if let FlowAction::Assign { place, .. } | FlowAction::Write { place, .. } =
+        &flow.nodes[event.0].action
+    {
+        let indirect_assignment = matches!(flow.nodes[event.0].action, FlowAction::Assign { .. })
+            && (!place.segments.is_empty()
+                && matches!(place.root, PlaceRoot::Local(binding)
+                    if matches!(body.bindings[binding.0].ty,
+                        Type::Reference { .. } | Type::PinnedReference { .. }))
+                || place.segments.contains(&Segment::Dereference));
+        let targets = if matches!(flow.nodes[event.0].action, FlowAction::Assign { .. })
+            && !indirect_assignment
+        {
+            vec![place.clone()]
+        } else {
+            physical_write_places(body, origins, event, place)?
+        };
+        if targets.len() != 1 {
+            return None;
+        }
+        let target = &targets[0];
+        if !matches!(target.root, PlaceRoot::Local(_) | PlaceRoot::Parameter(_))
+            || target.segments.iter().any(|part| {
+                matches!(
+                    part,
+                    Segment::DynamicIndex | Segment::SliceDynamicIndex | Segment::SliceRangeUnknown
+                )
+            })
+        {
+            return None;
+        }
+        words.retain(|held, _| !held.overlaps(target));
+        words.insert(target.clone(), event);
+    }
+    let value = match flow.nodes[event.0].action {
+        FlowAction::Evaluate(value) | FlowAction::Write { value, .. } => value,
+        _ => return Some(()),
+    };
+    let NodeKind::Form { head, .. } = &body.nodes[value.0].kind else {
+        return Some(());
+    };
+    let word_op = matches!(head.as_str(), "word-write" | "word-take" | "word-forget");
+    let call = matches!(
+        body.nodes[value.0].kind,
+        NodeKind::Form {
+            callee: Some(_),
+            ..
+        }
+    );
+    if !word_op && !call {
+        return Some(());
+    }
+    let stores = origins.stores_before(body, flow, event);
+    if word_op
+        && stores.is_empty()
+        && body
+            .word_layouts
+            .get(&value)
+            .is_some_and(|layout| layout.words != 0)
+    {
+        return None;
+    }
+    for store in stores {
+        let place = store.destination.referent_place();
+        if !store.definitely_written
+            || store.destination.lifetime_only
+            || !matches!(place.root, PlaceRoot::Local(_) | PlaceRoot::Parameter(_))
+            || place.segments.iter().any(|part| {
+                matches!(
+                    part,
+                    Segment::DynamicIndex | Segment::SliceDynamicIndex | Segment::SliceRangeUnknown
+                )
+            })
+        {
+            return None;
+        }
+        words.retain(|held, _| !held.overlaps(&place));
+        words.insert(place, event);
+    }
+    Some(())
+}
+
+/// Build a separate analysis graph without changing runtime code or the base
+/// graph. The caller must retain and prove the entry assumptions at each use.
+/// If state separation exceeds the bound, discard the entire result: a partial
+/// graph could omit a feasible reader and must never be used as a contract.
+pub(in super::super) fn specialize(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    entry: &[(Place, crate::Expr)],
+) -> Option<FlowGraph> {
+    let mut memory = HashMap::new();
+    for (place, value) in entry {
+        if !matches!(place.root, PlaceRoot::Local(_) | PlaceRoot::Parameter(_))
+            || place.segments.iter().any(|part| {
+                matches!(
+                    part,
+                    Segment::DynamicIndex | Segment::SliceDynamicIndex | Segment::SliceRangeUnknown
+                )
+            })
+        {
+            return None;
+        }
+        let value = match value {
+            crate::Expr::Integer(value) if *value >= 0 => {
+                crate::Expr::UnsignedInteger(*value as u128)
+            }
+            crate::Expr::Integer(_) | crate::Expr::UnsignedInteger(_) | crate::Expr::Char(_) => {
+                value.clone()
+            }
+            crate::Expr::Symbol(name) if matches!(name.as_str(), "true" | "false") => value.clone(),
+            _ => return None,
+        };
+        if memory.insert(place.clone(), vec![value]).is_some() {
+            return None;
+        }
+    }
+    let initial = Context {
+        scalar: Facts {
+            memory,
+            ..Facts::default()
+        },
+        words: HashMap::new(),
+        opaque: None,
+    };
+    // Keep one common normal exit for every state. Must-store guarantees are
+    // intersected there by the ordinary solver, not chosen from one outcome.
+    let mut result = FlowGraph {
+        nodes: vec![
+            flow.nodes[flow.exit.0].clone(),
+            FlowNode {
+                action: FlowAction::Diverge,
+                successors: Vec::new(),
+                span: None,
+            },
+        ],
+        entry: FlowNodeId(2),
+        exit: FlowNodeId(0),
+        variant_pruned_edges: HashMap::new(),
+    };
+    result.nodes[0].successors.clear();
+    let dead = FlowNodeId(1);
+    let mut states: Vec<Vec<(Context, FlowNodeId)>> = vec![Vec::new(); flow.nodes.len()];
+    let mut pending = VecDeque::new();
+    let mut intern =
+        |event: FlowNodeId,
+         facts: Context,
+         result: &mut FlowGraph,
+         pending: &mut VecDeque<(FlowNodeId, Context, FlowNodeId)>| {
+            if event == flow.exit {
+                return Some(result.exit);
+            }
+            if let Some((_, id)) = states[event.0].iter().find(|(held, _)| held == &facts) {
+                return Some(*id);
+            }
+            if states[event.0].len() == STATES_PER_EVENT {
+                return None;
+            }
+            let id = FlowNodeId(result.nodes.len());
+            let mut node = flow.nodes[event.0].clone();
+            node.successors.clear();
+            result.nodes.push(node);
+            states[event.0].push((facts.clone(), id));
+            pending.push_back((event, facts, id));
+            Some(id)
+        };
+    result.entry = intern(flow.entry, initial, &mut result, &mut pending)?;
+    while let Some((event, before, copied)) = pending.pop_front() {
+        let mut words = before.words;
+        let mut opaque = before.opaque;
+        if matches!(flow.nodes[event.0].action, FlowAction::Clone { .. })
+            || matches!(flow.nodes[event.0].action, FlowAction::Evaluate(value)
+                if matches!(&body.nodes[value.0].kind, NodeKind::Form { callee: Some(_), .. })
+                    || matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. }
+                        if matches!(head.as_str(), "ptr-write" | "linux-syscall" | "asm" | "pin-read") || head.starts_with("atomic-")))
+        {
+            opaque = Some(event);
+        }
+        word_effects(flow, body, origins, event, &mut words)?;
+        let after = transfer(flow, body, origins, event, before.scalar);
+        for (edge, next) in flow.nodes[event.0].successors.iter().enumerate() {
+            let destination =
+                if let Some(facts) = edge_facts(flow, body, event, edge, after.clone()) {
+                    intern(
+                        *next,
+                        Context {
+                            scalar: facts,
+                            words: words.clone(),
+                            opaque,
+                        },
+                        &mut result,
+                        &mut pending,
+                    )?
+                } else {
+                    dead
+                };
+            // Preserve edge positions. Other ownership passes interpret edge
+            // zero as success/true; removing it would relabel a failure edge.
+            result.nodes[copied.0].successors.push(destination);
+        }
+    }
+    Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PHASE_SOURCE: &str = "(#struct Holder (: value (#ref #u64)))
+          (#struct Frame (: pc #u64 : source (#ref #u64) : words (#array #u64 1)))
+          (#fn work (: frame (#ref-mut Frame)) #u64
+            (#loop (#match (#get frame pc)
+              (#case 0 (#block
+                (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
+                  (#struct-literal Holder (: value (#get frame source)))))
+                (#deref-set (#borrow-mut (#get frame pc)) 1u64) (#continue) (#unreachable)))
+              (#case 1 (#block
+                (#let holder Holder (#unsafe (#word-take Holder (#borrow-slice-mut (#get frame words)))))
+                (#let answer #u64 (#deref (#get holder value)))
+                (#forget holder) (#return answer) (#unreachable)))
+              (#case _ (#block (#return 0u64) (#unreachable)))))
+            (#return 0u64))";
+
+    #[test]
+    fn projected_assignment_epochs_follow_the_physical_referent() {
+        let program = crate::parse_program(
+            "(#struct Frame (: pc #u64))
+            (#fn work (: frame (#ref-mut Frame)) ()
+              (#let-mut alias (#ref-mut #u64) (#borrow-mut (#get frame pc)))
+              (#deref-set alias 1u64) (#return ()))",
+        )
+        .unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["work"];
+        let mut flow = FlowGraph::lower(body).unwrap();
+        let origins = flow.loan_origins(body);
+        let (event, place, value) = flow
+            .nodes
+            .iter()
+            .enumerate()
+            .find_map(|(index, node)| match &node.action {
+                FlowAction::Write { place, value } => {
+                    Some((FlowNodeId(index), place.clone(), *value))
+                }
+                _ => None,
+            })
+            .unwrap();
+        let physical = physical_write_places(body, &origins, event, &place).unwrap();
+        assert_eq!(physical.len(), 1);
+        assert!(matches!(physical[0].root, PlaceRoot::Parameter(_)));
+        flow.nodes[event.0].action = FlowAction::Assign {
+            place: place.clone(),
+            value,
+        };
+        let mut epochs = HashMap::new();
+        word_effects(&flow, body, &origins, event, &mut epochs).unwrap();
+        assert_eq!(epochs, HashMap::from([(physical[0].clone(), event)]));
+
+        // Rebinding a reference variable itself is not a pointee write.
+        let rebound = Place::root(place.root);
+        flow.nodes[event.0].action = FlowAction::Assign {
+            place: rebound.clone(),
+            value,
+        };
+        let mut epochs = HashMap::new();
+        word_effects(&flow, body, &origins, event, &mut epochs).unwrap();
+        assert_eq!(epochs, HashMap::from([(rebound, event)]));
+    }
+
+    #[test]
+    fn phase_context_keeps_real_word_stores_before_a_later_loop_reader() {
+        let source = PHASE_SOURCE;
+        let program = crate::parse_program(source).unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = FlowGraph::lower(body).unwrap();
+        let field = body
+            .nodes
+            .iter()
+            .find_map(|node| match node.kind {
+                NodeKind::Declaration(DeclarationId::Field(field)) if field.index == 0 => {
+                    Some(field)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let pc = Place {
+            root: PlaceRoot::Parameter(BindingId(0)),
+            segments: vec![Segment::Field(field)],
+        };
+        let at_start = flow
+            .parameter_summary_at_scalar_entry(
+                body,
+                &[(pc.clone(), crate::Expr::UnsignedInteger(0))],
+            )
+            .unwrap();
+        assert!(
+            at_start.word_inputs.is_empty(),
+            "entry PC0 writes before reaching PC1: {:?}",
+            at_start.word_inputs
+        );
+        let at_resume = flow
+            .parameter_summary_at_scalar_entry(body, &[(pc, crate::Expr::UnsignedInteger(1))])
+            .unwrap();
+        assert!(
+            !at_resume.word_inputs.is_empty(),
+            "entry PC1 must already hold its reference"
+        );
+        assert!(
+            !flow
+                .parameter_summary_at_scalar_entry(body, &[])
+                .unwrap()
+                .word_inputs
+                .is_empty(),
+            "an unknown entry cannot waive the stored-loan requirement"
+        );
+    }
+
+    #[test]
+    fn specialization_budget_loss_never_discharges_wildcard_entry_slots() {
+        let arguments = (0..5)
+            .map(|index| format!(" : flag{index} #bool"))
+            .collect::<String>();
+        let choices = (0..5)
+            .map(|index| {
+                format!(
+            "(#if flag{index} (#block (#set selector {}u64) ()) (#block (#set selector {}u64) ()))",
+            2 * index + 1, 2 * index + 2)
+            })
+            .collect::<String>();
+        let source = PHASE_SOURCE
+            .replace(
+                "(: frame (#ref-mut Frame))",
+                &format!("(: frame (#ref-mut Frame){arguments})"),
+            )
+            .replace("(#array #u64 1)", "(#array #u64 2)")
+            .replace(
+                "(#loop",
+                &format!("(#let-mut selector #u64 0u64) {choices} (#loop"),
+            );
+        let program = crate::parse_program(&source).unwrap();
+        let declarations = crate::typecheck::resolve_program_for_analysis(&program, false).unwrap();
+        let body = &declarations.bodies["work"];
+        let flow = FlowGraph::lower(body).unwrap();
+        let origins = flow.loan_origins(body);
+        let count = flow.nodes.len();
+        assert!(
+            specialize(&flow, body, &origins, &[]).is_none(),
+            "too many contexts must discard the entire product"
+        );
+        assert_eq!(flow.nodes.len(), count, "the base graph is not mutated");
+        let summary = flow.parameter_summary(body, false);
+        let unresolved = summary
+            .word_inputs
+            .iter()
+            .filter(|input| input.unresolved)
+            .collect::<Vec<_>>();
+        assert!(!unresolved.is_empty());
+        assert!(
+            unresolved
+                .iter()
+                .all(|input| input.input_storage.is_empty()),
+            "proof loss is not represented by a wildcard loan witness"
+        );
+        for input in unresolved {
+            // No set of matching origins can discharge an unproved contract.
+            assert!(!word_input_available(
+                Vec::new(),
+                input,
+                &empty_loan_state(body.bindings.len())
+            ));
+            assert!(!word_requirement_inactive(
+                body,
+                &flow,
+                &origins,
+                flow.entry,
+                NodeId(0),
+                input
+            ));
+        }
+        // A function with no parameters must not silently drop the marker
+        // because its unused placeholder parameter has no actual argument.
+        let main_program = crate::parse_program("(#fn main () #u64 (#return 0u64))").unwrap();
+        let mut main_declarations =
+            crate::typecheck::resolve_program_for_analysis(&main_program, false).unwrap();
+        let mut main = main_declarations.bodies.remove("main").unwrap();
+        main.word_input_requirements = summary.word_inputs;
+        let main_flow = FlowGraph::lower(&main).unwrap();
+        let main_origins = main_flow.loan_origins(&main);
+        let main_moves = main_flow.consumptions_with_origins(
+            &main,
+            &LinearTypes::from_program(&main_program),
+            Some(&main_origins),
+        );
+        let error = main_flow
+            .check_stored_reference_provenance(
+                &main,
+                &main_declarations,
+                &main_origins,
+                &main_moves,
+            )
+            .expect_err("no-argument bodies must reject an unproved entry contract");
+        assert!(error.message.contains("context bound"));
+    }
+}

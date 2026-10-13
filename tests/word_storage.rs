@@ -182,6 +182,67 @@ fn selected_parameter_cases_exclude_only_fresh_nested_word_readers() {
     }
 }
 
+#[test]
+fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Frame (: pc #u64 : source (#ref #u64) : words (#array #u64 1)))
+      (#fn work (: frame (#ref-mut Frame)) #u64
+        (#loop (#match (#get frame pc)
+          (#case 0 (#block
+            (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
+              (#struct-literal Holder (: value (#get frame source)))))
+            (#deref-set (#borrow-mut (#get frame pc)) 1u64) (#continue) (#unreachable)))
+          (#case 1 (#block
+            (#let holder Holder (#unsafe (#word-take Holder (#borrow-slice-mut (#get frame words)))))
+            (#let answer #u64 (#deref (#get holder value)))
+            (#forget holder) (#return answer) (#unreachable)))
+          (#case _ (#block (#return 0u64) (#unreachable))))) (#return 0u64))
+      (#fn main () #u64
+        (#let value #u64 42u64)
+        (#let-mut frame Frame (#struct-literal Frame
+          (: pc 1u64 : source (#borrow value) : words (#array-repeat 0u64))))
+        (#let answer #u64 (#call work (: frame (#borrow-mut frame))))
+        (#forget frame) (#return answer))";
+    let error =
+        compile(source).expect_err("a store on a different loop path is not an entry loan witness");
+    assert_eq!(error.code, DiagnosticCode::Linear);
+    let initialized = source.replace(
+        "(#let answer #u64 (#call work",
+        "(#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
+          (#struct-literal Holder (: value (#get frame source)))))
+        (#let answer #u64 (#call work",
+    );
+    run(&initialized);
+    let retired = initialized.replace(
+        "(#let answer #u64 (#call work",
+        "(#unsafe (#word-forget Holder (#borrow-slice-mut (#get frame words))))
+        (#let answer #u64 (#call work",
+    );
+    assert_eq!(
+        compile(&retired)
+            .expect_err("retired backing cells cannot satisfy a resume entry")
+            .code,
+        DiagnosticCode::Linear
+    );
+    let wrapper = "(#fn forward (: frame (#ref-mut Frame)) #u64
+      (#return (#call work (: frame frame))))";
+    let forwarded = source.replace(
+        "(#call work (: frame (#borrow-mut frame)))",
+        "(#call forward (: frame (#borrow-mut frame)))",
+    );
+    assert_eq!(
+        compile(&format!("{wrapper}\n{forwarded}"))
+            .expect_err("forwarding must preserve the missing entry obligation")
+            .code,
+        DiagnosticCode::Linear
+    );
+    let forwarded_initialized = initialized.replace(
+        "(#call work (: frame (#borrow-mut frame)))",
+        "(#call forward (: frame (#borrow-mut frame)))",
+    );
+    run(&format!("{wrapper}\n{forwarded_initialized}"));
+}
+
 fn run(source: &str) {
     let assembly = compile(source).unwrap();
     let scratch = support::Scratch::new("word-storage-native");
