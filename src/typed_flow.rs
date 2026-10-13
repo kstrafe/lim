@@ -430,6 +430,12 @@ pub(crate) struct LoanOrigin {
     pub pinned: bool,
     /// Raw-pointer provenance may identify only a lifetime anchor.
     pub lifetime_only: bool,
+    /// May-origin retained for lifetime checking, without an every-path
+    /// guarantee that the reference-bearing value slot is initialized.
+    pub maybe_absent: bool,
+    /// Only concealed word-cell contents need an initialization guarantee
+    /// beyond the initialization already enforced for ordinary typed fields.
+    pub word_stored: bool,
     pub span: Option<Span>,
     /// Immediate reference binding whose referent this loan reborrows.
     pub borrowed_from: Option<BindingId>,
@@ -460,6 +466,8 @@ impl PartialEq for LoanOrigin {
             && self.mutable == other.mutable
             && self.pinned == other.pinned
             && self.lifetime_only == other.lifetime_only
+            && self.maybe_absent == other.maybe_absent
+            && self.word_stored == other.word_stored
             && self.borrowed_from == other.borrowed_from
             && self.reborrow_slot == other.reborrow_slot
             && self.call_reborrow == other.call_reborrow
@@ -495,6 +503,8 @@ impl LoanOrigin {
             mutable: self.mutable,
             pinned: self.pinned,
             lifetime_only: self.lifetime_only,
+            maybe_absent: self.maybe_absent,
+            word_stored: self.word_stored,
             reborrow: self.borrowed_from.is_some(),
             referent_projection: self.place.segments.clone(),
             input_storage: self.parameter_storage.clone().unwrap_or_default(),
@@ -1753,7 +1763,7 @@ impl FlowLoanOrigins {
         value: NodeId,
     ) -> Vec<LoanOrigin> {
         if let Some(loop_value) = loop_result_identity(body, value) {
-            let mut loop_results = Vec::new();
+            let mut loop_results: Option<Vec<LoanOrigin>> = None;
             for &index in &self.events_by_value[loop_value.0] {
                 let event = &flow.nodes[index];
                 let FlowAction::Break {
@@ -1778,38 +1788,34 @@ impl FlowLoanOrigins {
                         if flow_action_has_value(&candidate.action, alternative) {
                             if let Some(state) = &self.before[event_index] {
                                 evaluated = true;
-                                merge_loan_origins(
-                                    &mut loop_results,
-                                    &value_loan_origins_at_events(
-                                        body,
-                                        flow,
-                                        LoanSnapshots::new(&self.before, &self.events_by_value),
-                                        alternative,
-                                        state,
-                                    ),
+                                let incoming = value_loan_origins_at_events(
+                                    body,
+                                    flow,
+                                    LoanSnapshots::new(&self.before, &self.events_by_value),
+                                    alternative,
+                                    state,
                                 );
+                                join_value_alternative(&mut loop_results, incoming);
                             }
                         }
                     }
                 }
                 if !evaluated {
-                    merge_loan_origins(
-                        &mut loop_results,
-                        &value_loan_origins_at_events(
-                            body,
-                            flow,
-                            LoanSnapshots::new(&self.before, &self.events_by_value),
-                            *break_value,
-                            state,
-                        ),
+                    let incoming = value_loan_origins_at_events(
+                        body,
+                        flow,
+                        LoanSnapshots::new(&self.before, &self.events_by_value),
+                        *break_value,
+                        state,
                     );
+                    join_value_alternative(&mut loop_results, incoming);
                 }
             }
-            if !loop_results.is_empty() {
+            if let Some(loop_results) = loop_results {
                 return loop_results;
             }
         }
-        let mut results = Vec::new();
+        let mut results: Option<Vec<LoanOrigin>> = None;
         let mut alternatives = Vec::new();
         collect_result_alternatives(body, value, &mut alternatives);
         for alternative in alternatives {
@@ -1819,20 +1825,18 @@ impl FlowLoanOrigins {
                     continue;
                 }
                 if let Some(state) = &self.before[index] {
-                    merge_loan_origins(
-                        &mut results,
-                        &value_loan_origins_at_events(
-                            body,
-                            flow,
-                            LoanSnapshots::new(&self.before, &self.events_by_value),
-                            alternative,
-                            state,
-                        ),
+                    let incoming = value_loan_origins_at_events(
+                        body,
+                        flow,
+                        LoanSnapshots::new(&self.before, &self.events_by_value),
+                        alternative,
+                        state,
                     );
+                    join_value_alternative(&mut results, incoming);
                 }
             }
         }
-        if results.is_empty() {
+        results.unwrap_or_else(|| {
             self.before[node.0].as_ref().map_or_else(Vec::new, |state| {
                 value_loan_origins_at_events(
                     body,
@@ -1842,9 +1846,7 @@ impl FlowLoanOrigins {
                     state,
                 )
             })
-        } else {
-            results
-        }
+        })
     }
 
     pub fn before(&self, node: FlowNodeId, binding: BindingId) -> &[LoanOrigin] {
@@ -4800,9 +4802,14 @@ impl FlowGraph {
                             if inactive_variant_slot(&tags, &root, path) {
                                 return false;
                             }
-                            !held
-                                .iter()
-                                .any(|known| !known.lifetime_only && known.storage == loan.storage)
+                            let matching =
+                                held.iter().filter(|known| known.storage == loan.storage);
+                            let mut found = false;
+                            let definite = matching.fold(true, |definite, known| {
+                                found = true;
+                                definite && !known.lifetime_only && !known.maybe_absent
+                            });
+                            !found || !definite
                         })
                         .map(|loan| {
                             let guards = word_input_guards(
@@ -4984,6 +4991,8 @@ impl FlowGraph {
             mutable: false,
             pinned: false,
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
             reborrow: false,
             referent_projection: place.segments.clone(),
             input_storage: Vec::new(),
@@ -5059,6 +5068,8 @@ impl FlowGraph {
                     mutable: false,
                     pinned: false,
                     lifetime_only: false,
+                    maybe_absent: false,
+                    word_stored: false,
                     reborrow: false,
                     referent_projection: Vec::new(),
                     input_storage: Vec::new(),
@@ -5112,15 +5123,25 @@ impl FlowGraph {
                 );
             }
         }
-        let mut returned = Vec::new();
+        let mut returned_origins: Option<Vec<LoanOrigin>> = None;
         for (index, node) in self.nodes.iter().enumerate() {
             if let FlowAction::Return(Some(value)) = node.action {
-                for origin in origins.value_before(body, self, FlowNodeId(index), value) {
-                    if let Some(summary) = origin.parameter_summary() {
-                        if !returned.contains(&summary) {
-                            returned.push(summary);
-                        }
-                    }
+                if origins.before[index].is_none() {
+                    continue;
+                }
+                let incoming = origins.value_before(body, self, FlowNodeId(index), value);
+                if let Some(held) = &mut returned_origins {
+                    join_value_loan_origins(held, &incoming);
+                } else {
+                    returned_origins = Some(incoming);
+                }
+            }
+        }
+        let mut returned = Vec::new();
+        for origin in returned_origins.unwrap_or_default() {
+            if let Some(summary) = origin.parameter_summary() {
+                if !returned.contains(&summary) {
+                    returned.push(summary);
                 }
             }
         }
@@ -5466,6 +5487,8 @@ impl FlowGraph {
                     parameter_storage: Some(slot.storage.clone()),
                     storage_inputs: (0..slot.storage.len()).map(Some).collect(),
                     lifetime_only: false,
+                    maybe_absent: false,
+                    word_stored: false,
                 });
             }
         }
@@ -5487,6 +5510,8 @@ impl FlowGraph {
                     mutable: alias.mutable,
                     pinned: alias.pinned,
                     lifetime_only: false,
+                    maybe_absent: false,
+                    word_stored: false,
                     span: None,
                     borrowed_from: None,
                     reborrow_slot: None,
@@ -5627,7 +5652,7 @@ impl FlowGraph {
                                         store.incoming,
                                     );
                                 } else {
-                                    extend_projected_origins(
+                                    weak_store_projected_origins(
                                         &mut state[target.0],
                                         &store.destination.place.segments,
                                         store.incoming,
@@ -5812,7 +5837,7 @@ impl FlowGraph {
                                     incoming.clone(),
                                 );
                             } else {
-                                extend_projected_origins(
+                                weak_store_projected_origins(
                                     &mut state[binding.0],
                                     &destination.segments,
                                     incoming.clone(),
@@ -5908,7 +5933,7 @@ impl FlowGraph {
                                     store.incoming,
                                 );
                             } else {
-                                extend_projected_origins(
+                                weak_store_projected_origins(
                                     &mut state[binding.0],
                                     &store.destination.place.segments,
                                     store.incoming,
@@ -10180,6 +10205,9 @@ impl FlowGraph {
                                 path.insert(0, Segment::Dereference);
                             }
                             !held.iter().any(|loan| loan.storage == path)
+                                || held
+                                    .iter()
+                                    .any(|loan| loan.storage == path && loan.maybe_absent)
                         }) {
                             return Err(ReleaseConflict {
                                 message: "cannot read reference-bearing word storage: missing slot provenance".into(),
@@ -11881,14 +11909,8 @@ fn merge_loan_states(existing: &mut LoanState, incoming: &LoanState) -> bool {
             // Inspect through the shared container before obtaining a mutable
             // binding: many distinct snapshots already contain these origins.
             // Preserve source order and the existing representative's span.
-            if let Some(first_new) = other
-                .iter()
-                .position(|origin| !existing[index].contains(origin))
-            {
-                let held = &mut existing[index];
-                held.push(other[first_new].clone());
-                merge_loan_origins(held, &other[first_new + 1..]);
-                changed = true;
+            if value_loan_join_changes(&existing[index], other) {
+                changed |= join_value_loan_origins(&mut existing[index], other);
             }
         }
     }
@@ -11932,20 +11954,24 @@ fn merge_shared_loan_maps<K: Clone + Eq + std::hash::Hash>(
         return false;
     }
     let mut changed = false;
+    let absent = existing
+        .iter()
+        .filter(|(key, contents)| {
+            !incoming.contains_key(*key) && value_loan_join_changes(contents, &[])
+        })
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>();
+    for key in absent {
+        changed |= join_value_loan_origins(existing.get_mut(&key).unwrap(), &[]);
+    }
     for (key, contents) in incoming {
-        if let Some(held) = existing.get(key) {
-            let Some(first_new) = contents.iter().position(|origin| !held.contains(origin)) else {
-                continue;
-            };
-            let held = existing.get_mut(key).unwrap();
-            held.push(contents[first_new].clone());
-            merge_loan_origins(held, &contents[first_new + 1..]);
-            changed = true;
-        } else {
-            // Preserve empty keys and the original change flag: inserting an
-            // empty contents vector did not count as a new loan origin.
-            changed |= merge_loan_origins(existing.entry(key.clone()).or_default(), contents);
+        if existing
+            .get(key)
+            .is_some_and(|held| !value_loan_join_changes(held, contents))
+        {
+            continue;
         }
+        changed |= join_value_loan_origins(existing.entry(key.clone()).or_default(), contents);
     }
     changed
 }
@@ -11979,6 +12005,8 @@ fn seed_parameter_contents(body: &Body) -> HashMap<(PlaceRoot, Vec<Segment>), Ve
                 parameter_storage: Some(slot.storage.clone()),
                 storage_inputs: (boundary + 1..slot.storage.len()).map(Some).collect(),
                 lifetime_only: false,
+                maybe_absent: false,
+                word_stored: false,
             };
             merge_loan_origins(contents.entry(key).or_default(), &[held]);
         }
@@ -12144,7 +12172,7 @@ fn store_parameter_contents(
             if strong {
                 replace_projected_origins(contents, &destination.place.segments, incoming);
             } else {
-                extend_projected_origins(contents, &destination.place.segments, incoming);
+                weak_store_projected_origins(contents, &destination.place.segments, incoming);
             }
             refresh_replaced_allocation_origins(
                 state,
@@ -12192,7 +12220,7 @@ fn store_parameter_contents(
     if strong {
         replace_projected_origins(held, &destination.place.segments, incoming);
     } else {
-        extend_projected_origins(held, &destination.place.segments, incoming);
+        weak_store_projected_origins(held, &destination.place.segments, incoming);
     }
 }
 
@@ -12304,6 +12332,53 @@ fn merge_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -
             existing.push(origin.clone());
             changed = true;
         }
+    }
+    changed
+}
+
+/// Join alternative values, unlike concatenating independent aggregate fields.
+/// Retain every possible pointee for lifetime checking, but a slot absent on
+/// either alternative cannot authorize a subsequent typed word load. Different
+/// pointees in the same initialized slot remain valid alternatives.
+fn value_loan_join_changes(existing: &[LoanOrigin], incoming: &[LoanOrigin]) -> bool {
+    incoming.iter().any(|loan| !existing.contains(loan))
+        || existing.iter().any(|held| {
+            held.word_stored
+                && !held.maybe_absent
+                && !incoming.iter().any(|loan| loan.storage == held.storage)
+        })
+}
+
+fn join_value_alternative(existing: &mut Option<Vec<LoanOrigin>>, incoming: Vec<LoanOrigin>) {
+    if let Some(held) = existing {
+        join_value_loan_origins(held, &incoming);
+    } else {
+        *existing = Some(incoming);
+    }
+}
+
+fn join_value_loan_origins(existing: &mut Vec<LoanOrigin>, incoming: &[LoanOrigin]) -> bool {
+    if !value_loan_join_changes(existing, incoming) {
+        return false;
+    }
+    let mut changed = false;
+    let previous_slots = existing
+        .iter()
+        .map(|loan| loan.storage.clone())
+        .collect::<HashSet<_>>();
+    for held in existing.iter_mut() {
+        if held.word_stored
+            && !held.maybe_absent
+            && !incoming.iter().any(|loan| loan.storage == held.storage)
+        {
+            held.maybe_absent = true;
+            changed = true;
+        }
+    }
+    for source in incoming {
+        let mut source = source.clone();
+        source.maybe_absent |= source.word_stored && !previous_slots.contains(&source.storage);
+        changed |= merge_loan_origins(existing, &[source]);
     }
     changed
 }
@@ -12552,6 +12627,8 @@ fn apply_parameter_loan_summary(
                 origin.pinned = summary.pinned;
             }
             origin.lifetime_only |= summary.lifetime_only;
+            origin.maybe_absent |= summary.maybe_absent;
+            origin.word_stored |= summary.word_stored;
             for projection in &summary.referent_projection {
                 if matches!(projection, Segment::Index(_) | Segment::SliceIndex(_))
                     && matches!(
@@ -13706,6 +13783,7 @@ fn word_input_available(
             !loaded.is_empty()
                 && loaded.iter().all(|loan| {
                     !loan.lifetime_only
+                        && !loan.maybe_absent
                         && (!requirement.mutable || loan.mutable)
                         && (!requirement.pinned || loan.pinned)
                         && (!requirement.owned_allocation || loan.owned_allocation)
@@ -13929,6 +14007,7 @@ fn word_loan_stores(
                     if origin.storage.starts_with(&slot.path) {
                         let mut loaded = origin.clone();
                         loaded.drain_storage(slot.path.len());
+                        loaded.word_stored = true;
                         merge_loan_origins(&mut sources, &[loaded]);
                     }
                 }
@@ -14023,6 +14102,10 @@ fn word_value_origins(
                     path.insert(0, Segment::Dereference);
                 }
                 loaded.prepend_storage(&path);
+                // This operation materializes a typed reference value. The
+                // read's native validation still rejects maybe-absent cells;
+                // later ordinary typed transfers need no concealed-cell tag.
+                loaded.word_stored = false;
                 if loaded.mutable
                     && !view
                     && !matches!(&body.nodes[value.0].kind, NodeKind::Form { head, .. } if head == "word-take")
@@ -14350,6 +14433,19 @@ fn select_summary_inputs_with_slots(
     path: &[Segment],
     state: &LoanState,
 ) -> Vec<SelectedLoan> {
+    let maybe_absent = origin.maybe_absent;
+    let mut selected = select_summary_inputs_with_slots_inner(origin, path, state);
+    for selected in &mut selected {
+        selected.origin.maybe_absent |= maybe_absent;
+    }
+    selected
+}
+
+fn select_summary_inputs_with_slots_inner(
+    origin: LoanOrigin,
+    path: &[Segment],
+    state: &LoanState,
+) -> Vec<SelectedLoan> {
     let Some((head, tail)) = path.split_first() else {
         return vec![SelectedLoan {
             origin,
@@ -14524,6 +14620,8 @@ pub(crate) fn global_summary_origin(
         mutable: summary.mutable,
         pinned: summary.pinned,
         lifetime_only: summary.lifetime_only,
+        maybe_absent: summary.maybe_absent,
+        word_stored: summary.word_stored,
         span: None,
         borrowed_from: None,
         reborrow_slot: None,
@@ -14546,6 +14644,8 @@ fn fresh_allocation_origin(
     origin.mutable = summary.mutable;
     origin.pinned = summary.pinned;
     origin.lifetime_only = summary.lifetime_only;
+    origin.maybe_absent = summary.maybe_absent;
+    origin.word_stored = summary.word_stored;
     origin.storage = summary.storage.clone();
     Some(origin)
 }
@@ -14557,6 +14657,8 @@ fn allocation_origin(site: NodeId, group: Vec<usize>, span: Option<Span>) -> Loa
         mutable: true,
         pinned: true,
         lifetime_only: false,
+        maybe_absent: false,
+        word_stored: false,
         span,
         borrowed_from: None,
         reborrow_slot: None,
@@ -14632,6 +14734,29 @@ fn extend_projected_origins(
             held.push(origin);
         }
     }
+}
+
+/// The old value and the written value are alternatives, not independent
+/// fields. An uncertain write cannot initialize a previously empty slot, and
+/// possible retirement cannot preserve an every-path initialization proof.
+fn weak_store_projected_origins(
+    held: &mut Vec<LoanOrigin>,
+    path: &[Segment],
+    incoming: Vec<LoanOrigin>,
+) {
+    let mut written = held.clone();
+    let destination = Place {
+        root: PlaceRoot::Local(BindingId(0)),
+        segments: path.to_vec(),
+    };
+    written.retain(|loan| {
+        !destination.overlaps(&Place {
+            root: PlaceRoot::Local(BindingId(0)),
+            segments: loan.storage.clone(),
+        })
+    });
+    extend_projected_origins(&mut written, path, incoming);
+    join_value_loan_origins(held, &written);
 }
 
 fn reference_binding(body: &Body, id: NodeId) -> Option<BindingId> {
@@ -15310,6 +15435,8 @@ fn global_storage_address(global: crate::typed_ir::GlobalId, span: Option<Span>)
         mutable: true,
         pinned: false,
         lifetime_only: false,
+        maybe_absent: false,
+        word_stored: false,
         span,
         borrowed_from: None,
         reborrow_slot: None,
@@ -15577,20 +15704,25 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
         } => {
             let mut origins = value_loan_origins(body, *then_value, state);
             if let Some(value) = else_value {
-                merge_loan_origins(&mut origins, &value_loan_origins(body, *value, state));
+                join_value_loan_origins(&mut origins, &value_loan_origins(body, *value, state));
             }
             origins
         }
         NodeKind::Match { arms, .. } => {
-            let mut origins = Vec::new();
+            let mut origins: Option<Vec<LoanOrigin>> = None;
             for arm in arms {
                 if let NodeKind::MatchArm { values, .. } = &body.nodes[arm.0].kind {
                     if let Some(value) = values.last() {
-                        merge_loan_origins(&mut origins, &value_loan_origins(body, *value, state));
+                        let incoming = value_loan_origins(body, *value, state);
+                        if let Some(held) = &mut origins {
+                            join_value_loan_origins(held, &incoming);
+                        } else {
+                            origins = Some(incoming);
+                        }
                     }
                 }
             }
-            origins
+            origins.unwrap_or_default()
         }
         NodeKind::Form { head, children, .. }
             if matches!(head.as_str(), "deref" | "pin-read") && children.len() == 2 =>
@@ -15889,7 +16021,7 @@ fn value_loan_origins_at_events(
     state: &LoanState,
 ) -> Vec<LoanOrigin> {
     if let Some(loop_value) = loop_result_identity(body, value) {
-        let mut result = Vec::new();
+        let mut result: Option<Vec<LoanOrigin>> = None;
         for &index in &before.events_by_value[loop_value.0] {
             let event = &flow.nodes[index];
             let FlowAction::Break {
@@ -15901,14 +16033,17 @@ fn value_loan_origins_at_events(
             };
             if *loop_result == loop_value {
                 if let Some(state) = &before[index] {
-                    merge_loan_origins(
-                        &mut result,
-                        &value_loan_origins_at_events(body, flow, before, *break_value, state),
-                    );
+                    let incoming =
+                        value_loan_origins_at_events(body, flow, before, *break_value, state);
+                    if let Some(held) = &mut result {
+                        join_value_loan_origins(held, &incoming);
+                    } else {
+                        result = Some(incoming);
+                    }
                 }
             }
         }
-        if !result.is_empty() {
+        if let Some(result) = result {
             return result;
         }
     }
@@ -15918,21 +16053,24 @@ fn value_loan_origins_at_events(
     ) {
         let mut alternatives = Vec::new();
         collect_result_alternatives(body, value, &mut alternatives);
-        let mut result = Vec::new();
+        let mut result: Option<Vec<LoanOrigin>> = None;
         for alternative in alternatives {
             for &index in &before.events_by_value[alternative.0] {
                 let event = &flow.nodes[index];
                 if flow_action_has_value(&event.action, alternative) {
                     if let Some(state) = &before[index] {
-                        merge_loan_origins(
-                            &mut result,
-                            &value_loan_origins_at_events(body, flow, before, alternative, state),
-                        );
+                        let incoming =
+                            value_loan_origins_at_events(body, flow, before, alternative, state);
+                        if let Some(held) = &mut result {
+                            join_value_loan_origins(held, &incoming);
+                        } else {
+                            result = Some(incoming);
+                        }
                     }
                 }
             }
         }
-        if !result.is_empty() {
+        if let Some(result) = result {
             return result;
         }
     }
@@ -16557,6 +16695,8 @@ fn reborrow_source_origins(
         mutable: false,
         pinned: false,
         lifetime_only: false,
+        maybe_absent: false,
+        word_stored: false,
         span: None,
         borrowed_from: None,
         reborrow_slot: None,
@@ -20148,6 +20288,8 @@ mod tests {
             mutable: true,
             pinned: false,
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
             span: None,
             borrowed_from: None,
             reborrow_slot: None,
@@ -20200,6 +20342,8 @@ mod tests {
             mutable: true,
             pinned: false,
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
             span: None,
             borrowed_from: None,
             reborrow_slot: None,
@@ -20478,6 +20622,8 @@ mod tests {
             parameter_storage: Some(Vec::new()),
             storage_inputs: Vec::new(),
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
         };
         let owner_path = vec![Segment::Dereference, Segment::Tuple(0)];
         let owner = LoanOrigin {
@@ -20529,6 +20675,8 @@ mod tests {
             },
             LoanOrigin {
                 lifetime_only: true,
+                maybe_absent: false,
+                word_stored: false,
                 ..owner.clone()
             },
         ] {
@@ -20577,6 +20725,8 @@ mod tests {
             parameter_storage: None,
             storage_inputs: Vec::new(),
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
         };
         let held = LoanOrigin {
             owned_allocation: false,
@@ -20592,6 +20742,8 @@ mod tests {
             parameter_storage: Some(vec![Segment::DynamicIndex]),
             storage_inputs: vec![Some(0)],
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
         };
         let state: LoanState = vec![vec![held]].into();
         let mut wrapped = state[0][0].clone();
@@ -20642,6 +20794,8 @@ mod tests {
         for missing in [
             LoanOrigin {
                 lifetime_only: true,
+                maybe_absent: false,
+                word_stored: false,
                 ..address.clone()
             },
             LoanOrigin {
@@ -22357,6 +22511,8 @@ mod tests {
             parameter_storage: None,
             storage_inputs: Vec::new(),
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
         };
         let old_first = origin(1, vec![Segment::Tuple(0)]);
         let old_second = origin(2, vec![Segment::Tuple(1)]);
@@ -22386,6 +22542,8 @@ mod tests {
             mutable: true,
             pinned: false,
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
             span: None,
             borrowed_from: None,
             reborrow_slot: None,

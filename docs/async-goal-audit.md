@@ -2251,3 +2251,61 @@ eight ignored tests, and took 77.27 seconds. The pin-to-contract diagnostic
 transition is recorded in /tmp/lim-pin-cleanup-seed-fix.log; the unsupported
 conditional-store evidence is /tmp/lim-pin-cleanup-context-trace.log. There is
 no external blocker and no completion claim; the full goal remains active.
+
+Conditional effects and owned returns now distinguish possible retained loan
+lifetimes from every-path initialization of concealed word-cell contents.
+The context graph tracks uncertain physical footprints: irrelevant conditional
+stores are representable, but a potentially affected reader abandons the whole
+specialization unless a subsequent definite replacement covers that footprint.
+No scalar fact, storage epoch, or weak store creates a reference capability.
+
+An adversarial owned-return fixture exposed a real acceptance hole: a function
+conditionally initialized a numeric cell with a reference and returned the
+storage; the false path's zero cell could then be read as a reference. Invalid
+assembly was inspected but never executed. Loan origins and summaries now retain
+an analysis-only maybe-absent fact for concealed word-store contents. CFG joins,
+return statements, if/match results, and reachable loop-break alternatives retain
+all possible lifetime origins while refusing to grant every-path initialization.
+Possible retirement loses that guarantee; definite replacement restores it.
+Ordinary typed reference fields do not acquire concealed-cell uncertainty.
+Pointer-boundary selection and return substitution preserve uncertainty, and
+cache schema version 31 serializes both distinctions. No runtime flags or
+branches are emitted for these facts.
+
+New tests cover unrelated conditional writes, possible initialization and
+retirement, definite restoration, conditional owned returns, direct loads,
+returned if/match/loop values, positive every-path initialization, and preservation
+of the retained borrow despite unproved initialization. Evidence is
+/tmp/lim-concealed-final-gates.log (113 integration passes across word storage,
+semantic cache, internal owner observations and entry tags, UI, and subprocess),
+/tmp/lim-concealed-retained-lifetime.log (the expanded adversarial fixture passes),
+/tmp/lim-concealed-codec.log (six serialization unit passes), and
+/tmp/lim-concealed-final-check.log (all-target checking passes).
+
+The stricter initialization check is not a completed async fix. The full library
+at /tmp/lim-concealed-alternatives-library.log has 1426 passes, 11 failures, eight
+ignored tests, and took 57.65 seconds. This is seven additional async precision
+failures compared with the prior four-failure baseline; they must be resolved,
+not waived or counted as completed work. They include projected clone/reference
+owners, shared aggregate fields, repeated polling of internal references, and
+the native manifest. The remaining broad async gates and uncommitted HTML
+deliverable are still outstanding. There is no external blocker.
+
+Follow-up tracing narrowed the projected-clone regression beyond a generic
+"missing loan" diagnosis. The second poll's requirement selects an owned
+frame's hidden word field at index zero only when its scalar state field is 2.
+The first poll returns a may-origin for that word cell marked maybe-absent,
+because the return summary merges paths with different output state numbers.
+The checker has lost the correlation that this cell is initialized whenever
+the returned frame's state is 2. The concrete evidence is
+/tmp/lim-materialized-clone-trace.log. This calls for generic conditional
+returned initialization guarantees, not a pinning or async-specific exemption.
+
+An experimental split between raw cell validation and materialized typed
+origins passed all 69 word-storage tests but did not resolve any of the 11
+library failures (1426 passes, 11 failures, eight ignored, 58.76 seconds at
+/tmp/lim-materialized-word-library.log). It has been removed rather than
+committed as a fix. Temporary instrumentation is also removed. The committed
+implementation and cache version remain unchanged from the verified safety
+fix above; this records the next precise proof obligation without claiming it
+has been implemented.

@@ -2934,6 +2934,8 @@ mod tests {
             mutable: true,
             pinned: false,
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
             span: None,
             borrowed_from: None,
             reborrow_slot: None,
@@ -4934,6 +4936,8 @@ mod tests {
                 parameter_storage: None,
                 storage_inputs: Vec::new(),
                 lifetime_only: false,
+                maybe_absent: false,
+                word_stored: false,
             },
             LoanOrigin {
                 owned_allocation: false,
@@ -4949,6 +4953,8 @@ mod tests {
                 parameter_storage: None,
                 storage_inputs: Vec::new(),
                 lifetime_only: false,
+                maybe_absent: false,
+                word_stored: false,
             },
         ];
         let alternatives = origin_alternatives(&held, None).unwrap().unwrap();
@@ -5000,6 +5006,8 @@ mod tests {
             parameter_storage: None,
             storage_inputs: Vec::new(),
             lifetime_only: false,
+            maybe_absent: false,
+            word_stored: false,
         };
         let mutually_exclusive =
             origin_alternatives(&[variant(first, 0), variant(second, 0)], None)

@@ -1177,6 +1177,11 @@ pub(crate) struct ParameterLoanSummary {
     pub mutable: bool,
     pub pinned: bool,
     pub lifetime_only: bool,
+    /// A possible retained loan is not proof its value slot exists on every
+    /// reaching path. Keep its lifetime even when initialization is unproved.
+    pub maybe_absent: bool,
+    /// Origin concealed by a word store rather than a typed reference field.
+    pub word_stored: bool,
     /// The callee creates a child loan, rather than transferring a stored
     /// reference value out of its owner. Caller slot ancestry needs this
     /// distinction even when both results have identical pointee origins.

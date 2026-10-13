@@ -10,6 +10,10 @@ struct Context {
     // Last strong storage effect at each exact backing cell. Equal numeric
     // state alone must not merge an entry cell with a written/retired cell.
     words: HashMap<Place, FlowNodeId>,
+    // A weak effect may initialize or retire a cell. May-origin unions do
+    // not prove it remains initialized; relevant readers require a later
+    // definite replacement or abandon this entire specialization.
+    uncertain: HashSet<Place>,
     // Separate histories across opaque effects. Neither this discriminator
     // nor a storage epoch supplies initialized contents or a loan capability.
     opaque: Option<FlowNodeId>,
@@ -21,6 +25,7 @@ fn word_effects(
     origins: &FlowLoanOrigins,
     event: FlowNodeId,
     words: &mut HashMap<Place, FlowNodeId>,
+    uncertain: &mut HashSet<Place>,
 ) -> Option<()> {
     if let FlowAction::Assign { place, .. } | FlowAction::Write { place, .. } =
         &flow.nodes[event.0].action
@@ -54,6 +59,7 @@ fn word_effects(
         }
         words.retain(|held, _| !held.overlaps(target));
         words.insert(target.clone(), event);
+        uncertain.retain(|held| !place_covers(target, held));
     }
     let value = match flow.nodes[event.0].action {
         FlowAction::Evaluate(value) | FlowAction::Write { value, .. } => value,
@@ -85,8 +91,7 @@ fn word_effects(
     }
     for store in stores {
         let place = store.destination.referent_place();
-        if !store.definitely_written
-            || store.destination.lifetime_only
+        if store.destination.lifetime_only
             || !matches!(place.root, PlaceRoot::Local(_) | PlaceRoot::Parameter(_))
             || place.segments.iter().any(|part| {
                 matches!(
@@ -98,9 +103,122 @@ fn word_effects(
             return None;
         }
         words.retain(|held, _| !held.overlaps(&place));
-        words.insert(place, event);
+        words.insert(place.clone(), event);
+        if store.definitely_written {
+            uncertain.retain(|held| !place_covers(&place, held));
+        } else {
+            uncertain.insert(place);
+        }
     }
     Some(())
+}
+
+fn reads_uncertain_words(
+    flow: &FlowGraph,
+    body: &Body,
+    origins: &FlowLoanOrigins,
+    event: FlowNodeId,
+    uncertain: &HashSet<Place>,
+) -> Option<bool> {
+    if uncertain.is_empty() {
+        return Some(false);
+    }
+    let FlowAction::Evaluate(value) = flow.nodes[event.0].action else {
+        return Some(false);
+    };
+    let NodeKind::Form {
+        head,
+        children,
+        callee,
+        ..
+    } = &body.nodes[value.0].kind
+    else {
+        return Some(false);
+    };
+    let affected = |place: &Place| uncertain.iter().any(|held| held.overlaps(place));
+    if callee.is_none()
+        && !matches!(head.as_str(), "word-write" | "word-forget")
+        && body
+            .word_layouts
+            .get(&value)
+            .is_some_and(|layout| !layout.slots.is_empty())
+    {
+        let address = *children.get(2)?;
+        let addresses = origins
+            .value_before(body, flow, event, address)
+            .into_iter()
+            .filter(|origin| origin.storage.is_empty())
+            .collect::<Vec<_>>();
+        if addresses.is_empty() || addresses.iter().any(|origin| origin.lifetime_only) {
+            return None;
+        }
+        if addresses
+            .iter()
+            .any(|origin| affected(&origin.referent_place()))
+        {
+            return Some(true);
+        }
+    }
+    if let Some(callee) = callee {
+        for requirement in body
+            .call_word_input_requirements
+            .get(callee)
+            .into_iter()
+            .flatten()
+        {
+            if requirement.unresolved {
+                return None;
+            }
+            let argument = *children.get(requirement.parameter + 1)?;
+            let dereferences = requirement
+                .input_storage
+                .iter()
+                .filter(|part| **part == Segment::Dereference)
+                .count();
+            let mut places = Vec::new();
+            if dereferences == 0 {
+                let base = Place::from_expression(body, argument)?;
+                let bases = if reads_through_reference(body, argument) {
+                    physical_write_places(body, origins, event, &base)?
+                } else {
+                    vec![base]
+                };
+                for mut base in bases {
+                    base.segments
+                        .extend(requirement.input_storage.iter().cloned());
+                    places.push(base);
+                }
+            } else if dereferences == 1 {
+                let boundary = requirement
+                    .input_storage
+                    .iter()
+                    .position(|part| *part == Segment::Dereference)?;
+                for origin in origins
+                    .value_before(body, flow, event, argument)
+                    .into_iter()
+                    .filter(|origin| origin.storage == requirement.input_storage[..boundary])
+                {
+                    if origin.lifetime_only {
+                        return None;
+                    }
+                    let mut place = origin.referent_place();
+                    place
+                        .segments
+                        .extend(requirement.input_storage[boundary + 1..].iter().cloned());
+                    places.push(place);
+                }
+            } else {
+                return None;
+            }
+            if places.is_empty() {
+                return None;
+            }
+            if places.iter().any(affected) {
+                return Some(true);
+            }
+        }
+    }
+    Some(false)
 }
 
 /// Build a separate analysis graph without changing runtime code or the base
@@ -145,6 +263,7 @@ pub(in super::super) fn specialize(
             ..Facts::default()
         },
         words: HashMap::new(),
+        uncertain: HashSet::new(),
         opaque: None,
     };
     // Keep one common normal exit for every state. Must-store guarantees are
@@ -190,7 +309,11 @@ pub(in super::super) fn specialize(
         };
     result.entry = intern(flow.entry, initial, &mut result, &mut pending)?;
     while let Some((event, before, copied)) = pending.pop_front() {
+        if reads_uncertain_words(flow, body, origins, event, &before.uncertain)? {
+            return None;
+        }
         let mut words = before.words;
+        let mut uncertain = before.uncertain;
         let mut opaque = before.opaque;
         if matches!(flow.nodes[event.0].action, FlowAction::Clone { .. })
             || matches!(flow.nodes[event.0].action, FlowAction::Evaluate(value)
@@ -200,7 +323,7 @@ pub(in super::super) fn specialize(
         {
             opaque = Some(event);
         }
-        word_effects(flow, body, origins, event, &mut words)?;
+        word_effects(flow, body, origins, event, &mut words, &mut uncertain)?;
         let after = transfer(flow, body, origins, event, before.scalar);
         for (edge, next) in flow.nodes[event.0].successors.iter().enumerate() {
             let destination =
@@ -210,6 +333,7 @@ pub(in super::super) fn specialize(
                         Context {
                             scalar: facts,
                             words: words.clone(),
+                            uncertain: uncertain.clone(),
                             opaque,
                         },
                         &mut result,
@@ -277,7 +401,15 @@ mod tests {
             value,
         };
         let mut epochs = HashMap::new();
-        word_effects(&flow, body, &origins, event, &mut epochs).unwrap();
+        word_effects(
+            &flow,
+            body,
+            &origins,
+            event,
+            &mut epochs,
+            &mut HashSet::new(),
+        )
+        .unwrap();
         assert_eq!(epochs, HashMap::from([(physical[0].clone(), event)]));
 
         // Rebinding a reference variable itself is not a pointee write.
@@ -287,7 +419,15 @@ mod tests {
             value,
         };
         let mut epochs = HashMap::new();
-        word_effects(&flow, body, &origins, event, &mut epochs).unwrap();
+        word_effects(
+            &flow,
+            body,
+            &origins,
+            event,
+            &mut epochs,
+            &mut HashSet::new(),
+        )
+        .unwrap();
         assert_eq!(epochs, HashMap::from([(rebound, event)]));
     }
 

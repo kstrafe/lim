@@ -20,7 +20,7 @@ use crate::{
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v29\0";
+const MAGIC: &[u8] = b"lim-semantic-v31\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -525,6 +525,8 @@ record_codec!(
     mutable,
     pinned,
     lifetime_only,
+    maybe_absent,
+    word_stored,
     reborrow,
     referent_projection,
     input_storage,
@@ -585,6 +587,10 @@ mod tests {
     fn unproved_word_entry_obligations_survive_summary_serialization() {
         let d = declarations("(#fn identity (: value (#ref #u64)) (#ref #u64) (#return value))");
         let mut facts = d.flows["identity"].parameter_summary(&d.bodies["identity"], false);
+        // A cache hit must retain the distinction between a possible loan
+        // lifetime and a definitely initialized concealed word-cell value.
+        facts.returned[0].word_stored = true;
+        facts.returned[0].maybe_absent = true;
         let loan = facts.returned[0].clone();
         facts.word_inputs.push(WordInputRequirement {
             loan: loan.clone(),

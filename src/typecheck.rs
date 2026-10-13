@@ -22414,6 +22414,8 @@ mod typed_ownership_tests {
             mutable: true,
             pinned: true,
             lifetime_only: true,
+            maybe_absent: false,
+            word_stored: false,
             reborrow: false,
             referent_projection: vec![Segment::Tuple(2)],
             input_storage: vec![Segment::Tuple(0), Segment::DynamicIndex],

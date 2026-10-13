@@ -185,6 +185,150 @@ fn selected_parameter_cases_exclude_only_fresh_nested_word_readers() {
 }
 
 #[test]
+fn conditional_owned_word_returns_require_every_path_to_initialize_the_cell() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Storage (: words (#array #u64 1)))
+      (#fn make (: value (#ref #u64) : flag #bool) Storage
+        (#let-mut storage Storage (#struct-literal Storage (: words (#array-repeat 0u64))))
+        (#if flag (#unsafe (#word-write Holder (#borrow-slice-mut (#get storage words))
+          (#struct-literal Holder (: value value)))) ())
+        (#return storage))
+      (#fn read (: storage Storage) #u64
+        (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice (#get storage words)))))
+        (#let answer #u64 (#deref (#get holder value)))
+        (#forget holder) (#forget storage) (#return answer))
+      (#fn main () #u64
+        (#let value #u64 42u64)
+        (#return (#call read (: storage (#call make (: value (#borrow value) : flag false))))))";
+    assert_eq!(
+        compile(source)
+            .expect_err("a conditional owned-return loan is not initialized on every return path")
+            .code,
+        DiagnosticCode::Linear
+    );
+    let write = "(#unsafe (#word-write Holder (#borrow-slice-mut (#get storage words))
+          (#struct-literal Holder (: value value))))";
+    // An unconditional write and two alternatives that both initialize the
+    // slot remain valid; this is not a blanket ban on returned word storage.
+    let definite = source.replace(&format!("(#if flag {write} ())"), write);
+    assert_ne!(definite, source);
+    run(&definite);
+    run(&source.replace(
+        &format!("(#if flag {write} ())"),
+        &format!("(#if flag {write} {write})"),
+    ));
+    let direct = source.replace(
+        "(#return (#call read (: storage (#call make (: value (#borrow value) : flag false)))))",
+        "(#let storage Storage (#call make (: value (#borrow value) : flag false)))
+        (#let holder Holder (#unsafe (#word-read Holder (#borrow-slice (#get storage words)))))
+        (#let answer #u64 (#deref (#get holder value)))
+        (#forget holder) (#forget storage) (#return answer)",
+    );
+    assert_ne!(direct, source);
+    assert_eq!(
+        compile(&direct)
+            .expect_err("a direct load must also require every-path initialization")
+            .code,
+        DiagnosticCode::Linear
+    );
+    run(&direct.replace(&format!("(#if flag {write} ())"), write));
+    let lifetime = source.replace("(#let value #u64 42u64)", "(#let-mut value #u64 42u64)")
+        .replace("(#return (#call read (: storage (#call make (: value (#borrow value) : flag false)))))",
+            "(#let storage Storage (#call make (: value (#borrow value) : flag false)))
+            (#set value 0u64) (#forget storage) (#return value)");
+    assert_eq!(
+        compile(&lifetime)
+            .expect_err("possible retained loans must still protect their pointee")
+            .code,
+        DiagnosticCode::Borrow
+    );
+    let initialized = "(#call initialized (: value value : flag flag))";
+    let empty = "(#struct-literal Storage (: words (#array-repeat 0u64)))";
+    let initialized_definition = definite
+        .split("      (#fn read")
+        .next()
+        .unwrap()
+        .replace("(#fn make", "(#fn initialized");
+    let remaining = source.split("      (#fn read").nth(1).unwrap();
+    for result in [
+        format!("(#if flag {initialized} {empty})"),
+        format!("(#match (#if flag 1u64 0u64) (#case 1 {initialized}) (#case _ {empty}))"),
+        format!("(#loop (#if flag (#block (#break {initialized})) (#block (#break {empty}))))"),
+    ] {
+        let alternative = format!(
+            "{initialized_definition}
+          (#fn make (: value (#ref #u64) : flag #bool) Storage (#return {result}))
+          (#fn read{remaining}"
+        );
+        let error = compile(&alternative)
+            .expect_err("every reachable value alternative must initialize the slot");
+        assert_eq!(error.code, DiagnosticCode::Linear, "{result}: {error:?}");
+        let initialized_result = result.replace(empty, initialized);
+        run(&format!(
+            "{initialized_definition}
+          (#fn make (: value (#ref #u64) : flag #bool) Storage (#return {initialized_result}))
+          (#fn read{remaining}"
+        ));
+    }
+}
+
+#[test]
+fn conditional_call_effects_cannot_initialize_or_revive_word_loans() {
+    let source = "(#struct Holder (: value (#ref #u64)))
+      (#struct Frame (: source (#ref #u64) : words (#array #u64 1) : other (#array #u64 1)))
+      (#fn conditional (: frame (#ref-mut Frame) : flag #bool) ()
+        (#if flag
+          (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame other))
+            (#struct-literal Holder (: value (#get frame source))))) ())
+        (#return ()))
+      (#fn work (: frame (#ref-mut Frame) : flag #bool) #u64
+        (#loop
+          (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
+            (#struct-literal Holder (: value (#get frame source)))))
+          (#call conditional (: frame frame : flag flag))
+          (#let restored Holder (#unsafe (#word-take Holder (#borrow-slice-mut (#get frame words)))))
+          (#let answer #u64 (#deref (#get restored value)))
+          (#forget restored) (#return answer))
+        (#return 0u64))
+      (#fn main () #u64
+        (#let value #u64 42u64)
+        (#let-mut frame Frame (#struct-literal Frame
+          (: source (#borrow value) : words (#array-repeat 0u64) : other (#array-repeat 0u64))))
+        (#let answer #u64 (#call work (: frame (#borrow-mut frame) : flag true)))
+        (#forget frame) (#return answer))";
+    run(source);
+    run(&source.replace(": flag true", ": flag false"));
+    let retirement = source.replace(
+        "(#word-write Holder (#borrow-slice-mut (#get frame other))\n            (#struct-literal Holder (: value (#get frame source))))",
+        "(#word-forget Holder (#borrow-slice-mut (#get frame words)))",
+    );
+    assert_ne!(retirement, source);
+    assert_eq!(
+        compile(&retirement)
+            .expect_err("a possible retirement cannot retain an old may-origin as permission")
+            .code,
+        DiagnosticCode::Linear
+    );
+    let initialization = source.replace("(#get frame other)", "(#get frame words)")
+        .replace("(#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))\n            (#struct-literal Holder (: value (#get frame source)))))\n          (#call conditional",
+            "(#call conditional");
+    assert_ne!(initialization, source);
+    assert_eq!(
+        compile(&initialization.replace(": flag true", ": flag false"))
+            .expect_err("a possible write is not definite initialization of a reader")
+            .code,
+        DiagnosticCode::Linear
+    );
+    let overwritten = retirement.replace(
+        "(#let restored Holder",
+        "(#unsafe (#word-write Holder (#borrow-slice-mut (#get frame words))
+          (#struct-literal Holder (: value (#get frame source)))))
+        (#let restored Holder",
+    );
+    run(&overwritten);
+}
+
+#[test]
 fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
     let source = "(#struct Holder (: value (#ref #u64)))
       (#struct Frame (: pc #u64 : source (#ref #u64) : words (#array #u64 1)))
