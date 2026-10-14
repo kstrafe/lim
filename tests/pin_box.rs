@@ -43,10 +43,10 @@ fn allocator_owned_pin_box_runs_and_generated_code_is_inspectable() {
         .collect::<Vec<_>>()
         .join("\n");
     for function in [
-        "pin-u64-create",
-        "pin-u64-borrow",
-        "pin-u64-borrow-mut",
-        "pin-u64-destroy",
+        "PinU64Box-create",
+        "PinU64Box-borrow",
+        "PinU64Box-borrow-mut",
+        "PinU64Box-destroy",
     ] {
         assert!(
             generated.contains(&format!("(#fn {function}")),
@@ -54,6 +54,8 @@ fn allocator_owned_pin_box_runs_and_generated_code_is_inspectable() {
         );
     }
     assert!(generated.contains("(#pin-own-borrow"));
+    assert!(generated.contains("(#pin-ref #u64)"));
+    assert!(generated.contains("(#pin-ref-mut #u64)"));
     assert!(generated.contains("(#pin-release pointer)"));
 
     let (status, _, stderr) =
@@ -71,8 +73,8 @@ fn derived_pin_prevents_destroying_its_box() {
     let scratch = support::Scratch::new("pin-box-borrow");
     let input = scratch.path().join("main.lim");
     let source = example_source()
-        .replace("          (#call pin-u64-destroy (: owner moved-owner))", "")
-        .replace("          (#let value #u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))", "          (#call pin-u64-destroy (: owner moved-owner))\n          (#let value #u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))");
+        .replace("          (#call PinU64Box-destroy (: owner moved-owner))", "")
+        .replace("          (#let value #u64 (#unsafe (#pin-read value-reference)))", "          (#call PinU64Box-destroy (: owner moved-owner))\n          (#let value #u64 (#unsafe (#pin-read value-reference)))");
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(
         Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -97,8 +99,8 @@ fn a_pointee_view_retains_the_allocator_after_leaking_the_movable_owner() {
     let input = scratch.path().join("main.lim");
     let source = example_source()
         .replace("(#let arena Arena", "(#let-mut arena Arena")
-        .replace("          (#call pin-u64-destroy (: owner moved-owner))", "")
-        .replace("          (#let value #u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))", "          (#forget moved-owner)\n          (#set-field arena identity 2u64)\n          (#let value #u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))");
+        .replace("          (#call PinU64Box-destroy (: owner moved-owner))", "")
+        .replace("          (#let value #u64 (#unsafe (#pin-read value-reference)))", "          (#forget moved-owner)\n          (#set-field arena identity 2u64)\n          (#let value #u64 (#unsafe (#pin-read value-reference)))");
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(
         Command::new(env!("CARGO_BIN_EXE_lim"))
@@ -118,7 +120,7 @@ fn a_pointee_view_retains_the_allocator_after_leaking_the_movable_owner() {
 }
 
 #[test]
-fn mutable_opaque_heap_pin_accessors_read_and_write_in_place() {
+fn mutable_native_heap_pin_reference_reads_in_place() {
     let scratch = support::Scratch::new("pin-box-mutable-api");
     let input = scratch.path().join("main.lim");
     let binary = scratch.path().join("program");
@@ -130,10 +132,9 @@ fn mutable_opaque_heap_pin_accessors_read_and_write_in_place() {
         .replace(
             "(#drop value-reference)",
             "(#drop value-reference)
-          (#let-mut pin PinnedU64 (#call pin-u64-borrow-mut (: owner (#borrow-mut moved-owner))))
-          (#call PinnedU64-write (: pin (#borrow-mut pin) : value 43u64))
-          (#let changed #u64 (#call PinnedU64-read (: pin (#borrow pin))))
-          (#assert (#u64.== changed 43u64)) (#forget pin)",
+          (#let-mut pin (#pin-ref-mut #u64) (#call PinU64Box-borrow-mut (: owner (#borrow-mut moved-owner))))
+          (#let changed #u64 (#unsafe (#pin-read pin)))
+          (#assert (#u64.== changed 42u64)) (#forget pin)",
         );
     fs::write(&input, source).unwrap();
     let (status, _, stderr) = support::run(

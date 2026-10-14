@@ -2460,9 +2460,12 @@ fn documented_word_reader_contract_example_runs_natively() {
         .nth(1)
         .unwrap();
     let example = section
-        .split("```lisp\n")
+        .split("```lisp")
         .nth(1)
         .unwrap()
+        .split_once('\n')
+        .unwrap()
+        .1
         .split("```")
         .next()
         .unwrap();

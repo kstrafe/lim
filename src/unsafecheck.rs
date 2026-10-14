@@ -217,6 +217,9 @@ fn check_expression(
                         | "pin-write"
                         | "pin-own-of"
                         | "pin-release"
+                        | "pin-share-clone"
+                        | "pin-shared-borrow-mut"
+                        | "pin-shared-release"
                         | "asm"
                         | "linux-syscall",
                 )

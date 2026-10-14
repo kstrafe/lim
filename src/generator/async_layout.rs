@@ -60,7 +60,9 @@ pub(crate) fn emission_order(planning: &Planning) -> Result<Vec<usize>, String> 
             Type::Array(element, _) => collect(&element, planning, owners, seen, dependencies)?,
             // Owning pointers are fixed width, but their payload determines
             // retained-reference provenance. Resolve it before erasing a cell.
-            Type::PinOwned(element) => collect(&element, planning, owners, seen, dependencies)?,
+            Type::PinOwned(element) | Type::PinShared(element) => {
+                collect(&element, planning, owners, seen, dependencies)?
+            }
             Type::Tuple(fields) => {
                 for field in fields {
                     collect(&field, planning, owners, seen, dependencies)?;

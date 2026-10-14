@@ -2886,6 +2886,7 @@ fn type_mentions_task(
         | Type::PinnedReference { target, .. }
         | Type::RawPointer { target, .. }
         | Type::PinOwned(target)
+        | Type::PinShared(target)
         | Type::Array(target, _) => type_mentions_task(target, tasks, enums, seen),
         Type::Tuple(fields) => fields
             .iter()
@@ -3764,6 +3765,7 @@ fn type_has_thread_property_inner(
         Type::PinOwned(target) => {
             type_has_thread_property_inner(target, property, structs, enums, overrides, active)
         }
+        Type::PinShared(_) => Ok(false),
         Type::Reference { mutable, target } => match (property, mutable) {
             (ThreadProperty::Send, false) | (ThreadProperty::Sync, _) => {
                 type_has_thread_property_inner(
@@ -5419,6 +5421,7 @@ fn first_unresolved_type<'a>(
         | Type::MutableSlice(target)
         | Type::Atomic(target)
         | Type::PinOwned(target)
+        | Type::PinShared(target)
         | Type::Array(target, _) => first_unresolved_type(target, declared_types, aliases),
         Type::Tuple(fields) => fields
             .iter()
@@ -6971,6 +6974,7 @@ fn type_contains_thread_task_value(
         | Type::PinnedReference { target, .. }
         | Type::RawPointer { target, .. }
         | Type::PinOwned(target)
+        | Type::PinShared(target)
         | Type::Array(target, _) => {
             type_contains_thread_task_value(target, functions, enums, aliases, seen)
         }
@@ -7582,9 +7586,10 @@ fn list_expression(
                 4
             };
             require_arity(operator, items, expected)?;
-            let Type::Reference { target, .. } = expression(
-                &items[1], variables, functions, structs, enums, mutable, aliases, None,
-            )?
+            let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
+                expression(
+                    &items[1], variables, functions, structs, enums, mutable, aliases, None,
+                )?
             else {
                 return Err(semantic_format!(
                     "{operator} requires a shared reference to an atomic scalar"
@@ -8029,7 +8034,33 @@ fn list_expression(
                 ),
             }
         }
-        "pin-own-borrow" | "pin-own-borrow-mut" => {
+        "pin-share" => {
+            require_arity(operator, items, 2)?;
+            match expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )? {
+                Type::PinOwned(target) => Ok(Type::PinShared(target)),
+                _ => Err("pin-share requires unique owning pinned storage".into()),
+            }
+        }
+        "pin-share-clone" => {
+            require_arity(operator, items, 2)?;
+            match expression(
+                &items[1], variables, functions, structs, enums, mutable, aliases, None,
+            )? {
+                Type::Reference { target, .. } | Type::PinnedReference { target, .. } => {
+                    match *target {
+                        Type::PinShared(element) => Ok(Type::PinShared(element)),
+                        _ => Err(
+                            "pin-share-clone requires a reference to shared pinned ownership"
+                                .into(),
+                        ),
+                    }
+                }
+                _ => Err("pin-share-clone requires a reference to shared pinned ownership".into()),
+            }
+        }
+        "pin-own-borrow" | "pin-own-borrow-mut" | "pin-shared-borrow" | "pin-shared-borrow-mut" => {
             if !matches!(items.len(), 2 | 3) {
                 return Err(
                     "pin-own-borrow requires an owner and optional allocator reference".into(),
@@ -8048,7 +8079,7 @@ fn list_expression(
             let owner = expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )?;
-            let wants_mutable = operator == "pin-own-borrow-mut";
+            let wants_mutable = matches!(operator, "pin-own-borrow-mut" | "pin-shared-borrow-mut");
             let (owner, writable) = match owner {
                 Type::Reference { mutable, target } | Type::PinnedReference { mutable, target } => {
                     (*target, mutable)
@@ -8058,8 +8089,15 @@ fn list_expression(
                     matches!(&items[1], Expr::Symbol(name) if mutable.contains(name)),
                 ),
             };
-            let Type::PinOwned(target) = owner else {
-                return Err("pin-own-borrow requires an owning pin or a reference to one".into());
+            let target = match (operator, owner) {
+                ("pin-own-borrow" | "pin-own-borrow-mut", Type::PinOwned(target)) => target,
+                ("pin-shared-borrow" | "pin-shared-borrow-mut", Type::PinShared(target)) => target,
+                _ => {
+                    return Err(format!(
+                        "{operator} requires the matching owning pin or a reference to one"
+                    )
+                    .into())
+                }
             };
             if wants_mutable && !writable {
                 return Err("pin-own-borrow-mut requires a mutable owner binding or mutable owner reference".into());
@@ -8069,15 +8107,21 @@ fn list_expression(
                 target,
             })
         }
-        "pin-release" => {
+        "pin-release" | "pin-shared-release" => {
             require_arity(operator, items, 2)?;
             match expression(
                 &items[1], variables, functions, structs, enums, mutable, aliases, None,
             )? {
-                Type::PinOwned(target) => Ok(Type::RawPointer {
+                Type::PinOwned(target) if operator == "pin-release" => Ok(Type::RawPointer {
                     mutable: true,
                     target,
                 }),
+                Type::PinShared(target) if operator == "pin-shared-release" => {
+                    Ok(Type::RawPointer {
+                        mutable: true,
+                        target,
+                    })
+                }
                 _ => Err("pin-release requires an owning heap pin".into()),
             }
         }
@@ -10304,6 +10348,9 @@ fn substitute_type(ty: &Type, substitutions: &HashMap<String, Type>) -> Type {
         },
         Type::Atomic(target) => Type::Atomic(Box::new(substitute_type(target, substitutions))),
         Type::PinOwned(target) => Type::PinOwned(Box::new(substitute_type(target, substitutions))),
+        Type::PinShared(target) => {
+            Type::PinShared(Box::new(substitute_type(target, substitutions)))
+        }
         _ => ty.clone(),
     }
 }
@@ -10510,7 +10557,7 @@ fn type_contains_pin_owner(
     seen: &mut HashSet<String>,
 ) -> bool {
     match ty {
-        Type::PinOwned(_) => true,
+        Type::PinOwned(_) | Type::PinShared(_) => true,
         Type::Array(element, _) | Type::Atomic(element) => {
             type_contains_pin_owner(element, structs, enums, seen)
         }
@@ -10592,7 +10639,7 @@ fn require_operator_type(qualifier: &str, ty: &Type, operator: &str) -> Result<(
         Type::F64 => "f64",
         Type::Reference { .. } => "reference",
         Type::PinnedReference { .. } => "pinned reference",
-        Type::PinOwned(_) => "owning pin",
+        Type::PinOwned(_) | Type::PinShared(_) => "owning pin",
         Type::Slice(_) => "slice",
         Type::MutableSlice(_) => "mutable slice",
         Type::Atomic(_) => "atomic",

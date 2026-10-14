@@ -393,7 +393,8 @@ fn collect(
         | Type::PinnedReference { .. }
         | Type::Slice(_)
         | Type::MutableSlice(_)
-        | Type::PinOwned(_) => {
+        | Type::PinOwned(_)
+        | Type::PinShared(_) => {
             slots.push(Slot {
                 path: path.clone(),
                 offset,
@@ -403,10 +404,14 @@ fn collect(
                         | Type::PinnedReference { mutable: true, .. }
                         | Type::MutableSlice(_)
                         | Type::PinOwned(_)
+                        | Type::PinShared(_)
                 ),
-                pinned: matches!(&ty, Type::PinnedReference { .. } | Type::PinOwned(_)),
-                owned_allocation: matches!(&ty, Type::PinOwned(_)),
-                retained: if matches!(&ty, Type::PinOwned(_)) {
+                pinned: matches!(
+                    &ty,
+                    Type::PinnedReference { .. } | Type::PinOwned(_) | Type::PinShared(_)
+                ),
+                owned_allocation: matches!(&ty, Type::PinOwned(_) | Type::PinShared(_)),
+                retained: if matches!(&ty, Type::PinOwned(_) | Type::PinShared(_)) {
                     declarations
                         .reference_storage_slots(&ty)
                         .into_iter()

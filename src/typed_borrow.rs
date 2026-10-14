@@ -82,7 +82,13 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                 .get(callee)
                 .is_some_and(|summary| summary.iter().any(|origin| origin.global.is_some())),
             NodeKind::Form { head, .. }
-                if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut") =>
+                if matches!(
+                    head.as_str(),
+                    "pin-own-borrow"
+                        | "pin-own-borrow-mut"
+                        | "pin-shared-borrow"
+                        | "pin-shared-borrow-mut"
+                ) =>
             {
                 true
             }
@@ -205,6 +211,8 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
                         head.as_str(),
                         "pin-own-borrow"
                             | "pin-own-borrow-mut"
+                            | "pin-shared-borrow"
+                            | "pin-shared-borrow-mut"
                             | "borrow-slice"
                             | "borrow-slice-mut"
                             | "slice-mut-range"
@@ -221,7 +229,13 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
             },
             FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
                 NodeKind::Form { head, .. }
-                    if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut") =>
+                    if matches!(
+                        head.as_str(),
+                        "pin-own-borrow"
+                            | "pin-own-borrow-mut"
+                            | "pin-shared-borrow"
+                            | "pin-shared-borrow-mut"
+                    ) =>
                 {
                     origins
                         .value_before(body, flow, FlowNodeId(index), value)
@@ -242,9 +256,18 @@ pub(crate) fn check_live_direct_loans_cached_with_permissions(
         let computed_borrow = match node.action {
             FlowAction::Evaluate(value) => match &body.nodes[value.0].kind {
                 NodeKind::Form { head, .. }
-                    if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut") =>
+                    if matches!(
+                        head.as_str(),
+                        "pin-own-borrow"
+                            | "pin-own-borrow-mut"
+                            | "pin-shared-borrow"
+                            | "pin-shared-borrow-mut"
+                    ) =>
                 {
-                    Some(head == "pin-own-borrow-mut")
+                    Some(matches!(
+                        head.as_str(),
+                        "pin-own-borrow-mut" | "pin-shared-borrow-mut"
+                    ))
                 }
                 _ => None,
             },

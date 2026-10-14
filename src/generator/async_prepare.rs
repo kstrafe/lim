@@ -95,6 +95,7 @@ impl Planning {
                         | crate::Type::MutableSlice(_)
                         | crate::Type::Atomic(_)
                         | crate::Type::PinOwned(_)
+                        | crate::Type::PinShared(_)
                 ) || !self.linear_types().is_linear(&value.ty)
                 {
                     continue;

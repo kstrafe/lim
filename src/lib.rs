@@ -1489,6 +1489,9 @@ pub enum Type {
     /// Linear ownership of a stationary allocation. Moving this pointer-sized
     /// value transfers ownership without moving the allocation.
     PinOwned(Box<Type>),
+    /// Shared allocation ownership, used by concrete reference-counted wrappers.
+    /// Duplicating the capability does not provide exclusive pointee access.
+    PinShared(Box<Type>),
     RawPointer {
         mutable: bool,
         target: Box<Type>,
@@ -4618,6 +4621,12 @@ fn is_builtin_form(name: &str) -> bool {
             | "pin-borrow-mut"
             | "pin-own"
             | "pin-own-of"
+            | "pin-share"
+            | "pin-share-clone"
+            | "pin-shared-own"
+            | "pin-shared-borrow"
+            | "pin-shared-borrow-mut"
+            | "pin-shared-release"
             | "pin-own-borrow"
             | "pin-own-borrow-mut"
             | "pin-release"
@@ -5763,6 +5772,7 @@ fn builtin_payload_is_copy(ty: &Type, copy_types: &HashSet<String>) -> bool {
         | Type::MutableSlice(_)
         | Type::Atomic(_)
         | Type::PinOwned(_)
+        | Type::PinShared(_)
         | Type::Generic(_) => false,
         _ => true,
     }
@@ -5885,6 +5895,7 @@ fn type_source(ty: &Type) -> String {
             type_source(target)
         ),
         Type::PinOwned(target) => format!("(#pin-own {})", type_source(target)),
+        Type::PinShared(target) => format!("(#pin-shared-own {})", type_source(target)),
         Type::RawPointer { mutable, target } => format!(
             "(#{} {})",
             if *mutable { "ptr-mut" } else { "ptr" },
@@ -8416,6 +8427,9 @@ pub(crate) fn parse_type(expression: Option<&Expr>) -> Result<Type, String> {
     if let Some(Expr::List(items)) = expression {
         if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "pin-own") {
             return Ok(Type::PinOwned(Box::new(parse_type(items.get(1))?)));
+        }
+        if items.len() == 2 && matches!(&items[0], Expr::Symbol(name) if name == "pin-shared-own") {
+            return Ok(Type::PinShared(Box::new(parse_type(items.get(1))?)));
         }
         if items.len() >= 2 && matches!(&items[0], Expr::Symbol(name) if name == "tuple") {
             let fields = items[1..]

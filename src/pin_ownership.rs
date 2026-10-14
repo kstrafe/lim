@@ -35,8 +35,8 @@ pub(crate) fn check(
     let mut relevant = declarations.bodies.iter().filter_map(|(name, body)| {
         let needed = body.parameter_loan_slots.iter().chain(&body.parameter_referent_loan_slots).flatten().any(|slot| slot.owned_allocation)
             || body.nodes.iter().any(|node| matches!(&node.kind, NodeKind::Form { head, callee: None, .. }
-                if matches!(head.as_str(), "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut" | "pin-own-of" | "pin-own-borrow" | "pin-own-borrow-mut" | "pin-release")))
-            || body.nodes.iter().any(|node| matches!(node.ty, Some(crate::Type::PinOwned(_))));
+                if matches!(head.as_str(), "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut" | "pin-own-of" | "pin-own-borrow" | "pin-shared-borrow" | "pin-own-borrow-mut" | "pin-shared-borrow-mut" | "pin-release" | "pin-shared-release")))
+            || body.nodes.iter().any(|node| matches!(node.ty, Some(crate::Type::PinOwned(_) | crate::Type::PinShared(_))));
         needed.then_some(name)
     }).collect::<HashSet<_>>();
     if relevant.is_empty() {
@@ -125,7 +125,7 @@ pub(crate) fn check(
         for (index, node) in flow.nodes.iter().enumerate() {
             let event = FlowNodeId(index);
             if let FlowAction::Borrow { value, .. } | FlowAction::Evaluate(value) = node.action {
-                if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut"))
+                if matches!(&body.nodes[value.0].kind, NodeKind::Form { head, callee: None, .. } if matches!(head.as_str(), "pin-own-borrow" | "pin-shared-borrow" | "pin-own-borrow-mut" | "pin-shared-borrow-mut"))
                     && active[index].is_some()
                     && !origins
                         .value_before(body, flow, event, value)
@@ -216,14 +216,19 @@ fn allocation_accesses(
     else {
         return Vec::new();
     };
-    if callee.is_none() && matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut") {
+    if callee.is_none()
+        && matches!(
+            head.as_str(),
+            "pin-own-borrow" | "pin-shared-borrow" | "pin-own-borrow-mut" | "pin-shared-borrow-mut"
+        )
+    {
         return origins
             .value_before(body, flow, event, value)
             .into_iter()
             .filter(|origin| !origin.lifetime_only && origin.storage.is_empty())
             .collect();
     }
-    if callee.is_none() && head == "pin-release" {
+    if callee.is_none() && matches!(head.as_str(), "pin-release" | "pin-shared-release") {
         return origins
             .value_before(body, flow, event, children[1])
             .into_iter()
@@ -332,7 +337,7 @@ fn check_stack(
                 && matches!(&body.nodes[value.0].kind, NodeKind::Form { children, .. }
                     if crate::typed_place::reads_through_reference(body, children[1])
                         && origins.address_before(body, flow, event, children[1]).iter()
-                            .any(|origin| origin.storage.is_empty() && !origin.pinned && !origin.owned_allocation)) => Some((place.clone(), "cannot create a permanent pin through an ordinary reference; pass a pinned reference instead")),
+                            .any(|origin| origin.storage.is_empty() && !origin.lifetime_only && !origin.pinned && !origin.owned_allocation)) => Some((place.clone(), "cannot create a permanent pin through an ordinary reference; pass a pinned reference instead")),
             FlowAction::Read { place, place_base: false, .. }
                 if matches!(place.root, PlaceRoot::Local(binding) if frozen[index].contains(&binding) && transfers.consumes_at(event, place)) => Some((place.clone(), "cannot move or copy stationary storage; access it through a pinned reference")),
             FlowAction::Clone { place, value }

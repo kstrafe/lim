@@ -98,6 +98,7 @@ fn owned_pin_read_place(body: &Body, pointer: NodeId) -> Option<Place> {
             | Type::Slice(_)
             | Type::MutableSlice(_)
             | Type::PinOwned(_)
+            | Type::PinShared(_)
     ) {
         return None;
     }

@@ -22,14 +22,14 @@ syn match limGenerated +@#\?[[:alpha:]_][^[:space:]();"'`,@#]*+
 " Match complete tokens, including the sigil. In particular, #u64 is a type
 " but #u64.+.wrap is an operator and an unprefixed u64 is a user identifier.
 syn match limType +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|tuple\|pin-ref\|pin-ref-mut\|pin-own\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limTypeForm +#\%(ref\|ref-mut\|ptr\|ptr-mut\|array\|slice\|slice-mut\|tuple\|pin-ref\|pin-ref-mut\|pin-own\|pin-shared-own\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limOperator +#\%(bool\|char\|u8\|u16\|u32\|u64\|u128\|usize\|i8\|i16\|i32\|i64\|i128\|isize\|f32\|f64\)\.[^[:space:]();"'`,@#]\++
 syn match limDeclaration +#\%(fn\|extern-fn\|struct\|enum\|type\|static\|let\|let-mut\|const\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limConditional +#\%(if\|if-let\|match\|case\|let-else\|else\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limRepeat +#\%(loop\|while\|while-let\|for\|for-range\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limControl +#\%(return\|break\|break-to\|continue\|continue-to\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limUnsafe +#\%(unsafe\|unsafe-fn\|unsafe-impl\)\ze\%($\|[[:space:]();"'`,@#]\)+
-syn match limPin +#\%(pin\|pin-shared\)\ze\%($\|[[:space:]();"'`,@#]\)+
+syn match limPin +#\%(pin\|pin-shared\|pin-share\|pin-share-clone\|pin-shared-borrow\|pin-shared-borrow-mut\|pin-shared-release\)\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limGeneratorKeyword +#gn\%(-[^[:space:]();"'`,@#]\+\)\?\ze\%($\|[[:space:]();"'`,@#]\)+
 syn match limCfg +#cfg-[^[:space:]();"'`,@#]\++
 syn match limNumber "\<\d[[:alnum:]_]*\>"

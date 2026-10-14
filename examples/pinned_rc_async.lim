@@ -1,0 +1,71 @@
+(#import "../library/pin_rc.lim")
+
+(#struct Arena ())
+(#enum ArenaError (OutOfMemory))
+(#enum Step (: Step-waiting #u64 #u64))
+(#linear Step)
+(#enum StepPoll (: StepPending Step : StepReady #u64))
+(#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
+  (#return (#match task
+    (#case (Step-waiting value remaining)
+      (#if (#u64.== remaining 0u64) (StepReady value)
+        (StepPending (Step-waiting value (#u64.-.wrap remaining 1u64))))))))
+(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))
+(#fn cancel-step (: task Step) () (#forget task) (#return ()))
+(@#async-fn-pinned (: protocol WorkAwait : waker #u64
+  : cancel (cancel-work ((await-0 cancel-step)))
+  : function (#fn work () #u64
+    (#let value #u64 (#await (#syntax-splice StepAwait) (Step-waiting 42u64 1u64)))
+    (#return value))))
+
+(#enum AllocationResult ((Allocated (#ptr-mut PinnedFrameRcAllocation)) (AllocationFailed ArenaError)))
+(@#pin-rc (: type Work-frame : allocator Arena : name PinnedFrameRc
+  : error ArenaError : alloc-result AllocationResult : alloc-ok Allocated
+  : alloc-error AllocationFailed : alloc arena-allocate : dealloc arena-deallocate
+  : destroy destroy-frame))
+(#fn arena-allocate (: allocator (#ref Arena) : layout #usize : alignment #usize) AllocationResult
+  (#let pointer (#ptr-mut PinnedFrameRcAllocation)
+    (#unsafe (#linux-syscall (#ptr-mut PinnedFrameRcAllocation) 9usize
+      (0usize layout 3usize 34usize -1i64 0usize))))
+  (#return (#if (#usize.>= (#ptr-address pointer) 18446744073709547520usize)
+    (AllocationFailed OutOfMemory) (Allocated pointer))))
+(#fn arena-deallocate (: allocator (#ref Arena) : pointer (#ptr-mut PinnedFrameRcAllocation)
+  : layout #usize : alignment #usize) ()
+  (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer layout))) 0i64))
+  (#return ()))
+(#fn destroy-frame (: allocator (#ref Arena) : pin (#pin-ref-mut Work-frame)) ()
+  (#call cancel-work (: task (#call work-poll-cleanup (: task pin))))
+  (#forget pin) (#return ()))
+
+(#fn main () #u64
+  (#let arena Arena (#struct-literal Arena ()))
+  (#let-mut owner PinnedFrameRc
+    (#match (#call PinnedFrameRc-create (: allocator (#borrow arena) : value (#call work (:))))
+      (#case (PinnedFrameRc-created allocated) allocated)
+      (#case (PinnedFrameRc-allocation-failed failure) (#block (#forget failure) (#unreachable)))))
+  (#let other PinnedFrameRc (#call PinnedFrameRc-clone (: owner (#borrow owner))))
+  (#match (#call PinnedFrameRc-borrow-mut (: owner (#borrow-mut owner)))
+    (#case PinnedFrameRc-shared ())
+    (#case (PinnedFrameRc-unique unexpected) (#block (#forget unexpected) (#unreachable))))
+  (#call PinnedFrameRc-destroy (: owner other))
+  (#let waker #u64 0u64)
+  (#let first-pin (#pin-ref-mut Work-frame)
+    (#match (#call PinnedFrameRc-borrow-mut (: owner (#borrow-mut owner)))
+      (#case (PinnedFrameRc-unique pin) pin)
+      (#case PinnedFrameRc-shared (#unreachable))))
+  (#let first Work-poll-result (#call work-poll (: task first-pin : waker (#borrow waker))))
+  (#forget first-pin)
+  (#let-else (work-pending pending) Work-poll-result first (#unreachable))
+  (#forget pending)
+  (#let-mut moved PinnedFrameRc owner)
+  (#let second-pin (#pin-ref-mut Work-frame)
+    (#match (#call PinnedFrameRc-borrow-mut (: owner (#borrow-mut moved)))
+      (#case (PinnedFrameRc-unique pin-next) pin-next)
+      (#case PinnedFrameRc-shared (#unreachable))))
+  (#let second Work-poll-result (#call work-poll (: task second-pin : waker (#borrow waker))))
+  (#forget second-pin)
+  (#let answer #u64 (#match second
+    (#case (work-ready value) value)
+    (#case (work-pending unexpected-pending) (#block (#forget unexpected-pending) (#unreachable)))))
+  (#call PinnedFrameRc-destroy (: owner moved))
+  (#forget arena) (#return answer))

@@ -6965,7 +6965,10 @@ impl<'a> Emitter<'a> {
                 let storage_owner = |binding: BindingId| {
                     !matches!(
                         graph.bindings[binding.0].ty,
-                        Type::Reference { .. } | Type::PinnedReference { .. } | Type::PinOwned(_)
+                        Type::Reference { .. }
+                            | Type::PinnedReference { .. }
+                            | Type::PinOwned(_)
+                            | Type::PinShared(_)
                     ) && self.bindings.contains_key(&binding)
                 };
                 let touches_owner = owner.is_some_and(storage_owner)

@@ -249,9 +249,10 @@ impl LinearTypes {
             output: &mut Vec<Vec<LinearProjection>>,
         ) {
             match ty {
-                Type::Atomic(_) | Type::MutableSlice(_) | Type::PinOwned(_) => {
-                    output.push(path.clone())
-                }
+                Type::Atomic(_)
+                | Type::MutableSlice(_)
+                | Type::PinOwned(_)
+                | Type::PinShared(_) => output.push(path.clone()),
                 Type::Named(name) => {
                     if let Some(alias) = types.aliases.get(name) {
                         if seen.insert(name.clone()) {
@@ -748,7 +749,7 @@ fn is_linear(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>) -> bool
         | Type::PinnedReference { .. }
         | Type::RawPointer { .. }
         | Type::Slice(_) => false,
-        Type::MutableSlice(_) | Type::Atomic(_) | Type::PinOwned(_) => true,
+        Type::MutableSlice(_) | Type::Atomic(_) | Type::PinOwned(_) | Type::PinShared(_) => true,
         Type::Tuple(items) => items.iter().any(|item| is_linear(item, types, seen)),
         Type::Array(element, _) => is_linear(element, types, seen),
         Type::Named(name) => {
@@ -797,7 +798,7 @@ fn contains_exclusive_reference(
         Type::Tuple(items) => items
             .iter()
             .any(|item| contains_exclusive_reference(item, types, seen)),
-        Type::Array(element, _) | Type::PinOwned(element) => {
+        Type::Array(element, _) | Type::PinOwned(element) | Type::PinShared(element) => {
             contains_exclusive_reference(element, types, seen)
         }
         Type::Named(name) => {
@@ -837,9 +838,10 @@ fn contains_reference(ty: &Type, types: &LinearTypes, seen: &mut HashSet<String>
         Type::Tuple(items) => items
             .iter()
             .any(|item| contains_reference(item, types, seen)),
-        Type::Array(element, _) | Type::Atomic(element) | Type::PinOwned(element) => {
-            contains_reference(element, types, seen)
-        }
+        Type::Array(element, _)
+        | Type::Atomic(element)
+        | Type::PinOwned(element)
+        | Type::PinShared(element) => contains_reference(element, types, seen),
         Type::Named(name) => {
             if !seen.insert(name.clone()) {
                 return true;
@@ -992,7 +994,11 @@ fn check_expr(
                     return Err("clone requires exactly one value".into());
                 }
                 check_clone(&items[1], bindings, moved, types)?;
-            } else if matches!(head, "forget" | "drop" | "pin-release") && items.len() == 2 {
+            } else if matches!(
+                head,
+                "forget" | "drop" | "pin-release" | "pin-shared-release"
+            ) && items.len() == 2
+            {
                 if let Some(key) = place_key(&items[1]) {
                     let root = place_root(&key);
                     if types.binding_types.borrow().contains_key(root) {

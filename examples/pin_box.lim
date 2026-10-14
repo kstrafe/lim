@@ -5,12 +5,10 @@
 (#struct Arena ((identity #u64) (fail #bool)))
 (#enum ArenaError (OutOfMemory))
 (@#result (: ok (#ptr-mut #u64) : error ArenaError : name ArenaAllocResult))
-(@#pin (: type #u64 : name PinnedU64 : copy true))
-(@#pin-box
-  (#u64 Arena PinU64Box PinU64CreateResult ArenaError ArenaAllocResult PinnedU64)
-  (PinU64Created PinU64AllocationFailed pin-u64-create pin-u64-borrow
-    pin-u64-borrow-mut pin-u64-destroy ArenaAllocResult-ok-value
-    ArenaAllocResult-err-value arena-allocate arena-deallocate destroy-u64))
+(@#pin-box (: type #u64 : allocator Arena : name PinU64Box : error ArenaError
+  : alloc-result ArenaAllocResult : alloc-ok ArenaAllocResult-ok-value
+  : alloc-error ArenaAllocResult-err-value : alloc arena-allocate
+  : dealloc arena-deallocate : destroy destroy-u64))
 
 (#fn arena-allocate
   ((allocator (#ref Arena)) (layout #usize) (alignment #usize)) ArenaAllocResult
@@ -33,7 +31,7 @@
   (#assert (#i64.== status 0i64))
   (#return ()))
 
-(#fn destroy-u64 (: allocator (#ref Arena) : pin PinnedU64) ()
+(#fn destroy-u64 (: allocator (#ref Arena) : pin (#pin-ref-mut #u64)) ()
   (#forget pin)
   (#return ()))
 
@@ -42,36 +40,36 @@
 
 (#fn main () #u64
   (#let failed-arena Arena (#struct-literal Arena ((identity 0u64) (fail true))))
-  (#let failed PinU64CreateResult
-    (#call pin-u64-create (: allocator (#borrow failed-arena) : value 99u64)))
+  (#let failed PinU64BoxCreateResult
+    (#call PinU64Box-create (: allocator (#borrow failed-arena) : value 99u64)))
   (#let failure-was-preserved #bool
     (#match failed
-      (#case (PinU64Created owner)
+      (#case (PinU64Box-created owner)
         (#block
-          (#call pin-u64-destroy (: owner owner))
+          (#call PinU64Box-destroy (: owner owner))
           false))
-      (#case (PinU64AllocationFailed failure)
+      (#case (PinU64Box-allocation-failed failure)
         (#block
           (#let (#tuple error original) (#tuple ArenaError #u64) failure)
           (#forget error)
           (#if (#u64.== original 99u64) true false)))))
   (#let arena Arena (#struct-literal Arena ((identity 1u64) (fail false))))
-  (#let created PinU64CreateResult
-    (#call pin-u64-create (: allocator (#borrow arena) : value 42u64)))
+  (#let created PinU64BoxCreateResult
+    (#call PinU64Box-create (: allocator (#borrow arena) : value 42u64)))
   (#return
     (#match created
-      (#case (PinU64Created owner)
+      (#case (PinU64Box-created owner)
         (#block
-          (#let value-reference PinnedU64-shared
-            (#call pin-u64-borrow (: owner (#borrow owner))))
+          (#let value-reference (#pin-ref #u64)
+            (#call PinU64Box-borrow (: owner (#borrow owner))))
           (#let moved-owner PinU64Box (#call forward-owner (: owner owner)))
-          (#let value #u64 (#call PinnedU64-shared-read (: pin (#borrow value-reference))))
+          (#let value #u64 (#unsafe (#pin-read value-reference)))
           (#drop value-reference)
-          (#call pin-u64-destroy (: owner moved-owner))
+          (#call PinU64Box-destroy (: owner moved-owner))
           (#if failure-was-preserved
             (#if (#u64.== value 42u64) 42u64 1u64)
             1u64)))
-      (#case (PinU64AllocationFailed failure)
+      (#case (PinU64Box-allocation-failed failure)
         (#block
           (#let (#tuple error value) (#tuple ArenaError #u64) failure)
           (#forget value)

@@ -2646,7 +2646,7 @@ impl Declarations {
     ) {
         use crate::typed_place::Segment;
         match ty {
-            Type::PinOwned(target) => {
+            Type::PinOwned(target) | Type::PinShared(target) => {
                 output.push(crate::typed_body::ParameterLoanSeed {
                     owned_allocation: true,
                     mutable: true,
@@ -2851,6 +2851,7 @@ pub(crate) fn resolve_type(ty: &Type, aliases: &HashMap<String, Type>) -> Result
             }
             Type::Atomic(element) => Type::Atomic(Box::new(resolve(element, aliases, seen)?)),
             Type::PinOwned(element) => Type::PinOwned(Box::new(resolve(element, aliases, seen)?)),
+            Type::PinShared(element) => Type::PinShared(Box::new(resolve(element, aliases, seen)?)),
             Type::Reference { mutable, target } => Type::Reference {
                 mutable: *mutable,
                 target: Box::new(resolve(target, aliases, seen)?),

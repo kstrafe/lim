@@ -1784,6 +1784,7 @@ impl FlowLoanOrigins {
                                 Type::Reference { .. }
                                     | Type::PinnedReference { .. }
                                     | Type::PinOwned(_)
+                                    | Type::PinShared(_)
                                     | Type::Slice(_)
                                     | Type::MutableSlice(_)
                                     | Type::RawPointer { .. }
@@ -2417,13 +2418,21 @@ fn inactive_referenced_variant_slot(
     if tail.contains(&Segment::Dereference)
         || !matches!(
             body.nodes[argument.0].ty,
-            Some(Type::Reference { .. } | Type::PinnedReference { .. } | Type::PinOwned(_))
+            Some(
+                Type::Reference { .. }
+                    | Type::PinnedReference { .. }
+                    | Type::PinOwned(_)
+                    | Type::PinShared(_)
+            )
         )
     {
         return false;
     }
     let mut pointers = origins.value_before(body, flow, event, argument);
-    let owned = matches!(body.nodes[argument.0].ty, Some(Type::PinOwned(_)));
+    let owned = matches!(
+        body.nodes[argument.0].ty,
+        Some(Type::PinOwned(_) | Type::PinShared(_))
+    );
     if owned {
         // Retained payload loans are not alternative allocation addresses.
         // An owning input must still supply a real owned allocation identity.
@@ -2919,8 +2928,10 @@ impl FlowGraph {
                             record(stores.into_iter().map(|store| store.destination).collect())?;
                             continue;
                         }
-                        if matches!(head.as_str(), "drop" | "forget" | "pin-release")
-                            && children.len() == 2
+                        if matches!(
+                            head.as_str(),
+                            "drop" | "forget" | "pin-release" | "pin-shared-release"
+                        ) && children.len() == 2
                         {
                             if !releases_reference_handle(body, *value) {
                                 let state = origins.before[event.0].as_ref()?;
@@ -3796,8 +3807,11 @@ impl FlowGraph {
                     | "pin-borrow"
                     | "pin-borrow-mut"
                     | "pin-own-borrow"
+                    | "pin-shared-borrow"
                     | "pin-own-borrow-mut"
+                    | "pin-shared-borrow-mut"
                     | "pin-release"
+                    | "pin-shared-release"
                     | "clone"
                     | "drop"
                     | "forget"
@@ -4809,6 +4823,7 @@ impl FlowGraph {
                             | "forget"
                             | "drop"
                             | "pin-release"
+                            | "pin-shared-release"
                     ) =>
                     {
                         None
@@ -8520,8 +8535,10 @@ impl FlowGraph {
         let resolve = |id: FlowNodeId, place: &Place, value: NodeId| {
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
-                    if matches!(head.as_str(), "drop" | "forget" | "pin-release")
-                        && children.len() == 2 =>
+                    if matches!(
+                        head.as_str(),
+                        "drop" | "forget" | "pin-release" | "pin-shared-release"
+                    ) && children.len() == 2 =>
                 {
                     children[1]
                 }
@@ -8680,10 +8697,12 @@ impl FlowGraph {
                         | "borrow"
                         | "borrow-mut"
                         | "pin-own-borrow"
+                        | "pin-shared-borrow"
                         | "borrow-slice"
                         | "borrow-slice-mut"
                         | "slice-mut-range"
                         | "pin-own-borrow-mut"
+                        | "pin-shared-borrow-mut"
                         | "clone"
                         | "drop"
                         | "forget"
@@ -8773,12 +8792,17 @@ impl FlowGraph {
                         let NodeKind::Form { children, .. } = &body.nodes[value.0].kind else {
                             unreachable!()
                         };
-                        let loans =
-                            origins.value_before(body, self, FlowNodeId(index), children[1]);
+                        // Lifetime-only anchors retain owners but are not
+                        // physical destinations of an otherwise known write.
+                        let loans = origins
+                            .value_before(body, self, FlowNodeId(index), children[1])
+                            .into_iter()
+                            .filter(|loan| !loan.lifetime_only)
+                            .collect::<Vec<_>>();
                         if loans.is_empty()
                             || loans
                                 .iter()
-                                .any(|loan| !loan.storage.is_empty() || loan.lifetime_only)
+                                .any(|loan| !loan.storage.is_empty())
                         {
                             unresolved.insert(FlowNodeId(index));
                             Vec::new()
@@ -9540,8 +9564,10 @@ impl FlowGraph {
             };
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
-                    if matches!(head.as_str(), "forget" | "drop" | "pin-release")
-                        && children.len() == 2 =>
+                    if matches!(
+                        head.as_str(),
+                        "forget" | "drop" | "pin-release" | "pin-shared-release"
+                    ) && children.len() == 2 =>
                 {
                     children[1]
                 }
@@ -9738,8 +9764,10 @@ impl FlowGraph {
             };
             let value = match &body.nodes[value.0].kind {
                 NodeKind::Form { head, children, .. }
-                    if matches!(head.as_str(), "forget" | "drop" | "pin-release")
-                        && children.len() == 2 =>
+                    if matches!(
+                        head.as_str(),
+                        "forget" | "drop" | "pin-release" | "pin-shared-release"
+                    ) && children.len() == 2 =>
                 {
                     children[1]
                 }
@@ -10449,7 +10477,7 @@ impl FlowGraph {
                 )
             });
             for slot in slots {
-                if matches!(ty, Type::PinOwned(_))
+                if matches!(ty, Type::PinOwned(_) | Type::PinShared(_))
                     && variant_states[event.0].as_ref().is_some_and(|state| {
                         inactive_referenced_variant_slot(
                             body,
@@ -12060,8 +12088,10 @@ impl FlowGraph {
                     else {
                         return Err(format!("typed flow releases invalid node {value:?}"));
                     };
-                    if !matches!(head.as_str(), "drop" | "forget" | "pin-release")
-                        || children.len() != 2
+                    if !matches!(
+                        head.as_str(),
+                        "drop" | "forget" | "pin-release" | "pin-shared-release"
+                    ) || children.len() != 2
                         || Place::from_expression(body, children[1]).as_ref() != Some(place)
                         || !matches!(place.root, PlaceRoot::Local(binding) if binding.0 < body.bindings.len())
                     {
@@ -12088,11 +12118,17 @@ impl FlowGraph {
                             | "pin-borrow"
                             | "pin-borrow-mut"
                             | "pin-own-borrow"
+                            | "pin-shared-borrow"
                             | "pin-own-borrow-mut"
+                            | "pin-shared-borrow-mut"
                     ) && matches!(children.len(), 2 | 3)
                         && matches!(
                             head.as_str(),
-                            "pin" | "borrow-mut" | "pin-borrow-mut" | "pin-own-borrow-mut"
+                            "pin"
+                                | "borrow-mut"
+                                | "pin-borrow-mut"
+                                | "pin-own-borrow-mut"
+                                | "pin-shared-borrow-mut"
                         ) == *mutable;
                     let pinned_payload_form = matches!(
                         head.as_str(),
@@ -14709,6 +14745,7 @@ fn absent_owned_word_input(
                 Type::Reference { .. }
                     | Type::PinnedReference { .. }
                     | Type::PinOwned(_)
+                    | Type::PinShared(_)
                     | Type::Slice(_)
                     | Type::MutableSlice(_)
                     | Type::RawPointer { .. }
@@ -16329,7 +16366,34 @@ fn dereference_value_origins(
                 PlaceRoot::Parameter(_) | PlaceRoot::Global(_)
             )
         {
-            merge_loan_origins(&mut result, &loaded_parameter_value_origins(&origin, state));
+            let mut loaded = loaded_parameter_value_origins(&origin, state);
+            // Parameter contents separate a pointer-holding slot from its
+            // pointee storage. Owning handles retain both when copied by an
+            // explicit ownership primitive, without resurrecting entry loans
+            // cleared or replaced in the current contents state.
+            let mut pending = loaded
+                .iter()
+                .filter(|held| held.owned_allocation)
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut seen = HashSet::new();
+            while let Some(mut owner) = pending.pop() {
+                if !seen.insert((owner.place.clone(), owner.parameter_storage.clone())) {
+                    continue;
+                }
+                let mut prefix = owner.storage.clone();
+                prefix.push(Segment::Dereference);
+                owner.clear_storage();
+                let mut retained = loaded_parameter_value_origins(&owner, state);
+                for held in &mut retained {
+                    held.prepend_storage(&prefix);
+                    if held.owned_allocation {
+                        pending.push(held.clone());
+                    }
+                }
+                merge_loan_origins(&mut loaded, &retained);
+            }
+            merge_loan_origins(&mut result, &loaded);
             continue;
         }
         let PlaceRoot::Parameter(parameter) = origin.place.root else {
@@ -16338,6 +16402,15 @@ fn dereference_value_origins(
         let mut prefix = origin.parameter_storage.clone().unwrap_or_default();
         prefix.push(Segment::Dereference);
         prefix.extend_from_slice(&origin.place.segments);
+        // Loading an owning handle also carries loans retained in its
+        // stationary allocation. They are part of ownership, unlike loans
+        // behind an arbitrary ordinary reference loaded from an aggregate.
+        let owning_handle = body
+            .parameter_referent_loan_slots
+            .get(parameter.0)
+            .into_iter()
+            .flatten()
+            .any(|slot| slot.owned_allocation && slot.storage == prefix);
         for slot in body
             .parameter_referent_loan_slots
             .get(parameter.0)
@@ -16353,7 +16426,7 @@ fn dereference_value_origins(
                 continue;
             }
             let remaining = &slot.storage[prefix.len()..];
-            if remaining.contains(&Segment::Dereference) {
+            if remaining.contains(&Segment::Dereference) && !owning_handle {
                 continue;
             }
             let mut loaded = origin.clone();
@@ -16503,6 +16576,31 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             children,
             callee: None,
             ..
+        } if matches!(head.as_str(), "pin-share" | "pin-share-clone") && children.len() == 2 => {
+            let mut result = value_loan_origins(body, children[1], state);
+            if head == "pin-share-clone" {
+                // Cloning ownership reads the handle slot without borrowing
+                // its pointee. Preserve permissions of retained contents;
+                // exclusive access still requires the unsafe uniqueness API.
+                for origin in &mut result {
+                    if origin.storage.is_empty() && !origin.lifetime_only {
+                        origin.mutable = true;
+                    }
+                }
+                result = dereference_value_origins(body, result, state);
+            }
+            for origin in &mut result {
+                if origin.owned_allocation && origin.storage.is_empty() {
+                    origin.mutable = true;
+                }
+            }
+            result
+        }
+        NodeKind::Form {
+            head,
+            children,
+            callee: None,
+            ..
         } if head == "pin-own-of" && children.len() == 3 => {
             let mut origin = allocation_origin(id, Vec::new(), node.span);
             origin.owned_allocation = true;
@@ -16520,8 +16618,10 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             children,
             callee: None,
             ..
-        } if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut")
-            && matches!(children.len(), 2 | 3) =>
+        } if matches!(
+            head.as_str(),
+            "pin-own-borrow" | "pin-shared-borrow" | "pin-own-borrow-mut" | "pin-shared-borrow-mut"
+        ) && matches!(children.len(), 2 | 3) =>
         {
             let mut origins = value_loan_origins(body, children[1], state);
             if matches!(
@@ -16536,11 +16636,17 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
             });
             for origin in &mut origins {
                 if origin.storage.first() == Some(&Segment::Dereference) {
-                    origin.mutable &= head == "pin-own-borrow-mut";
+                    origin.mutable &= matches!(
+                        head.as_str(),
+                        "pin-own-borrow-mut" | "pin-shared-borrow-mut"
+                    );
                     continue;
                 }
                 origin.owned_allocation = false;
-                origin.mutable = head == "pin-own-borrow-mut";
+                origin.mutable = matches!(
+                    head.as_str(),
+                    "pin-own-borrow-mut" | "pin-shared-borrow-mut"
+                );
                 origin.pinned = true;
                 origin.span = node.span;
             }
@@ -16591,7 +16697,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                 places
                     .into_iter()
                     .map(|mut origin| {
-                        if origin.storage.is_empty() {
+                        if origin.storage.is_empty() && !origin.lifetime_only {
                             origin.borrowed_from = borrowed_from;
                             origin.call_reborrow = false;
                             origin.mutable =
@@ -16601,7 +16707,7 @@ fn value_loan_origins(body: &Body, id: NodeId, state: &LoanState) -> Vec<LoanOri
                                 "pin" | "pin-shared" | "pin-borrow" | "pin-borrow-mut"
                             );
                             origin.span = node.span;
-                        } else {
+                        } else if !origin.storage.is_empty() {
                             // Borrowing this container cannot upgrade the
                             // mutability or pinning of a stored pointee.
                             origin.mutable &=
@@ -17143,11 +17249,33 @@ fn value_loan_origins_at_events(
             );
             return result;
         }
+        if matches!(head.as_str(), "pin-share" | "pin-share-clone")
+            && children.len() == 2
+            && callee.is_none()
+        {
+            let mut result = value_loan_origins_at_events(body, flow, before, children[1], state);
+            if head == "pin-share-clone" {
+                for origin in &mut result {
+                    if origin.storage.is_empty() && !origin.lifetime_only {
+                        origin.mutable = true;
+                    }
+                }
+                result = dereference_value_origins(body, result, state);
+            }
+            for origin in &mut result {
+                if origin.owned_allocation && origin.storage.is_empty() {
+                    origin.mutable = true;
+                }
+            }
+            return result;
+        }
         if matches!(head.as_str(), "unsafe" | "clone") && children.len() == 2 {
             return value_loan_origins_at_events(body, flow, before, children[1], state);
         }
-        if matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut")
-            && matches!(children.len(), 2 | 3)
+        if matches!(
+            head.as_str(),
+            "pin-own-borrow" | "pin-shared-borrow" | "pin-own-borrow-mut" | "pin-shared-borrow-mut"
+        ) && matches!(children.len(), 2 | 3)
         {
             let mut loans = value_loan_origins_at_events(body, flow, before, children[1], state);
             if matches!(
@@ -17162,11 +17290,17 @@ fn value_loan_origins_at_events(
             });
             for origin in &mut loans {
                 if origin.storage.first() == Some(&Segment::Dereference) {
-                    origin.mutable &= head == "pin-own-borrow-mut";
+                    origin.mutable &= matches!(
+                        head.as_str(),
+                        "pin-own-borrow-mut" | "pin-shared-borrow-mut"
+                    );
                     continue;
                 }
                 origin.owned_allocation = false;
-                origin.mutable = head == "pin-own-borrow-mut";
+                origin.mutable = matches!(
+                    head.as_str(),
+                    "pin-own-borrow-mut" | "pin-shared-borrow-mut"
+                );
                 origin.pinned = true;
                 origin.span = body.nodes[value.0].span;
             }
@@ -17208,7 +17342,7 @@ fn value_loan_origins_at_events(
             return borrow_address_origins(body, children[1], state, Some((flow, before)))
                 .into_iter()
                 .map(|mut origin| {
-                    if origin.storage.is_empty() {
+                    if origin.storage.is_empty() && !origin.lifetime_only {
                         origin.borrowed_from = borrowed_from;
                         origin.call_reborrow = false;
                         origin.mutable =
@@ -17653,7 +17787,12 @@ fn borrow_address_origins(
                 return origins
                     .into_iter()
                     .filter_map(|mut origin| {
-                        if origin.storage.is_empty() {
+                        if origin.lifetime_only && origin.storage.is_empty() {
+                            // A lifetime anchor keeps its actual referent alive.
+                            // A field offset in the pinned allocation must not
+                            // be appended to the unrelated allocator or owner.
+                            return Some(origin);
+                        } else if origin.storage.is_empty() {
                             origin.place.segments.push(slot.clone());
                         } else if origin.storage.first() == Some(&Segment::Dereference)
                             && origin
@@ -17808,7 +17947,11 @@ fn releases_reference_handle(body: &Body, value: NodeId) -> bool {
             children,
             callee: None,
             ..
-        } if matches!(head.as_str(), "drop" | "forget" | "pin-release") && children.len() == 2 => {
+        } if matches!(
+            head.as_str(),
+            "drop" | "forget" | "pin-release" | "pin-shared-release"
+        ) && children.len() == 2 =>
+        {
             children[1]
         }
         _ => value,
@@ -17886,6 +18029,12 @@ fn tag_preserving_evaluation(
                         | "pin-shared"
                         | "pin-borrow"
                         | "pin-borrow-mut"
+                        | "pin-share"
+                        | "pin-share-clone"
+                        | "pin-own-borrow"
+                        | "pin-own-borrow-mut"
+                        | "pin-shared-borrow"
+                        | "pin-shared-borrow-mut"
                         | "unsafe"
                         | "atomic-load"
                         | "atomic-fence"
@@ -19463,10 +19612,18 @@ impl Builder<'_> {
                         | "pin-borrow"
                         | "pin-borrow-mut"
                         | "pin-own-borrow"
+                        | "pin-shared-borrow"
                         | "pin-own-borrow-mut"
+                        | "pin-shared-borrow-mut"
                 ) && (children.len() == 2
                     || (children.len() == 3
-                        && matches!(head.as_str(), "pin-own-borrow" | "pin-own-borrow-mut"))) =>
+                        && matches!(
+                            head.as_str(),
+                            "pin-own-borrow"
+                                | "pin-shared-borrow"
+                                | "pin-own-borrow-mut"
+                                | "pin-shared-borrow-mut"
+                        ))) =>
             {
                 let action = Place::from_expression(self.body, children[1]).map_or(
                     FlowAction::Evaluate(id),
@@ -19475,7 +19632,11 @@ impl Builder<'_> {
                         place,
                         mutable: matches!(
                             head.as_str(),
-                            "pin" | "borrow-mut" | "pin-borrow-mut" | "pin-own-borrow-mut"
+                            "pin"
+                                | "borrow-mut"
+                                | "pin-borrow-mut"
+                                | "pin-own-borrow-mut"
+                                | "pin-shared-borrow-mut"
                         ),
                     },
                 );
@@ -19594,8 +19755,10 @@ impl Builder<'_> {
                 children,
                 callee: None,
                 ..
-            } if matches!(head.as_str(), "drop" | "forget" | "pin-release")
-                && children.len() == 2 =>
+            } if matches!(
+                head.as_str(),
+                "drop" | "forget" | "pin-release" | "pin-shared-release"
+            ) && children.len() == 2 =>
             {
                 let action = Place::from_expression(self.body, children[1])
                     .filter(|place| matches!(place.root, PlaceRoot::Local(_)))
@@ -22004,6 +22167,46 @@ mod tests {
         assert!(moves.unresolved_nodes().contains(&FlowNodeId(write)));
         assert!(moves.before(returned, &referent).is_some());
         assert!(!moves.definitely_consumed_before(returned, &referent));
+    }
+
+    #[test]
+    fn auxiliary_lifetime_anchors_do_not_make_known_writes_unknown() {
+        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+          (#fn inspect ((reference (#ref-mut Resource)) (value Resource)
+            (anchor (#ref #u64))) ()
+            (#forget value)
+            (#deref-set reference (#struct-literal Resource ((number 2u64))))
+            (#return ()))";
+        let program = crate::parse_program(source).unwrap();
+        let checked = crate::CheckedProgram::validate(&program).unwrap();
+        let body = &checked.declarations().bodies["inspect"];
+        let flow = &checked.declarations().flows["inspect"];
+        let binding =
+            |name: &str| BindingId(body.bindings.iter().position(|b| b.name == name).unwrap());
+        let reference = binding("reference");
+        let anchor = binding("anchor");
+        let value = binding("value");
+        let mut origins = flow.loan_origins(body);
+        for state in origins.before.iter_mut().flatten() {
+            for mut auxiliary in state[anchor.0].clone() {
+                auxiliary.lifetime_only = true;
+                state[reference.0].push(auxiliary);
+            }
+        }
+        let types = LinearTypes::from_program(&program);
+        let moves = flow.consumptions_with_origins(body, &types, Some(&origins));
+        let returned = FlowNodeId(
+            flow.nodes
+                .iter()
+                .position(|node| matches!(node.action, FlowAction::Return(_)))
+                .unwrap(),
+        );
+        assert!(moves.definitely_consumed_before(returned, &Place::root(PlaceRoot::Local(value))));
+        for (index, node) in flow.nodes.iter().enumerate() {
+            if matches!(node.action, FlowAction::Write { .. }) {
+                assert!(!moves.unresolved_nodes().contains(&FlowNodeId(index)));
+            }
+        }
     }
     use crate::typed_place::Segment;
 

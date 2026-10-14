@@ -484,6 +484,7 @@ fn specialized_type_name(ty: &Type) -> String {
             specialized_type_name(target)
         ),
         Type::PinOwned(target) => format!("pin_own_{}", specialized_type_name(target)),
+        Type::PinShared(target) => format!("pin_shared_{}", specialized_type_name(target)),
         Type::Slice(target) => format!("slice_{}", specialized_type_name(target)),
         Type::MutableSlice(target) => format!("slice_mut_{}", specialized_type_name(target)),
         Type::Atomic(target) => format!("atomic_{}", specialized_type_name(target)),
@@ -4383,6 +4384,7 @@ fn ensure_scalar_type(ty: &Type, enums: &HashMap<String, Vec<EnumVariant>>) -> R
             | Type::PinnedReference { .. }
             | Type::RawPointer { .. }
             | Type::PinOwned(_)
+            | Type::PinShared(_)
     ) {
         return Ok(());
     }
@@ -10241,7 +10243,9 @@ impl FunctionContext<'_> {
             let reference_type = self
                 .expression_type(&items[1])
                 .ok_or_else(|| format!("{operator} requires a reference to an atomic scalar"))?;
-            let Type::Reference { target, .. } = reference_type else {
+            let (Type::Reference { target, .. } | Type::PinnedReference { target, .. }) =
+                reference_type
+            else {
                 return Err(format!(
                     "{operator} requires a reference to an atomic scalar"
                 ));
@@ -10594,7 +10598,7 @@ impl FunctionContext<'_> {
             return Ok(());
         }
         match operator {
-            "pin-release" => self.expression(&items[1]),
+            "pin-release" | "pin-share" | "pin-shared-release" => self.expression(&items[1]),
             "pin-own-of" => {
                 let Some(Type::RawPointer { target, .. }) = self.expression_type(&items[1]) else {
                     return Err("checked owning-pin allocation lost its pointer type".into());
@@ -10616,7 +10620,11 @@ impl FunctionContext<'_> {
                 self.stack_depth -= 1;
                 Ok(())
             }
-            "pin-own-borrow" | "pin-own-borrow-mut" => {
+            "pin-own-borrow"
+            | "pin-own-borrow-mut"
+            | "pin-shared-borrow"
+            | "pin-shared-borrow-mut"
+            | "pin-share-clone" => {
                 let indirect = matches!(
                     self.expression_type(&items[1]),
                     Some(Type::Reference { .. } | Type::PinnedReference { .. })
@@ -14574,6 +14582,7 @@ impl FunctionContext<'_> {
             | Type::Reference { .. }
             | Type::PinnedReference { .. }
             | Type::PinOwned(_)
+            | Type::PinShared(_)
             | Type::RawPointer { .. } => Ok(8),
             Type::I128 | Type::U128 => Ok(16),
             _ => self.native_type_size(ty),
@@ -14660,6 +14669,7 @@ impl FunctionContext<'_> {
             | Type::F64
             | Type::PinnedReference { .. }
             | Type::PinOwned(_)
+            | Type::PinShared(_)
             | Type::RawPointer { .. } => Some((8, 8)),
             _ => None,
         };

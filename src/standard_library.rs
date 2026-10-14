@@ -18,6 +18,7 @@ pub(crate) fn is_generator_declaration(expression: &crate::Expr) -> bool {
                 include_str!("../library/ready_queue.lim"),
                 include_str!("../library/pin.lim"),
                 include_str!("../library/pin_box.lim"),
+                include_str!("../library/pin_rc.lim"),
                 include_str!("../library/pin_slot.lim"),
                 include_str!("../library/tasks.lim"),
                 include_str!("../library/utf8_view.lim"),

@@ -740,7 +740,10 @@ fn static_storage_path(path: &[Segment]) -> bool {
 fn is_owner_pointer(ty: &Type) -> bool {
     matches!(
         ty,
-        Type::Reference { .. } | Type::PinnedReference { .. } | Type::PinOwned(_)
+        Type::Reference { .. }
+            | Type::PinnedReference { .. }
+            | Type::PinOwned(_)
+            | Type::PinShared(_)
     )
 }
 
@@ -994,7 +997,8 @@ fn project(mut ty: Type, path: &[Segment], declarations: &Declarations) -> Resul
                 Segment::Dereference,
                 Type::Reference { target, .. }
                 | Type::PinnedReference { target, .. }
-                | Type::PinOwned(target),
+                | Type::PinOwned(target)
+                | Type::PinShared(target),
             ) => *target,
             (Segment::Field(id), Type::Named(owner)) => {
                 let field = declarations
@@ -1097,7 +1101,7 @@ impl Alias {
         let owner = project(parameter_type.clone(), &self.owner_input, declarations)?;
         let target = match owner {
             Type::Reference { target, .. } | Type::PinnedReference { target, .. } => target,
-            Type::PinOwned(target) => target,
+            Type::PinOwned(target) | Type::PinShared(target) => target,
             _ => return Err("incoming self-loan owner is not an addressable owner".into()),
         };
         let child = project(parameter_type.clone(), &self.storage, declarations)?;
