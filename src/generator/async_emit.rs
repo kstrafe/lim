@@ -4246,6 +4246,37 @@ impl<'a> Emitter<'a> {
         pinned: bool,
     ) -> Result<String, Error> {
         let descriptor = &self.function.graph.places[place.0];
+        if let AddressRoot::Global(global) = descriptor.root {
+            let mut target = self
+                .planning
+                .declarations
+                .declaration_name(crate::typed_ir::DeclarationId::Global(global))
+                .to_owned();
+            for projection in &descriptor.projections {
+                target = match projection {
+                    AddressProjection::Field(field) => format!(
+                        "(#get {target} {})",
+                        self.planning.declarations.field(*field).name
+                    ),
+                    AddressProjection::Tuple(index) => format!("(#get {target} {index})"),
+                    _ => {
+                        return Err(fail(
+                            self.function,
+                            "global borrows require checked field or tuple projections",
+                        ))
+                    }
+                };
+            }
+            // Static storage is stationary. Original-source checking already
+            // requires unsafe access and validates the actual global loan;
+            // keep that identity rather than inventing a frame-local anchor.
+            let value = format!(
+                "(#unsafe (#{}borrow{} {target}))",
+                if pinned { "pin-" } else { "" },
+                if mutable { "-mut" } else { "" }
+            );
+            return Ok(self.put(dst, &value));
+        }
         if matches!(descriptor.root, AddressRoot::Local(_)) {
             if pinned && !self.pinned {
                 return Err(fail(
@@ -5070,7 +5101,12 @@ impl<'a> Emitter<'a> {
                     && descriptor.projections.is_empty())
                     || self.computed_owned_projection(descriptor);
                 let global_value = matches!(descriptor.root, AddressRoot::Global(_))
-                    && descriptor.projections.is_empty();
+                    && descriptor.projections.iter().all(|projection| {
+                        matches!(
+                            projection,
+                            AddressProjection::Field(_) | AddressProjection::Tuple(_)
+                        )
+                    });
                 if (!simple_owned && !simple_handle && !computed_value && !global_value)
                     || (!descriptor.checks().is_empty() && !static_owned)
                 {

@@ -1,5 +1,51 @@
 # Async safety and lowering audit
 
+## Mixed allocation/static target coverage (2026-10-15)
+
+Focused follow-up adds `tests/async_allocation_anchors.rs` and
+`tests/async_static_anchors.rs`. These are additional gates, not a claim that the
+entire async suite below was rerun for this change.
+
+The allocation matrix selects shared local, heap and static referents through
+explicit pinned-reference parameters. Exclusive selection covers local/heap
+targets; immutable statics deliberately cannot lend exclusive references.
+Each target executes entry cancellation, cancellation after either of two
+Pending results, and Ready completion. Repeated cleanup is checked with
+observable exactly-once child cancellation and heap destruction. Child cleanup
+reads the selected referent while the allocation remains mapped. Cold and warm
+assembly agree and both binaries execute. Generated ordinary Lim is separately
+parsed, checked, emitted and executed. Allocation release and conflicting
+exclusive access before the future is done remain source-spanned Borrow errors.
+
+Direct pinned static field/tuple borrowing now preserves the checked global
+identity in emitted code. Original-source unsafe checks remain mandatory; no
+frame-local anchor or unsafe permission exemption is introduced. General direct
+local/static **ordinary-reference** selection still fails closed: the thin
+anchor planner requires nonlocal alternatives to come from checked reference
+parameters. An explicit negative test records that limitation. The checklist
+therefore stays open for direct mixed-anchor lowering, rather than continuing
+to describe an unspecified missing test matrix.
+
+The native witnesses also exposed unsupported constant atomic initialization
+and read-only placement of atomic globals. Constant `#atomic-init` now emits
+its scalar initializer. Atomic-containing static aggregates use writable data;
+ordinary statics remain read-only. The native assembler and linker keep data
+bytes/symbols separate from code/rodata and reuse the existing writable ELF
+segment path. Dedicated scalar/nested/enum/alias tests execute atomic updates
+and reject runtime initializer calls. This does not make statics ordinarily
+mutable, permit executable data, or add runtime async occupancy flags.
+
+Verification: seven allocation-anchor tests, six static-anchor tests, two
+atomic-static tests and all five documentation tests pass. The library gate
+passes 1,449 tests with eight unchanged manual benchmarks ignored; the native
+assembler gate separately passes 12 tests including the two new data-section
+controls. Existing contiguous-storage (17), dependent-cancellation (16),
+self-borrow (26), Box/Rc ownership and UI gates pass. All five native-example
+manifest tests and 34 native-linking tests pass. All-target checking, formatting
+and whitespace checks pass. Logs are `/tmp/lim-anchor-native-final.log`,
+`/tmp/lim-anchor-focused-final.log`, `/tmp/lim-mixed-anchor-regressions.log`,
+`/tmp/lim-mixed-final-library.log` and `/tmp/lim-data-encoder-units.log`.
+
 ## Latest verification (2026-10-13)
 
 All eight original library failures and the subsequently discovered guard,

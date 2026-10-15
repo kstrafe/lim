@@ -1766,7 +1766,9 @@ by explicit consumption.
 ### Globals and statics
 
 Top-level `#const`/`#let` values are immutable compile-time values. `#static`
-creates immutable read-only storage and is useful for aggregate data. Every
+creates immutable storage and is useful for aggregate data. Ordinary statics
+are placed in read-only memory; statics containing atomic fields use writable
+memory so their explicit interior-mutability operations can run. Every
 read of a static must occur inside `#unsafe`, including reads used to create a
 reference to it:
 
@@ -1782,6 +1784,24 @@ reference to it:
 Initializers must be compile-time values.  Constant references, arithmetic,
 casts, conditionals, tuples, arrays, structs, enums, and floating-point
 values are supported.  Cyclic constant references are rejected.
+
+Atomic initializers may also be constant, including inside structs, tuples,
+arrays and enum payloads. They do not execute runtime initialization functions:
+
+```lisp library
+(#static Counter (#atomic #u64) (#atomic-init #u64 0u64))
+(#fn increment-counter () #u64
+  (#return (#unsafe
+    (#atomic-fetch-add (#borrow Counter) 1u64 #memory-relaxed))))
+```
+
+This does not permit an ordinary mutable borrow of a static, even inside
+`#unsafe`; updates go through the atomic API. A future may receive a reference
+to static or heap storage through an explicit parameter and select it against
+a local reference. Direct pinned static field/tuple borrows inside a future
+also preserve their global storage identity. General direct local/static
+ordinary-reference selection still requires a checked boundary parameter;
+unsupported combinations fail closed rather than receiving fabricated anchors.
 
 ## Variables and mutation
 
