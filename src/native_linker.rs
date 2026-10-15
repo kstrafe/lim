@@ -131,7 +131,7 @@ pub(crate) fn link(
 ) -> Result<Linked, String> {
     let mut code = assembled.code.bytes.clone();
     let mut rodata = assembled.rodata.clone();
-    let mut data = Vec::new();
+    let mut data = assembled.data.clone();
     let mut foreign = Vec::new();
     let mut foreign_got = Vec::new();
     let mut foreign_copy = Vec::new();
@@ -184,6 +184,7 @@ pub(crate) fn link(
                 match offset {
                     SectionOffset::Code(offset) => Address::Code(*offset),
                     SectionOffset::Rodata(offset) => Address::Rodata(*offset),
+                    SectionOffset::Data(offset) => Address::Data(*offset),
                 },
             )
         })

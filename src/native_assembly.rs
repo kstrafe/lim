@@ -15,6 +15,7 @@ use crate::instruction_encoder::{
 pub(crate) struct Assembled {
     pub code: EncodedInstructions,
     pub rodata: Vec<u8>,
+    pub data: Vec<u8>,
     pub symbols: BTreeMap<String, SectionOffset>,
     pub unresolved: Vec<Relocation>,
     pub relocation_lines: BTreeMap<usize, usize>,
@@ -33,6 +34,7 @@ pub(crate) struct DataDifference32 {
 pub(crate) enum SectionOffset {
     Code(usize),
     Rodata(usize),
+    Data(usize),
 }
 
 pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
@@ -72,7 +74,9 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
         constants.insert(name.clone(), value);
     }
     let mut in_rodata = false;
+    let mut in_data = false;
     let mut rodata = Vec::new();
+    let mut data = Vec::new();
     let mut data_differences = Vec::new();
     let mut relocation_lines = BTreeMap::new();
     for (index, raw) in source.lines().enumerate() {
@@ -90,7 +94,9 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
             } else {
                 symbol
             };
-            let offset = if in_rodata {
+            let offset = if in_data {
+                SectionOffset::Data(data.len())
+            } else if in_rodata {
                 SectionOffset::Rodata(rodata.len())
             } else {
                 SectionOffset::Code(code.bytes.len())
@@ -109,14 +115,21 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
             }
             if line == ".section .rodata" {
                 in_rodata = true;
+                in_data = false;
+                continue;
+            }
+            if line == ".data" || line == ".section .data" {
+                in_data = true;
+                in_rodata = false;
                 continue;
             }
             if line == ".text" || line == ".section .text" {
                 in_rodata = false;
+                in_data = false;
                 continue;
             }
             if let Some(value) = line.strip_prefix(".align ") {
-                if !in_rodata {
+                if !in_rodata && !in_data {
                     return Err(format!(
                         "assembly line {}: alignment outside .rodata",
                         index + 1
@@ -130,22 +143,24 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
                         index + 1
                     ));
                 }
-                let padding = (alignment - rodata.len() % alignment) % alignment;
-                rodata.resize(rodata.len() + padding, 0);
+                let bytes = if in_data { &mut data } else { &mut rodata };
+                let padding = (alignment - bytes.len() % alignment) % alignment;
+                bytes.resize(bytes.len() + padding, 0);
                 continue;
             }
             if let Some(value) = line.strip_prefix(".quad ") {
-                if !in_rodata {
+                if !in_rodata && !in_data {
                     return Err(format!(
                         "assembly line {}: .quad outside .rodata",
                         index + 1
                     ));
                 }
-                rodata.extend_from_slice(&parse_u64(value)?.to_le_bytes());
+                let bytes = if in_data { &mut data } else { &mut rodata };
+                bytes.extend_from_slice(&parse_u64(value)?.to_le_bytes());
                 continue;
             }
             if let Some(value) = line.strip_prefix(".long ") {
-                if !in_rodata {
+                if !in_rodata && !in_data {
                     return Err(format!(
                         "assembly line {}: .long outside .rodata",
                         index + 1
@@ -153,8 +168,9 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
                 }
                 if let Ok(value) = parse_u64(value) {
                     let value = u32::try_from(value).map_err(|_| "32-bit datum exceeds width")?;
-                    rodata.extend_from_slice(&value.to_le_bytes());
-                } else if let Some((target, base)) = value.split_once('-') {
+                    let bytes = if in_data { &mut data } else { &mut rodata };
+                    bytes.extend_from_slice(&value.to_le_bytes());
+                } else if let Some((target, base)) = value.split_once('-').filter(|_| in_rodata) {
                     let symbol = |name: &str| {
                         !name.is_empty()
                             && name.bytes().all(|byte| {
@@ -194,7 +210,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
                 index + 1
             ));
         }
-        if in_rodata {
+        if in_rodata || in_data {
             return Err(format!(
                 "assembly line {}: instruction in .rodata",
                 index + 1
@@ -250,6 +266,7 @@ pub(crate) fn assemble(source: &str) -> Result<Assembled, String> {
     Ok(Assembled {
         code,
         rodata,
+        data,
         symbols,
         unresolved,
         relocation_lines,
@@ -1216,5 +1233,37 @@ mod tests {
         assert_eq!(parse_i32("18446744073709551615").unwrap(), -1);
         assert!(parse_i32("0x100000000").is_err());
         assert!(parse_u64("-9223372036854775809").is_err());
+    }
+
+    #[test]
+    fn writable_data_keeps_independent_offsets_across_section_switches() {
+        let assembled = assemble(".data\n.align 8\nfirst:\n.quad 42\n.section .rodata\nreadonly:\n.long 7\n.section .data\n.align 8\nsecond:\n.long 9\n.text\nmain:\nret\n").unwrap();
+        assert_eq!(assembled.rodata, 7u32.to_le_bytes());
+        assert_eq!(
+            assembled.data,
+            [
+                42u64.to_le_bytes().as_slice(),
+                9u32.to_le_bytes().as_slice()
+            ]
+            .concat()
+        );
+        assert!(matches!(assembled.symbols["first"], SectionOffset::Data(0)));
+        assert!(matches!(
+            assembled.symbols["second"],
+            SectionOffset::Data(8)
+        ));
+        assert!(matches!(
+            assembled.symbols["readonly"],
+            SectionOffset::Rodata(0)
+        ));
+        assert!(matches!(assembled.symbols["main"], SectionOffset::Code(0)));
+    }
+
+    #[test]
+    fn writable_data_does_not_accept_instructions_or_rodata_table_relocations() {
+        assert!(assemble(".data\nmain:\nret\n").is_err());
+        assert!(assemble(".data\n.align 0\n").is_err());
+        assert!(assemble(".data\n.align 8192\n").is_err());
+        assert!(assemble(".text\nmain:\nret\n.data\ntable:\n.long main-table\n").is_err());
     }
 }

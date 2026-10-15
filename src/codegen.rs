@@ -1638,6 +1638,19 @@ fn generate_checked_assembly_with_roots(
         let mut ordered_globals = globals.iter().collect::<Vec<_>>();
         ordered_globals.sort_by(|(left, _), (right, _)| left.cmp(right));
         for (name, value) in ordered_globals {
+            output.push_str(
+                if has_atomic_storage(
+                    &global_types[name],
+                    structs,
+                    enums,
+                    aliases,
+                    &mut HashSet::new(),
+                ) {
+                    ".data\n"
+                } else {
+                    ".section .rodata\n"
+                },
+            );
             let symbol = asm_symbol(name);
             match value {
                 GlobalValue::Zero => {}
@@ -3982,6 +3995,44 @@ fn storage_slots(storage: &Storage) -> Vec<usize> {
     }
 }
 
+/// Atomic fields mutate through shared references, even in an immutable static.
+/// References/pointers do not make their containing descriptor writable.
+fn has_atomic_storage(
+    ty: &Type,
+    structs: &HashMap<String, Vec<Field>>,
+    enums: &HashMap<String, Vec<EnumVariant>>,
+    aliases: &HashMap<String, Type>,
+    active: &mut HashSet<String>,
+) -> bool {
+    let ty = resolve_type(ty, aliases).expect("checked static storage type");
+    match ty {
+        Type::Atomic(_) => true,
+        Type::Array(element, length) => {
+            length != 0 && has_atomic_storage(&element, structs, enums, aliases, active)
+        }
+        Type::Tuple(fields) => fields
+            .iter()
+            .any(|field| has_atomic_storage(field, structs, enums, aliases, active)),
+        Type::Named(name) if active.insert(name.clone()) => {
+            let found = structs.get(&name).is_some_and(|fields| {
+                fields
+                    .iter()
+                    .any(|field| has_atomic_storage(&field.ty, structs, enums, aliases, active))
+            }) || enums.get(&name).is_some_and(|variants| {
+                variants.iter().any(|variant| {
+                    variant
+                        .fields
+                        .iter()
+                        .any(|field| has_atomic_storage(field, structs, enums, aliases, active))
+                })
+            });
+            active.remove(&name);
+            found
+        }
+        _ => false,
+    }
+}
+
 fn flat_slots(base: usize, words: usize) -> Vec<usize> {
     (base..base + words).collect()
 }
@@ -4591,7 +4642,7 @@ fn constant_value(
             .ok_or_else(|| format!("global initializer '{name}' is not a constant")),
         Expr::List(items)
             if items.len() == 3
-                && matches!(items.first(), Some(Expr::Symbol(operator)) if operator == "literal") =>
+                && matches!(items.first(), Some(Expr::Symbol(operator)) if matches!(operator.as_str(), "literal" | "atomic-init")) =>
         {
             let literal_type = parse_type(items.get(1))?;
             constant_value(
