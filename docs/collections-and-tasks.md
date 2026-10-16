@@ -12,45 +12,33 @@ those declarations through the same rules as handwritten Lim. Generator
 validation witnesses are internal bookkeeping: they are not emitted and do
 not grant generated functions special borrowing or typechecking privileges.
 
-## Frozen syntax collections
+## Distributed enums
 
 ```lisp syntax
-(#syntax-collection ApplicationErrors)
-(#syntax-contribute ApplicationErrors filesystem (FileFailure #u32))
-(#syntax-contribute ApplicationErrors parser (ParseFailure #u64))
-(#import "library/collections.lim")
-(@#error-enum (#syntax-distribute ApplicationErrors) ApplicationError)
+(#distributed-enum ApplicationError ())
+(#enum-contribute ApplicationError (FileFailure #u32))
+(#enum-contribute ApplicationError (ParseFailure #u64))
 ```
 
-Contributions can live in different imported files. The compiler first loads
-the active cfg-selected import graph, then freezes collections, then runs
-generators. Registration order and import traversal order do not determine
-entry order: entries are sorted lexicographically by their explicit keys.
-Repeated imports contribute once. Identical values under the same key are
-deduplicated; conflicting values are errors. Unknown collections and duplicate
-collection declarations are errors. Generators cannot add collections or
-contributions after freezing.
+Contributions can live in different imported files or be emitted by generators.
+The compiler expands generators (or replays their cached code), then assembles
+ordinary enum declarations and compiles the complete program. There are no
+collection snapshots, expansion dependencies, or fixed-point iterations.
 
-A call-site argument `(#syntax-distribute Collection)` explicitly requests its
-frozen snapshot. Generator parameters are plain syntax bindings; passing a
-bare collection name passes that symbol, not its contents. A literal list can
-also be supplied, allowing generators to forward snapshots. Helpers declared
-with `#gn-fn` receive the same syntax values. Generator cache keys and
-invocation deduplication include the resolved list.
-The existing broader cfg/import dependency context is also still included.
+Each contribution declares exactly one variant. Its name is its key. Identical
+definitions deduplicate; conflicting definitions are errors with both source
+locations. Variants are sorted lexicographically by name, independently of
+import order. A contribution may precede the central declaration. Unknown
+targets and duplicate central declarations are errors.
 
-`#gn-length` takes one syntax list and produces an integer literal containing
-its length. The user-defined generators in `library/collections.lim` use these
-facilities to produce ordinary inspectable declarations in `.lim`:
+The central declaration owns the property list, including optional `#linear`
+and `#repr-c`. Owned linear payloads propagate linearity normally. Payloads are
+inline, so the enum itself needs no allocation; payload types may still allocate.
+Generators may refer to the final enum and its constructors, but cannot inspect
+an unfinished list of variants. Generator arguments remain literal syntax.
 
-- `(@#error-enum (#syntax-distribute Collection) Type)` emits a concrete enum
-  with inline payloads.
-  Allocation freedom also depends on the payload types. The largest variant
-  determines payload storage, with tag and alignment overhead.
-- `(@#distributed-slice (#syntax-distribute Collection) StaticName ElementType)`
-  emits a homogeneous static array. Its length and contents are fixed before
-  type checking. Use `#slice-of` to borrow the array; access requires `#unsafe`
-  like other statics.
+For fixed tables use ordinary static arrays. For executor generation pass an
+explicit literal list of task descriptors at the composition site.
 
 Adding or removing a contribution can change enum layout and discriminants.
 These generated types are build-local, not stable serialization or FFI schemas.
@@ -92,9 +80,8 @@ Each job descriptor is
 `(name Task Poll Pending Ready poll-function Result input-parameter)`.
 The generator emits a result struct with one field per job and a function
 accepting one task per job. This is a statically sized, heterogeneous join:
-capacity is the number of descriptors, with no dynamic spawn queue. Job lists
-can also come from frozen syntax collections via an explicit
-`(#syntax-distribute Jobs)` argument.
+capacity is the number of descriptors, with no dynamic spawn queue. The complete
+job list is an explicit literal generator argument.
 
 The executor polls each pending job once per round using direct calls, retains
 completed results, and returns when every job is ready. Poll functions must
@@ -555,7 +542,7 @@ migration or a worker pool. Structural Send/Sync, spawn failures, mandatory
 joins, and captured-reference restrictions come from the existing thread
 implementation. OS thread creation still uses its existing allocation path.
 
-Runnable examples: `distributed_errors.lim`, `distributed_slice.lim`,
+Runnable examples: `distributed_errors.lim`, `static_table.lim`,
 `local_waker.lim`, `async_wake_pipeline.lim`, `async_registered_wake.lim`,
 `wake_ready4.lim`, `timer_reactor1.lim`, `timer_pair.lim`,
 `timer_reactor_many.lim`, `async_stdin_byte.lim`, `async_stdin_cancel.lim`,

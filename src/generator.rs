@@ -272,7 +272,6 @@ fn expand_with_hits_and_origins(
             ));
         }
     }
-    let (expressions, collections) = crate::syntax_collection::freeze(expressions)?;
     let mut generators = HashMap::new();
     let mut functions = HashMap::new();
     let mut capabilities: Capabilities = HashMap::new();
@@ -461,7 +460,6 @@ fn expand_with_hits_and_origins(
     let function_hashes = generator_function_hashes(&functions, interpreter_hash)?;
     let generator_hashes = generator_hashes(&generators, &function_hashes, interpreter_hash);
     let mut context = ExpansionContext {
-        collections: &collections,
         generators: &generators,
         functions: &functions,
         capabilities: &capabilities,
@@ -491,11 +489,9 @@ fn expand_with_hits_and_origins(
     let mut generated = Vec::new();
     for expression in remaining {
         // Ordinary forms pass through intact, including every nested source span.
-        // Only invocations and collection declarations need expansion/validation.
+        // Only generator invocations need expansion.
         let needs_expansion = matches!(&expression.expr, Expr::List(items)
-            if matches!(items.first(), Some(Expr::At))
-                || matches!(items.first(), Some(Expr::Symbol(head))
-                    if head == "#syntax-collection" || head == "#syntax-contribute"));
+            if matches!(items.first(), Some(Expr::At)));
         if !needs_expansion {
             output.push(expression);
             continue;
@@ -694,7 +690,6 @@ struct InvocationArtifact {
 }
 
 struct ExpansionContext<'a> {
-    collections: &'a HashMap<String, Expr>,
     generators: &'a HashMap<String, Generator>,
     functions: &'a HashMap<String, GeneratorFunction>,
     capabilities: &'a Capabilities,
@@ -796,32 +791,13 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     let Expr::List(items) = &expression else {
         return Ok(vec![expression]);
     };
-    if matches!(items.first(), Some(Expr::Symbol(head)) if head == "#syntax-collection" || head == "#syntax-contribute")
-    {
-        return Err("syntax collections are frozen before generation; generators cannot declare or contribute to them".into());
-    }
     if !matches!(items.first(), Some(Expr::At)) {
         return Ok(vec![expression]);
     }
     let Some(Expr::Symbol(name)) = items.get(1) else {
         return Err("generator invocation requires a name after '@'".into());
     };
-    let arguments = items[2..]
-        .iter()
-        .map(|argument| match argument {
-            Expr::List(parts)
-                if matches!(parts.first(), Some(Expr::Symbol(head)) if head == "#syntax-distribute") =>
-            {
-                let [_, Expr::Symbol(collection)] = parts.as_slice() else {
-                    return Err("#syntax-distribute requires exactly one syntax collection name".into());
-                };
-                context.collections.get(collection).cloned().ok_or_else(|| {
-                    format!("@{name} references unknown syntax collection '{collection}'")
-                })
-            }
-            _ => Ok(argument.clone()),
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+    let arguments = items[2..].to_vec();
     let Some(generator) = context.generators.get(name).cloned() else {
         if builtins::named_builtin_keys(name).is_none() {
             return Err(format!("unknown generator '@{name}'"));
@@ -2966,7 +2942,6 @@ mod tests {
             &expression,
             &Environment::new(),
             &mut ExpansionContext {
-                collections: &HashMap::new(),
                 generators: &HashMap::new(),
                 functions: &HashMap::new(),
                 capabilities: &HashMap::new(),
@@ -3079,7 +3054,7 @@ mod tests {
     }
 
     #[test]
-    fn collection_contents_are_explicit_cache_inputs() {
+    fn cached_generators_replay_literal_enum_contributions() {
         let directory = loop {
             let sequence = CACHE_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
@@ -3092,11 +3067,10 @@ mod tests {
                 Err(error) => panic!("create collection cache directory: {error}"),
             }
         };
-        let source = "(#syntax-collection Errors)
-          (#syntax-contribute Errors second (Second #u32))
-          (#syntax-contribute Errors first (First #u64))
-          (#gn errors (entries name) `((#enum ,name () ,entries)))
-          (@errors (#syntax-distribute Errors) Error)";
+        let source = "(#gn error-case (variant payload)
+            `((#enum-contribute Error (,variant ,payload))))
+          (@error-case First #u64)
+          (@error-case Second #u32)";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(
                 crate::parse(source).unwrap(),
@@ -3107,23 +3081,21 @@ mod tests {
         };
         let ((first, _), _) = expand(source);
         let ((warm, _), hits) = expand(source);
-        assert_eq!(hits, 1);
+        assert_eq!(hits, 2);
         assert_eq!(first, warm);
         let changed = source.replace("Second #u32", "Second #u16");
         let ((changed_forms, _), hits) = expand(&changed);
-        assert_eq!(hits, 0);
+        assert_eq!(hits, 1);
         assert_ne!(first, changed_forms);
-        let sorted = format!("{:?}", first[0].expr);
-        assert!(sorted.find("First").unwrap() < sorted.find("Second").unwrap());
+        assert_eq!(first.len(), 2);
+        assert!(format!("{:?}", first[0].expr).contains("#enum-contribute"));
         fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn distributed_and_literal_list_arguments_deduplicate() {
-        let source = "(#syntax-collection Entries)
-          (#syntax-contribute Entries first #u64)
-          (#gn alias (entries) `((#type Alias ,(#gn-first entries))))
-          (@alias (#syntax-distribute Entries))
+    fn identical_literal_list_arguments_deduplicate() {
+        let source = "(#gn alias (entries) `((#type Alias ,(#gn-first entries))))
+          (@alias (#u64))
           (@alias (#u64))";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();
@@ -3132,10 +3104,8 @@ mod tests {
     }
 
     #[test]
-    fn bare_collection_name_remains_literal_syntax() {
-        let source = "(#syntax-collection Entries)
-          (#syntax-contribute Entries first #u64)
-          (#gn alias (entry) `((#type Alias ,entry)))
+    fn bare_identifiers_remain_literal_syntax() {
+        let source = "(#gn alias (entry) `((#type Alias ,entry)))
           (@alias Entries)";
         let ((forms, _), _) =
             expand_with_generated_cached_and_hits(crate::parse(source).unwrap(), None, "").unwrap();

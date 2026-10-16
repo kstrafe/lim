@@ -1,2 +1,1 @@
-(#import "../../library/collections.lim")
-(#syntax-collection ApplicationErrors)
+(#distributed-enum ApplicationError ())

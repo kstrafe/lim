@@ -1,2 +1,2 @@
 (#import "error_collection.lim")
-(#syntax-contribute ApplicationErrors filesystem (FileFailure #u32))
+(#enum-contribute ApplicationError (FileFailure #u32))

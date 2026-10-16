@@ -1,8 +1,6 @@
 (#import "modules/file_errors.lim")
 (#import "modules/parse_errors.lim")
 
-(@#error-enum (#syntax-distribute ApplicationErrors) ApplicationError)
-
 (#fn code ((error ApplicationError)) #u64
   (#return
     (#match error

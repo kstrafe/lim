@@ -1104,9 +1104,9 @@ type opts in with `#capability`, and a generator parameter can require one:
 The list after a generator's name is its parameter declaration list, not a
 pattern match. A bare symbol such as `name` declares an ordinary literal-syntax
 parameter. A pair such as `(element sortable)` declares one parameter that
-requires a capability; it does not destructure the invocation argument. A
-frozen syntax collection is requested explicitly at the call site with
-`(#syntax-distribute Collection)`, leaving the generator parameter ordinary.
+requires a capability; it does not destructure the invocation argument.
+All invocation arguments are literal syntax; there is no implicit registry
+lookup or distributed syntax expansion.
 This mirrors function signatures, where each nested pair declares one named
 parameter and its type.
 
@@ -1211,11 +1211,12 @@ use distinct public names while their internal generated locals remain fresh.
 
 ## Imports
 
-Compile-time collections (`#syntax-collection`, `#syntax-contribute`) are
-frozen after active imports and before generators. A direct invocation argument
-`(#syntax-distribute Collection)` receives its deterministic snapshot. See
-[collections and tasks](collections-and-tasks.md) for the user-defined
-distributed-slice, error-enum, and cooperative async generators.
+Distributed enums collect variants from active imports and generator outputs.
+Declare `(#distributed-enum Error ())` once, and add individual variants with
+`(#enum-contribute Error (Failure #u32))`. After expansion, the compiler merges
+identical variants by name, rejects conflicts, and compiles one ordinary enum.
+See [collections and tasks](collections-and-tasks.md) for the full rules and
+cooperative async generators. General distributed syntax is not supported.
 
 Struct and enum declarations require a property list between the name and their
 fields or variants. Use `()` when no properties are needed. The supported
@@ -2216,8 +2217,10 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#debug-assert` | `(#debug-assert condition)` | `(#debug-assert (#u64.< length capacity))` (statement) | Currently identical to `#assert`: evaluates its condition and traps on false, regardless of cfg settings. |
 | `#deref` | `(#deref reference)` | `(#return (#deref r))` (expression) | Reads through a Lim reference. |
 | `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
+| `#distributed-enum` | `(#distributed-enum Name (properties...))` | `(#distributed-enum Error ())` (top level) | Declares an enum whose variants are collected after generator expansion; the central declaration owns its properties. |
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly discards a value without calling user destruction code. Dropping a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. |
 | `#enum` | `(#enum Name (properties...) ((Variant [discriminant] PayloadType...)...))` | `(#enum Maybe (#repr-c) ((Some #u64) None))` (top level) | Declares a concrete enum; properties may include `#linear` and `#repr-c`; variants can carry typed payloads and explicit discriminants. |
+| `#enum-contribute` | `(#enum-contribute EnumName (Variant PayloadType...))` | `(#enum-contribute Error (ReadFailure #u32))` (top level) | Adds one variant to a distributed enum. Identical variants deduplicate; conflicting definitions fail with source locations. |
 | `#extern-fn` | `(#extern-fn #abi-c name (: arg Type : ...) ReturnType)`; the parameter list may also use nested pairs | `(#extern-fn #abi-c c_abs (: value #i32) #i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
 | `#f32` | `#f32` | `(#fn identity ((value #f32)) #f32 (#return value))` (function signature) | 32-bit IEEE 754 floating-point scalar type. |
 | `#f64` | `#f64` | `(#fn identity ((value #f64)) #f64 (#return value))` (function signature) | 64-bit IEEE 754 floating-point scalar type. |
@@ -2343,9 +2346,6 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#struct-literal` | `(#struct-literal Type ((field value)...))` | `(#struct-literal Point ((x 1u64) (y 2u64)))` (expression) | Constructs a struct by explicitly naming every field; no defaults are applied. |
 | `#sync` | `(#unsafe-impl #sync Type)` | `(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #sync Handle)` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |
 | `#syntax` | `(#syntax Name (syntax ...))` | `(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))` (top level) | Declares an immutable literal syntax bundle with a unique identifier; no values are evaluated and no types are inferred. |
-| `#syntax-collection` | `(#syntax-collection name)` | `(#syntax-collection handlers)` (top level) | Declares a deterministic compile-time syntax collection, frozen before generator expansion. |
-| `#syntax-contribute` | `(#syntax-contribute collection key syntax)` | `(#syntax-contribute handlers Read (Read #u64))` (top level) | Adds literal syntax under a key; duplicate keys must contribute identical syntax. |
-| `#syntax-distribute` | `(#syntax-distribute Collection)` | `(@#error-enum (#syntax-distribute Errors) Error)` (direct generator argument) | Replaces one explicit generator-call argument with the frozen, key-sorted syntax values of a collection. Unknown collections are errors. |
 | `#syntax-splice` | `(#syntax-splice Name)` | `(#await (#syntax-splice StepAwait) step)` (inside an async function) | Inserts a named bundle's elements into the surrounding list before ordinary checking and async lowering; unknown names and cycles are errors. |
 | `#target` | `(#cfg-is #target literal)` | `(#cfg-if (#cfg-is #target x86_64-unknown-linux-gnu) (#type Word #u64))` (top level) | Automatically populated canonical target triple cfg key; overridable with `--cfg target=VALUE`. |
 | `#thread-task` | `(#thread-task TaskType worker [spawn-signature join-signature])` | `(#thread-task ReadTask read-value)` (generated declaration) | Declares a concrete task type and its named worker; generated builtins are compiler-managed. |

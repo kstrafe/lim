@@ -108,7 +108,7 @@ impl Bundles {
                 "#extern-fn" => 2,
                 "#fn" | "#unsafe-fn" | "#type" | "#struct" | "#enum" | "#gn" | "#gn-fn"
                 | "#let" | "#let-mut" | "#const" | "#static" | "#capability"
-                | "#syntax-collection" => 1,
+                | "#distributed-enum" => 1,
                 _ => continue,
             };
             if let Some(Expr::Symbol(name)) = items.get(index) {

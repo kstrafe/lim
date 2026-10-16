@@ -19,6 +19,7 @@ mod call_self_loans;
 mod capture_storage;
 mod codegen;
 mod diagnostic_json;
+mod distributed_enum;
 mod editor;
 mod elf_object;
 mod elf_writer;
@@ -41,7 +42,6 @@ mod source_error;
 mod stack_usage;
 mod standard_library;
 mod syntax_bundle;
-mod syntax_collection;
 mod thread_contract;
 mod timing;
 mod typecheck;
@@ -4279,7 +4279,7 @@ pub(crate) fn validate_reserved_declarations(expression: &Expr) -> Result<(), St
     };
     match head {
         "#fn" | "#unsafe-fn" | "#struct" | "#enum" | "#type" | "#static" | "#const"
-        | "#thread-task" | "#syntax" | "#syntax-collection" | "#capability" => name(items.get(1))?,
+        | "#thread-task" | "#syntax" | "#distributed-enum" | "#capability" => name(items.get(1))?,
         "#extern-fn" => name(items.get(2))?,
         "#let" | "#let-mut" | "#let-else" | "#if-let" | "#while-let" | "#case" => {
             if let Some(value) = items.get(1) {
@@ -4697,7 +4697,8 @@ fn is_builtin_form(name: &str) -> bool {
             | "ptr"
             | "ptr-mut"
             | "gn"
-            | "syntax-distribute"
+            | "distributed-enum"
+            | "enum-contribute"
             | "capability"
             | "import"
             | "import-external"

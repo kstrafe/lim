@@ -551,6 +551,8 @@ pub(crate) fn prepare_program_syntax(
     .map_err(|error| attach_generator_source(error, &source_files))?;
     let expressions = expand_cfg_forms(expanded, config)
         .map_err(|error| attach_generator_source(error, &source_files))?;
+    let expressions = crate::distributed_enum::merge(expressions)
+        .map_err(|error| attach_generator_source(error, &source_files))?;
     let mut with_protocols = Vec::with_capacity(expressions.len());
     for expression in expressions {
         if is_async_invocation(&expression) {

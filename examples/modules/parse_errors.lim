@@ -1,2 +1,2 @@
 (#import "error_collection.lim")
-(#syntax-contribute ApplicationErrors parser (ParseFailure #u64))
+(#enum-contribute ApplicationError (ParseFailure #u64))

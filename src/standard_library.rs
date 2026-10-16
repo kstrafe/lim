@@ -13,7 +13,6 @@ pub(crate) fn is_generator_declaration(expression: &crate::Expr) -> bool {
         .get_or_init(|| {
             [
                 include_str!("../library/cell.lim"),
-                include_str!("../library/collections.lim"),
                 include_str!("../library/local_waker.lim"),
                 include_str!("../library/ready_queue.lim"),
                 include_str!("../library/pin.lim"),
