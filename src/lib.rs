@@ -623,7 +623,6 @@ impl<'a> Lexer<'a> {
                 }
                 b'(' => tokens.push(self.one(TokenKind::LParen)),
                 b')' => tokens.push(self.one(TokenKind::RParen)),
-                b':' => tokens.push(self.one(TokenKind::Colon)),
                 b'\'' => tokens.push(self.one(TokenKind::Quote)),
                 b'`' => tokens.push(self.one(TokenKind::QuasiQuote)),
                 b',' if self.source.get(self.offset + 1) == Some(&b'@') => {
@@ -683,7 +682,7 @@ impl<'a> Lexer<'a> {
             if byte.is_ascii_whitespace()
                 || matches!(
                     byte,
-                    b'(' | b')' | b':' | b'\'' | b'`' | b',' | b'"' | b'@' | b';'
+                    b'(' | b')' | b'\'' | b'`' | b',' | b'"' | b'@' | b';'
                 )
             {
                 break;
@@ -691,7 +690,9 @@ impl<'a> Lexer<'a> {
             self.advance();
         }
         let text = std::str::from_utf8(&self.source[start..self.offset]).unwrap();
-        let kind = if let Some(value) = parse_integer_literal(text) {
+        let kind = if text == ":" {
+            TokenKind::Colon
+        } else if let Some(value) = parse_integer_literal(text) {
             TokenKind::Integer(value)
         } else if let Some(value) = parse_unsigned_integer_literal(text) {
             TokenKind::UnsignedInteger(value)

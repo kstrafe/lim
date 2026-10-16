@@ -1584,8 +1584,10 @@ At one list depth, `(: left #u32 : right #u32)` expands to
 `((left #u32) (right #u32))`. A colon must be the first token after `(` at
 that depth; `(left : #u32)` is invalid. Nested lists have their own depth, so
 their colons do not affect the enclosing list. Empty or adjacent groups and
-a trailing colon are rejected; `(:)` is an empty list. This syntax works in
-other lists of groups too. Parameters may be
+a trailing colon are rejected; `(:)` is an empty list. Only a standalone `:`
+token groups elements: embedded colons belong to the identifier, so
+`Pipeline::Pending`, `left:right`, and `:label` are flat names, not namespace
+lookups. This syntax works in other lists of groups too. Parameters may be
 marked mutable:
 
 ```lisp library
