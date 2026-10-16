@@ -26,6 +26,7 @@ exit 42 pin_projection_borrows.lim - -
 exit 42 internal_owner_reads.lim - -
 exit 42 internal_owner_entry_tags.lim - -
 exit 42 distributed_errors.lim - -
+exit 42 future_registration.lim - -
 exit 42 static_table.lim - -
 exit 42 enum_dispatch.lim - -
 exit 42 cooperative_tasks.lim - -

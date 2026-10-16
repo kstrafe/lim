@@ -1209,6 +1209,28 @@ compiler-reserved local names, and explicitly pass each generated symbol to
 every generated reference that must resolve to it. Different invocations can
 use distinct public names while their internal generated locals remain fresh.
 
+### Generator-to-generator contracts
+
+Generators can require that public inputs were emitted by a particular
+generator, without reading its output during expansion:
+
+```lisp syntax
+(#require-generated Work::Frame #async-fn-pinned
+  (Work::Poll Work::Pending Work::Ready Work::poll))
+```
+
+The first identifier and optional companion identifiers must share one
+invocation of the named generator. Requirements are checked after expansion,
+so they may appear before the producer invocation. They neither schedule
+generators nor inspect unfinished distributed enums. Ordinary typechecking
+still checks every generated declaration and call.
+
+The compiler records actual generation ancestry. Handwritten lookalikes or
+unrelated generators cannot claim that origin. Wrappers retain both their own
+origin and the nested producer's origin, including deduplicated invocations.
+Cached output is recorded under the actual invocation just like fresh output;
+source comments and generated properties do not grant provenance.
+
 ## Imports
 
 Distributed enums collect variants from active imports and generator outputs.
@@ -2322,6 +2344,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#ref-mut` | `(#ref-mut TargetType)` | `(#let r (#ref-mut #u64) (#borrow-mut value))` (type/binding) | Mutable-reference type. |
 | `#ref-ptr` | `(#ref-ptr reference)` | `(#let p (#ptr-mut Node) (#ref-ptr pinned))` (expression) | Safely extracts a thin ordinary or pinned reference's raw pointer with the same pointee and mutability. Lends the input handle without moving or duplicating it; the pointer retains no loan and does not extend the pointee lifetime or pinning guarantee. Slices are rejected. Raw memory access and pointer-to-reference borrowing still require unsafe context and valid lifetime/aliasing proofs. Raw pointers do not automatically implement Send or Sync. |
 | `#repr-c` | Property in `(#struct Name (#repr-c) fields)` or `(#enum Name (#repr-c) variants)` | `(#struct Header (#repr-c) ((tag #u8) (length #u32)))` (top level) | Requests C layout metadata for layout queries; does not make arbitrary Lim values FFI-safe. |
+| `#require-generated` | `(#require-generated Name GeneratorName (CompanionName...))`; companions may be omitted | `(#require-generated Work::Frame #async-fn-pinned (Work::Poll Work::poll))` (top level) | Requires one actual invocation of the named generator to have produced all listed identifiers; checked after expansion with compiler-recorded ancestry. |
 | `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
 | `#send` | `(#unsafe-impl #send Type)` | `(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #send Handle)` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
 | `#set` | `(#set name value)` | `(#set count (#u32.+.wrap count 1u32))` (statement) | Reassigns a mutable local. |

@@ -405,6 +405,7 @@ fn graph_generated_owned_program(
         &prepared.bundles,
         &program.program().source_files,
     )?;
+    validate_generation_requirements(prepared, &generated)?;
     // Planning is not an ownership proof. Validate both the original witnesses
     // and the emitted ordinary code before accepting or publishing graph output.
     let summaries = cache_directory
@@ -495,6 +496,7 @@ pub(crate) struct PreparedProgramSyntax {
     pub(crate) source_files: Vec<SourceFile>,
     pub(crate) dependency_context: String,
     pub(crate) generator_origins: generator::Origins,
+    generation_requirements: Vec<crate::generator_provenance::Requirement>,
     pub(crate) async_copy_types: HashSet<String>,
     pub(crate) async_types: async_types::AsyncTypeEnvironment,
     pub(crate) worker_functions: HashMap<String, Function>,
@@ -553,6 +555,8 @@ pub(crate) fn prepare_program_syntax(
         .map_err(|error| attach_generator_source(error, &source_files))?;
     let expressions = crate::distributed_enum::merge(expressions)
         .map_err(|error| attach_generator_source(error, &source_files))?;
+    let (expressions, generation_requirements) = crate::generator_provenance::extract(expressions)
+        .map_err(|error| attach_generator_source(error, &source_files))?;
     let mut with_protocols = Vec::with_capacity(expressions.len());
     for expression in expressions {
         if is_async_invocation(&expression) {
@@ -604,6 +608,9 @@ pub(crate) fn prepare_program_syntax(
         if let Some(key) = key {
             let rewritten = expression_source(&form.expr)?;
             if rewritten != key {
+                generator_origins
+                    .generation
+                    .rewrite_builtin(&key, &rewritten);
                 if let Some(origins) = generator_origins.builtins.remove(&key) {
                     generator_origins
                         .builtins
@@ -668,6 +675,7 @@ pub(crate) fn prepare_program_syntax(
         source_files,
         dependency_context,
         generator_origins,
+        generation_requirements,
         async_copy_types,
         async_types,
         worker_functions,
@@ -951,7 +959,64 @@ pub(crate) fn parse_prepared_program_items(
         generator_validation: None,
     };
     async_source::attach_validation(&mut program, &async_functions);
+    if expand_async {
+        validate_generation_requirements(prepared, &[])?;
+    }
     Ok(program)
+}
+
+/// Check generation contracts after expansion; these checks never schedule it.
+fn validate_generation_requirements(
+    prepared: &PreparedProgramSyntax,
+    async_output: &[super::async_emit::Generated],
+) -> Result<(), SourceError> {
+    if prepared.generation_requirements.is_empty() {
+        return Ok(());
+    }
+    let mut registry = prepared.generator_origins.generation.clone();
+    let mut async_output = async_output.iter();
+    for expression in &prepared.expressions {
+        if !matches!(&expression.expr, Expr::List(items) if matches!(items.first(), Some(Expr::At)))
+        {
+            continue;
+        }
+        let source: std::borrow::Cow<'_, str> = if is_async_invocation(expression) {
+            std::borrow::Cow::Borrowed(
+                &async_output
+                    .next()
+                    .ok_or_else(|| {
+                        SourceError::new(
+                            "missing async generator output while validating provenance",
+                            DiagnosticCode::Generator,
+                        )
+                        .at(expression.span)
+                    })?
+                    .source,
+            )
+        } else {
+            let invocation = normalize_builtin_generator_invocation(&expression.expr)?;
+            let Expr::List(forms) = normalize_keywords(invocation) else {
+                unreachable!()
+            };
+            let kind = expect_symbol(forms.get(1), "generated declaration name")?;
+            if !matches!(
+                kind,
+                "#thread-spawn" | "#optional" | "#result" | "#vec" | "#vec-alloc" | "#vec-sort"
+            ) {
+                continue;
+            }
+            std::borrow::Cow::Owned(materialize_builtin_generated_source(
+                kind,
+                &forms,
+                &prepared.worker_functions,
+                &prepared.async_copy_types,
+            )?)
+        };
+        registry.record_builtin_output(&expression.expr, &parse(&source)?)?;
+    }
+    registry
+        .validate(&prepared.generation_requirements)
+        .map_err(|error| error.attach(&prepared.source_files))
 }
 
 pub(crate) fn write_generated_sources_in_directory(

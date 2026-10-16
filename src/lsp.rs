@@ -816,7 +816,11 @@ fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
             Some("#let" | "#let-mut" | "#const" | "#static" | "#type") => Some(2),
             Some("#struct-literal") => Some(1),
             Some("#enum-contribute") => {
-                if let Some(name) = expr.children.get(1).and_then(|target| in_type(target, byte)) {
+                if let Some(name) = expr
+                    .children
+                    .get(1)
+                    .and_then(|target| in_type(target, byte))
+                {
                     return Some(name);
                 }
                 if let Some(variant) = expr.children.get(2) {
@@ -1046,9 +1050,15 @@ mod tests {
         assert_eq!(definitions[0].kind, 10);
         let forms = crate::parse(source).unwrap();
         for name in ["Error", "Payload"] {
-            assert_eq!(super::type_reference(&forms, source.rfind(name).unwrap()).as_deref(), Some(name));
+            assert_eq!(
+                super::type_reference(&forms, source.rfind(name).unwrap()).as_deref(),
+                Some(name)
+            );
         }
-        assert_eq!(super::type_reference(&forms, source.find("Failure").unwrap()), None);
+        assert_eq!(
+            super::type_reference(&forms, source.find("Failure").unwrap()),
+            None
+        );
     }
 
     use super::*;

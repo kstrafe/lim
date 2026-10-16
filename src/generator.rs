@@ -209,6 +209,7 @@ pub(crate) struct Origins {
     pub builtins: HashMap<String, Vec<Span>>,
     pub source_paths: Vec<PathBuf>,
     pub standard_declarations: HashSet<Span>,
+    pub generation: crate::generator_provenance::Registry,
 }
 
 pub(crate) fn expand_with_origins(
@@ -473,6 +474,7 @@ fn expand_with_hits_and_origins(
         invocation_artifacts: HashMap::new(),
         invocation_children: HashMap::new(),
         active_invocations: Vec::new(),
+        generation_origins: Vec::new(),
         origins,
         invocation_builtins: HashMap::new(),
         active_builtins: Vec::new(),
@@ -703,6 +705,7 @@ struct ExpansionContext<'a> {
     invocation_artifacts: HashMap<String, InvocationArtifact>,
     invocation_children: HashMap<String, HashSet<String>>,
     active_invocations: Vec<String>,
+    generation_origins: Vec<crate::generator_provenance::Origin>,
     budget: Budget,
     cache_hits: usize,
     cache_dir: Option<&'a Path>,
@@ -792,6 +795,10 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         return Ok(vec![expression]);
     };
     if !matches!(items.first(), Some(Expr::At)) {
+        context
+            .origins
+            .generation
+            .record(&expression, &context.generation_origins);
         return Ok(vec![expression]);
     }
     let Some(Expr::Symbol(name)) = items.get(1) else {
@@ -806,6 +813,10 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         let mut resolved = items[..2].to_vec();
         resolved.extend(arguments);
         let resolved = Expr::List(resolved);
+        context
+            .origins
+            .generation
+            .record_builtin_parents(&resolved, &context.generation_origins)?;
         record_builtin_origin(context, crate::expression_source(&resolved)?);
         return Ok(vec![resolved]);
     };
@@ -887,6 +898,15 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     }
     let duplicate = !context.seen_invocations.insert(invocation_key.clone());
     if duplicate {
+        let mut origins = context.generation_origins.clone();
+        origins.push(crate::generator_provenance::Origin {
+            producer: name.as_str().into(),
+            invocation: invocation_key.as_str().into(),
+        });
+        context
+            .origins
+            .generation
+            .inherit_invocation(&invocation_key, &origins);
         record_invocation_origins(&invocation_key, context);
         for builtin in context
             .invocation_builtins
@@ -933,6 +953,12 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
         context.cache_hits = context.cache_hits.saturating_add(1);
     }
     context.active.push(name.clone());
+    context
+        .generation_origins
+        .push(crate::generator_provenance::Origin {
+            producer: name.as_str().into(),
+            invocation: invocation_key.as_str().into(),
+        });
     context.active_invocations.push(invocation_key.clone());
     context.active_builtins.push(Vec::new());
     context.gensym_scopes.push(scope);
@@ -1019,6 +1045,7 @@ fn expand_top(expression: Expr, context: &mut ExpansionContext<'_>) -> Result<Ve
     }
     context.active.pop();
     context.active_invocations.pop();
+    context.generation_origins.pop();
     context.gensym_scopes.pop();
     let builtins = context.active_builtins.pop().unwrap();
     context.invocation_builtins.insert(invocation_key, builtins);
@@ -2955,6 +2982,7 @@ mod tests {
                 invocation_artifacts: HashMap::new(),
                 invocation_children: HashMap::new(),
                 active_invocations: Vec::new(),
+                generation_origins: Vec::new(),
                 origins: &mut Origins::default(),
                 invocation_builtins: HashMap::new(),
                 active_builtins: Vec::new(),

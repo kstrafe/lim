@@ -1,0 +1,32 @@
+; Registration consumes only literal names. It never inspects unfinished enums.
+(#distributed-enum ExecutorTask ())
+
+(#gn register-future (executor future)
+  `((#require-generated
+       ,(#gn-symbol-append future "::Frame")
+       #async-fn-pinned
+       (,(#gn-symbol-append future "::Poll")
+        ,(#gn-symbol-append future "::Pending")
+        ,(#gn-symbol-append future "::Ready")
+        ,(#gn-symbol-append future "::poll")))
+    (#enum-contribute ,executor
+      (,(#gn-symbol-append future "::Queued")
+       ,(#gn-symbol-append future "::Frame")))))
+
+; Forward references are checked after expansion; they do not schedule it.
+(@register-future ExecutorTask Work)
+
+(@#async-fn-pinned
+  (: protocol Work::Await : waker #u64
+   : function (#fn work () #u64 (#return 42u64))))
+
+(#fn main () #u64
+  (#let waker #u64 0u64)
+  (#let-mut task Work::Frame (#call work (:)))
+  (#let result Work::Poll
+    (#call Work::poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
+  (#let answer #u64 (#match result
+    (#case (Work::Ready value) value)
+    (#case (Work::Pending pending) (#block (#forget pending) (#unreachable)))))
+  (#forget task)
+  (#return answer))

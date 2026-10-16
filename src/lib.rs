@@ -26,6 +26,7 @@ mod elf_writer;
 mod generated_validation;
 mod generation_interfaces;
 mod generator;
+mod generator_provenance;
 mod gensym;
 mod instruction_encoder;
 mod linearcheck;
@@ -4699,6 +4700,7 @@ fn is_builtin_form(name: &str) -> bool {
             | "gn"
             | "distributed-enum"
             | "enum-contribute"
+            | "require-generated"
             | "capability"
             | "import"
             | "import-external"
