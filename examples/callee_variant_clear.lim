@@ -1,6 +1,6 @@
 ; Pending retains the reference; Ready clears it before returning.
-(#enum Choice ((Empty) (Full (#ref #u64))))
-(#enum Outcome ((Ready) (Pending)))
+(#enum Choice () ((Empty) (Full (#ref #u64))))
+(#enum Outcome () ((Ready) (Pending)))
 
 (#fn step-choice (: target (#ref-mut Choice) : value (#ref #u64) : complete #bool) Outcome
   (#return

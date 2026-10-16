@@ -1,7 +1,7 @@
 (#import "../library/cell.lim")
 (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
-(#struct Arena ((cursor CellU64)))
-(#struct VecU64Arena ((allocator (#ref Arena)) (length #u64)))
+(#struct Arena () ((cursor CellU64)))
+(#struct VecU64Arena () ((allocator (#ref Arena)) (length #u64)))
 
 (#fn VecU64Arena-reserve ((vector (#ref VecU64Arena)) (count #u64)) #u64
   (#let cell (#ref CellU64) (#borrow (#get (#get vector allocator) cursor)))

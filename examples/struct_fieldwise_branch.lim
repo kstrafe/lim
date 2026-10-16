@@ -1,7 +1,7 @@
 ; Both paths consume the same structural owner obligation.
-(#struct Resource ((value #u64)))
-(#linear Resource)
-(#struct Wrapper ((item Resource) (copy #u64)))
+(#struct Resource (#linear) ((value #u64)))
+
+(#struct Wrapper () ((item Resource) (copy #u64)))
 
 (#fn main () #u64
   (#let wrapper Wrapper

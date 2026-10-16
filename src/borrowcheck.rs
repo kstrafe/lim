@@ -31,7 +31,7 @@ fn returned_exclusive_children_from_owned_slots_keep_the_immediate_parent() {
         ),
     ] {
         let source = format!(
-            "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+            "(#struct Holder (#linear) (: view (#ref-mut #u64)))
           (#fn capture (: view (#ref-mut #u64)) {ty} (#return {constructor}))
           (#fn echo (: view (#ref-mut #u64)) (#ref-mut #u64) (#return view))
           (#fn work (: view (#ref-mut #u64)) #u64
@@ -87,7 +87,7 @@ fn typed_symbol_assignment_replaces_reference_provenance() {
     let escaped = source.replace("(#set view next)",
         "(#block (#let local #u64 3u64) (#let temporary (#ref #u64) (#borrow local)) (#set view temporary) ())");
     assert!(crate::check_types(&crate::parse_program(&escaped).unwrap()).is_err());
-    let emptied = "(#enum View ((Present (#ref #u64)) Empty))
+    let emptied = "(#enum View () ((Present (#ref #u64)) Empty))
       (#fn main () #u64
         (#let-mut owner #u64 37u64)
         (#let-mut view View (Present (#borrow owner)))
@@ -102,7 +102,7 @@ fn typed_symbol_assignment_replaces_reference_provenance() {
         error.contains("owner") && error.contains("borrow"),
         "{error}"
     );
-    let parameter = "(#enum View ((Present (#ref #u64)) Empty))
+    let parameter = "(#enum View () ((Present (#ref #u64)) Empty))
       (#fn replace ((#mut view View)) ()
         (#set view Empty) (#return ()))";
     crate::check_types(&crate::parse_program(parameter).unwrap()).unwrap();
@@ -156,7 +156,7 @@ fn borrow_released_on_only_one_branch_still_blocks_mutation() {
 #[test]
 fn aggregate_reference_released_on_every_branch_allows_mutation() {
     let program = crate::parse_program(
-        "(#struct Holder ((view (#ref #u64))))
+        "(#struct Holder () ((view (#ref #u64))))
          (#fn main () #u64
            (#let-mut owner #u64 1u64)
            (#let holder Holder
@@ -292,7 +292,7 @@ fn scalar_result_from_block_local_reference_can_be_passed_to_a_call() {
 #[test]
 fn matched_reference_payload_cannot_escape_local_owner() {
     let program = crate::parse_program(
-        "(#enum Holder ((Has (#ref #u64))))
+        "(#enum Holder () ((Has (#ref #u64))))
          (#fn escape () (#ref #u64)
            (#let owner #u64 7u64)
            (#let holder Holder (Has (#borrow owner)))
@@ -313,7 +313,7 @@ fn matched_reference_payload_cannot_escape_local_owner() {
 #[test]
 fn matched_reference_payload_from_parameter_can_return() {
     let program = crate::parse_program(
-        "(#enum Holder ((Has (#ref #u64))))
+        "(#enum Holder () ((Has (#ref #u64))))
          (#fn select ((source (#ref #u64))) (#ref #u64)
            (#let holder Holder (Has source))
            (#return (#match holder
@@ -332,7 +332,7 @@ fn matched_reference_payload_from_parameter_can_return() {
 #[test]
 fn direct_matched_payload_cannot_hide_block_local_reference() {
     let program = crate::parse_program(
-        "(#enum Holder ((Has (#ref #u64))))
+        "(#enum Holder () ((Has (#ref #u64))))
          (#fn main () #u64
            (#let escaped (#ref #u64)
              (#match (Has (#block
@@ -351,7 +351,7 @@ fn direct_matched_payload_cannot_hide_block_local_reference() {
 #[test]
 fn struct_literal_cannot_hide_block_local_reference() {
     let program = crate::parse_program(
-        "(#struct Holder ((view (#ref #u64))))
+        "(#struct Holder () ((view (#ref #u64))))
          (#fn main () #u64
            (#let holder Holder
              (#struct-literal Holder
@@ -371,7 +371,7 @@ fn struct_literal_cannot_hide_block_local_reference() {
 #[test]
 fn block_local_reference_cannot_be_stored_in_a_field() {
     let program = crate::parse_program(
-        "(#struct Holder ((view (#ref #u64))))
+        "(#struct Holder () ((view (#ref #u64))))
          (#fn main () #u64
            (#let owner #u64 1u64)
            (#let-mut holder Holder
@@ -401,8 +401,8 @@ fn aggregate_reborrows_suspend_every_parent_until_release() {
         ("(#forget held) (#let value #u64 (#get left x))", true),
     ] {
         let source = format!(
-            "(#struct Owner ((x #u64)))
-             (#struct Views ((left (#ref #u64)) (right (#ref #u64))))
+            "(#struct Owner () ((x #u64)))
+             (#struct Views () ((left (#ref #u64)) (right (#ref #u64))))
              (#fn inspect ((left (#ref-mut Owner)) (right (#ref-mut Owner))) #u64
                (#let held Views (#struct-literal Views
                  ((left (#borrow (#get left x))) (right (#borrow (#get right x))))))
@@ -422,8 +422,8 @@ fn aggregate_reborrows_suspend_every_parent_until_release() {
 #[cfg(test)]
 #[test]
 fn releasing_one_aggregate_does_not_resume_a_shared_parent() {
-    let source = "(#struct Owner ((x #u64) (y #u64)))
-        (#struct View ((item (#ref #u64))))
+    let source = "(#struct Owner () ((x #u64) (y #u64)))
+        (#struct View () ((item (#ref #u64))))
         (#fn inspect ((parent (#ref-mut Owner))) #u64
           (#let first View (#struct-literal View ((item (#borrow (#get parent x))))))
           (#let second View (#struct-literal View ((item (#borrow (#get parent y))))))
@@ -440,7 +440,7 @@ fn releasing_one_aggregate_does_not_resume_a_shared_parent() {
 #[cfg(test)]
 #[test]
 fn array_constructors_retain_projected_reborrow_parents() {
-    let source = "(#struct Owner ((x #u64)))
+    let source = "(#struct Owner () ((x #u64)))
         (#fn inspect ((parent (#ref-mut Owner))) #u64
           (#let views (#array (#ref #u64) 1)
             (#array-of (#array (#ref #u64) 1) (#borrow (#get parent x))))
@@ -464,9 +464,9 @@ fn moved_and_nested_aggregate_reborrows_protect_parent_calls() {
             "(#let observed #u64 (#deref (#get (#get wrapped view) item))) (#forget wrapped)"
         };
         let source = format!(
-            "(#struct Owner ((x #u64)))
-             (#struct View ((item (#ref #u64))))
-             (#struct Wrapped ((view View)))
+            "(#struct Owner () ((x #u64)))
+             (#struct View () ((item (#ref #u64))))
+             (#struct Wrapped () ((view View)))
              (#fn overwrite ((parent (#ref-mut Owner))) ()
                (#deref-set parent (#struct-literal Owner ((x 2u64)))) (#return ()))
              (#fn inspect ((parent (#ref-mut Owner))) ()
@@ -3026,7 +3026,10 @@ fn contains_mutable_reference(
 fn type_is_explicitly_linear(ty: &crate::Type, declarations: &[Item]) -> bool {
     match ty {
         crate::Type::Named(name) => declarations.iter().any(|declaration| {
-            matches!(declaration, Item::LinearAnnotation { type_name } if type_name == name)
+            matches!(declaration,
+                Item::Struct { name: declared, linear: true, .. }
+                    | Item::Enum { name: declared, linear: true, .. }
+                    if declared == name)
         }),
         crate::Type::Tuple(fields) => fields
             .iter()
@@ -3435,7 +3438,7 @@ fn typed_borrow_facts(
 #[cfg(test)]
 #[test]
 fn projected_reborrow_parent_comes_from_checked_binding_identity() {
-    let source = "(#struct Pair ((left #u64) (right #u64)))
+    let source = "(#struct Pair () ((left #u64) (right #u64)))
       (#fn main () #u64
         (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
         (#let parent (#ref-mut Pair) (#borrow-mut pair))

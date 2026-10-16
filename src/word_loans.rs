@@ -472,8 +472,8 @@ mod tests {
 
     #[test]
     fn restored_word_owner_retains_its_pointee_reference_requirements() {
-        let program = crate::parse_program("(#struct Holder (: link (#ref #u64)))
-          (#struct Words (: words (#array #u64 1)))
+        let program = crate::parse_program("(#struct Holder () (: link (#ref #u64)))
+          (#struct Words () (: words (#array #u64 1)))
           (#fn restore (: storage (#ref-mut Words)) (#pin-own Holder)
             (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words))))))
           (#fn forward (: storage (#ref-mut Words)) (#pin-own Holder)
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn forwarding_owned_word_requirements_retains_the_ownership_obligation() {
-        let source = "(#struct Words (: words (#array #u64 1)))
+        let source = "(#struct Words () (: words (#array #u64 1)))
           (#fn restore (: storage (#ref-mut Words)) (#pin-own #u64)
             (#return (#unsafe (#word-take (#pin-own #u64) (#borrow-slice-mut (#get storage words))))))
           (#fn forward (: storage (#ref-mut Words)) (#pin-own #u64)
@@ -538,7 +538,7 @@ mod tests {
     #[test]
     fn numeric_backing_geometry_rejects_scalar_reference_and_unknown_paths() {
         let program = crate::parse_program(
-            "(#struct Words (: words (#array #u64 2) : scalar #u64 : view (#ref (#array #u64 2))))
+            "(#struct Words () (: words (#array #u64 2) : scalar #u64 : view (#ref (#array #u64 2))))
           (#fn main () #u64 (#return 0u64))",
         )
         .unwrap();
@@ -564,9 +564,9 @@ mod tests {
 
     #[test]
     fn flat_shape_projects_owned_fields_and_keeps_large_arrays_compact() {
-        let source = "(#struct Pair (: left #u64 : right (#tuple #u64 #u64)))
-          (#struct Other (: left #u64))
-          (#enum Choice ((First (#tuple #u64 #u64)) (Second #u64)))
+        let source = "(#struct Pair () (: left #u64 : right (#tuple #u64 #u64)))
+          (#struct Other () (: left #u64))
+          (#enum Choice () ((First (#tuple #u64 #u64)) (Second #u64)))
           (#fn main () #u64 (#return 0u64))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -610,7 +610,7 @@ mod tests {
 
     #[test]
     fn large_numeric_input_uses_one_symbolic_candidate_and_one_exact_requirement() {
-        let source = "(#struct Holder (: value (#ref #u64)))
+        let source = "(#struct Holder () (: value (#ref #u64)))
           (#fn read (: words (#array #u64 1000000000)) #u64
             (#let restored Holder (#unsafe (#word-read Holder (#borrow-slice words 7usize 8usize))))
             (#let answer #u64 (#deref (#get restored value)))

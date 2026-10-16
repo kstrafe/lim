@@ -3,8 +3,8 @@ mod support;
 use lim::{Diagnostic, DiagnosticCode};
 use std::{process::Command, time::Duration};
 
-const CHILD: &str = "(#enum Child ((Waiting #u64))) (#linear Child)
-  (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+const CHILD: &str = "(#enum Child (#linear) ((Waiting #u64)))
+  (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
     (#return (#match task
       (#case (Waiting count)
@@ -232,7 +232,7 @@ fn direct_local_and_static_anchor_mix_is_rejected_without_checked_parameter() {
 #[test]
 fn native_layout_scalar_and_struct_field_static_references_match_cold_and_warm() {
     let source = format!("{CHILD}
-      (#struct Record (: tag #u8 : value #u64))
+      (#struct Record () (: tag #u8 : value #u64))
       (#static Global Record (#struct-literal Record (: tag 1u8 : value 40u64)))
       (@#async-fn-pinned (: protocol WorkAwait : waker #u64 : cancel (work-cancel ((await-0 cancel-child)))
         : function (#fn work (: scalar-view (#ref #u64) : field-view (#ref #u64)) #u64

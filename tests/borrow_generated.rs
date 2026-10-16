@@ -34,13 +34,15 @@ fn expect_borrow(name: &str, source: &str) {
 // Construct a chain of nested wrappers around a two-field leaf. `depth` is
 // finite and explicit so every generated case is stable and reproducible.
 fn nested_prefix(depth: usize) -> (String, String, String, String) {
-    let mut declarations = String::from("(#struct Leaf (: left #u64 : right #u64))\n");
+    let mut declarations = String::from("(#struct Leaf () (: left #u64 : right #u64))\n");
     let mut ty = "Leaf".to_owned();
     let mut path = "owner".to_owned();
     let mut literal = "(#struct-literal Leaf (: left 1u64 : right 2u64))".to_owned();
     for level in 0..depth {
         let next = format!("Nest{level}");
-        declarations.push_str(&format!("(#struct {next} (: child {ty} : spare #u64))\n"));
+        declarations.push_str(&format!(
+            "(#struct {next} () (: child {ty} : spare #u64))\n"
+        ));
         path = format!("(#get {path} child)");
         literal = format!("(#struct-literal {next} (: child {literal} : spare 3u64))");
         ty = next;

@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn punctuation_is_part_of_binding_identity_not_a_projection() {
-        let source = "(#struct A ((b #u64)))
+        let source = "(#struct A () ((b #u64)))
           (#fn main () #u64
             (#let a A (#struct-literal A ((b 4u64))))
             (#let a.b #u64 8u64)
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn same_spelled_fields_on_different_owners_keep_distinct_ids() {
-        let source = "(#struct A ((value #u64))) (#struct B ((value #u64)))
+        let source = "(#struct A () ((value #u64))) (#struct B () ((value #u64)))
           (#fn main () #u64
             (#let a A (#struct-literal A ((value 1u64))))
             (#let b B (#struct-literal B ((value 2u64))))

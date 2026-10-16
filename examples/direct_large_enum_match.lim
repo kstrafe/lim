@@ -1,4 +1,4 @@
-(#enum LargePayload
+(#enum LargePayload ()
   ((Big #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty))
 
 (#fn make ((last #u64)) LargePayload

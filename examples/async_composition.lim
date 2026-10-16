@@ -1,7 +1,7 @@
 ; Async functions export one protocol each. The parent can await a function
 ; declared later without listing its task type, variants, or poll function.
-(#enum Tick ((TickStart #u64) (TickResume #u64)))
-(#enum TickPoll ((TickPending Tick) (TickReady #u64)))
+(#enum Tick () ((TickStart #u64) (TickResume #u64)))
+(#enum TickPoll () ((TickPending Tick) (TickReady #u64)))
 (#syntax TickAwait (#u64 Tick TickPending TickReady tick-poll))
 
 (#fn tick-poll (: task Tick : waker (#ref #u64)) TickPoll

@@ -4,8 +4,8 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 const SOURCE: &str = "
-  (#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
-  (#enum ChildPoll ((Pending Child) (Ready #u64)))
+  (#enum Child (#linear) ((Start #u64) (Resume #u64)))
+  (#enum ChildPoll () ((Pending Child) (Ready #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
     (#return (#match task
       (#case (Start value) (Pending (Resume value)))

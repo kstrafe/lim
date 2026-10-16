@@ -12,7 +12,7 @@
   (#return ()))
 
 ; A small wake context: the child records each time it asks to be polled again.
-(#struct Wake ((notifications CellU64)))
+(#struct Wake () ((notifications CellU64)))
 
 (@#task (Step StepPoll StepPending StepReady) #u64 ((Waiting #u64)))
 

@@ -49,7 +49,7 @@ fn global_types_are_visible_in_initializers_and_pattern_branches() {
         r#"
       (#let BASE #u64 40u64)
       (#let ANSWER #u64 (#u64.+.wrap BASE 2u64))
-      (#enum Value ((Number #u64) (Absent)))
+      (#enum Value () ((Number #u64) (Absent)))
       (#fn pick ((value Value)) #u64
         (#return (#match value
           (#case (Number number) (#u64.+.wrap number BASE))

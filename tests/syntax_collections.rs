@@ -7,7 +7,7 @@ fn distributed_error_enum_is_concrete_cached_and_allocation_free() {
     let root = scratch.path();
     fs::write(
         root.join("declaration.lim"),
-        "(#syntax-collection Errors) (#gn errors (entries name) `((#enum ,name ,entries)))",
+        "(#syntax-collection Errors) (#gn errors (entries name) `((#enum ,name () ,entries)))",
     )
     .unwrap();
     fs::write(
@@ -86,7 +86,7 @@ fn cfg_selection_and_external_prefixes_apply_before_freezing() {
         "(#syntax-collection Entries)
       (#syntax-contribute Entries stable (Stable #u64))
       (#cfg-if (#cfg-is #extra yes) (#syntax-contribute Entries extra (Extra #u32)))
-      (#gn errors (entries name) `((#enum ,name ,entries)))
+      (#gn errors (entries name) `((#enum ,name () ,entries)))
       (@errors (#syntax-distribute Entries) Errors)
       (#fn value () #u64 (#return (#match (Stable 42u64) (#case (Stable n) n) (#case _ 0u64))))",
     )

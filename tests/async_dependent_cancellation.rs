@@ -3,9 +3,9 @@ mod support;
 use std::{process::Command, time::Duration};
 
 fn source() -> &'static str {
-    "(#struct Owner (: amount #u64)) (#linear Owner)
-      (#enum Child ((Holding (#ref Owner) #u64))) (#linear Child)
-      (#enum ChildPoll ((Pending Child) (Ready #u64)))
+    "(#struct Owner (#linear) (: amount #u64))
+      (#enum Child (#linear) ((Holding (#ref Owner) #u64)))
+      (#enum ChildPoll () ((Pending Child) (Ready #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task (#case (Holding view count)
           (#if (#u64.== count 0u64) (Pending (Holding view 1u64))
@@ -168,9 +168,9 @@ fn cancellation_before_first_poll_and_after_ready_is_idempotent() {
 }
 
 fn pinned_source() -> &'static str {
-    "(#struct Owner (: amount #u64)) (#linear Owner)
-      (#enum Step ((Start #u64))) (#linear Step)
-      (#enum StepPoll ((StepPending Step) (StepReady #u64)))
+    "(#struct Owner (#linear) (: amount #u64))
+      (#enum Step (#linear) ((Start #u64)))
+      (#enum StepPoll () ((StepPending Step) (StepReady #u64)))
       (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
         (#return (#match task (#case (Start count)
           (#if (#u64.== count 0u64) (StepPending (Start 1u64)) (StepReady count))))))

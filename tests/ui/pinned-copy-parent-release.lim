@@ -1,5 +1,5 @@
-(#struct Owner (: number #u64))
-(#struct Views (: item (#ref #u64)))
+(#struct Owner () (: number #u64))
+(#struct Views () (: item (#ref #u64)))
 (#fn main () #u64
   (#let-mut owner Owner (#struct-literal Owner (: number 42u64)))
   (#let parent (#ref-mut Owner) (#borrow-mut owner))

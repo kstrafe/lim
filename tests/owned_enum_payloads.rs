@@ -25,7 +25,7 @@ fn enum_match_destinations_preserve_checked_nested_expressions() {
         ),
     ] {
         let source = format!(
-            "(#enum E ((Value #u64) (Padding (#array #u64 10))))
+            "(#enum E () ((Value #u64) (Padding (#array #u64 10))))
           (#fn answer ((value #u64)) #u64 (#return value))
           (#fn make ((choose {ty})) E
             (#return (#match (#clone choose)
@@ -91,7 +91,7 @@ fn owned_and_computed_payloads_preserve_values_and_register_classes() {
         for source in ["owner", "(#call make ())"] {
             let result = result.replace("SOURCE", source);
             let program = format!(
-                "(#enum E ((Value {ty}) Other))
+                "(#enum E () ((Value {ty}) Other))
                  (#fn make () E (#return (Value {value})))
                  (#fn main () #u64
                    (#let owner E (Value {value}))
@@ -104,7 +104,7 @@ fn owned_and_computed_payloads_preserve_values_and_register_classes() {
 
 #[test]
 fn owned_payload_checks_discriminant_and_evaluates_unit_receivers() {
-    let inactive = "(#enum E ((Value #u64) Other))
+    let inactive = "(#enum E () ((Value #u64) Other))
       (#fn main () #u64
         (#let owner E Other)
         (#return (#get-payload owner Value 0)))";
@@ -112,14 +112,14 @@ fn owned_payload_checks_discriminant_and_evaluates_unit_receivers() {
     for words in [1, 8] {
         let fields = "#u64 ".repeat(words);
         let value_source = format!(
-            "(#enum E ((Value #u64) (Other {fields})))
+            "(#enum E () ((Value #u64) (Other {fields})))
              (#fn make () E (#return (Value 42u64)))
              (#fn main () #u64
                (#return (#get-payload (#call make ()) Value 0)))"
         );
         assert_eq!(run(&value_source).code(), Some(42));
         let source = format!(
-            "(#enum E ((Value ()) (Other {fields})))
+            "(#enum E () ((Value ()) (Other {fields})))
              (#fn make () E (#assert false) (#return (Value ())))
              (#fn main () #u64
                (#forget (#get-payload (#call make ()) Value 0))

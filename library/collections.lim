@@ -1,5 +1,5 @@
 (#gn #error-enum (variants name)
-  `((#enum ,name ,variants)))
+  `((#enum ,name () ,variants)))
 
 ;; The registry is a statically sized homogeneous array in the binary.
 ;; Borrow it with #slice-of inside #unsafe, as for every static in Lim.

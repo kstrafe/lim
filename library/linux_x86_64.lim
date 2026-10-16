@@ -17,7 +17,7 @@
 (#import "linux_x86_64_syscall_numbers.lim")
 ; Lim stack aggregates are laid out toward lower addresses. Keep nanoseconds
 ; first so a pointer adjusted to the low end has the Linux C timespec order.
-(#struct LinuxTimespec ((nanoseconds #i64) (seconds #i64)))
+(#struct LinuxTimespec () ((nanoseconds #i64) (seconds #i64)))
 (#cfg-if
   (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
   (#fn linux-read-byte ((destination (#ref-mut #u8))) #i64

@@ -1,14 +1,14 @@
 ; An array element stays borrowed while a disjoint struct field is moved,
 ; restored after Pending, and the original index variable is changed.
-(#struct Resource (: value #u64))
-(#linear Resource)
-(#struct Holder (: data (#array #u64 2)))
-(#linear Holder)
-(#struct Pair (: left Resource : right Holder))
-(#linear Pair)
-(#enum Step (Start Resume))
-(#linear Step)
-(#enum StepPoll ((Pending Step) (Ready ())))
+(#struct Resource (#linear) (: value #u64))
+
+(#struct Holder (#linear) (: data (#array #u64 2)))
+
+(#struct Pair (#linear) (: left Resource : right Holder))
+
+(#enum Step (#linear) (Start Resume))
+
+(#enum StepPoll () ((Pending Step) (Ready ())))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return
     (#match task

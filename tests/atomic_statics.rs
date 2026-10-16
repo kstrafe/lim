@@ -4,8 +4,8 @@ use std::{process::Command, time::Duration};
 
 const SOURCE: &str = r#"
 (#type Counter (#atomic #u32))
-(#struct Nested (: padding #u64 : counters (#array Counter 2)))
-(#enum State (: Empty : Active (#atomic #u16)))
+(#struct Nested () (: padding #u64 : counters (#array Counter 2)))
+(#enum State () (: Empty : Active (#atomic #u16)))
 (#static Total (#atomic #u64) (#atomic-init #u64 0u64))
 (#static Counts Nested (#struct-literal Nested (: padding 99u64
   : counters (#array-of (#array Counter 2) (#atomic-init #u32 3u32) (#atomic-init #u32 5u32)))))

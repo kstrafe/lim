@@ -70,7 +70,7 @@ fn integer_stack_calls_evaluate_once_in_parameter_declaration_order() {
 fn multiword_stack_arguments_preserve_evaluation_and_word_order() {
     run(&format!(
         "{NEXT}
-      (#struct Pair (: first #u64 : second #u64))
+      (#struct Pair () (: first #u64 : second #u64))
       (#fn check ((wide #u128) (pair Pair) (a #u64) (b #u64) (c #u64)) #u64
         (#assert (#u128.== wide 18446744073709551624u128))
         (#assert (#u64.== (#get pair first) 1u64))

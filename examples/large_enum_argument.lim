@@ -1,4 +1,4 @@
-(#enum Wide
+(#enum Wide ()
   ((Values #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty))
 
 (#fn last ((value Wide)) #u64

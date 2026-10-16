@@ -8,9 +8,9 @@
     (#let byte #u8 (#as (#deref (#slice-idx text offset)) #u8))
     (#assert (#i64.== (#call linux-write-byte (: source (#borrow byte))) 1i64)))
   (#return ()))
-(#struct Executor ((notifications CellU64)))
-(#struct WakeMetadata ((amount #u64)))
-(#linear WakeMetadata)
+(#struct Executor () ((notifications CellU64)))
+(#struct WakeMetadata (#linear) ((amount #u64)))
+
 (#fn notify ((executor (#ref Executor)) (metadata (#ref WakeMetadata))) ()
   (#let cell (#ref CellU64) (#borrow (#get executor notifications)))
   (#call

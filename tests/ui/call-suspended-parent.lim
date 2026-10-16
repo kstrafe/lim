@@ -1,4 +1,4 @@
-(#struct Owner (: value #u64))
+(#struct Owner () (: value #u64))
 (#fn observe (: target (#ref-mut Owner)) #u64
   (#return (#get target value)))
 (#fn main () #u64

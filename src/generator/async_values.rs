@@ -829,7 +829,7 @@ mod tests {
     #[test]
     fn constructors_and_builtins_keep_only_completed_earlier_operands() {
         let (_, declarations) = prepare(
-            "(#struct Pair ((left #u64) (right #u64)))
+            "(#struct Pair () ((left #u64) (right #u64)))
           (#fn work () Pair (#return (#struct-literal Pair
             (: right (#u64.+.wrap (#call second (:)) (#call await-a (:)))
              : left (#call first (:))))))",
@@ -846,8 +846,8 @@ mod tests {
     #[test]
     fn linear_and_reference_bearing_call_results_are_value_snapshots() {
         let (_, declarations) = prepare(
-            "(#struct Token ((value #u64))) (#linear Token)
-          (#struct Holder ((view (#ref #u64))))
+            "(#struct Token (#linear) ((value #u64)))
+          (#struct Holder () ((view (#ref #u64))))
           (#fn token () Token (#return (#struct-literal Token (: value 7u64))))
           (#fn holder ((view (#ref #u64))) Holder (#return (#struct-literal Holder (: view view))))
           (#fn use-values ((owned Token) (borrowed Holder) (number #u64)) #u64
@@ -910,7 +910,7 @@ mod tests {
     #[test]
     fn guards_retain_the_scrutinee_but_committed_arm_bodies_do_not() {
         let (_, declarations) = prepare(
-            "(#enum Choice ((Some #u64) None))
+            "(#enum Choice () ((Some #u64) None))
           (#fn make-choice () Choice (#return (Some 4u64)))
           (#fn await-guard () #bool (#return true))
           (#fn work () #u64 (#return (#call combine
@@ -936,13 +936,13 @@ mod tests {
 
     fn preview_program(
         payload: &str,
-        annotation: &str,
+        properties: &str,
         guard: &str,
         prefix: &str,
     ) -> (crate::Program, Declarations) {
         prepare(&format!(
-            "(#struct Token ((value #u64))) {annotation}
-          (#enum Choice ((Owned {payload}) Empty))
+            "(#struct Token {properties} ((value #u64)))
+          (#enum Choice () ((Owned {payload}) Empty))
           (#fn await-guard () #bool (#return true))
           (#fn work ((choice Choice) (selected #bool)) #u64
             {prefix}
@@ -958,9 +958,9 @@ mod tests {
     fn production_guard_planning_distinguishes_custom_copy_and_linear_payloads() {
         // Custom aggregates are Copy unless #linear or exclusive fields make
         // them move-only; the language has no separate #copy annotation.
-        for (annotation, move_only) in [("", false), ("(#linear Token)", true)] {
+        for (properties, move_only) in [("()", false), ("(#linear)", true)] {
             let (program, declarations) =
-                preview_program("Token", annotation, "(#call await-guard (:))", "");
+                preview_program("Token", properties, "(#call await-guard (:))", "");
             let types = LinearTypes::from_program(&program);
             let body = &declarations.bodies["work"];
             let flow = &declarations.flows["work"];
@@ -995,8 +995,8 @@ mod tests {
             let source = if payload == "Token" {
                 // An exclusive field is move-only without an explicit linear
                 // annotation. Match the nested field, not the aggregate itself.
-                "(#struct Token ((value (#ref-mut #u64))))
-                  (#enum Choice ((Owned Token) Empty))
+                "(#struct Token (#linear) ((value (#ref-mut #u64))))
+                  (#enum Choice () ((Owned Token) Empty))
                   (#fn await-guard () #bool (#return true))
                   (#fn work ((choice Choice)) #u64
                     (#return (#match choice
@@ -1008,7 +1008,7 @@ mod tests {
                 ""
             };
             let (program, declarations) = if source.is_empty() {
-                preview_program(payload, "", "(#call await-guard (:))", "")
+                preview_program(payload, "()", "(#call await-guard (:))", "")
             } else {
                 prepare(source)
             };
@@ -1034,7 +1034,7 @@ mod tests {
     fn production_guard_restriction_ignores_unreachable_awaits() {
         let (program, declarations) = preview_program(
             "Token",
-            "(#linear Token)",
+            "()",
             "(#call await-guard (:))",
             "(#forget choice) (#return 42u64)",
         );
@@ -1052,7 +1052,7 @@ mod tests {
     fn production_guard_restriction_preserves_outer_linear_preview_context() {
         let (program, declarations) = preview_program(
             "Token",
-            "(#linear Token)",
+            "(#linear)",
             "(#match selected
               (#case true (#when (#call await-guard (:))) true)
               (#case _ false))",
@@ -1072,7 +1072,7 @@ mod tests {
     #[test]
     fn production_scalar_previews_can_suspend() {
         let (program, declarations) = prepare(
-            "(#enum Choice ((Some #u64) None))
+            "(#enum Choice () ((Some #u64) None))
           (#fn await-guard () #bool (#return true))
           (#fn work ((choice Choice)) #u64 (#return (#match choice
             (#case (Some preview) (#when (#call await-guard (:))) preview)
@@ -1091,7 +1091,7 @@ mod tests {
     #[test]
     fn place_bases_and_projection_metadata_are_not_moved_operands() {
         let (_, declarations) = prepare(
-            "(#struct Pair ((left #u64) (right #u64)))
+            "(#struct Pair () ((left #u64) (right #u64)))
           (#fn work ((pair Pair) (array (#array #u64 2))) #u64
             (#let pair-view (#ref Pair) (#borrow pair))
             (#let view (#ref #u64) (#borrow (#get pair-view left)))
@@ -1106,7 +1106,7 @@ mod tests {
     #[test]
     fn reference_field_load_survives_the_later_index_await() {
         let (_, declarations) = prepare(
-            "(#struct Holder ((values (#ref (#array #u64 2)))))
+            "(#struct Holder () ((values (#ref (#array #u64 2)))))
           (#fn work ((holder (#ref Holder))) #u64
             (#return (#index (#get holder values) (#call await-a (:)))))",
         );
@@ -1135,7 +1135,7 @@ mod tests {
     #[test]
     fn nested_reference_index_load_replaces_its_completed_address_components() {
         let (_, declarations) = prepare(
-            "(#struct Holder
+            "(#struct Holder ()
           ((links (#ref (#array (#ref (#array #u64 2)) 2)))))
           (#fn work ((holder (#ref Holder))) #u64
             (#return (#u64.+.wrap (#call first (:))
@@ -1160,7 +1160,7 @@ mod tests {
     #[test]
     fn replacing_holder_contents_keeps_the_previously_loaded_reference() {
         let (_, declarations) = prepare(
-            "(#struct Holder ((values (#ref (#array #u64 2)))))
+            "(#struct Holder () ((values (#ref (#array #u64 2)))))
           (#fn work ((holder (#ref-mut Holder)) (replacement (#ref (#array #u64 2)))) #u64
             (#return (#index (#get holder values) (#block
               (#deref-set holder (#struct-literal Holder (: values replacement)))

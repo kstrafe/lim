@@ -199,8 +199,8 @@ fn shared_token_is_not_copy_send_sync_or_a_unique_pin_owner() {
 fn allocator_source() -> String {
     let source = replace(
         &example_source(),
-        "Arena (: destroyed",
-        "Arena (: identity #u64 : destroyed",
+        "Arena () (: destroyed",
+        "Arena () (: identity #u64 : destroyed",
     );
     let source = replace(
         &source,
@@ -302,7 +302,7 @@ fn allocation_failure_returns_the_original_linear_value_without_cleanup() {
       (#assert (#u64.== (#atomic-load (#borrow (#get arena deallocated)) #memory-relaxed) 0u64))
       (#forget arena) (#return answer)");
     run(
-        &format!("(#struct Value (: amount #u64)) (#linear Value)\n{source}"),
+        &format!("(#struct Value (#linear) (: amount #u64)) \n{source}"),
         "pin-rc-allocation-failure",
     );
 }
@@ -316,7 +316,7 @@ fn nested_reference_source(body: &str) -> String {
       (#forget pin) (#return ()))");
     let source = with_main(&base, body);
     format!(
-        "(#struct Value (: reference (#ref #u64))) (#linear Value)
+        "(#struct Value (#linear) (: reference (#ref #u64)))
       (#fn nested-view (: owner (#ref PinnedNumberRc)) (#pin-ref Value)
         (#return (#call PinnedNumberRc-borrow (: owner owner))))\n{source}"
     )
@@ -392,8 +392,8 @@ fn cloning_ownership_retains_exclusive_reference_contents_without_lending_them()
       (#forget arena) (#return answer)";
     let source = nested_reference_source(&nested_reference_body(tail))
         .replace(
-            "Value (: reference (#ref #u64))",
-            "Value (: reference (#ref-mut #u64))",
+            "Value (#linear) (: reference (#ref #u64))",
+            "Value (#linear) (: reference (#ref-mut #u64))",
         )
         .replace(
             ": reference (#borrow source)",

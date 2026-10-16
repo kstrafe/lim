@@ -3,10 +3,10 @@ mod support;
 use std::{process::Command, time::Duration};
 
 const DECLARATIONS: &str = "
-  (#struct Resource (: value #u64)) (#linear Resource)
-  (#enum Holder ((Holding (#ref Resource)) (Plain #u64))) (#linear Holder)
-  (#enum Cell ((Empty) (Full Holder))) (#linear Cell)
-  (#struct Output (: cell Cell)) (#linear Output)
+  (#struct Resource (#linear) (: value #u64))
+  (#enum Holder (#linear) ((Holding (#ref Resource)) (Plain #u64)))
+  (#enum Cell (#linear) ((Empty) (Full Holder)))
+  (#struct Output (#linear) (: cell Cell))
   (#fn extract (: source (#ref-mut Cell)) Output
     (#let old Cell (#deref source))
     (#deref-set source (Empty))

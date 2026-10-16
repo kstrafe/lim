@@ -29,12 +29,12 @@
 )
 (
   #enum
-  SystemAllocationError
+  SystemAllocationError ()
   (SystemAllocationOutOfMemory SystemAllocationInvalidSize)
 )
 (
   #enum
-  SystemAllocationResult
+  SystemAllocationResult (#linear)
   (
     (
       SystemAllocated
@@ -43,7 +43,7 @@
     (SystemAllocationFailed SystemAllocationError)
   )
 )
-(#linear SystemAllocationResult)
+
 (
   #fn
   system-allocate

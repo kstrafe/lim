@@ -1,13 +1,13 @@
 ; Await an aggregate, destructure it, then keep its leaves through another await.
-(#struct Values ((z (#tuple #u16 #u16)) (a #u64)))
-(#enum InputTask ((InputStart Values) (InputResume Values)))
-(#enum InputPoll ((InputPending InputTask) (InputReady Values)))
+(#struct Values () ((z (#tuple #u16 #u16)) (a #u64)))
+(#enum InputTask () ((InputStart Values) (InputResume Values)))
+(#enum InputPoll () ((InputPending InputTask) (InputReady Values)))
 (#fn input-poll ((task InputTask) (waker (#ref #u64))) InputPoll
   (#return (#match task
     (#case (InputStart values) (InputPending (InputResume values)))
     (#case (InputResume values) (InputReady values)))))
-(#enum Step ((Start #u64) (Resume #u64)))
-(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#enum Step () ((Start #u64) (Resume #u64)))
+(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))

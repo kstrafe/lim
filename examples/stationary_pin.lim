@@ -1,8 +1,8 @@
 ;; The generated scope privately owns the storage. User functions only see
 ;; an opaque handle, never the movable Frame itself.
 (#import "../library/pin.lim")
-(#struct Frame (: value #u64))
-(#linear Frame)
+(#struct Frame (#linear) (: value #u64))
+
 (@#pin (: type Frame : name PinnedFrame : fields (: value #u64)))
 (@#pin-scope (: type Frame : pin PinnedFrame : name with-pinned-frame
   : run drive-frame : destroy destroy-frame : result #u64))

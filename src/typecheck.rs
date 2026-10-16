@@ -379,7 +379,7 @@ mod checked_program_tests {
     #[test]
     fn implicit_clone_hooks_contribute_to_native_call_depths() {
         let program = crate::parse_program(
-            "(#struct Value ((number #u64)))
+            "(#struct Value () ((number #u64)))
           (#fn helper ((value Value)) Value (#return value))
           (#fn Value-clone ((value Value)) Value
             (#return (#call helper (: value value))))
@@ -397,8 +397,8 @@ mod checked_program_tests {
 
     #[test]
     fn owned_nested_projection_borrows_retain_the_original_binding_and_loan_path() {
-        let source = "(#struct Inner ((value #u64)))
-          (#struct Owner ((inner Inner))) (#linear Owner)
+        let source = "(#struct Inner () ((value #u64)))
+          (#struct Owner (#linear) ((inner Inner)))
           (#fn main () #u64
             (#let owner Owner (#struct-literal Owner
               (: inner (#struct-literal Inner (: value 42u64)))))
@@ -462,8 +462,8 @@ mod checked_program_tests {
     #[test]
     fn staged_typed_liveness_is_available_before_linear_enforcement() {
         let program = crate::parse_program(
-            "(#struct Token ((value #u64)))
-             (#linear Token)
+            "(#struct Token (#linear) ((value #u64)))
+
              (#fn resume ((live #u64) (unused Token)) #u64 (#return live))",
         )
         .unwrap();
@@ -478,7 +478,7 @@ mod checked_program_tests {
     #[test]
     fn generated_capture_requirements_include_cleanup_but_not_dead_parameter_loans() {
         let program = crate::parse_program(
-            "(#struct Token ((value #u64))) (#linear Token)
+            "(#struct Token (#linear) ((value #u64)))
              (#fn poll-resume-0 ((live #u64) (unused Token) (dead (#ref #u64))) #u64
                (#return live))
              (#fn unrelated ((unused Token)) () (#return ()))",
@@ -511,7 +511,7 @@ mod checked_program_tests {
             "identity"
         );
 
-        let mut type_program = crate::parse_program("(#struct Box ((value #u64)))").unwrap();
+        let mut type_program = crate::parse_program("(#struct Box () ((value #u64)))").unwrap();
         let Item::Struct {
             name,
             type_parameters,
@@ -560,12 +560,12 @@ mod checked_program_tests {
             ("(#fn main () #u64 (#let value #u64 (#u64.+.wrap 1u64 false)) (#return value))", "false"),
             ("(#fn main () #u64 (#let value #u64 1u64) (#let flag #bool false) (#return (#u64.+.wrap 2u64 flag)))", "flag"),
             ("(#fn add ((first #u64) (second #u64)) #u64 (#return (#u64.+.wrap first second))) (#fn main () #u64 (#return (#call add (: second false : first 1u64))))", "false"),
-            ("(#struct Inner ((value #u64))) (#struct Outer ((first Inner) (second Inner))) (#fn main () Outer (#return (#struct-literal Outer ((first (#struct-literal Inner ((value 1u64)))) (second (#struct-literal Inner ((value false))))))))", "false"),
+            ("(#struct Inner () ((value #u64))) (#struct Outer () ((first Inner) (second Inner))) (#fn main () Outer (#return (#struct-literal Outer ((first (#struct-literal Inner ((value 1u64)))) (second (#struct-literal Inner ((value false))))))))", "false"),
             ("(#fn main () #u64 (#let-mut value #u64 0u64) (#let shared (#ref #u64) (#borrow value)) (#let mutable (#ref-mut #u64) (#borrow-mut shared)) (#return 0u64))", "shared"),
             ("(#fn main () #u64 (#return (#get (#tuple (#tuple #u64 #u64) 1u64 false) 0)))", "false"),
             ("(#fn main () #u64 (#return (#u64.+.wrap (#if false 1u64 2u64) false)))", "false"),
             ("(#fn choose ((flag #bool) (value #u64)) #u64 (#return value)) (#fn main () #u64 (#return (#call choose (: value false : flag false))))", "false"),
-            ("(#struct Point ((value #u64))) (#fn main () #u64 (#let-mut owner Point (#struct-literal Point ((value 1u64)))) (#let shared (#ref Point) (#borrow owner)) (#let exclusive (#ref-mut #u64) (#borrow-mut (#get shared value))) (#return 0u64))", "(#get shared value)"),
+            ("(#struct Point () ((value #u64))) (#fn main () #u64 (#let-mut owner Point (#struct-literal Point ((value 1u64)))) (#let shared (#ref Point) (#borrow owner)) (#let exclusive (#ref-mut #u64) (#borrow-mut (#get shared value))) (#return 0u64))", "(#get shared value)"),
             ("(#fn main () #u64 (#return (#block (#let value #u64 1u64) (#u64.+.wrap value 2u64) (#let flag #bool false) (#u64.+.wrap flag 2u64))))", "flag"),
         ];
         for (source, offending) in cases {
@@ -619,7 +619,7 @@ mod checked_program_tests {
 
     #[test]
     fn typed_match_return_uses_the_arm_local_loan_state() {
-        let source = "(#enum Holder ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Has (#ref #u64))))
           (#fn escape () (#ref #u64)
             (#let owner #u64 1u64)
             (#let holder Holder (Has (#borrow owner)))
@@ -665,8 +665,8 @@ mod checked_program_tests {
 
     #[test]
     fn typed_aggregate_return_uses_nested_match_loan_state() {
-        let source = "(#enum Holder ((Has (#ref #u64))))
-          (#struct Wrapped ((view (#ref #u64))))
+        let source = "(#enum Holder () ((Has (#ref #u64))))
+          (#struct Wrapped () ((view (#ref #u64))))
           (#fn escape () Wrapped
             (#let owner #u64 1u64)
             (#let holder Holder (Has (#borrow owner)))
@@ -683,7 +683,7 @@ mod checked_program_tests {
 
     #[test]
     fn typed_repeated_array_return_uses_nested_match_loan_state() {
-        let source = "(#enum Holder ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Has (#ref #u64))))
           (#fn escape () (#array (#ref #u64) 2)
             (#let owner #u64 1u64)
             (#let holder Holder (Has (#borrow owner)))
@@ -700,7 +700,7 @@ mod checked_program_tests {
 
     #[test]
     fn typed_reference_call_return_uses_nested_match_loan_state() {
-        let source = "(#enum Holder ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Has (#ref #u64))))
           (#fn identity ((value (#ref #u64))) (#ref #u64) (#return value))
           (#fn escape () (#ref #u64)
             (#let owner #u64 1u64)
@@ -718,8 +718,8 @@ mod checked_program_tests {
 
     #[test]
     fn typed_projected_return_uses_nested_match_loan_state() {
-        let source = "(#struct RefBox ((view (#ref #u64))))
-          (#enum Holder ((Has RefBox)))
+        let source = "(#struct RefBox () ((view (#ref #u64))))
+          (#enum Holder () ((Has RefBox)))
           (#fn escape () (#ref #u64)
             (#let owner #u64 1u64)
             (#let holder Holder
@@ -741,7 +741,7 @@ mod checked_program_tests {
 
     #[test]
     fn typed_nested_loop_return_uses_the_break_loan_state() {
-        let source = "(#struct RefBox ((view (#ref #u64))))
+        let source = "(#struct RefBox () ((view (#ref #u64))))
           (#fn escape () RefBox
             (#let owner #u64 1u64)
             (#return (#struct-literal RefBox
@@ -757,7 +757,7 @@ mod checked_program_tests {
 
     #[test]
     fn typed_slice_return_uses_the_match_bound_owner() {
-        let source = "(#enum Holder ((Has (#ref (#array #u64 2)))))
+        let source = "(#enum Holder () ((Has (#ref (#array #u64 2)))))
           (#fn escape () (#slice #u64)
             (#let owner (#array #u64 2)
               (#array-of (#array #u64 2) 1u64 2u64))
@@ -776,7 +776,7 @@ mod checked_program_tests {
 
     #[test]
     fn typed_array_literal_return_uses_the_match_bound_owner() {
-        let source = "(#enum Holder ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Has (#ref #u64))))
           (#fn escape () (#array (#ref #u64) 1)
             (#let owner #u64 1u64)
             (#let holder Holder (Has (#borrow owner)))
@@ -1085,7 +1085,7 @@ fn validate_planning_declaration_types(
                 for field in fields {
                     check(
                         &field.ty,
-                        declaration_member_span(program, name, 2, &field.name, 1).or(span),
+                        declaration_member_span(program, name, 3, &field.name, 1).or(span),
                     )?;
                 }
             }
@@ -1094,7 +1094,7 @@ fn validate_planning_declaration_types(
                     for field in &variant.fields {
                         check(
                             field,
-                            declaration_member_span(program, name, 2, &variant.name, 1).or(span),
+                            declaration_member_span(program, name, 3, &variant.name, 1).or(span),
                         )?;
                     }
                 }
@@ -1343,33 +1343,6 @@ fn check_types_inner(
         declared_types.extend(planning.interfaces.deferred_layouts.keys());
         declared_types.extend(planning.interfaces.protocols.keys());
     }
-    let mut linear_annotations = HashSet::new();
-    for item in &program.items {
-        let Item::LinearAnnotation { type_name } = item else {
-            continue;
-        };
-        let key = format!("$linear:{type_name}");
-        let occurrence = usize::from(linear_annotations.contains(type_name));
-        *diagnostic_span = program
-            .declaration_occurrences
-            .get(&key)
-            .and_then(|sources| sources.get(occurrence))
-            .or_else(|| program.declaration_expressions.get(&key))
-            .and_then(|source| source.children.get(1))
-            .map(|source| source.span);
-        if !program.items.iter().any(|item| {
-            matches!(item,
-            Item::Struct { name, type_parameters, .. } | Item::Enum { name, type_parameters, .. }
-                if name == type_name && type_parameters.is_empty())
-        }) {
-            return Err(format!(
-                "#linear requires a concrete struct or enum, got '{type_name}'"
-            ));
-        }
-        if !linear_annotations.insert(type_name) {
-            return Err(format!("duplicate #linear annotation for '{type_name}'"));
-        }
-    }
     let mut opaque_annotations = HashSet::new();
     for item in &program.items {
         let Item::OpaqueAnnotation { type_name } = item else {
@@ -1522,7 +1495,7 @@ fn check_types_inner(
                 .map(|field| {
                     if !field_names.insert(field.name.clone()) {
                         *diagnostic_span =
-                            declaration_member_span(program, name, 2, &field.name, 1);
+                            declaration_member_span(program, name, 3, &field.name, 1);
                         return Err(semantic_format!(
                             "duplicate field '{}' in struct '{name}'",
                             field.name
@@ -1566,7 +1539,7 @@ fn check_types_inner(
                 .map(|variant| {
                     if !local_variant_names.insert(variant.name.clone()) {
                         *diagnostic_span =
-                            declaration_member_span(program, name, 2, &variant.name, 1);
+                            declaration_member_span(program, name, 3, &variant.name, 1);
                         return Err(semantic_format!(
                             "duplicate variant '{}' in enum '{name}'",
                             variant.name
@@ -1972,7 +1945,6 @@ fn check_types_inner(
             | Item::Struct { .. }
             | Item::Enum { .. }
             | Item::UnsafeThreadAnnotation { .. }
-            | Item::LinearAnnotation { .. }
             | Item::OpaqueAnnotation { .. }
             | Item::ThreadTask { .. } => {}
             Item::Let { name, value, .. } | Item::Static { name, value, .. } => {
@@ -2858,7 +2830,6 @@ fn check_thread_task_ownership(
                 // handle to be retried without ending its captured borrows.
             }
             Item::UnsafeThreadAnnotation { .. }
-            | Item::LinearAnnotation { .. }
             | Item::OpaqueAnnotation { .. }
             | Item::ThreadTask { .. } => {}
         }
@@ -4236,7 +4207,7 @@ fn global_enum_member_span(
             Item::Enum { name, .. } => program.declaration_expressions.get(name),
             _ => None,
         })
-        .filter_map(|declaration| declaration.children.get(2))
+        .filter_map(|declaration| declaration.children.get(3))
         .flat_map(|variants| variants.children.iter())
         .filter_map(member_name)
         .filter(|name| matches!(&name.expr, Expr::Symbol(name) if name == wanted))
@@ -11021,8 +10992,8 @@ mod typed_ownership_tests {
             ("Choice", "(Both reference reference)"),
         ] {
             let source = format!(
-                "(#struct Pair (: left (#ref-mut #u64) : right (#ref-mut #u64)))
-                  (#enum Choice ((Both (#ref-mut #u64) (#ref-mut #u64))))
+                "(#struct Pair () (: left (#ref-mut #u64) : right (#ref-mut #u64)))
+                  (#enum Choice () ((Both (#ref-mut #u64) (#ref-mut #u64))))
                   (#fn main () ()
                     (#let-mut value #u64 1u64)
                     (#let reference (#ref-mut #u64) (#borrow-mut value))
@@ -11051,7 +11022,7 @@ mod typed_ownership_tests {
             ("(#let next (#ref-mut #u64) (#if choice reference reference))", "(#deref next)", true),
         ] {
             let source = format!(
-                "(#struct Pair (: item (#ref-mut #u64)))
+                "(#struct Pair () (: item (#ref-mut #u64)))
                  (#fn main (: choice #bool) #u64
                    (#let-mut value #u64 40u64)
                    (#let reference (#ref-mut #u64) (#borrow-mut value))
@@ -11091,7 +11062,7 @@ mod typed_ownership_tests {
             "(#let moved (#tuple (#ref-mut Resource)) (#tuple reference))",
         ] {
             let source = format!(
-                "(#struct Resource (: value #u64)) (#linear Resource)
+                "(#struct Resource (#linear) (: value #u64))
                  (#fn main (: selected #bool) ()
                    (#let-mut owner Resource (#struct-literal Resource (: value 1u64)))
                    (#let reference (#ref-mut Resource) (#borrow-mut owner))
@@ -11129,7 +11100,7 @@ mod typed_ownership_tests {
             "(#deref (#get holder item))",
         ] {
             let source = format!(
-                "(#struct Holder (: item (#ref-mut #u64) : other (#ref-mut #u64)))
+                "(#struct Holder () (: item (#ref-mut #u64) : other (#ref-mut #u64)))
                  (#fn main () #u64
                    (#let-mut first #u64 40u64) (#let-mut second #u64 2u64)
                    (#let holder Holder (#struct-literal Holder
@@ -11148,13 +11119,13 @@ mod typed_ownership_tests {
     #[test]
     fn typed_exclusive_projected_moves_survive_source_cleanup() {
         for (declarations, ty, initial, projection) in [
-            ("(#struct Holder (: item (#ref-mut #u64) : other (#ref-mut #u64)))", "Holder",
+            ("(#struct Holder () (: item (#ref-mut #u64) : other (#ref-mut #u64)))", "Holder",
              "(#struct-literal Holder (: item (#borrow-mut first) : other (#borrow-mut second)))", "(#get holder item)"),
             ("", "(#tuple (#ref-mut #u64) (#ref-mut #u64))",
              "(#tuple (#borrow-mut first) (#borrow-mut second))", "(#get holder 0)"),
             ("", "(#array (#ref-mut #u64) 2)",
              "(#array-of (#array (#ref-mut #u64) 2) (#borrow-mut first) (#borrow-mut second))", "(#index holder 0u64)"),
-            ("(#enum Holder ((Views (#ref-mut #u64) (#ref-mut #u64))))", "Holder",
+            ("(#enum Holder () ((Views (#ref-mut #u64) (#ref-mut #u64))))", "Holder",
              "(Views (#borrow-mut first) (#borrow-mut second))", "(#get-payload holder Views 0)"),
         ] {
             let source = format!("{declarations}
@@ -11182,7 +11153,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn typed_shared_projected_copies_keep_independent_loans() {
-        let source = "(#struct Holder (: item (#ref #u64)))
+        let source = "(#struct Holder () (: item (#ref #u64)))
             (#fn main () #u64
               (#let-mut owner #u64 42u64)
               (#let holder Holder (#struct-literal Holder (: item (#borrow owner))))
@@ -11229,9 +11200,9 @@ mod typed_ownership_tests {
                         "(#loop (#break parent))",
                     ] {
                         let source = format!(
-                            "(#struct Owner (: value #u64))
-                        (#struct View (: child ({} #u64)))
-                        (#struct Wrapped (: view View))
+                            "(#struct Owner () (: value #u64))
+                        (#struct View () (: child ({} #u64)))
+                        (#struct Wrapped () (: view View))
                         (#fn overwrite (: target ({} Owner)) ()
                           {} (#return ()))
                         (#fn inspect (: parent ({} Owner) : selected #bool) ()
@@ -11341,8 +11312,8 @@ mod typed_ownership_tests {
                             } else {
                                 "(#drop held)"
                             };
-                            let source = format!("(#struct Owner (: value #u64))
-                              (#struct View (: child ({child_type} #u64)))
+                            let source = format!("(#struct Owner () (: value #u64))
+                              (#struct View () (: child ({child_type} #u64)))
                               (#fn child-of (: owner ({parent_type} Owner)) {result_type} (#return {result}))
                               (#fn forward (: owner ({parent_type} Owner)) {result_type}
                                 (#return (#call child-of (: owner owner))))
@@ -11409,8 +11380,8 @@ mod typed_ownership_tests {
                 "(#label result (#loop (#break-to result (#call child-of (: owner parent)))))",
             ] {
                 let source = format!(
-                    "(#struct Owner (: value #u64))
-                  (#linear Owner)
+                    "(#struct Owner (#linear) (: value #u64))
+
                   (#fn child-of (: owner (#ref-mut Owner)) (#ref-mut #u64)
                     (#return (#borrow-mut (#get owner value))))
                   (#fn main () #u64
@@ -11480,7 +11451,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn returned_pointer_contents_do_not_borrow_the_container_handle() {
-        let source = "(#struct Holder (: value (#ref #u64)))
+        let source = "(#struct Holder () (: value (#ref #u64)))
           (#fn read-value (: holder (#ref-mut Holder)) (#ref #u64)
             (#return (#get holder value)))
           (#fn replace (: holder (#ref-mut Holder) : value (#ref #u64)) ()
@@ -11515,8 +11486,8 @@ mod typed_ownership_tests {
             "(#loop (#break (#get view child)))",
             "(#label done (#loop (#break-to done (#get view child))))",
         ] {
-            let source = format!("(#struct Owner (: value #u64 : other #u64))
-                (#struct View (: child (#ref-mut #u64)))
+            let source = format!("(#struct Owner () (: value #u64 : other #u64))
+                (#struct View () (: child (#ref-mut #u64)))
                 (#fn increment (: target (#ref-mut #u64)) #u64
                   (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return (#deref target)))
                 (#fn inspect (: parent (#ref-mut Owner)) #u64
@@ -11613,13 +11584,13 @@ mod typed_ownership_tests {
                 "values",
             ),
             (
-                "(#struct Holder ((view (#ref #u64))))",
+                "(#struct Holder () ((view (#ref #u64))))",
                 "Holder",
                 "(#struct-literal Holder ((view (#borrow owner))))",
                 "(#get values view)",
             ),
             (
-                "(#enum Holder ((Some (#ref #u64)) None))",
+                "(#enum Holder () ((Some (#ref #u64)) None))",
                 "Holder",
                 "(Some (#borrow owner))",
                 "(#get-payload values Some 0)",
@@ -11671,7 +11642,7 @@ mod typed_ownership_tests {
                 .any(|(span, _)| &source[span.start..span.end] == "(#drop view)"));
             assert!(crate::check_types(&crate::parse_program(&source).unwrap()).is_err());
         }
-        let source = "(#struct Holder ((number #u64)))
+        let source = "(#struct Holder () ((number #u64)))
           (#fn main () #u64
             (#let owner Holder (#struct-literal Holder ((number 42u64))))
             (#let view (#ref Holder) (#borrow owner))
@@ -11711,7 +11682,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn raw_pointer_anchor_does_not_prove_referent_restoration() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) ()
             (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
             (#deref-set target (#struct-literal Resource ((number 2u64))))
@@ -11733,7 +11704,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn raw_pointer_anchor_marker_survives_return_summary_chains() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn raw ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource))) (#ref-mut Resource)
             (#return (#unsafe (#ptr-borrow-mut anchor pointer))))
           (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource) (#return value))
@@ -11765,7 +11736,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn return_summaries_preserve_referent_field_projections() {
-        let source = "(#struct Point ((x #u64) (y #u64)))
+        let source = "(#struct Point () ((x #u64) (y #u64)))
           (#fn field ((parent (#ref-mut Point))) (#ref #u64)
             (#return (#borrow (#get parent x))))
           (#fn forward ((parent (#ref-mut Point))) (#ref #u64)
@@ -11806,8 +11777,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn return_summaries_compose_nested_and_alternative_projections() {
-        let source = "(#struct Point ((x #u64) (y #u64)))
-          (#struct Outer ((point Point)))
+        let source = "(#struct Point () ((x #u64) (y #u64)))
+          (#struct Outer () ((point Point)))
           (#fn inner ((parent (#ref-mut Outer))) (#ref-mut Point)
             (#return (#borrow-mut (#get parent point))))
           (#fn field ((parent (#ref-mut Point)) (choose #bool)) (#ref #u64)
@@ -11850,8 +11821,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn lifetime_only_provenance_survives_aggregate_reborrowing() {
-        let source = "(#struct Resource ((number #u64)))
-          (#struct Holder ((value (#ref-mut Resource)) (safe (#ref-mut Resource))))
+        let source = "(#struct Resource () ((number #u64)))
+          (#struct Holder () ((value (#ref-mut Resource)) (safe (#ref-mut Resource))))
           (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (safe (#ref-mut Resource))) ()
             (#let raw (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
             (#let-mut holder Holder (#struct-literal Holder ((value raw) (safe safe))))
@@ -11895,7 +11866,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn pinned_payload_reborrows_retain_parameter_origins() {
-        let source = "(#enum Slot ((Full #u64) Empty))
+        let source = "(#enum Slot () ((Full #u64) Empty))
           (#fn inspect ((slot (#pin-ref Slot))) ()
             (#let view (#pin-ref #u64) (#pin-get-payload slot Full 0))
             (#forget view) (#return ()))";
@@ -11934,8 +11905,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn aggregate_parameter_slots_survive_reborrow_return_summaries() {
-        let source = "(#struct Point ((x #u64)))
-          (#struct Pair ((left (#ref-mut Point)) (right (#ref-mut Point))))
+        let source = "(#struct Point () ((x #u64)))
+          (#struct Pair () ((left (#ref-mut Point)) (right (#ref-mut Point))))
           (#fn select ((pair Pair)) (#ref #u64)
             (#let parent (#ref-mut Point) (#get pair left))
             (#return (#borrow (#get parent x))))
@@ -12011,7 +11982,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn ambiguous_reference_writes_retain_each_possible_old_loan() {
-        let source = "(#struct Holder ((value (#ref #u64))))
+        let source = "(#struct Holder () ((value (#ref #u64))))
           (#fn inspect ((choice #bool)) ()
             (#let a #u64 1u64) (#let b #u64 2u64) (#let c #u64 3u64)
             (#let-mut left Holder (#struct-literal Holder ((value (#borrow a)))))
@@ -12066,7 +12037,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn known_reference_writes_replace_old_loans_with_rhs_origins() {
-        let source = "(#struct Holder ((value (#ref #u64))))
+        let source = "(#struct Holder () ((value (#ref #u64))))
           (#fn inspect () ()
             (#let a #u64 1u64) (#let b #u64 2u64)
             (#let-mut holder Holder (#struct-literal Holder ((value (#borrow a)))))
@@ -12105,7 +12076,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn computed_reference_writes_transfer_rhs_loan_origins() {
-        let source = "(#struct Holder ((value (#ref #u64))))
+        let source = "(#struct Holder () ((value (#ref #u64))))
           (#fn identity ((value (#ref-mut Holder))) (#ref-mut Holder) (#return value))
           (#fn inspect () ()
             (#let a #u64 1u64) (#let b #u64 2u64)
@@ -12193,7 +12164,7 @@ mod typed_ownership_tests {
                 ),
             ] {
                 let source = format!(
-                    "(#struct Resource ((number #u64))) (#linear Resource)
+                    "(#struct Resource (#linear) ((number #u64)))
               (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource) (#return value))
               (#fn inspect ((reference (#ref-mut Resource)) (choice #bool)) ()
                 {cleanup}
@@ -12225,7 +12196,7 @@ mod typed_ownership_tests {
             ("(#forget (#deref left)) (#forget (#deref right))", true),
         ] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (choice #bool)) ()
                 {cleanup}
                 (#let target (#ref-mut Resource) (#if choice left right))
@@ -12256,7 +12227,7 @@ mod typed_ownership_tests {
                 ("#pin-ref-mut", false),
             ] {
                 let source = format!(
-                    "(#struct Resource ((number #u64))) (#linear Resource)
+                    "(#struct Resource (#linear) ((number #u64)))
               (#fn inspect ((reference ({reference_type} Resource))) ()
                 {operation} (#return ()))"
                 );
@@ -12287,8 +12258,8 @@ mod typed_ownership_tests {
             ("(#forget (#get reference left))", "(#borrow-mut (#get reference left))",
              "(#struct-literal Resource ((number 3u64)))", true),
         ] {
-            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
-              (#struct Pair ((left Resource) (right Resource)))
+            let source = format!("(#struct Resource (#linear) ((number #u64)))
+              (#struct Pair () ((left Resource) (right Resource)))
               (#fn inspect ((reference (#ref-mut Pair))) ()
                 {cleanup} (#deref-set {target} {rhs}) (#return ()))");
             let program = crate::parse_program(&source).unwrap();
@@ -12306,7 +12277,7 @@ mod typed_ownership_tests {
             ("(#if choice (#forget (#deref reference)) ())", 1, false),
             ("(#forget (#deref reference)) (#deref-set reference (#struct-literal Resource ((number 2u64))))", 0, false),
         ] {
-            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+            let source = format!("(#struct Resource (#linear) ((number #u64)))
               (#fn inspect ((reference (#ref-mut Resource)) (choice #bool)) ()
                 {body_source} (#return ()))");
             let program = crate::parse_program(&source).unwrap();
@@ -12331,7 +12302,7 @@ mod typed_ownership_tests {
             } else {
                 "(#deref-set target (#struct-literal Resource ((number 2u64))))"
             };
-            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+            let source = format!("(#struct Resource (#linear) ((number #u64)))
               (#fn inspect ((anchor (#ref-mut Resource)) (pointer (#ptr-mut Resource)) (choice #bool)) ()
                 (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
                 {branch} (#return ()))");
@@ -12350,7 +12321,7 @@ mod typed_ownership_tests {
     fn staged_function_effects_intersect_all_normal_returns() {
         for (early_cleanup, definite) in [("", false), ("(#forget (#deref reference))", true)] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn inspect ((reference (#ref-mut Resource)) (choice #bool)) ()
                 (#if choice (#block {early_cleanup} (#return ())) ())
                 (#forget (#deref reference)) (#return ()))"
@@ -12379,8 +12350,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_effects_separate_input_slots_from_referent_projections() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
-          (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+        let source = "(#struct Resource (#linear) ((number #u64)))
+          (#struct Pair () ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
           (#fn inspect ((pair Pair)) ()
             (#let target (#ref-mut Resource) (#get pair left))
             (#forget (#deref target)) (#return ()))";
@@ -12401,7 +12372,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_consumption_summaries_forward_callee_effects() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
           (#fn forward ((value (#ref-mut Resource))) ()
@@ -12534,7 +12505,7 @@ mod typed_ownership_tests {
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", true),
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", false),
         ] {
-            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+            let source = format!("(#struct Resource (#linear) ((number #u64)))
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
               (#fn restore ((value (#ref-mut Resource)) (choice #bool)) ()
@@ -12585,7 +12556,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_whole_program_replacement_rejects_live_callee_referent() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn inspect ((value (#ref-mut Resource))) () (#return ()))
           (#fn replace ((value (#ref-mut Resource))) ()
             (#call inspect (: value value))
@@ -12623,7 +12594,7 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn consume ((value (#ref-mut Resource)) (choice #bool)) ()
                 {consume} (#return ()))
               (#fn replace ((value (#ref-mut Resource)) (choice #bool)) ()
@@ -12655,7 +12626,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_consumption_maps_to_caller_owned_storage() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn consume ((value (#ref-mut Resource))) () (#forget (#deref value)) (#return ()))
           (#fn inspect () ()
             (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
@@ -12732,7 +12703,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_effects_are_possible_for_each_ambiguous_caller_target() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn consume ((value (#ref-mut Resource))) () (#forget (#deref value)) (#return ()))
           (#fn inspect ((choice #bool)) ()
             (#let-mut left Resource (#struct-literal Resource ((number 1u64))))
@@ -12806,9 +12777,9 @@ mod typed_ownership_tests {
               (#match owner (#case (Wrapped other) other)))",
         ] {
             let source = format!(
-                "(#struct Resource (: value #u64)) (#linear Resource)
-                  (#struct Holder (: view (#ref-mut Resource))) (#linear Holder)
-                  (#enum Envelope ((Wrapped Holder))) (#linear Envelope)
+                "(#struct Resource (#linear) (: value #u64))
+                  (#struct Holder (#linear) (: view (#ref-mut Resource)))
+                  (#enum Envelope (#linear) ((Wrapped Holder)))
                   (#fn release (: owner Envelope : selected #bool) ()
                     (#forget {expression}) (#return ()))
                   (#fn main () #u64
@@ -12832,7 +12803,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_reader_call_checks_share_inherited_entry_and_restoration() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn read ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
@@ -12970,7 +12941,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_caller_use_validation_shares_entry_and_restoration_state() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn caller ((value (#ref-mut Resource))) #u64
@@ -13036,7 +13007,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_forwarded_initializer_entry_accepts_inherited_consumption() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn forward ((value (#ref-mut Resource))) ()
@@ -13105,7 +13076,7 @@ mod typed_ownership_tests {
         for both in [false, true] {
             let consume_right = if both { "(#forget (#deref right))" } else { "" };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
               (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (choice #bool)) ()
@@ -13220,7 +13191,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
               (#fn caller ((value (#ref-mut Resource))) ()
@@ -13282,8 +13253,8 @@ mod typed_ownership_tests {
     fn staged_write_entry_inference_keeps_independent_parameter_slots_live() {
         for read_slot in ["left", "right"] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-              (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+                "(#struct Resource (#linear) ((number #u64)))
+              (#struct Pair () ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
               (#fn initialize-left ((pair Pair)) #u64
                 (#let selected (#ref-mut Resource) (#get pair left))
                 (#let inspected (#ref-mut Resource) (#get pair {read_slot}))
@@ -13320,7 +13291,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_direct_write_entry_inference_rejects_contradictory_consumption() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn replace ((value (#ref-mut Resource))) ()
@@ -13355,7 +13326,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_direct_body_validation_distinguishes_referent_entry_states() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn consume ((value (#ref-mut Resource))) ()
@@ -13399,7 +13370,7 @@ mod typed_ownership_tests {
                 "(#call consume (: value value))"
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
               (#fn inspect ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
@@ -13453,7 +13424,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn inspect ((value (#ref-mut Resource))) #u64
                 {write} (#return (#get value number)))"
             );
@@ -13490,7 +13461,7 @@ mod typed_ownership_tests {
                 "(#if choice (#call initialize (: value value)) ())"
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
               (#fn read-after ((value (#ref-mut Resource)) (choice #bool)) #u64
@@ -13514,7 +13485,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_restoration_postconditions_forward_through_helper_calls() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn forward ((value (#ref-mut Resource))) ()
@@ -13551,7 +13522,7 @@ mod typed_ownership_tests {
                 "()"
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
               (#fn caller ((value (#ref-mut Resource)) (choice #bool)) ()
@@ -13617,7 +13588,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_call_restoration_clears_consumed_caller_referents() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 2u64)))) (#return ()))
           (#fn caller ((value (#ref-mut Resource))) ()
@@ -13689,7 +13660,7 @@ mod typed_ownership_tests {
                 "(#borrow-mut left)"
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn initialize ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 3u64)))) (#return ()))
               (#fn caller ((choice #bool)) ()
@@ -13753,8 +13724,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_restoration_postconditions_preserve_parameter_reference_slots() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
-          (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+        let source = "(#struct Resource (#linear) ((number #u64)))
+          (#struct Pair () ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
           (#fn initialize ((pair Pair)) ()
             (#let selected (#ref-mut Resource) (#get pair left))
             (#deref-set selected (#struct-literal Resource ((number 2u64))))
@@ -13787,7 +13758,7 @@ mod typed_ownership_tests {
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true),
             ("(#if choice (#block (#return ())) ()) (#deref-set value (#struct-literal Resource ((number 2u64))))", false),
         ] {
-            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+            let source = format!("(#struct Resource (#linear) ((number #u64)))
               (#fn initialize ((value (#ref-mut Resource)) (choice #bool)) ()
                 {write} (#return ()))");
             let program = crate::parse_program(&source).unwrap();
@@ -13807,7 +13778,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_entry_read_inference_accounts_for_callee_consumption() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
           (#fn caller ((value (#ref-mut Resource))) #u64
@@ -13846,7 +13817,7 @@ mod typed_ownership_tests {
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) ())", false),
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true),
         ] {
-            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+            let source = format!("(#struct Resource (#linear) ((number #u64)))
               (#fn inspect ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
               (#fn caller ((value (#ref-mut Resource)) (choice #bool)) ()
                 (#forget (#deref value)) {restoration}
@@ -13880,7 +13851,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn inspect ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
               (#fn caller ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) {write}
@@ -13924,7 +13895,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64)))
+                "(#struct Resource () ((number #u64)))
               (#fn inspect ((value (#ref-mut Resource))) #u64 (#return (#get value number)))
               (#fn forward ((value (#ref-mut Resource))) #u64
                 {write} (#return (#call inspect (: value value))))"
@@ -13960,7 +13931,7 @@ mod typed_ownership_tests {
             ("(#if choice (#deref-set value (#struct-literal Resource ((number 2u64)))) (#deref-set value (#struct-literal Resource ((number 3u64)))))", true, false),
         ] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn inspect ((value (#ref-mut Resource)) (choice #bool)) #u64
                 {write} (#return (#get value number)))"
             );
@@ -13991,7 +13962,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_read_only_callee_reads_map_to_caller_storage() {
-        let source = "(#struct Resource ((number #u64)))
+        let source = "(#struct Resource () ((number #u64)))
           (#fn inspect ((value (#ref Resource))) #u64 (#return (#get value number)))
           (#fn forward ((value (#ref Resource))) #u64 (#return (#call inspect (: value value))))
           (#fn caller () #u64
@@ -14070,8 +14041,8 @@ mod typed_ownership_tests {
     fn staged_read_facts_separate_input_slots_from_referent_fields() {
         for (slot, index) in [("left", 0), ("right", 1)] {
             let source = format!(
-                "(#struct Resource ((number #u64)))
-              (#struct Pair ((left (#ref Resource)) (right (#ref Resource))))
+                "(#struct Resource () ((number #u64)))
+              (#struct Pair () ((left (#ref Resource)) (right (#ref Resource))))
               (#fn inspect ((pair Pair)) #u64
                 (#let selected (#ref Resource) (#get pair {slot}))
                 (#return (#get selected number)))"
@@ -14094,7 +14065,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_read_only_referent_access_is_independent_of_consumption() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn inspect ((value (#ref Resource))) #u64
             (#return (#get value number)))";
         let program = crate::parse_program(source).unwrap();
@@ -14127,7 +14098,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_consuming_call_entry_rejects_possible_prior_consumption() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
           (#fn inspect ((value (#ref-mut Resource)) (choice #bool)) ()
@@ -14166,7 +14137,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
               (#fn inspect ((value (#ref-mut Resource))) ()
@@ -14205,8 +14176,8 @@ mod typed_ownership_tests {
     fn staged_reference_field_reads_preserve_parameter_slot_identity() {
         for (slot, accepted) in [("left", false), ("right", true)] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-              (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+                "(#struct Resource (#linear) ((number #u64)))
+              (#struct Pair () ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
               (#fn inspect ((pair Pair)) ()
                 (#let consumed (#ref-mut Resource) (#get pair left))
                 (#let selected (#ref-mut Resource) (#get pair {slot}))
@@ -14238,7 +14209,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_reference_field_read_detects_consumed_owner() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn inspect ((value (#ref-mut Resource))) ()
             (#let alias (#ref-mut Resource) value)
             (#forget (#deref value))
@@ -14264,7 +14235,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_consumption_rejects_reference_alias_reuse() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn consume ((value (#ref-mut Resource))) ()
             (#forget (#deref value)) (#return ()))
           (#fn inspect ((value (#ref-mut Resource))) ()
@@ -14324,7 +14295,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_reference_alias_uses_resolve_to_consumed_storage() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn inspect ((value (#ref-mut Resource))) ()
             (#let alias (#ref-mut Resource) value)
             (#forget (#deref value))
@@ -14347,7 +14318,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_diverging_branch_does_not_weaken_returning_consumption() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn diverge () () (#unreachable) (#return ()))
           (#fn consume ((value (#ref-mut Resource)) (choice #bool)) ()
             (#if choice (#call diverge ()) (#forget (#deref value)))
@@ -14380,7 +14351,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_ownership_summaries_cut_nonreturning_call_continuations() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn diverge () () (#unreachable) (#return ()))
           (#fn caller ((value (#ref-mut Resource))) ()
             (#call diverge ())
@@ -14413,7 +14384,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn nonreturning_helper_contracts_preserve_known_and_unknown_accesses() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
             (#fn consume ((value (#ref-mut Resource))) ()
               (#forget (#deref value)) (#unreachable) (#return ()))
             (#fn forward ((value (#ref-mut Resource))) ()
@@ -14472,7 +14443,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn unresolved_consumption_on_a_trapping_branch_is_not_an_exit_effect() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
             (#fn consume ((value (#ref-mut Resource)) (selected #bool)) ()
               (#if selected (#block (#forget (#deref value)) (#unreachable)) ())
               (#return ()))";
@@ -14499,7 +14470,7 @@ mod typed_ownership_tests {
     fn nonreturning_calls_still_require_initialized_referent_inputs() {
         let call = "(#call forward (: value value))";
         let source = format!(
-            "(#struct Resource ((number #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((number #u64)))
              (#fn consume ((value (#ref-mut Resource))) ()
                (#forget (#deref value)) (#unreachable) (#return ()))
              (#fn forward ((value (#ref-mut Resource))) ()
@@ -14530,7 +14501,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn conditional_call_effects_do_not_prove_missing_argument_alternatives() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
             (#fn consume ((value (#ref-mut Resource))) ()
               (#forget (#deref value)) (#return ()))
             (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (selected #bool)) ()
@@ -14594,8 +14565,8 @@ mod typed_ownership_tests {
             "(#struct-literal Holder ((target (#if selected left right)) (spare spare)))",
         ] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-            (#struct Holder ((target (#ref-mut Resource)) (spare (#ref #u64))))
+                "(#struct Resource (#linear) ((number #u64)))
+            (#struct Holder () ((target (#ref-mut Resource)) (spare (#ref #u64))))
             (#fn consume ((holder Holder)) ()
               (#forget (#deref (#get holder target))) (#forget holder) (#return ()))
             (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource))
@@ -14666,8 +14637,8 @@ mod typed_ownership_tests {
                 "(#ref-mut Resource)",
             ),
             (
-                "(#struct Inner ((target (#ref-mut Resource))))
-              (#struct Holder ((inner Inner) (spare (#ref #u64))))",
+                "(#struct Inner () ((target (#ref-mut Resource))))
+              (#struct Holder () ((inner Inner) (spare (#ref #u64))))",
                 "(#get (#get holder inner) target)",
                 "(#struct-literal Holder ((inner (#struct-literal Inner
                ((target (#if selected left right))))) (spare spare)))",
@@ -14675,7 +14646,7 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource) {declaration}
+                "(#struct Resource (#linear) ((number #u64)))  {declaration}
                  (#fn consume ((holder Holder)) ()
                    (#forget (#deref {getter})) (#forget holder) (#return ()))
                  (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource))
@@ -14737,8 +14708,8 @@ mod typed_ownership_tests {
             ("(#if selected (Full left) (Empty))", 1, false),
         ] {
             let source = format!(
-                "(#struct Resource (: number #u64)) (#linear Resource)
-                (#enum Choice ((Empty) (Full (#ref-mut Resource))))
+                "(#struct Resource (#linear) (: number #u64))
+                (#enum Choice () ((Empty) (Full (#ref-mut Resource))))
                 (#fn consume (: choice Choice) ()
                   (#let done () (#match choice
                     (#case (Empty) ())
@@ -14797,8 +14768,8 @@ mod typed_ownership_tests {
     fn owned_variant_facts_follow_nested_enum_payload_bindings() {
         let source = "(#fn touch () ()
           (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
-          (#enum Choice (Empty (Full #u64)))
-          (#enum Wrapper (Absent (Wrapped Choice)))
+          (#enum Choice () (Empty (Full #u64)))
+          (#enum Wrapper () (Absent (Wrapped Choice)))
           (#fn inspect () ()
             (#let wrapper Wrapper (Wrapped (Full 1u64)))
             (#match wrapper
@@ -14864,8 +14835,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn owned_variant_facts_intersect_branches_and_invalidate_unknown_calls() {
-        let source = "(#enum Choice ((Empty) (Full #u64)))
-            (#struct Holder (: choice Choice))
+        let source = "(#enum Choice () ((Empty) (Full #u64)))
+            (#struct Holder () (: choice Choice))
             (#fn touch () ()
               (#let ignored #i64 (#unsafe (#linux-syscall #i64 39usize ()))) (#return ()))
             (#fn inspect (: selected #bool) ()
@@ -14963,7 +14934,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#enum Choice ((Empty) (Full (#ref #u64))))
+                "(#enum Choice () ((Empty) (Full (#ref #u64))))
                 (#fn read (: source (#ref Choice)) #u64
                   (#return (#match (#deref source)
                     (#case (Empty) 0u64)
@@ -15024,7 +14995,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn outer_storage_cannot_retain_a_block_local_reference_after_scope_exit() {
-        let source = "(#struct Holder (: view (#ref #u64)))
+        let source = "(#struct Holder () (: view (#ref #u64)))
             (#fn inspect (: external (#ref #u64)) #u64
               (#let-mut holder Holder (#struct-literal Holder (: view external)))
               (#let done () (#block
@@ -15064,7 +15035,7 @@ mod typed_ownership_tests {
                 "(#deref-set target temporary)"
             };
             let source = format!(
-                "(#struct Holder (: view (#ref #u64)))
+                "(#struct Holder () (: view (#ref #u64)))
                 (#fn bad (: target ({target} Holder)) ()
                   (#let local #u64 7u64)
                   (#let temporary Holder (#struct-literal Holder (: view (#borrow local))))
@@ -15098,7 +15069,7 @@ mod typed_ownership_tests {
         for premature in [false, true] {
             let mutation = if premature { "(#set other 1u64)" } else { "" };
             let source = format!(
-                "(#struct Holder (: view (#ref #u64)))
+                "(#struct Holder () (: view (#ref #u64)))
                 (#fn main () #u64
                   (#let-mut value #u64 7u64) (#let-mut other #u64 42u64)
                   (#let-mut holder Holder (#struct-literal Holder (: view (#borrow value))))
@@ -15170,8 +15141,8 @@ mod typed_ownership_tests {
                 "later-call" => format!("{clear} (#call touch ()) (#return (Ready))"),
                 _ => unreachable!(),
             };
-            let source = format!("(#struct Part (: view (#ref #u64))) (#linear Part)
-                (#enum Outcome ((Ready) (Pending)))
+            let source = format!("(#struct Part (#linear) (: view (#ref #u64)))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn touch () () (#return ()))
                 (#fn choose (: target (#ref-mut Part) : selected #bool : unknown Outcome : replacement (#ref #u64)) Outcome {choose})");
             let program = crate::parse_program(&source).unwrap();
@@ -15242,8 +15213,8 @@ mod typed_ownership_tests {
             // a dead reference would legitimately stop blocking mutation.
             let ready_cleanup = if accepts { "" } else { "(#forget holder)" };
             let source = format!(
-                "(#struct Part (: view (#ref #u64))) (#linear Part)
-                (#enum Outcome ((Ready) (Pending)))
+                "(#struct Part (#linear) (: view (#ref #u64)))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn touch () () (#return ()))
                 (#fn choose (: target (#ref-mut Part) : selected #bool : unknown Outcome) Outcome
                   (#return (#if selected (#block (#forget (#deref target)) (Ready)) {alternative})))
@@ -15303,8 +15274,8 @@ mod typed_ownership_tests {
                 format!("(#let outcome Outcome {call})")
             };
             let scrutinee = if direct { call } else { "outcome" };
-            let source = format!("(#struct Part (: view (#ref #u64))) (#linear Part)
-                (#enum Outcome ((Ready (#ref #u64)) (Pending)))
+            let source = format!("(#struct Part (#linear) (: view (#ref #u64)))
+                (#enum Outcome () ((Ready (#ref #u64)) (Pending)))
                 (#fn choose (: target (#ref-mut Part) : selected #bool) Outcome
                   (#return (#if selected (#block (#let saved (#ref #u64) (#get target view))
                     (#forget (#deref target)) (Ready saved)) (Pending))))
@@ -15342,9 +15313,9 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Part (: view (#ref #u64))) (#linear Part)
-                (#struct Pair (: left Part : right Part))
-                (#enum Outcome ((Ready) (Pending)))
+                "(#struct Part (#linear) (: view (#ref #u64)))
+                (#struct Pair () (: left Part : right Part))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn choose (: target (#ref-mut Pair) : selected #bool) Outcome
                   (#return (#if selected (#block (#forget (#get target left)) (Ready)) (Pending))))
                 (#fn main () #u64 (#let-mut left-value #u64 7u64) (#let-mut right-value #u64 42u64)
@@ -15414,8 +15385,8 @@ mod typed_ownership_tests {
                 _ => "(Pending)",
             };
             let source = format!(
-                "(#struct Resource (: number #u64)) (#linear Resource)
-                (#enum Outcome ((Ready) (Pending)))
+                "(#struct Resource (#linear) (: number #u64))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn touch () () (#return ()))
                 (#fn choose (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome
                   (#return (#if selected (#block (#forget (#deref target)) (Ready)) {alternative})))
@@ -15511,8 +15482,8 @@ mod typed_ownership_tests {
                 "callee" => "(#return (#if selected (#block (#call consume (: target target)) (Ready)) (Pending)))".into(),
                 _ => unreachable!(),
             };
-            let source = format!("(#struct Resource (: number #u64)) (#linear Resource)
-                (#enum Outcome ((Ready) (Pending)))
+            let source = format!("(#struct Resource (#linear) (: number #u64))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn consume (: target (#ref-mut Resource)) () (#forget (#deref target)) (#return ()))
                 (#fn choose (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome {implementation})");
             let program = crate::parse_program(&source).unwrap();
@@ -15580,8 +15551,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_variant_exit_contracts_keep_consumed_entry_profiles_separate() {
-        let source = "(#struct Resource (: number #u64)) (#linear Resource)
-            (#enum Outcome ((Ready) (Pending)))
+        let source = "(#struct Resource (#linear) (: number #u64))
+            (#enum Outcome () ((Ready) (Pending)))
             (#fn initialize (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected
                 (#block (#deref-set target (#struct-literal Resource (: number 42u64))) (Ready))
@@ -15627,8 +15598,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_variant_exit_contracts_do_not_hide_unknown_raw_accesses() {
-        let source = "(#struct Resource (: number #u64)) (#linear Resource)
-            (#enum Outcome ((Ready) (Pending)))
+        let source = "(#struct Resource (#linear) (: number #u64))
+            (#enum Outcome () ((Ready) (Pending)))
             (#fn raw (: anchor (#ref-mut Resource) : pointer (#ptr-mut Resource)) Outcome
               (#let target (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor pointer)))
               (#forget (#deref target)) (#return (Ready)))";
@@ -15654,9 +15625,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_variant_exit_contracts_keep_sibling_destinations_distinct() {
-        let source = "(#struct Resource (: number #u64)) (#linear Resource)
-            (#struct Pair (: left Resource : right Resource))
-            (#enum Outcome ((Ready) (Pending)))
+        let source = "(#struct Resource (#linear) (: number #u64))
+            (#struct Pair () (: left Resource : right Resource))
+            (#enum Outcome () ((Ready) (Pending)))
             (#fn choose (: target (#ref-mut Pair) : selected #bool) Outcome
               (#return (#if selected (#block (#forget (#get target left)) (Ready))
                 (#block (#forget (#get target right)) (Pending)))))";
@@ -15693,8 +15664,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_variant_exit_contracts_require_a_reachable_normal_return() {
-        let source = "(#struct Resource (: number #u64)) (#linear Resource)
-            (#enum Outcome ((Ready) (Pending)))
+        let source = "(#struct Resource (#linear) (: number #u64))
+            (#enum Outcome () ((Ready) (Pending)))
             (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
               (#if selected (#block (#forget (#deref target)) (#unreachable) (#return (Ready)))
                 (#block (#return (Pending)))) (#return (Ready)))";
@@ -15772,8 +15743,8 @@ mod typed_ownership_tests {
             } else {
                 "(#drop target) (#return (#unreachable))"
             };
-            let source = format!("(#struct Resource (: number #u64)) (#linear Resource)
-                (#enum Outcome ((Ready) (Pending)))
+            let source = format!("(#struct Resource (#linear) (: number #u64))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn touch () () (#return ()))
                 (#fn choose (: target (#ref-mut Resource) : selected #bool : unknown Outcome) Outcome
                   (#return (#if selected (#block (#forget (#deref target)) ({destructive})) {alternative})))
@@ -15849,8 +15820,8 @@ mod typed_ownership_tests {
                 "(#return (#unreachable))"
             };
             let source = format!(
-                "(#struct Resource (: number #u64)) (#linear Resource)
-                (#enum Outcome ((Ready) (Pending)))
+                "(#struct Resource (#linear) (: number #u64))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn initialize (: target (#ref-mut Resource) : selected #bool) Outcome
                   (#return (#if selected (#block (#deref-set target
                     (#struct-literal Resource (: number 42u64))) (Ready)) (Pending))))
@@ -15902,8 +15873,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_outcome_refinement_revisits_loop_snapshot_dependencies() {
-        let source = "(#struct Resource (: number #u64)) (#linear Resource)
-            (#enum Outcome ((Ready) (Pending)))
+        let source = "(#struct Resource (#linear) (: number #u64))
+            (#enum Outcome () ((Ready) (Pending)))
             (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#forget (#deref target)) (Ready)) (Pending))))
             (#fn main () #u64
@@ -15937,9 +15908,9 @@ mod typed_ownership_tests {
             };
             let read = format!("(#get (#get target {selected}) number)");
             let source = format!(
-                "(#struct Resource (: number #u64)) (#linear Resource)
-                (#struct Pair (: left Resource : right Resource))
-                (#enum Outcome ((Ready) (Pending)))
+                "(#struct Resource (#linear) (: number #u64))
+                (#struct Pair () (: left Resource : right Resource))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn choose (: target (#ref-mut Pair) : selected #bool) Outcome
                   (#return (#if selected (#block (#forget (#get target left)) (Ready))
                     (#block (#forget (#get target right)) (Pending)))))
@@ -15974,8 +15945,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_outcome_refinement_wakes_on_pre_call_snapshot_changes() {
-        let source = "(#struct Resource (: number #u64)) (#linear Resource)
-            (#enum Outcome ((Ready) (Pending)))
+        let source = "(#struct Resource (#linear) (: number #u64))
+            (#enum Outcome () ((Ready) (Pending)))
             (#fn touch () () (#return ()))
             (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#forget (#deref target)) (#call touch ()) (Ready)) (Pending))))
@@ -16043,9 +16014,9 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_outcome_refinement_tracks_linear_result_moves() {
-        let source = "(#struct Resource (: number #u64)) (#linear Resource)
-            (#struct Metadata (: number #u64)) (#linear Metadata)
-            (#enum Outcome ((Ready Metadata) (Pending Metadata)))
+        let source = "(#struct Resource (#linear) (: number #u64))
+            (#struct Metadata (#linear) (: number #u64))
+            (#enum Outcome () ((Ready Metadata) (Pending Metadata)))
             (#fn choose (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#forget (#deref target))
                 (Ready (#struct-literal Metadata (: number 1u64))))
@@ -16070,8 +16041,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_outcome_refinement_clears_profiles_even_when_a_run_fails_early() {
-        let source = "(#struct Resource (: number #u64)) (#linear Resource)
-            (#enum Outcome ((Ready) (Pending)))
+        let source = "(#struct Resource (#linear) (: number #u64))
+            (#enum Outcome () ((Ready) (Pending)))
             (#fn initialize (: target (#ref-mut Resource) : selected #bool) Outcome
               (#return (#if selected (#block (#deref-set target
                 (#struct-literal Resource (: number 42u64))) (Ready)) (Pending))))
@@ -16121,8 +16092,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_return_variant_constants_intersect_paths_and_forward_calls() {
-        let source = "(#enum Choice ((Empty) (Full (#ref #u64))))
-            (#struct Pair (: left Choice : right Choice))
+        let source = "(#enum Choice () ((Empty) (Full (#ref #u64))))
+            (#struct Pair () (: left Choice : right Choice))
             (#fn empty () Choice (#return (Empty)))
             (#fn forward () Choice (#return (#call empty ())))
             (#fn same (: selected #bool) Choice (#return (#if selected (Empty) (Empty))))
@@ -16178,7 +16149,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_contents_do_not_hide_reads_of_destroyed_reference_storage() {
-        let source = "(#struct Part (: view (#ref #u64))) (#linear Part)
+        let source = "(#struct Part (#linear) (: view (#ref #u64)))
             (#fn inspect (: target (#ref-mut Part) : replacement (#ref #u64)) ()
               (#forget (#deref target))
               (#let invalid (#ref #u64) (#get target view)) (#drop invalid)
@@ -16292,7 +16263,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_contents_and_ownership_share_restore_provenance() {
-        let source = "(#struct Part (: view (#ref #u64))) (#linear Part)
+        let source = "(#struct Part (#linear) (: view (#ref #u64)))
             (#fn replace (: target (#ref-mut Part) : replacement (#ref #u64)) ()
               (#forget (#deref target))
               (#deref-set target (#struct-literal Part (: view replacement))) (#return ()))
@@ -16328,8 +16299,8 @@ mod typed_ownership_tests {
         for premature in [false, true] {
             let mutation = if premature { "(#set right 9u64)" } else { "" };
             let source = format!(
-                "(#struct Part (: view (#ref #u64))) (#linear Part)
-                 (#struct Pair (: left Part : right Part))
+                "(#struct Part (#linear) (: view (#ref #u64)))
+                 (#struct Pair () (: left Part : right Part))
                  (#fn wipe-left (: target (#ref-mut Pair)) ()
                    (#forget (#get target left)) (#return ()))
                  (#fn main () #u64
@@ -16365,8 +16336,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_nested_callee_destruction_selects_updated_pointer_inputs() {
-        let source = "(#struct Part (: view (#ref #u64))) (#linear Part)
-            (#struct Outer (: inner (#ref-mut Part)))
+        let source = "(#struct Part (#linear) (: view (#ref #u64)))
+            (#struct Outer () (: inner (#ref-mut Part)))
             (#fn wipe (: target (#ref-mut Outer)) ()
               (#forget (#deref (#get target inner))) (#return ()))
             (#fn redirect (: target (#ref-mut Outer) : replacement (#ref-mut Part)) ()
@@ -16389,7 +16360,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_destruction_contents_contracts_follow_forwarding_and_restoration() {
-        let source = "(#struct Part (: view (#ref #u64))) (#linear Part)
+        let source = "(#struct Part (#linear) (: view (#ref #u64)))
             (#fn wipe (: target (#ref-mut Part)) () (#forget (#deref target)) (#return ()))
             (#fn forward (: target (#ref-mut Part)) () (#call wipe (: target target)) (#return ()))
             (#fn maybe (: target (#ref-mut Part) : selected #bool) ()
@@ -16450,7 +16421,7 @@ mod typed_ownership_tests {
                 "(#return 42u64)"
             };
             let source = format!(
-                "(#struct Part (: view (#ref #u64))) (#linear Part)
+                "(#struct Part (#linear) (: view (#ref #u64)))
                  (#fn wipe (: target (#ref-mut Part)) {result_type}
                    {capture} (#forget (#deref target)) (#return {returned}))
                  (#fn forward (: target (#ref-mut Part)) {result_type}
@@ -16500,7 +16471,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn unchecked_typed_payload_transfer_preserves_exclusive_referent_contents() {
-        let source = "(#enum Holder (Empty (Full (#ref-mut #u64))))
+        let source = "(#enum Holder () (Empty (Full (#ref-mut #u64))))
             (#unsafe-fn take (: slot (#pin-ref-mut Holder)) (#ref-mut #u64)
               (#let payload (#pin-ref-mut (#ref-mut #u64))
                 (#unsafe (#pin-get-payload-unchecked-mut slot Full 0)))
@@ -16528,7 +16499,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_copy_valued_pin_reads_keep_parameter_contents() {
-        let source = "(#struct Holder (: view (#ref #u64)))
+        let source = "(#struct Holder () (: view (#ref #u64)))
             (#fn peek (: target (#pin-ref-mut Holder)) (#ref #u64)
               (#let copied Holder (#unsafe (#pin-read target))) (#forget copied)
               (#return (#get target view)))";
@@ -16553,7 +16524,7 @@ mod typed_ownership_tests {
                 "(#return moved)"
             };
             let source = format!(
-                "(#struct Holder (: view (#ref #u64))) (#linear Holder)
+                "(#struct Holder (#linear) (: view (#ref #u64)))
                  (#fn transfer (: target (#pin-ref-mut Holder) : replacement (#ref #u64)) Holder
                    (#let moved Holder (#unsafe (#pin-read target)))
                    (#unsafe (#pin-write target (#struct-literal Holder (: view replacement))))
@@ -16616,7 +16587,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Holder (: view (#ref #u64)))
+                "(#struct Holder () (: view (#ref #u64)))
                  (#fn rewrite (: target (#ref-mut Holder) : replacement (#ref #u64)) (#ref #u64)
                    (#deref-set target (#struct-literal Holder (: view replacement)))
                    (#return (#get target view)))
@@ -16688,7 +16659,7 @@ mod typed_ownership_tests {
                 "(#call read (: target target))"
             };
             let source = format!(
-                "(#struct Holder (: view (#ref #u64)))
+                "(#struct Holder () (: view (#ref #u64)))
                  (#fn replace (: target (#ref-mut Holder) : replacement (#ref #u64)) ()
                    (#deref-set target (#struct-literal Holder (: view replacement))) (#return ()))
                  (#fn read (: target {target_type}) (#ref #u64) (#return (#get target view)))
@@ -16720,7 +16691,7 @@ mod typed_ownership_tests {
         // These writes must update the callee's concrete reference contents;
         // the read that follows must retain the replacement's actual loan.
         let native = crate::parse_program(
-            "(#struct Holder (: view (#ref #u64)))
+            "(#struct Holder () (: view (#ref #u64)))
              (#fn load-after-replace (: target (#ref-mut Holder) : replacement (#ref #u64)) #u64
                (#deref-set target (#struct-literal Holder (: view replacement)))
                (#let chosen (#ref #u64) (#get target view))
@@ -16776,7 +16747,7 @@ mod typed_ownership_tests {
             } else {
                 "(#get target view)"
             };
-            let source = format!("(#struct Holder (: view (#ref #u64)))
+            let source = format!("(#struct Holder () (: view (#ref #u64)))
                 (#fn replace (: target (#ref-mut Holder) : replacement (#ref #u64)) () {direct} (#return ()))
                 (#fn read (: target (#ref-mut Holder)) (#ref #u64) (#return (#get target view)))
                 (#fn rewrite (: target ({target_type} Holder) : replacement (#ref #u64) : selected #bool) (#ref #u64)
@@ -16827,8 +16798,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_parameter_contents_keep_nested_pointer_inputs_distinct() {
-        let source = "(#struct Holder (: view (#ref #u64)))
-            (#struct Outer (: inner (#ref-mut Holder)))
+        let source = "(#struct Holder () (: view (#ref #u64)))
+            (#struct Outer () (: inner (#ref-mut Holder)))
             (#fn rewrite (: target (#ref-mut Outer) : replacement (#ref #u64)) (#ref #u64)
               (#let inner (#ref-mut Holder) (#get target inner))
               (#deref-set inner (#struct-literal Holder (: view replacement)))
@@ -16872,8 +16843,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_nested_pointer_store_retains_the_replacement_loan() {
-        let source = "(#struct Holder (: view (#ref #u64)))
-            (#struct Outer (: inner (#ref-mut Holder) : sibling #u64))
+        let source = "(#struct Holder () (: view (#ref #u64)))
+            (#struct Outer () (: inner (#ref-mut Holder) : sibling #u64))
             (#fn rewrite (: target (#ref-mut Outer) : replacement (#ref #u64)) ()
               (#let inner (#ref-mut Holder) (#get target inner))
               (#deref-set inner (#struct-literal Holder (: view replacement)))
@@ -16908,7 +16879,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_parameter_contents_preserve_symbolic_array_pointee_facts() {
-        let source = "(#struct Holder (: view (#ref #u64)))
+        let source = "(#struct Holder () (: view (#ref #u64)))
             (#fn rewrite (: targets (#array (#ref-mut Holder) 2) : replacement (#ref #u64)) (#ref #u64)
               (#let target (#ref-mut Holder) (#index targets 1usize))
               (#deref-set target (#struct-literal Holder (: view replacement)))
@@ -16949,7 +16920,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Holder (: view (#ref #u64)))
+                "(#struct Holder () (: view (#ref #u64)))
                 (#fn main () #u64 (#let-mut old #u64 7u64) (#let-mut replacement #u64 42u64)
                   (#let-mut holder Holder (#struct-literal Holder (: view (#borrow old))))
                   (#let target (#pin-ref-mut Holder) (#pin-borrow-mut holder))
@@ -17171,8 +17142,8 @@ mod typed_ownership_tests {
                 .map(|name| format!("(#set {name} 1u64)"))
                 .unwrap_or_default();
             let source = format!(
-                "(#enum Holder ((Empty) (Full (#ref #u64))))
-                (#enum Outcome ((Ready) (Pending)))
+                "(#enum Holder () ((Empty) (Full (#ref #u64))))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn store (: target (#ref-mut Holder) : value (#ref #u64)) Outcome
                   (#deref-set target (Full value)) (#return (Ready)))
                 (#fn main () #u64
@@ -17211,8 +17182,8 @@ mod typed_ownership_tests {
     fn staged_branch_clearing_keeps_loans_carried_by_the_returned_value() {
         for premature in [false, true] {
             let mutation = if premature { "(#set old 9u64)" } else { "" };
-            let source = format!("(#enum Choice ((Empty) (Full (#ref #u64))))
-                (#enum Outcome ((Ready Choice) (Pending)))
+            let source = format!("(#enum Choice () ((Empty) (Full (#ref #u64))))
+                (#enum Outcome () ((Ready Choice) (Pending)))
                 (#fn take (: target (#ref-mut Choice) : replacement (#ref #u64) : selected #bool) Outcome
                   (#return (#if selected
                     (#block (#let previous Choice (#deref target))
@@ -17426,9 +17397,9 @@ mod typed_ownership_tests {
                 (clear.to_owned(), retain.to_owned())
             };
             let source = format!(
-                "(#enum Slot ((Empty) (Full (#ref #u64))))
-                (#struct Frame (: slot Slot))
-                (#enum Outcome ((Ready) (Pending)))
+                "(#enum Slot () ((Empty) (Full (#ref #u64))))
+                (#struct Frame () (: slot Slot))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn clear (: target (#pin-ref-mut Frame)) ()
                   {clear} (#return ()))
                 (#fn retain (: target (#pin-ref-mut Frame) : value (#ref #u64)) ()
@@ -17471,8 +17442,8 @@ mod typed_ownership_tests {
     #[test]
     fn staged_return_conditioned_contents_include_writes_after_constructor_evaluation() {
         use crate::typed_flow::{FlowAction, FlowNode, FlowNodeId};
-        let source = "(#enum Choice ((Empty) (Full (#ref #u64))))
-            (#enum Outcome ((Ready) (Pending)))
+        let source = "(#enum Choice () ((Empty) (Full (#ref #u64))))
+            (#enum Outcome () ((Ready) (Pending)))
             (#fn choose (: target (#ref-mut Choice) : value (#ref #u64)) Outcome
               (#deref-set target (Full value)) (#deref-set target (Empty))
               (#return (Ready)))";
@@ -17525,8 +17496,8 @@ mod typed_ownership_tests {
                 "same-variant" => format!("(#return (#if selected (#block {clear} (Ready)) (#block {write} (Ready))))"),
                 _ => unreachable!(),
             };
-            let source = format!("(#enum Choice ((Empty) (Full (#ref #u64))))
-                (#enum Outcome ((Ready) (Pending)))
+            let source = format!("(#enum Choice () ((Empty) (Full (#ref #u64))))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn choose (: target (#ref-mut Choice) : value (#ref #u64) : selected #bool : unknown Outcome) Outcome {body})");
             let program = crate::parse_program(&source).unwrap();
             let declarations = resolve_program_for_analysis(&program, false).unwrap();
@@ -17565,7 +17536,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_final_store_sources_follow_callee_updates_to_local_storage() {
-        let source = "(#struct Holder (: view (#ref #u64)))
+        let source = "(#struct Holder () (: view (#ref #u64)))
             (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
               (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
             (#fn relay (: destination (#ref-mut Holder) : old (#ref #u64) : new (#ref #u64)) ()
@@ -17588,7 +17559,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn definite_heap_field_write_stays_definite_with_carried_owner_loans() {
-        let source = "(#struct Holder (: link (#ref #u64)))
+        let source = "(#struct Holder () (: link (#ref #u64)))
             (#fn replace-owned (: owner (#pin-own Holder) : value (#ref #u64)) (#pin-own Holder)
               (#let-mut moved (#pin-own Holder) owner)
               (#let view (#pin-ref-mut Holder) (#pin-own-borrow-mut moved))
@@ -17658,7 +17629,7 @@ mod typed_ownership_tests {
                 _ => unreachable!(),
             };
             let source = format!(
-                "(#enum Choice ((Empty) (Full (#ref #u64))))
+                "(#enum Choice () ((Empty) (Full (#ref #u64))))
                 (#fn clear (: target (#ref-mut Choice)) () {clear} (#return ()))
                 (#fn replace (: target (#ref-mut Choice) : value (#ref #u64) : selected #bool) ()
                   {body} (#return ()))"
@@ -17698,8 +17669,8 @@ mod typed_ownership_tests {
                 "dynamic-index" => ("(#array Choice 2)", "(#deref-set (#borrow-mut (#index target index)) (Full value))".to_owned()),
                 _ => unreachable!(),
             };
-            let source = format!("(#enum Choice ((Empty) (Full (#ref #u64))))
-                (#struct Pair (: left Choice : right Choice))
+            let source = format!("(#enum Choice () ((Empty) (Full (#ref #u64))))
+                (#struct Pair () (: left Choice : right Choice))
                 (#fn replace (: target (#ref-mut {target}) : value (#ref #u64) : selected #bool : index #usize) ()
                   {body} (#return ()))");
             let program = crate::parse_program(&source).unwrap();
@@ -17731,7 +17702,7 @@ mod typed_ownership_tests {
         for premature in [false, true] {
             let mutation = if premature { "(#set value 1u64)" } else { "" };
             let source = format!(
-                "(#enum Choice ((Empty) (Full (#ref #u64))))
+                "(#enum Choice () ((Empty) (Full (#ref #u64))))
                 (#fn take (: target (#ref-mut Choice)) Choice
                   (#let previous Choice (#deref target))
                   (#deref-set target (Empty)) (#return previous))
@@ -17779,9 +17750,9 @@ mod typed_ownership_tests {
                 (clear, retain)
             };
             let source = format!(
-                "(#enum Slot ((Empty) (Full (#ref #u64))))
-                (#struct Frame (: slot Slot))
-                (#enum Outcome ((Ready) (Pending)))
+                "(#enum Slot () ((Empty) (Full (#ref #u64))))
+                (#struct Frame () (: slot Slot))
+                (#enum Outcome () ((Ready) (Pending)))
                 (#fn clear (: target (#pin-ref-mut Frame)) () {clear} (#return ()))
                 (#fn retain (: target (#pin-ref-mut Frame) : value (#ref #u64)) ()
                   {retain} (#return ()))
@@ -17871,7 +17842,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_callee_store_into_outer_storage_cannot_hide_a_block_local_escape() {
-        let source = "(#struct Holder (: view (#ref #u64)))
+        let source = "(#struct Holder () (: view (#ref #u64)))
             (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
               (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
             (#fn main () #u64
@@ -17911,8 +17882,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_callee_store_preserves_projected_destination_slots() {
-        let source = "(#struct Holder (: view (#ref #u64)))
-            (#struct Outer (: holder Holder))
+        let source = "(#struct Holder () (: view (#ref #u64)))
+            (#struct Outer () (: holder Holder))
             (#fn replace (: outer (#ref-mut Outer) : value (#ref #u64)) ()
               (#deref-set (#borrow-mut (#get outer holder))
                 (#struct-literal Holder (: view value))) (#return ()))
@@ -17961,7 +17932,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_store_substitution_requires_actual_input_loans() {
-        let source = "(#struct Holder (: view (#ref #u64)))
+        let source = "(#struct Holder () (: view (#ref #u64)))
             (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
               (#deref-set target (#struct-literal Holder (: view value))) (#return ()))
             (#fn relay (: target (#ref-mut Holder) : value (#ref #u64)) ()
@@ -18069,7 +18040,7 @@ mod typed_ownership_tests {
                 _ => "(#borrow value)",
             };
             let source = format!(
-                "(#struct Holder (: view (#ref #u64)))
+                "(#struct Holder () (: view (#ref #u64)))
                 (#fn replace (: target ({target_type} Holder) : value (#ref #u64) : selected #bool) ()
                   {write} (#return ())) {relay}
                 (#fn main () #u64
@@ -18138,7 +18109,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_callee_reference_store_retains_the_callers_rhs_loan() {
-        let source = "(#struct Holder (: view (#ref #u64)))
+        let source = "(#struct Holder () (: view (#ref #u64)))
             (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
               (#deref-set target (#struct-literal Holder (: view value)))
               (#return ()))
@@ -18178,7 +18149,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn local_holder_restoration_cannot_duplicate_an_exclusive_loan() {
-        let source = "(#struct Pair (: left (#ref-mut #u64) : right (#ref-mut #u64)))
+        let source = "(#struct Pair () (: left (#ref-mut #u64) : right (#ref-mut #u64)))
             (#fn main () #u64
               (#let-mut left #u64 1u64) (#let-mut right #u64 2u64)
               (#let-mut owner #u64 3u64)
@@ -18204,8 +18175,8 @@ mod typed_ownership_tests {
         for premature in [false, true] {
             let mutation = if premature { "(#set value 1u64)" } else { "" };
             let source = format!(
-                "(#struct Holder (: view (#ref #u64)))
-                (#struct Wrapper (: holder Holder))
+                "(#struct Holder () (: view (#ref #u64)))
+                (#struct Wrapper () (: holder Holder))
                 (#fn main () #u64
                   (#let-mut value #u64 42u64)
                   (#let source Holder (#struct-literal Holder (: view (#borrow value))))
@@ -18238,8 +18209,8 @@ mod typed_ownership_tests {
             } else {
                 ""
             };
-            let source = format!("(#struct Owner (: number #u64)) (#linear Owner)
-                (#struct View (: item (#ref-mut #u64))) (#linear View)
+            let source = format!("(#struct Owner (#linear) (: number #u64))
+                (#struct View (#linear) (: item (#ref-mut #u64)))
                 (#fn observe (: owner (#ref-mut Owner)) #u64 (#return (#get owner number)))
                 (#fn main () #u64
                   (#let-mut owner Owner (#struct-literal Owner (: number 1u64)))
@@ -18278,7 +18249,7 @@ mod typed_ownership_tests {
     #[test]
     fn indirect_variant_writes_require_one_actual_local_destination() {
         let program = crate::parse_program(
-            "(#enum Choice ((Empty) (Full #u64)))
+            "(#enum Choice () ((Empty) (Full #u64)))
             (#fn inspect (: selected #bool) ()
               (#let-mut left Choice (Empty)) (#let-mut right Choice (Empty))
               (#let target (#ref-mut Choice)
@@ -18402,7 +18373,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn array_held_reference_field_reads_preserve_the_concrete_input_slot() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
             (#fn read ((values (#array (#ref Resource) 2))) #u64
               (#return (#get (#index values 1usize) number)))";
         let program = crate::parse_program(source).unwrap();
@@ -18440,7 +18411,7 @@ mod typed_ownership_tests {
             ("(#let target (#ref-mut Resource) (#if choice (#borrow-mut left) (#borrow-mut right))) (#call consume (: value target))", false),
             ("(#call consume (: value (#borrow-mut left))) (#call consume (: value (#borrow-mut right)))", true),
         ] {
-            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+            let source = format!("(#struct Resource (#linear) ((number #u64)))
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
               (#fn replace ((choice #bool)) ()
@@ -18470,7 +18441,7 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::Place;
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource) (#return value))
           (#fn inspect ((reference (#ref-mut Resource))) ()
             (#forget (#deref reference))
@@ -18500,7 +18471,7 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::Place;
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource))) ()
             (#let-mut handle (#ref-mut Resource) left)
             (#forget (#deref left)) (#forget (#deref right))
@@ -18564,11 +18535,11 @@ mod typed_ownership_tests {
         use crate::typed_body::PlaceRoot;
         use crate::typed_flow::{FlowAction, FlowNodeId};
         for source in [
-            "(#struct Resource ((number #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((number #u64)))
              (#fn inspect () ()
                (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
                (#forget owner) (#set-field owner number 2u64) (#return ()))",
-            "(#struct Resource ((number #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((number #u64)))
              (#fn inspect () ()
                (#let-mut owner (#array Resource 1)
                  (#array (#struct-literal Resource ((number 1u64)))))
@@ -18610,7 +18581,7 @@ mod typed_ownership_tests {
         for early_return in [false, true] {
             let before = if early_return { "(#return ())" } else { "" };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn identity ((value (#ref-mut Resource))) (#ref-mut Resource)
                    (#return value))
                  (#fn inspect ((value (#ref-mut Resource))) ()
@@ -18644,7 +18615,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn inspect ((reference (#ref-mut Resource))) ()
                    (#block
                      (#let alias (#ref-mut Resource) reference)
@@ -18682,7 +18653,7 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::Place;
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn inspect ((left (#ref-mut Resource)) (right (#ref-mut Resource)) (pick #bool)) ()
             (#block
               (#let alias (#ref-mut Resource) (#if pick left right))
@@ -18713,8 +18684,8 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::{Place, Segment};
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
-          (#struct Pair ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+        let source = "(#struct Resource (#linear) ((number #u64)))
+          (#struct Pair () ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
           (#fn inspect ((pair Pair)) ()
             (#block
               (#let alias (#ref-mut Resource) (#get pair left))
@@ -18757,7 +18728,7 @@ mod typed_ownership_tests {
                  (#let moved Resource (#deref alias))"
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn inspect () ()
                    (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
                    (#block {transfer} (#forget moved) ())
@@ -18792,14 +18763,14 @@ mod typed_ownership_tests {
         let resource = "(#struct-literal Resource ((number 1u64)))";
         for (declaration, ty, constructor, projection, setter) in [
             (
-                "(#struct Owner ((item Resource)))",
+                "(#struct Owner () ((item Resource)))",
                 "Owner",
                 format!("(#struct-literal Owner ((item {resource})))"),
                 "(#get owner item)",
                 "#set-field owner item",
             ),
             (
-                "(#struct Owner ((item Resource))) (#linear Owner)",
+                "(#struct Owner (#linear) ((item Resource))) ",
                 "Owner",
                 format!("(#struct-literal Owner ((item {resource})))"),
                 "(#get owner item)",
@@ -18820,7 +18791,7 @@ mod typed_ownership_tests {
                 "#set-index owner 0u64",
             ),
             (
-                "(#enum Owner ((Item Resource)))",
+                "(#enum Owner () ((Item Resource)))",
                 "Owner",
                 format!("(Item {resource})"),
                 "(#get-payload owner Item 0)",
@@ -18835,7 +18806,7 @@ mod typed_ownership_tests {
                 };
                 let assignment = format!("({setter} {resource})");
                 let source = format!(
-                    "(#struct Resource ((number #u64))) (#linear Resource)
+                    "(#struct Resource (#linear) ((number #u64)))
                      {declaration}
                      (#fn main () #u64
                        (#let-mut owner {ty} {constructor})
@@ -18875,7 +18846,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn unknown_indices_do_not_prove_projected_consumption() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn main () #u64
             (#let-mut owner (#array Resource 1)
               (#array (#struct-literal Resource ((number 1u64)))))
@@ -18927,9 +18898,9 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#struct Members ((first Resource) (second Resource)))
-                 (#struct Owner ((members Members)))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#struct Members () ((first Resource) (second Resource)))
+                 (#struct Owner () ((members Members)))
                  (#fn main () #u64
                    (#let-mut owner Owner (#struct-literal Owner ((members {members}))))
                    (#forget (#get (#get owner members) first))
@@ -18982,7 +18953,7 @@ mod typed_ownership_tests {
         ] {
             let assignment = format!("(#set value {replacement})");
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn main () #u64
                    (#let-mut value Resource (#struct-literal Resource ((number 1u64))))
                    {before}
@@ -19030,8 +19001,8 @@ mod typed_ownership_tests {
                (second (#struct-literal Resource ((number 2u64))))))";
             let assignment = format!("(#set value {constructor})");
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#struct Pair ((first Resource) (second Resource)))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#struct Pair () ((first Resource) (second Resource)))
                  (#fn main () #u64
                    (#let-mut value Pair {constructor})
                    (#forget (#get value first))
@@ -19072,7 +19043,7 @@ mod typed_ownership_tests {
                 let destruction = if moved { "(#forget value)" } else { "" };
                 let final_destruction = if moved { "" } else { "(#forget value)" };
                 let source = format!(
-                    "(#struct Resource ((number #u64))) (#linear Resource)
+                    "(#struct Resource (#linear) ((number #u64)))
                      (#fn main () #u64
                        (#let-mut value Resource (#struct-literal Resource ((number 1u64))))
                        {destruction}
@@ -19105,7 +19076,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_initializer_entry_contracts_propagate_through_helper_chains() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 1u64))))
             (#return ()))
@@ -19138,7 +19109,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_initializer_entry_contracts_reject_live_local_inputs() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 1u64))))
             (#return ()))
@@ -19180,7 +19151,7 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn initialize ((value (#ref-mut Resource)) (choice #bool)) ()
                 {write} (#return ()))
               (#fn forward ((value (#ref-mut Resource)) (choice #bool)) ()
@@ -19214,7 +19185,7 @@ mod typed_ownership_tests {
     fn staged_referent_replacement_does_not_infer_dynamic_identity() {
         for consume in ["", "(#forget (#index values index))"] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn replace ((values (#ref-mut (#array Resource 2))) (index #u64)) ()
                 {consume}
                 (#deref-set (#borrow-mut (#index values index))
@@ -19242,7 +19213,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_referent_replacement_accepts_consumed_static_parent() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn replace ((values (#ref-mut (#array Resource 2)))) ()
             (#forget (#deref values))
             (#deref-set (#borrow-mut (#index values 0u64))
@@ -19258,7 +19229,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_initializer_calls_do_not_inherit_dynamic_entry_identities() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize ((value (#ref-mut Resource))) ()
             (#deref-set value (#struct-literal Resource ((number 1u64))))
             (#return ()))
@@ -19294,7 +19265,7 @@ mod typed_ownership_tests {
             "(#deref-set value (#struct-literal Resource ((number 2u64))))",
         ] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn initialize ((value (#ref-mut Resource)) (choice #bool)) ()
                 (#if choice (#deref-set value
                   (#struct-literal Resource ((number 1u64)))) ())
@@ -19324,7 +19295,7 @@ mod typed_ownership_tests {
         use crate::typed_body::{BindingId, PlaceRoot};
         use crate::typed_flow::{FlowAction, FlowNodeId};
         use crate::typed_place::Place;
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn caller ((left (#ref-mut Resource)) (right (#ref-mut Resource))) ()
             (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -19366,7 +19337,7 @@ mod typed_ownership_tests {
                 "(#call initialize ((value value)))"
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn initialize-consume ((value (#ref-mut Resource))) ()
                 (#deref-set value (#struct-literal Resource ((number 1u64))))
                 (#forget (#deref value)) (#return ()))
@@ -19419,8 +19390,8 @@ mod typed_ownership_tests {
                 ("(#if choice (#forget (#deref value)) ())", false),
                 ("(#forget (#deref value)) (#deref-set value (#struct-literal Resource ((number 2u64))))", true),
             ] {
-                let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
-                  (#struct View ((value (#ref-mut Resource))))
+                let source = format!("(#struct Resource (#linear) ((number #u64)))
+                  (#struct View () ((value (#ref-mut Resource))))
                   (#fn make-view ((value (#ref-mut Resource)) (choice #bool)) {return_type}
                     {operations} (#return {returned}))");
                 let program = crate::parse_program(&source).unwrap();
@@ -19449,8 +19420,8 @@ mod typed_ownership_tests {
     fn staged_return_initialization_preserves_parameter_slots_through_calls() {
         for slot in ["left", "right"] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-              (#struct Holder ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
+                "(#struct Resource (#linear) ((number #u64)))
+              (#struct Holder () ((left (#ref-mut Resource)) (right (#ref-mut Resource))))
               (#fn forward ((value (#ref-mut Resource))) (#ref-mut Resource)
                 (#return value))
               (#fn make-view ((holder Holder)) (#ref-mut Resource)
@@ -19506,8 +19477,8 @@ mod typed_ownership_tests {
                 ),
             ] {
                 let source = format!(
-                    "(#struct Resource ((number #u64))) (#linear Resource)
-                  (#struct View ((value (#ref-mut Resource))))
+                    "(#struct Resource (#linear) ((number #u64)))
+                  (#struct View () ((value (#ref-mut Resource))))
                   (#fn choose ((left (#ref-mut Resource)) (right (#ref-mut Resource))
                                (selected #bool)) {ty} (#return {expression}))"
                 );
@@ -19536,7 +19507,7 @@ mod typed_ownership_tests {
             // reach the returned-pointee check, not a use of a moved handle.
             "(#block (#let view (#ref-mut Resource) (#if selected (#call reborrow (: target left)) (#call reborrow (: target right)))) (#forget (#deref left)) view)",
         ] {
-            let source = format!("(#struct Resource ((number #u64))) (#linear Resource)
+            let source = format!("(#struct Resource (#linear) ((number #u64)))
               (#fn reborrow ((target (#ref-mut Resource))) (#ref-mut Resource) (#return target))
               (#fn choose ((left (#ref-mut Resource)) (right (#ref-mut Resource))
                            (selected #bool)) (#ref-mut Resource) (#return {expression}))");
@@ -19558,7 +19529,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_return_initialization_rejects_spanless_consumed_entry_state() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn initialize-view ((value (#ref-mut Resource)) (choice #bool)) (#ref-mut Resource)
             (#if choice (#deref-set value
               (#struct-literal Resource ((number 1u64)))) ())
@@ -19580,7 +19551,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_unknown_return_alternatives_keep_all_type_variants_without_provenance() {
-        let source = "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+        let source = "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
           (#fn choose ((view (#ref #u64)) (other Choice) (selected #bool)) Choice
             (#return (#if selected
               (#block (#forget other) (Has view)) other)))
@@ -19645,8 +19616,8 @@ mod typed_ownership_tests {
               (#return saved))",
             ] {
                 let source = format!(
-                    "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
-          (#struct Envelope ((choice Choice)))
+                    "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+          (#struct Envelope () ((choice Choice)))
           (#fn choose ((view (#ref #u64)) (selected #bool)) Choice
             (#return {expression})) {consumer}"
                 );
@@ -19728,7 +19699,7 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#enum Choice ((Full #u64) Empty))
+                "(#enum Choice () ((Full #u64) Empty))
               (#fn touch () () (#return ()))
               (#fn choose ((selected #bool)) Choice
                 (#let-mut saved Choice {initial})
@@ -19770,7 +19741,7 @@ mod typed_ownership_tests {
             ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (Other right)))))", None),
             ("(#loop (#if selected (#block (#break (Has left))) (#block (#break (#call ambiguous (: view right : selected selected))))))", None),
         ] {
-        let source = format!("(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+        let source = format!("(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
           (#fn ambiguous ((view (#ref #u64)) (selected #bool)) Choice
             (#return (#if selected (Has view) (Other view))))
           (#fn choose ((left (#ref #u64)) (right (#ref #u64)) (selected #bool)) Choice
@@ -19812,7 +19783,7 @@ mod typed_ownership_tests {
             ("(#let borrowed (#ref #u64) left) (#break (Has borrowed))", None),
         ] {
             let source = format!(
-                "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+                "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
               (#fn choose ((left (#ref #u64)) (right (#ref #u64)) (selected #bool)) Choice
                 (#let result Choice (#loop {body}))
                 (#return result))"
@@ -19857,7 +19828,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_enum_local_joins_require_only_reaching_constructor_slots() {
-        let source = "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+        let source = "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
           (#fn choose ((view (#ref #u64)) (selected #bool)) Choice
             (#let result Choice (#if selected (Has view) Empty))
             (#return result))";
@@ -19906,7 +19877,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_unknown_enum_returns_cannot_hide_missing_payload_provenance() {
-        let source = "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+        let source = "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
           (#fn echo ((value Choice)) Choice (#return value))";
         let program = crate::parse_program(source).unwrap();
         crate::check_types(&program).unwrap();
@@ -19946,8 +19917,8 @@ mod typed_ownership_tests {
                 "Empty"
             };
             let source = format!(
-                "(#enum Choice ((Has (#ref #u64) (#ref #u64)) Empty))
-          (#struct Envelope ((item Choice)))
+                "(#enum Choice () ((Has (#ref #u64) (#ref #u64)) Empty))
+          (#struct Envelope () ((item Choice)))
           (#fn echo ((value {ty})) {ty}
             (#match {scrutinee}
               (#case (Has left right) (#block (#return value)))
@@ -20007,7 +19978,7 @@ mod typed_ownership_tests {
             "(#array (#tuple (#ref #u64) (#ref #u64)) 2)",
         ] {
             let source = format!(
-                "(#struct Holder ((left (#ref #u64)) (right (#ref #u64))))
+                "(#struct Holder () ((left (#ref #u64)) (right (#ref #u64))))
               (#fn echo ((value {ty})) {ty} (#return value))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -20137,7 +20108,7 @@ mod typed_ownership_tests {
     fn staged_return_enum_constructors_require_only_the_active_payload() {
         for returned in ["(Has value)", "(#if choice (Has value) Empty)", "Empty"] {
             let source = format!(
-                "(#enum Choice ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
+                "(#enum Choice () ((Has (#ref #u64)) (Other (#ref #u64)) Empty))
               (#fn make-choice ((value (#ref #u64)) (choice #bool)) Choice
                 (#return {returned}))"
             );
@@ -20192,8 +20163,8 @@ mod typed_ownership_tests {
             ("Outer", "(Wrap (Has value))"),
         ] {
             let source = format!(
-                "(#enum Choice ((Has (#ref #u64)) Empty))
-              (#struct Wrapper ((choice Choice))) (#enum Outer ((Wrap Choice)))
+                "(#enum Choice () ((Has (#ref #u64)) Empty))
+              (#struct Wrapper () ((choice Choice))) (#enum Outer () ((Wrap Choice)))
               (#fn make ((value (#ref #u64))) {ty} (#return {returned}))"
             );
             let program = crate::parse_program(&source).unwrap();
@@ -20251,8 +20222,8 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#struct View ((value (#ref #u64))))
-              (#enum Choice ((Has (#ref #u64)) Empty)) (#struct Wrapper ((choice Choice)))
+                "(#struct View () ((value (#ref #u64))))
+              (#enum Choice () ((Has (#ref #u64)) Empty)) (#struct Wrapper () ((choice Choice)))
               (#fn make ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) {ty}
                 (#return {returned}))"
             );
@@ -20288,8 +20259,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_nested_match_results_retain_arm_local_reference_snapshots() {
-        let source = "(#enum Holder ((Has (#ref #u64))))
-          (#struct View ((value (#ref #u64))))
+        let source = "(#enum Holder () ((Has (#ref #u64))))
+          (#struct View () ((value (#ref #u64))))
           (#fn make ((holder Holder)) View
             (#return (#struct-literal View
               ((value (#match holder (#case (Has view) view)))))))";
@@ -20317,7 +20288,7 @@ mod typed_ownership_tests {
                     body.into()
                 };
                 let source = format!(
-                    "(#struct Resource ((number #u64))) (#linear Resource)
+                    "(#struct Resource (#linear) ((number #u64)))
                   (#fn consume ((value (#ref-mut Resource)) (choice #bool)) ()
                     {destruction} (#return ()))
                   (#fn caller ((choice #bool)) () {body} (#return ()))"
@@ -20359,7 +20330,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn consume ((value (#ref-mut Resource))) ()
                 (#forget (#deref value)) (#return ()))
               (#fn initialize ((value (#ref-mut Resource))) ()
@@ -20400,8 +20371,8 @@ mod typed_ownership_tests {
             "",
         ] {
             let source = format!(
-                "(#struct Token ((value #u64))) (#linear Token)
-              (#enum Choice ((Owned Token) Empty))
+                "(#struct Token (#linear) ((value #u64)))
+              (#enum Choice () ((Owned Token) Empty))
               (#fn consume ((value (#ref-mut Token))) ()
                 (#forget (#deref value)) (#return ()))
               (#fn caller () ()
@@ -20440,7 +20411,7 @@ mod typed_ownership_tests {
                     ""
                 };
                 let source = format!(
-                    "(#struct Resource ((number #u64))) (#linear Resource)
+                    "(#struct Resource (#linear) ((number #u64)))
                   (#fn consume ((value (#ref-mut Resource))) ()
                     (#forget (#deref value)) (#return ()))
                   (#fn caller ((repeat #bool)) ()
@@ -20472,8 +20443,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn guarded_linear_payloads_do_not_need_cleanup_when_the_guard_fails() {
-        let source = "(#struct Token ((value #u64))) (#linear Token)
-          (#enum Choice ((Owned Token) Empty))
+        let source = "(#struct Token (#linear) ((value #u64)))
+          (#enum Choice () ((Owned Token) Empty))
           (#fn caller ((selected #bool)) ()
             (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
             (#match choice
@@ -20496,8 +20467,8 @@ mod typed_ownership_tests {
             "(#call discard ((value first)))",
         ] {
             let source = format!(
-                "(#struct Token ((value #u64))) (#linear Token)
-              (#enum Choice ((Owned Token) Empty))
+                "(#struct Token (#linear) ((value #u64)))
+              (#enum Choice () ((Owned Token) Empty))
               (#fn discard ((value Token)) #bool (#forget value) (#return #false))
               (#fn caller () ()
                 (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
@@ -20536,8 +20507,8 @@ mod typed_ownership_tests {
             };
             let guard = "(#call inspect (: target (#borrow first)))";
             let source = format!(
-                "(#struct Token ((value #u64))) (#linear Token)
-                 (#enum Choice ((Owned Token) Empty))
+                "(#struct Token (#linear) ((value #u64)))
+                 (#enum Choice () ((Owned Token) Empty))
                  (#fn operation ((target ({reference} Token))) #bool
                    {operation} (#return #false))
                  (#fn forward ((target ({reference} Token))) #bool
@@ -20643,7 +20614,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn consuming_access_identity_does_not_depend_on_unique_source_spans() {
-        let source = "(#struct Token ((value #u64))) (#linear Token)
+        let source = "(#struct Token (#linear) ((value #u64)))
             (#fn consume ((left (#ref-mut Token)) (right (#ref-mut Token))) ()
               (#forget (#deref left)) (#forget (#deref right)) (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -20703,7 +20674,7 @@ mod typed_ownership_tests {
                 "(#struct-literal View ((value left)))",
             ),
         ] {
-            let source = format!("(#struct View ((value (#ref #u64)))) (#struct Container ((view View)))
+            let source = format!("(#struct View () ((value (#ref #u64)))) (#struct Container () ((view View)))
               (#fn make ((left (#ref #u64)) (right (#ref #u64)) (choice #bool) (target (#ref-mut View))) View
                 {setup} {operation} (#return {returned}))");
             let program = crate::parse_program(&source).unwrap();
@@ -20739,7 +20710,7 @@ mod typed_ownership_tests {
     fn staged_stored_enum_construction_does_not_hide_missing_active_payloads() {
         let operation = "(#let stored Choice (#if choice (Has left) (Has right)))";
         let source = format!(
-            "(#enum Choice ((Has (#ref #u64)) Empty))
+            "(#enum Choice () ((Has (#ref #u64)) Empty))
           (#fn make ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) Choice
             {operation} (#return stored))"
         );
@@ -20780,8 +20751,8 @@ mod typed_ownership_tests {
         ] {
             let call = format!("(#call identity ((value {argument}) (ignored 0u64)))");
             let source = format!(
-                "(#struct View ((value (#ref #u64))))
-              (#enum Choice ((Has (#ref #u64)) Empty))
+                "(#struct View () ((value (#ref #u64))))
+              (#enum Choice () ((Has (#ref #u64)) Empty))
               (#fn identity ((ignored #u64) (value {ty})) {ty} (#return value))
               (#fn caller ((left (#ref #u64)) (right (#ref #u64)) (choice #bool)) {ty}
                 (#return {call}))"
@@ -20900,7 +20871,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_slice_element_loads_retain_embedded_reference_slots() {
-        let source = "(#struct View ((value (#ref #u64)) (other (#ref #u64))))
+        let source = "(#struct View () ((value (#ref #u64)) (other (#ref #u64))))
           (#fn inspect ((sources (#slice View)) (index #usize)) #u64
             (#let view View (#deref (#slice-idx sources index)))
             (#return (#deref (#get view value))))";
@@ -20954,8 +20925,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_slice_ranges_select_only_the_bounded_reference_slots() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
-          (#struct View ((value (#ref Resource))))
+        let source = "(#struct Resource (#linear) ((number #u64)))
+          (#struct View () ((value (#ref Resource))))
           (#fn read ((sources (#slice View)) (index #usize)) #u64
             (#let view View (#deref (#slice-idx sources index)))
             (#return (#get (#get view value) number)))
@@ -21055,8 +21026,13 @@ mod typed_ownership_tests {
                 format!("(#match selected (#case true (#block (#forget value) 42u64)) (#case false (#block {partial} 42u64)))"),
                 format!("(#loop (#if selected (#block (#forget value) (#break 42u64)) (#block {partial} (#break 42u64))))"),
             ] {
-                let source = format!("(#struct Resource (: number #u64)) (#linear Resource)
-                  (#struct Wrapper (: first Resource : second Resource)) {explicit}
+                let wrapper_properties = if explicit.is_empty() {
+                    "()"
+                } else {
+                    "(#linear)"
+                };
+                let source = format!("(#struct Resource (#linear) (: number #u64))
+                  (#struct Wrapper {wrapper_properties} (: first Resource : second Resource))
                   (#fn inspect (: selected #bool) #u64
                     (#let value {ty} {initializer}) (#return {expression}))");
                 let program = crate::parse_program(&source).unwrap();
@@ -21069,7 +21045,9 @@ mod typed_ownership_tests {
                 if valid {
                     result.unwrap();
                 } else {
-                    let error = result.unwrap_err();
+                    let error = result.expect_err(&format!(
+                        "expected staged ownership failure for {ty} with partial cleanup {partial:?} and explicit property {explicit:?}"
+                    ));
                     let crate::typed_ir::StagedReferentError::Use { function, conflict } = error else {
                         panic!("unexpected error: {error:?}");
                     };
@@ -21094,7 +21072,7 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn worker ((other (#ref Resource)) (target (#ref-mut Resource))) ()
                 {operation} (#return ()))
               (@#thread-spawn (: task Task : worker worker))"
@@ -21199,13 +21177,13 @@ mod typed_ownership_tests {
             for slot in [0, 1] {
                 let (declarations, result_type, restored_output, consumed_output, selection) = match representation {
                 "tuple" => ("", "(#tuple Outcome Outcome)", "(#tuple (Restored) (Consumed))", "(#tuple (Consumed) (Restored))", format!("(#get output {slot})")),
-                "struct" => ("(#struct Packet ((first Outcome) (second Outcome)))", "Packet", "(#struct-literal Packet (: first (Restored) : second (Consumed)))", "(#struct-literal Packet (: first (Consumed) : second (Restored)))", format!("(#get output {})", if slot == 0 { "first" } else { "second" })),
-                "payload" => ("(#struct Packet ((first Outcome) (second Outcome))) (#enum Envelope ((Packed Packet)))", "Envelope", "(Packed (#struct-literal Packet (: first (Restored) : second (Consumed))))", "(Packed (#struct-literal Packet (: first (Consumed) : second (Restored))))", format!("(#get (#get-payload output Packed 0) {})", if slot == 0 { "first" } else { "second" })),
+                "struct" => ("(#struct Packet () ((first Outcome) (second Outcome)))", "Packet", "(#struct-literal Packet (: first (Restored) : second (Consumed)))", "(#struct-literal Packet (: first (Consumed) : second (Restored)))", format!("(#get output {})", if slot == 0 { "first" } else { "second" })),
+                "payload" => ("(#struct Packet () ((first Outcome) (second Outcome))) (#enum Envelope () ((Packed Packet)))", "Envelope", "(Packed (#struct-literal Packet (: first (Restored) : second (Consumed))))", "(Packed (#struct-literal Packet (: first (Consumed) : second (Restored))))", format!("(#get (#get-payload output Packed 0) {})", if slot == 0 { "first" } else { "second" })),
                 _ => unreachable!(),
             };
                 let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#enum Outcome ((Restored) (Consumed)))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#enum Outcome () ((Restored) (Consumed)))
                  {declarations}
                  (#fn worker ((target (#ref-mut Resource)) (choose #bool)) {result_type}
                    (#forget (#deref target))
@@ -21247,7 +21225,7 @@ mod typed_ownership_tests {
     #[test]
     fn staged_return_bounds_use_captured_operand_tags_before_later_calls() {
         let program = crate::parse_program(
-            "(#enum Outcome ((Before) (After)))
+            "(#enum Outcome () ((Before) (After)))
              (#fn change ((target (#ref-mut Outcome))) () (#deref-set target (After)) (#return ()))
              (#fn factory () (#tuple Outcome ())
                (#let-mut tag Outcome (Before))
@@ -21274,7 +21252,7 @@ mod typed_ownership_tests {
     #[test]
     fn staged_captured_operand_tags_recompute_after_loop_snapshot_changes() {
         let program = crate::parse_program(
-            "(#enum Outcome ((Before) (After)))
+            "(#enum Outcome () ((Before) (After)))
              (#fn change ((target (#ref-mut Outcome))) () (#deref-set target (After)) (#return ()))
              (#fn factory ((count #u64)) (#tuple Outcome ())
                (#let-mut tag Outcome (Before))
@@ -21314,8 +21292,8 @@ mod typed_ownership_tests {
     fn staged_worker_returned_aliases_preserve_nested_outcome_contracts() {
         for slot in [0, 1] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#enum Outcome ((Restored) (Consumed)))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#enum Outcome () ((Restored) (Consumed)))
                  (#fn worker ((target (#ref-mut Resource)) (choose #bool)) (#tuple Outcome Outcome)
                    (#forget (#deref target))
                    (#return (#if choose
@@ -21354,8 +21332,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_worker_returned_alias_uses_replacement_not_initial_tags() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
-            (#enum Outcome ((Restored) (Consumed)))
+        let source = "(#struct Resource (#linear) ((number #u64)))
+            (#enum Outcome () ((Restored) (Consumed)))
             (#fn worker ((target (#ref-mut Resource))) (#tuple Outcome Outcome)
               (#forget (#deref target))
               (#let-mut output (#tuple Outcome Outcome) (#tuple (Restored) (Consumed)))
@@ -21403,7 +21381,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_impossible_result_arms_do_not_require_fabricated_loans() {
-        let source = "(#enum Output ((Pending (#ref #u64)) (Ready #u64)))
+        let source = "(#enum Output () ((Pending (#ref #u64)) (Ready #u64)))
             (#fn factory () Output (#return (Ready 42u64)))
             (#fn wrap () Output
               (#return (#match (#call factory ())
@@ -21431,7 +21409,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn prepared_variant_tags_require_verified_callee_bodies() {
-        let source = "(#enum Choice ((Empty) (Full (#ref #u64))))
+        let source = "(#enum Choice () ((Empty) (Full (#ref #u64))))
             (#fn noop ((target (#ref-mut Choice))) () (#return ()))
             (#fn forward ((target (#ref-mut Choice))) ()
               (#call noop (: target target)) (#return ()))
@@ -21466,8 +21444,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_owned_call_outputs_exclude_absent_input_payload_loans() {
-        let source = "(#enum Task ((Waiting) (Holding (#ref #u64))))
-          (#enum Outcome ((Pending Task) (Ready #u64)))
+        let source = "(#enum Task () ((Waiting) (Holding (#ref #u64))))
+          (#enum Outcome () ((Pending Task) (Ready #u64)))
           (#fn poll ((task Task)) Outcome
             (#return (#match task
               (#case (Waiting) (Ready 37u64))
@@ -21505,10 +21483,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_call_entry_reads_use_non_singleton_owned_variant_bounds() {
-        let prefix = "(#struct Resource ((number #u64))) (#linear Resource)
-          (#enum Stage ((Start (#ref-mut Resource))
+        let prefix = "(#struct Resource (#linear) ((number #u64)))
+          (#enum Stage (#linear) ((Start (#ref-mut Resource))
             (WaitA (#ref-mut Resource)) (WaitB (#ref-mut Resource))))
-          (#linear Stage)
+
           (#fn inspect ((stage Stage)) ()
             (#match stage
               (#case (Start active) (#block (#assert (#u64.== (#get active number) 0u64)) ()))
@@ -21547,7 +21525,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn read ((target (#ref-mut Resource))) #u64 (#return (#get target number)))
                  (#fn forward ((target (#ref-mut Resource))) #u64 (#return (#call read (: target target))))
                  (#fn initialize ((target (#ref-mut Resource))) ()
@@ -21580,7 +21558,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn production_returned_references_keep_branch_specific_consumption() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
             (#fn select ((first (#ref-mut Resource)) (second (#ref-mut Resource)) (choose #bool))
               (#ref-mut Resource)
               (#return (#if choose
@@ -21624,7 +21602,7 @@ mod typed_ownership_tests {
 
         // Later constructor operands mutate storage after the reference has
         // been evaluated, so its earlier snapshot cannot prove safe escape.
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
             (#fn reborrow ((target (#ref-mut Resource))) (#ref-mut Resource) (#return target))
             (#fn select ((first (#ref-mut Resource)) (second (#ref-mut Resource)) (choose #bool))
               (#tuple (#ref-mut Resource) ())
@@ -21653,8 +21631,8 @@ mod typed_ownership_tests {
                     ("(#ref-mut Resource)", "target")
                 };
                 let source = format!(
-                    "(#struct Resource ((number #u64))) (#linear Resource)
-                     (#struct Holder ((value (#ref-mut Resource))))
+                    "(#struct Resource (#linear) ((number #u64)))
+                     (#struct Holder () ((value (#ref-mut Resource))))
                      (#fn inspect ((target (#ref-mut Resource))) {output}
                        (#forget (#deref target))
                        {replacement}
@@ -21689,7 +21667,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn inspect ((target (#ref-mut Resource))) #u64
                    (#forget (#deref target))
                    {replacement}
@@ -21736,10 +21714,10 @@ mod typed_ownership_tests {
                         _ => unreachable!(),
                     };
                     let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#enum Outcome ((Restored) (Consumed)))
-                 (#struct Packet ((first Outcome) (second Outcome)))
-                 (#enum Wrapped ((PacketValue Packet)))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#enum Outcome () ((Restored) (Consumed)))
+                 (#struct Packet () ((first Outcome) (second Outcome)))
+                 (#enum Wrapped () ((PacketValue Packet)))
                  (#fn worker ((target (#ref-mut Resource)) (choose #bool) (fallback Outcome)) {output_type}
                    (#forget (#deref target))
                    (#return {constructor}))
@@ -21782,8 +21760,8 @@ mod typed_ownership_tests {
     fn staged_direct_call_output_projections_select_nested_outcomes() {
         for slot in [0, 1] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#enum Outcome ((Restored) (Consumed)))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#enum Outcome () ((Restored) (Consumed)))
                  (#fn calculate ((target (#ref-mut Resource)) (choose #bool)) (#tuple Outcome Outcome)
                    (#forget (#deref target))
                    (#return (#if choose
@@ -21815,8 +21793,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_nested_worker_outcome_keeps_unknown_return_alternatives() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
-            (#enum Outcome ((Restored) (Consumed)))
+        let source = "(#struct Resource (#linear) ((number #u64)))
+            (#enum Outcome () ((Restored) (Consumed)))
             (#fn worker ((target (#ref-mut Resource)) (choose #bool) (fallback (#tuple Outcome Outcome))) (#tuple Outcome Outcome)
               (#forget (#deref target))
               (#return (#if choose
@@ -21875,8 +21853,8 @@ mod typed_ownership_tests {
         ] {
             let read = "(#block (#assert (#u64.== (#get target number) 42u64)) ())";
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#enum Outcome ((Restored) (Consumed)))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#enum Outcome () ((Restored) (Consumed)))
                  (#fn worker ((target (#ref-mut Resource)) (choose #bool)) Outcome
                    (#forget (#deref target))
                    (#return (#if choose
@@ -21993,8 +21971,8 @@ mod typed_ownership_tests {
                 |slot| format!("(#get outcome {slot})"),
             );
             let program = crate::parse_program(&format!(
-            "(#struct Holder ((value (#ref #u64)))) (#linear Holder)
-             (#enum Outcome ((FromFirst) (FromSecond)))
+            "(#struct Holder (#linear) ((value (#ref #u64))))
+             (#enum Outcome () ((FromFirst) (FromSecond)))
              (#fn worker ((target (#ref-mut Holder)) (first (#ref #u64)) (second (#ref #u64)) (choose #bool)) {result_type}
                (#forget (#deref target))
                (#return (#if choose
@@ -22073,7 +22051,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn worker ((target (#ref-mut Resource))) ()
                    (#forget (#deref target)) {restore} (#return ()))
                  (@#thread-spawn (: task Task : worker worker))
@@ -22117,7 +22095,7 @@ mod typed_ownership_tests {
                 "(#panic)".into()
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn worker ((target (#ref-mut Resource))) ()
                    (#forget (#deref target))
                    (#deref-set target (#struct-literal Resource ((number 42u64))))
@@ -22160,7 +22138,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_initializer_requires_consumed_entry_until_completed_join() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn worker ((target (#ref-mut Resource))) ()
             (#deref-set target (#struct-literal Resource ((number 42u64)))) (#return ()))
           (@#thread-spawn (: task Task : worker worker))
@@ -22338,7 +22316,7 @@ mod typed_ownership_tests {
                 "(#panic)".into()
             };
             let source = format!(
-                "(#struct Holder ((value (#ref #u64)))) (#linear Holder)
+                "(#struct Holder (#linear) ((value (#ref #u64))))
           (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64))) ()
             (#forget (#deref target))
             (#deref-set target (#struct-literal Holder ((value source)))) (#return ()))
@@ -22391,7 +22369,7 @@ mod typed_ownership_tests {
     #[test]
     fn staged_thread_conditional_write_retains_old_and_new_reference_loans() {
         let program = crate::parse_program(
-            "(#struct Holder ((value (#ref #u64)))) (#linear Holder)
+            "(#struct Holder (#linear) ((value (#ref #u64))))
              (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)) ()
                (#if choose
                  (#block (#forget (#deref target))
@@ -22503,11 +22481,11 @@ mod typed_ownership_tests {
             (
                 "Wrapper",
                 "(#deref-set target (#struct-literal Wrapper (: inner (Empty))))",
-                "(#struct Wrapper ((inner Holder))) (#linear Wrapper)",
+                "(#struct Wrapper (#linear) ((inner Holder))) ",
             ),
         ] {
             let source = format!(
-                "(#enum Holder ((Filled (#ref #u64)) (Empty))) (#linear Holder)
+                "(#enum Holder (#linear) ((Filled (#ref #u64)) (Empty)))
           {declarations_source}
           (#fn worker ((target (#ref-mut {target_type}))) ()
             (#forget (#deref target)) {write} (#return ()))
@@ -22551,8 +22529,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_join_preserves_distinct_nested_worker_result_constructors() {
-        let source = "(#enum Decision ((Ready) (Failed))) (#linear Decision)
-          (#struct Packet ((first Decision) (second Decision))) (#linear Packet)
+        let source = "(#enum Decision (#linear) ((Ready) (Failed)))
+          (#struct Packet (#linear) ((first Decision) (second Decision)))
           (#fn factory () Packet
             (#return (#struct-literal Packet (: first (Ready) : second (Failed)))))
           (#fn worker () Packet (#return (#call factory ())))
@@ -22644,7 +22622,7 @@ mod typed_ownership_tests {
             ),
         ] {
             let source = format!(
-                "(#enum Decision ((Ready) (Failed))) (#linear Decision)
+                "(#enum Decision (#linear) ((Ready) (Failed)))
                  (#fn worker {parameters} Decision (#return {returned}))
                  (@#thread-spawn (: task Task : worker worker))
                  (#fn caller {caller_parameters} ()
@@ -22694,7 +22672,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_global_clears_are_deferred_to_successful_join() {
-        let source = "(#enum Holder ((Empty) (Filled (#ref #u64)))) (#linear Holder)
+        let source = "(#enum Holder (#linear) ((Empty) (Filled (#ref #u64))))
             (#static Snapshot Holder (Empty))
             (#fn worker () () (#unsafe (#forget Snapshot)) (#return ()))
             (@#thread-spawn (: task Task : worker worker))
@@ -22750,7 +22728,7 @@ mod typed_ownership_tests {
             (format!("(#if choose (#block {clear} {empty}) ())"), None),
         ] {
             let program = crate::parse_program(&format!(
-                "(#enum Holder ((Filled (#ref #u64)) (Empty))) (#linear Holder)
+                "(#enum Holder (#linear) ((Filled (#ref #u64)) (Empty)))
                  (#fn worker ((target (#ref-mut Holder)) (source (#ref #u64)) (choose #bool)) ()
                    {writes} (#return ()))
                  (@#thread-spawn (: task Task : worker worker))"
@@ -22800,7 +22778,7 @@ mod typed_ownership_tests {
             ("(#forget (#deref target))", "(#return (#panic))"),
         ] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn worker ((target (#ref-mut Resource))) () {operation} {exit})
                  (@#thread-spawn (: task Task : worker worker))"
             );
@@ -22956,7 +22934,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_worker_errors_precede_caller_contracts() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
           (#fn z-worker ((owner (#ref-mut Resource))) #u64
             (#forget (#deref owner)) (#return (#get owner number)))
           (@#thread-spawn (: task Task : worker z-worker))
@@ -23150,7 +23128,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_thread_capture_schemas_preserve_slots_without_runtime_fields() {
-        let source = "(#struct Bundle ((shared (#ref #u64)) (exclusive (#ref-mut #u64))))
+        let source = "(#struct Bundle () ((shared (#ref #u64)) (exclusive (#ref-mut #u64))))
           (#fn worker ((shared (#ref #u64)) (exclusive (#ref-mut #u64))
                        (bundle Bundle) (view (#slice (#ref #u64)))
                        (array (#array (#ref #u64) 2)) (pinned (#pin-ref #u64))
@@ -23319,7 +23297,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_raw_pointer_external_boundary_does_not_restore_consumed_referents() {
-        let source = "(#struct Resource ((value #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((value #u64)))
             (#extern-fn #abi-c touch ((address (#ptr-mut Resource))) ())
             (#fn inspect ((target (#ref-mut Resource)) (address (#ptr-mut Resource))) #u64
               (#forget (#deref target))
@@ -23389,8 +23367,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_stored_pointer_borrow_reads_keep_initialized_boundary() {
-        let source = "(#struct Resource (: value #u64)) (#linear Resource)
-          (#struct Holder (: view (#ref Resource)))
+        let source = "(#struct Resource (#linear) (: value #u64))
+          (#struct Holder () (: view (#ref Resource)))
           (#fn read (: holder (#ref Holder)) #u64
             (#return (#get (#get holder view) value)))
           (#fn inspect (: anchor (#ref Resource) : address (#ptr Resource)) #u64
@@ -23414,8 +23392,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_stored_pointer_borrow_does_not_prove_owned_consumption() {
-        let source = "(#struct Resource (: value #u64)) (#linear Resource)
-          (#struct Holder (: view (#ref-mut Resource)))
+        let source = "(#struct Resource (#linear) (: value #u64))
+          (#struct Holder () (: view (#ref-mut Resource)))
           (#fn consume (: holder (#ref-mut Holder)) ()
             (#forget (#deref (#get holder view))) (#return ()))
           (#fn inspect (: anchor (#ref-mut Resource) : address (#ptr-mut Resource)) ()
@@ -23454,7 +23432,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_direct_pointer_borrow_field_reads_use_initialized_boundary() {
-        let source = "(#struct Resource (: value #u64)) (#linear Resource)
+        let source = "(#struct Resource (#linear) (: value #u64))
           (#fn inspect (: anchor (#ref Resource) : address (#ptr Resource)) #u64
             (#let view (#ref Resource) (#unsafe (#ptr-borrow anchor address)))
             (#return (#get view value)))
@@ -23479,7 +23457,7 @@ mod typed_ownership_tests {
             "(#deref-set view (#struct-literal Resource (: value 42u64)))",
         ] {
             let source = format!(
-                "(#struct Resource (: value #u64)) (#linear Resource)
+                "(#struct Resource (#linear) (: value #u64))
               (#fn inspect (: anchor (#ref-mut Resource) : address (#ptr-mut Resource)) ()
                 (#let view (#ref-mut Resource) (#unsafe (#ptr-borrow-mut anchor address)))
                 {operation} (#drop view) (#return ()))"
@@ -23498,7 +23476,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn staged_unsafe_pointer_borrow_reads_do_not_invent_physical_places() {
-        let source = "(#struct Resource ((value #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((value #u64)))
             (#fn read ((value (#ref Resource))) #u64 (#return (#get value value)))
             (#fn inspect ((anchor (#ref Resource)) (address (#ptr Resource))) #u64
               (#return (#call read (: value (#unsafe (#ptr-borrow anchor address))))))";
@@ -23561,7 +23539,7 @@ mod typed_ownership_tests {
     fn staged_mixed_unsafe_and_physical_read_inputs_keep_physical_requirements() {
         let call = "(#call read (: value (#if choose (#unsafe (#ptr-borrow anchor (#clone address))) other)))";
         let source = format!(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
             (#fn read ((value (#ref Resource))) #u64 (#return (#get value value)))
             (#fn inspect ((anchor (#ref Resource)) (other (#ref Resource))
                           (address (#ptr Resource)) (choose #bool)) #u64
@@ -23608,7 +23586,7 @@ mod typed_ownership_tests {
         ] {
             let call = "(#call operate (: value (#unsafe (#ptr-borrow-mut anchor address))))";
             let source = format!(
-                "(#struct Resource ((value #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((value #u64)))
                 (#fn operate ((value (#ref-mut Resource))) () {operation} (#return ()))
                 (#fn inspect ((anchor (#ref-mut Resource)) (address (#ptr-mut Resource))) ()
                   {call} (#return ()))"
@@ -23688,8 +23666,8 @@ mod typed_ownership_tests {
                 "(#get state view)"
             };
             let source = format!(
-                "(#struct Referent (: number #u64))
-                (#struct Frame (: view {field_type}))
+                "(#struct Referent () (: number #u64))
+                (#struct Frame () (: view {field_type}))
                 (#fn inspect (: task (#pin-ref Frame)) #u64
                   (#let state Frame (#unsafe (#pin-read task)))
                   (#let answer #u64 (#get {selected} number))
@@ -23847,9 +23825,9 @@ mod typed_ownership_tests {
                 "(#get outer-view target)"
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-              (#struct Container ((item Resource)))
-              (#struct Holder ((target (#ref Resource))))
+                "(#struct Resource (#linear) ((number #u64)))
+              (#struct Container () ((item Resource)))
+              (#struct Holder () ((target (#ref Resource))))
               (#fn load ((view (#ref Holder))) (#ref Resource)
                 (#return (#get view target)))
               (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
@@ -23920,9 +23898,9 @@ mod typed_ownership_tests {
         ] {
             let read_after = result != "0u64";
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#struct Container ((item Resource)))
-                 (#struct Holder ((target (#ref-mut Resource))))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#struct Container () ((item Resource)))
+                 (#struct Holder () ((target (#ref-mut Resource))))
                  (#fn consume ((holder (#ref-mut Holder))) ()
                    (#forget (#deref (#get holder target))) (#return ()))
                  (#fn forward ((holder (#ref-mut Holder))) ()
@@ -23983,8 +23961,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn exclusive_container_access_does_not_make_a_shared_field_exclusive() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
-            (#struct Holder ((target (#ref Resource))))
+        let source = "(#struct Resource (#linear) ((number #u64)))
+            (#struct Holder () ((target (#ref Resource))))
             (#fn consume ((holder (#ref-mut Holder))) ()
               (#forget (#deref (#get holder target))) (#return ()))";
         let program = crate::parse_program(source).unwrap();
@@ -24012,10 +23990,10 @@ mod typed_ownership_tests {
 
     #[test]
     fn projected_parameter_containers_compose_loaded_reference_slots_in_order() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
-            (#struct Container ((item Resource)))
-            (#struct Holder ((target (#ref Resource))))
-            (#struct Outer ((holder Holder)))
+        let source = "(#struct Resource (#linear) ((number #u64)))
+            (#struct Container () ((item Resource)))
+            (#struct Holder () ((target (#ref Resource))))
+            (#struct Outer () ((holder Holder)))
             (#fn load ((view (#ref Holder))) (#ref Resource)
               (#return (#get view target)))
             (#fn forward ((outer (#ref Outer))) (#ref Resource)
@@ -24088,9 +24066,9 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#struct Container ((item Resource) (other Resource)))
-                 (#struct Views ((left (#ref Resource)) (right (#ref Resource))))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#struct Container () ((item Resource) (other Resource)))
+                 (#struct Views () ((left (#ref Resource)) (right (#ref Resource))))
                  (#fn caller ((owner (#ref-mut Container))) (#ref Resource)
                    (#let-mut holder Views (#struct-literal Views
                      ((left (#borrow (#get owner item)))
@@ -24171,7 +24149,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn pinned_loads_of_branch_local_containers_use_evaluation_snapshots() {
-        let source = "(#struct Views ((left (#ref #u64)) (right (#ref #u64)))) (#linear Views)
+        let source = "(#struct Views (#linear) ((left (#ref #u64)) (right (#ref #u64))))
             (#fn load ((left (#ref #u64)) (right (#ref #u64)) (flag #bool)) Views
               (#return (#if flag
                 (#block
@@ -24218,7 +24196,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn dereferencing_local_reference_storage_retains_the_inner_pointee() {
-        let source = "(#struct Held ((item (#ref #u64))))
+        let source = "(#struct Held () ((item (#ref #u64))))
             (#fn load ((input (#ref #u64))) (#ref #u64)
             (#let held Held (#struct-literal Held ((item input))))
             (#let outer (#ref Held) (#borrow held))
@@ -24294,7 +24272,7 @@ mod typed_ownership_tests {
                 "(#if selected (#block (#forget holder) ()) (#block (#forget holder) ()))",
             ] {
                 let source = format!(
-                    "(#struct Held (: item (#ref #u64)))
+                    "(#struct Held () (: item (#ref #u64)))
                   (#fn main (: selected #bool) ()
                     (#let-mut owner {owner_type} {owner_value})
                     (#let holder {holder_type} {holder_value})
@@ -24330,7 +24308,7 @@ mod typed_ownership_tests {
                 }
             }
             let scoped = format!(
-                "(#struct Held (: item (#ref #u64)))
+                "(#struct Held () (: item (#ref #u64)))
                 (#fn main () ()
                   (#let-mut owner {owner_type} {owner_value})
                   (#block (#let holder {holder_type} {holder_value}) ())
@@ -24358,8 +24336,8 @@ mod typed_ownership_tests {
             ("Choice", "(Both (#borrow-mut owner) (#borrow-mut owner))"),
         ] {
             let source = format!(
-                "(#struct Pair (: left (#ref-mut #u64) : right (#ref-mut #u64)))
-                (#enum Choice ((Both (#ref-mut #u64) (#ref-mut #u64))))
+                "(#struct Pair () (: left (#ref-mut #u64) : right (#ref-mut #u64)))
+                (#enum Choice () ((Both (#ref-mut #u64) (#ref-mut #u64))))
                 (#fn main () () (#let-mut owner #u64 42u64)
                   (#let holder {ty} {constructor}) (#forget holder) (#return ()))"
             );
@@ -24396,7 +24374,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn typed_aggregate_operand_snapshots_survive_later_handle_reassignment() {
-        let source = "(#struct Pair (: left (#ref #u64) : right (#ref-mut #u64)))
+        let source = "(#struct Pair () (: left (#ref #u64) : right (#ref-mut #u64)))
             (#fn main () ()
               (#let-mut owner #u64 42u64)
               (#let-mut other #u64 43u64)
@@ -24430,7 +24408,7 @@ mod typed_ownership_tests {
             .replace("(#borrow-mut owner)", "(#borrow-mut third)");
         crate::check_types(&crate::parse_program(&independent).unwrap()).unwrap();
 
-        let forwarded = "(#struct Views (: left (#ref-mut #u64) : right (#ref-mut #u64)))
+        let forwarded = "(#struct Views () (: left (#ref-mut #u64) : right (#ref-mut #u64)))
             (#fn rebuild (: input Views) Views
               (#return (#struct-literal Views (: left (#get input left) : right (#get input right)))))";
         crate::check_types(&crate::parse_program(forwarded).unwrap()).unwrap();
@@ -24445,7 +24423,7 @@ mod typed_ownership_tests {
             (true, false, false, false),
             (false, true, false, false),
         ] {
-            let annotation = if linear { "(#linear Views)" } else { "" };
+            let properties = if linear { "(#linear)" } else { "()" };
             let original = if release_original {
                 "(#forget holder)"
             } else {
@@ -24462,8 +24440,8 @@ mod typed_ownership_tests {
                 "(#forget loaded)"
             };
             let source = format!(
-                "(#struct Owner ((number #u64)))
-            (#struct Views ((item (#ref #u64)))) {annotation}
+                "(#struct Owner () ((number #u64)))
+            (#struct Views {properties} ((item (#ref #u64))))
             (#fn main () #u64
               (#let-mut owner Owner (#struct-literal Owner ((number 42u64))))
               (#let parent (#ref-mut Owner) (#borrow-mut owner))
@@ -24527,7 +24505,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                 (#fn main () ()
                   (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
                   (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
@@ -24564,7 +24542,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn returning_a_pinned_loaded_value_still_rejects_its_local_pointee() {
-        let source = "(#struct Views ((item (#ref #u64))))
+        let source = "(#struct Views () ((item (#ref #u64))))
             (#fn leak () Views
               (#return (#block
                 (#let owner #u64 42u64)
@@ -24588,7 +24566,7 @@ mod typed_ownership_tests {
             };
             let cleanup = if restored { "(#forget owner)" } else { "" };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
               (#fn main () #u64
                 (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
                 (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
@@ -24612,8 +24590,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn locally_pin_moved_exclusive_reference_slots_transfer_without_duplicate_loans() {
-        let source = "(#struct Owner ((number #u64)))
-            (#struct View ((item (#ref-mut #u64)))) (#linear View)
+        let source = "(#struct Owner () ((number #u64)))
+            (#struct View (#linear) ((item (#ref-mut #u64))))
             (#fn main () #u64
               (#let-mut owner Owner (#struct-literal Owner ((number 1u64))))
               (#let parent (#ref-mut Owner) (#borrow-mut owner))
@@ -24661,11 +24639,11 @@ mod typed_ownership_tests {
             let reference = if pinned { "#pin-ref" } else { "#ref" };
             let borrow = if pinned { "#pin-borrow" } else { "#borrow" };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#struct Container ((item Resource) (other Resource)))
-                 (#struct Views ((left (#ref Resource)) (right (#ref Resource))))
-                 (#struct Nested ((views Views)))
-                 (#struct Outer ((nested Nested)))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#struct Container () ((item Resource) (other Resource)))
+                 (#struct Views () ((left (#ref Resource)) (right (#ref Resource))))
+                 (#struct Nested () ((views Views)))
+                 (#struct Outer () ((nested Nested)))
                  (#fn load ((outer ({reference} Outer))) Nested
                    (#let selected Nested {loading})
                    (#return selected))
@@ -24785,7 +24763,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn static_selection_of_loaded_reference_arrays_preserves_the_selected_input() {
-        let source = "(#struct Outer ((refs (#array (#ref #u64) 2))))
+        let source = "(#struct Outer () ((refs (#array (#ref #u64) 2))))
             (#fn select ((outer (#ref Outer))) (#ref #u64)
               (#return (#index (#get outer refs) 1usize)))
             (#fn caller ((left (#ref #u64)) (right (#ref #u64))) (#ref #u64)
@@ -24857,7 +24835,7 @@ mod typed_ownership_tests {
                    (#return (#get outer refs)))"
             };
             let source = format!(
-                "(#struct Outer ((refs (#array (#ref #u64) 2))))
+                "(#struct Outer () ((refs (#array (#ref #u64) 2))))
                  {load}
                  (#fn identity ((values (#array (#ref #u64) 2))) (#array (#ref #u64) 2)
                    (#return values))
@@ -24921,9 +24899,9 @@ mod typed_ownership_tests {
     fn static_reference_array_selection_does_not_require_the_unselected_referent() {
         for consumed in ["item", "other"] {
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#struct Container ((item Resource) (other Resource)))
-                 (#struct Outer ((refs (#array (#ref Resource) 2))))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#struct Container () ((item Resource) (other Resource)))
+                 (#struct Outer () ((refs (#array (#ref Resource) 2))))
                  (#fn load ((outer (#ref Outer))) (#array (#ref Resource) 2)
                    (#return (#get outer refs)))
                  (#fn select ((outer (#ref Outer))) (#ref Resource)
@@ -24968,8 +24946,8 @@ mod typed_ownership_tests {
         for mutable in [false, true] {
             let reference = if mutable { "#ref-mut" } else { "#ref" };
             let source = format!(
-                "(#struct Views ((target (#ref-mut #u64))))
-                 (#struct Outer ((views Views)))
+                "(#struct Views () ((target (#ref-mut #u64))))
+                 (#struct Outer () ((views Views)))
                  (#fn load ((outer ({reference} Outer))) ()
                    (#let selected Views (#get outer views))
                    (#forget selected) (#return ()))"
@@ -25014,7 +24992,7 @@ mod typed_ownership_tests {
                 ""
             };
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
+                "(#struct Resource (#linear) ((number #u64)))
                  (#fn cycle ((target (#pin-ref-mut Resource))) ()
                    (#let old Resource (#unsafe (#pin-read target)))
                    {second} (#forget old)
@@ -25051,7 +25029,7 @@ mod typed_ownership_tests {
 
     #[test]
     fn pinned_writes_cannot_implicitly_destroy_live_linear_storage() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((number #u64)))
             (#fn main () ()
               (#let-mut owner Resource (#struct-literal Resource ((number 1u64))))
               (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))
@@ -25087,8 +25065,8 @@ mod typed_ownership_tests {
             };
             let call = "(#call take (: target (#pin-borrow-mut (#get owner item))))";
             let source = format!(
-                "(#struct Resource ((number #u64))) (#linear Resource)
-                 (#struct Container ((item Resource)))
+                "(#struct Resource (#linear) ((number #u64)))
+                 (#struct Container () ((item Resource)))
                  (#fn take ((target (#pin-ref-mut Resource))) ()
                    (#let old Resource (#unsafe (#pin-read target)))
                    (#forget old) (#return ()))
@@ -25121,8 +25099,8 @@ mod typed_ownership_tests {
 
     #[test]
     fn computed_pinned_read_targets_preserve_the_consumed_identity() {
-        let source = "(#struct Resource ((number #u64))) (#linear Resource)
-            (#struct Container ((item Resource)))
+        let source = "(#struct Resource (#linear) ((number #u64)))
+            (#struct Container () ((item Resource)))
             (#fn view ((target (#pin-ref-mut Resource))) (#pin-ref-mut Resource)
               (#return target))
             (#fn cycle ((owner (#pin-ref-mut Container))) ()

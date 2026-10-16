@@ -1,4 +1,4 @@
-(#enum Inner (Ready))
-(#enum Outer ((Nested Inner) Stop))
+(#enum Inner () (Ready))
+(#enum Outer () ((Nested Inner) Stop))
 (#fn main ((value Outer)) #u64
   (#return (#match value (#case (Nested Ready) false) (#case Stop 0u64))))

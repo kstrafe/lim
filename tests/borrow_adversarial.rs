@@ -246,7 +246,7 @@ fn rejects_adversarial_borrow_violations_at_the_conflicting_operation() {
         },
         Violation {
             name: "parent-access-during-child-reborrow",
-            source: "(#struct Pair (: left #u64 : right #u64))
+            source: "(#struct Pair () (: left #u64 : right #u64))
               (#fn main () #u64
                 (#let-mut pair Pair (#struct-literal Pair (: left 1u64 : right 2u64)))
                 (#let parent (#ref-mut Pair) (#borrow-mut pair))
@@ -284,7 +284,7 @@ fn rejects_adversarial_borrow_violations_at_the_conflicting_operation() {
         },
         Violation {
             name: "aggregate-reference-escape",
-            source: "(#struct Holder (: view (#ref #u64)))
+            source: "(#struct Holder () (: view (#ref #u64)))
               (#fn bad () Holder
                 (#let local #u64 7u64)
                 (#return (#struct-literal Holder (: view (#borrow local)))))
@@ -304,7 +304,7 @@ fn rejects_adversarial_borrow_violations_at_the_conflicting_operation() {
         },
         Violation {
             name: "owner-move-while-borrowed",
-            source: "(#struct Token (: value #u64)) (#linear Token)
+            source: "(#struct Token (#linear) (: value #u64))
               (#fn consume (: token Token) () (#forget token) (#return ()))
               (#fn main () ()
                 (#let token Token (#struct-literal Token (: value 1u64)))
@@ -343,7 +343,7 @@ fn accepts_adversarial_non_aliasing_controls() {
         ),
         (
             "disjoint-fields",
-            "(#struct Pair (: left #u64 : right #u64))
+            "(#struct Pair () (: left #u64 : right #u64))
              (#fn main () #u64
                (#let-mut pair Pair (#struct-literal Pair (: left 1u64 : right 2u64)))
                (#let left (#ref-mut #u64) (#borrow-mut (#get pair left)))

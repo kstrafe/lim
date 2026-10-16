@@ -12,7 +12,7 @@ fn floating_globals_preserve_width_bits_and_runtime_semantics() {
       (#const NegativeZero #f64 -0.0f64)
       (#const Infinity #f64 (#f64./ 1.0f64 0.0f64))
       (#const Nan #f64 (#f64./ 0.0f64 0.0f64))
-      (#struct Floats ((small #f32) (large #f64)))
+      (#struct Floats () ((small #f32) (large #f64)))
       (#static Pair Floats (#struct-literal Floats ((large Forward) (small Rounded))))
       (#static Values (#array #f64 2) (#array-of (#array #f64 2) NegativeZero Infinity))
       (#fn main () #u64

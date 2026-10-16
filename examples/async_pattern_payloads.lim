@@ -1,7 +1,7 @@
 ; Destructured tuple fields are typed from Choice, then retained as needed.
-(#enum Choice ((Chosen (#tuple #u64 #u64)) Empty))
-(#enum Step ((Start #u64) (Resume #u64)))
-(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#enum Choice () ((Chosen (#tuple #u64 #u64)) Empty))
+(#enum Step () ((Start #u64) (Resume #u64)))
+(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))

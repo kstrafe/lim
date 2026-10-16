@@ -83,7 +83,7 @@ fn evaluates_source_once_on_both_edges() {
     for choice in ["(Some 40u64)", "(Error 40u64)"] {
         run(
             &format!(
-                "(#enum Choice (: Some #u64 : Error #u64))
+                "(#enum Choice () (: Some #u64 : Error #u64))
           (#fn source (: count (#ref-mut #u64)) Choice
             (#deref-set count (#u64.+.wrap (#deref count) 1u64))
             (#return {choice}))
@@ -102,7 +102,7 @@ fn evaluates_source_once_on_both_edges() {
 
 #[test]
 fn validates_failure_patterns_and_divergence() {
-    let template = "(#enum Choice (: Some #u64 : Error #u64 : Empty))
+    let template = "(#enum Choice () (: Some #u64 : Error #u64 : Empty))
       (#fn test (: value Choice) #u64
         (#let-else (Some number) Choice value FALLBACK) (#return number))";
     for (fallback, error) in [
@@ -133,14 +133,14 @@ fn validates_failure_patterns_and_divergence() {
 #[test]
 fn coverage_includes_refutable_success_payloads() {
     rejected(
-        "(#enum Choice (: Some #u64 : Error #u64))
+        "(#enum Choice () (: Some #u64 : Error #u64))
       (#fn test (: value Choice) #u64
         (#let-else (Some 42u64) Choice value
           (#else (Error error) (#return error))) (#return 42u64))",
         "does not cover all success mismatches",
     );
     checked(
-        "(#enum Choice (: Flag #bool))
+        "(#enum Choice () (: Flag #bool))
       (#fn test (: value Choice) #u64
         (#let-else (Flag true) Choice value
           (#else (Flag false) (#return 0u64))) (#return 42u64))",
@@ -161,12 +161,12 @@ fn lowers_scalar_aggregate_fieldless_and_large_failures() {
         42,
     );
     run(
-        "(#enum Choice (Some Error Empty)) (#fn main () #u64
+        "(#enum Choice () (Some Error Empty)) (#fn main () #u64
       (#let-else Some Choice Error (#else _ (#return 42u64))) (#return 0u64))",
         42,
     );
     run(
-        "(#enum Choice (: Some #u64 : Error (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)))
+        "(#enum Choice () (: Some #u64 : Error (#tuple #u64 #u64 #u64 #u64 #u64 #u64 #u64)))
       (#fn main () #u64
         (#let-else (Some number) Choice (Error (#tuple 1u64 2u64 3u64 4u64 5u64 6u64 21u64))
           (#else (Error (#tuple first second third fourth fifth sixth last))
@@ -185,8 +185,8 @@ fn failure_cleanup_is_checked_only_for_success_mismatches() {
     ] {
         run(
             &format!(
-                "(#struct Token (: value #u64)) (#linear Token)
-          (#enum Choice (: Owned Token : Missing))
+                "(#struct Token (#linear) (: value #u64))
+          (#enum Choice () (: Owned Token : Missing))
           (#fn main () #u64
             (#let-else (Owned token) Choice {value} (#else _ (#return 0u64)))
             (#let number #u64 (#get token value)) (#forget token) (#return number))"
@@ -198,8 +198,8 @@ fn failure_cleanup_is_checked_only_for_success_mismatches() {
 
 #[test]
 fn cannot_discard_an_indivisible_linear_error_enum() {
-    let source = "(#enum Error (Broken)) (#linear Error)
-      (#enum Input (: Some #u64 : Failure Error))
+    let source = "(#enum Error (#linear) (Broken))
+      (#enum Input () (: Some #u64 : Failure Error))
       (#fn test (: value Input) #u64
         (#let-else (Some number) Input value
           (#else (Failure _) (#return 0u64))) (#return number))";
@@ -213,7 +213,7 @@ fn cannot_discard_an_indivisible_linear_error_enum() {
 
 #[test]
 fn linear_error_is_consumed_once() {
-    let source = "(#struct Token (: value #u64)) (#linear Token)
+    let source = "(#struct Token (#linear) (: value #u64))
       (@#result (: ok #u64 : error Token : name Input))
       (@#result (: ok #bool : error Token : name Output))
       (#fn convert (: value Input) Output
@@ -263,7 +263,7 @@ fn linear_error_is_consumed_once() {
 
 #[test]
 fn generated_linear_error_enum_propagates_on_both_edges() {
-    let declarations = "(#enum Error (Broken)) (#linear Error)
+    let declarations = "(#enum Error (#linear) (Broken))
       (@#result (: ok #u64 : error Error : name Input))
       (@#result (: ok #bool : error Error : name Output))
       (#fn convert (: value Input) Output
@@ -295,7 +295,7 @@ fn generated_linear_error_enum_propagates_on_both_edges() {
         "Input-is-ok",
     );
     run(
-        "(#struct Token (: value #u64)) (#linear Token)
+        "(#struct Token (#linear) (: value #u64))
       (@#optional (: type Token : name Maybe))
       (#fn main () #u64
         (#let value Maybe (#call Maybe-construct (: value (#struct-literal Token (: value 42u64)))))
@@ -310,7 +310,7 @@ fn generated_linear_error_enum_propagates_on_both_edges() {
 #[test]
 fn builtin_helper_policy_matches_materialization_and_cache_context() {
     let scratch = support::Scratch::new("result-helper-context");
-    let source = "(#enum Error (Broken))
+    let source = "(#enum Error () (Broken))
       (@#result (: ok #u64 : error Error : name Result))
       (@#optional (: type Error : name Maybe))";
     let generated = || {
@@ -322,7 +322,11 @@ fn builtin_helper_policy_matches_materialization_and_cache_context() {
             .collect::<Vec<_>>()
     };
     for linear in [false, true] {
-        let source = format!("{source} {}", if linear { "(#linear Error)" } else { "" });
+        let source = if linear {
+            source.replace("(#enum Error ()", "(#enum Error (#linear)")
+        } else {
+            source.to_owned()
+        };
         let before = if linear { generated() } else { Vec::new() };
         lim::write_generated_sources(&source, scratch.path()).unwrap();
         let after = generated();
@@ -382,37 +386,29 @@ fn builtin_helper_policy_matches_materialization_and_cache_context() {
 
 #[test]
 fn builtin_copy_policy_handles_aliases_exclusive_refs_and_explicit_linearity() {
-    for (declarations, payload, generated_linear, helpers) in [
-        ("", "#u64", false, true),
-        ("", "#u64", true, false),
-        ("(#type Payload #u64)", "Payload", false, true),
+    for (declarations, payload, helpers) in [
+        ("", "#u64", true),
+        ("(#type Payload #u64)", "Payload", true),
         (
-            "(#enum Error (Broken)) (#linear Error) (#type Payload Error)",
+            "(#enum Error (#linear) (Broken))  (#type Payload Error)",
             "Payload",
             false,
-            false,
         ),
-        ("", "(#ref-mut #u64)", false, false),
-        ("(#type Payload (#ref-mut #u64))", "Payload", false, false),
+        ("", "(#ref-mut #u64)", false),
+        ("(#type Payload (#ref-mut #u64))", "Payload", false),
         (
-            "(#struct Payload (: view (#ref-mut #u64)))",
+            "(#struct Payload () (: view (#ref-mut #u64)))",
             "Payload",
             false,
-            false,
         ),
-        ("", "(#tuple #u64 (#ref-mut #u64))", false, false),
-        ("", "(#array (#ref-mut #u64) 2)", false, false),
-        ("", "(#ref #u64)", false, true),
+        ("", "(#tuple #u64 (#ref-mut #u64))", false),
+        ("", "(#array (#ref-mut #u64) 2)", false),
+        ("", "(#ref #u64)", true),
     ] {
         let source = format!(
             "{declarations}
           (@#result (: ok #bool : error {payload} : name Result))
-          (@#optional (: type {payload} : name Maybe)) {}",
-            if generated_linear {
-                "(#linear Result) (#linear Maybe)"
-            } else {
-                ""
-            }
+          (@#optional (: type {payload} : name Maybe))"
         );
         let program = lim::parse_program(&source).unwrap();
         lim::check_types(&program).unwrap_or_else(|error| panic!("{error}\n{source}"));
@@ -491,7 +487,7 @@ fn user_generator_emitted_builtins_keep_copy_dependent_helpers() {
     );
     let source = format!(
         "{generator}
-      (#enum Error (Broken)) (#linear Error) (#type Payload Error) (@emit Payload)
+      (#enum Error (#linear) (Broken))  (#type Payload Error) (@emit Payload)
       (#fn main () #u64
         (#let result Result (#call Result-err (: error Broken)))
         (#let-else (Result-ok-value yes) Result result
@@ -514,7 +510,7 @@ fn legacy_fallbacks_and_multiple_failure_statements() {
     ] {
         run(
             &format!(
-                "(#enum Choice (: Some #u64 : Error #u64))
+                "(#enum Choice () (: Some #u64 : Error #u64))
           (#fn main () #u64 (#let value Choice (Error 42u64))
             (#let-else (Some number) Choice value {fallback}) (#return number))"
             ),
@@ -526,14 +522,14 @@ fn legacy_fallbacks_and_multiple_failure_statements() {
 #[test]
 fn failure_bindings_are_scoped_and_success_bindings_unavailable() {
     rejected(
-        "(#enum Choice (: Some #u64 : Error #u64))
+        "(#enum Choice () (: Some #u64 : Error #u64))
       (#fn test (: value Choice) #u64
         (#let-else (Some number) Choice value
           (#else (Error error) (#return number))) (#return number))",
         "unknown variable or enum variant 'number'",
     );
     rejected(
-        "(#enum Choice (: Some #u64 : Error #u64))
+        "(#enum Choice () (: Some #u64 : Error #u64))
       (#fn test (: value Choice) #u64
         (#let-else (Some number) Choice value
           (#else (Error error) (#return error))) (#return error))",
@@ -544,7 +540,7 @@ fn failure_bindings_are_scoped_and_success_bindings_unavailable() {
 #[test]
 fn failure_diagnostics_point_inside_else() {
     let scratch = support::Scratch::new("failure-diagnostics");
-    let source = "(#enum Choice (: Some #u64 : Error #u64))
+    let source = "(#enum Choice () (: Some #u64 : Error #u64))
       (#fn test (: value Choice) #u64
         (#let-else (Some number) Choice value
           (#else (Missing error) (#return error))) (#return number))";
@@ -600,7 +596,7 @@ fn failure_diagnostics_point_inside_else() {
 
 #[test]
 fn reference_error_retains_provenance() {
-    let source = "(#struct Error (: view (#ref #u64)))
+    let source = "(#struct Error () (: view (#ref #u64)))
       (@#result (: ok #u64 : error Error : name Input))
       (@#result (: ok #bool : error Error : name Output))
       (#fn convert (: value Input) Output
@@ -642,14 +638,14 @@ fn preserves_failure_pattern_after_async_suspension() {
     ] {
         run(
             &format!(
-                "(#enum Input (: Input-ok-value #u64 : Input-err-value #u32))
-          (#enum Output (: Output-ok-value #bool : Output-err-value #u32))
+                "(#enum Input () (: Input-ok-value #u64 : Input-err-value #u32))
+          (#enum Output () (: Output-ok-value #bool : Output-err-value #u32))
           (#fn Input-ok (: value #u64) Input (#return (Input-ok-value value)))
           (#fn Input-err (: error #u32) Input (#return (Input-err-value error)))
           (#fn Output-ok (: value #bool) Output (#return (Output-ok-value value)))
           (#fn Output-err (: error #u32) Output (#return (Output-err-value error)))
-          (#enum Step (: Waiting #u64)) (#linear Step)
-          (#enum StepPoll (: StepPending Step : StepReady #u64))
+          (#enum Step (#linear) (: Waiting #u64))
+          (#enum StepPoll () (: StepPending Step : StepReady #u64))
           (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
             (#return (#match task (#case (Waiting remaining)
               (#if (#u64.== remaining 0u64) (StepReady 0u64) (StepPending (Waiting 0u64)))))))

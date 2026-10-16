@@ -7,8 +7,8 @@ const SAMPLES: usize = 7;
 
 fn source(functions: usize) -> String {
     let mut source = String::from(
-        "(#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
-      (#enum ChildPoll ((Pending Child) (Ready #u64)))
+        "(#enum Child (#linear) ((Start #u64) (Resume #u64)))
+      (#enum ChildPoll () ((Pending Child) (Ready #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task
           (#case (Start value) (Pending (Resume value)))
@@ -16,7 +16,7 @@ fn source(functions: usize) -> String {
     );
     for index in 0..128 {
         source.push_str(&format!(
-            "(#struct Record{index} (: x #u64 : y #u64 : z #u64))\n"
+            "(#struct Record{index} () (: x #u64 : y #u64 : z #u64))\n"
         ));
     }
     for index in 0..functions {

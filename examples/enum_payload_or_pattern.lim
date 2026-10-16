@@ -1,4 +1,4 @@
-(#enum Number ((Value #u64) Empty))
+(#enum Number () ((Value #u64) Empty))
 
 (#fn main () #u64
   (#let value Number (Value 2))

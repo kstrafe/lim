@@ -12,9 +12,9 @@ fn checked_dump(source: &str) -> String {
 
 #[test]
 fn declaration_ids_are_stable_across_independent_parses() {
-    let source = "(#struct Zebra ((shared #u64)))
-      (#struct Alpha ((shared #u32)))
-      (#enum Choice ((Item #u64) Empty))
+    let source = "(#struct Zebra () ((shared #u64)))
+      (#struct Alpha () ((shared #u32)))
+      (#enum Choice () ((Item #u64) Empty))
       (#static TOTAL #u64 40u64)
       (#fn main () #u64
         (#let value Alpha (#struct-literal Alpha ((shared 2u32))))
@@ -47,8 +47,8 @@ fn declaration_ids_are_stable_across_independent_parses() {
 
 #[test]
 fn aliases_and_references_resolve_field_identity_to_its_owner() {
-    let source = "(#struct Left ((value #u64)))
-      (#struct Right ((value #u64)))
+    let source = "(#struct Left () ((value #u64)))
+      (#struct Right () ((value #u64)))
       (#type LeftAlias Left)
       (#fn read ((item (#ref LeftAlias))) #u64 (#return (#get item value)))
       (#fn read-right ((item (#ref Right))) #u64 (#return (#get item value)))
@@ -71,7 +71,7 @@ fn aliases_and_references_resolve_field_identity_to_its_owner() {
 
 #[test]
 fn enum_constructor_match_and_payload_projection_share_variant_identity() {
-    let source = "(#enum Result ((Value #u64) Empty))
+    let source = "(#enum Result () ((Value #u64) Empty))
       (#fn main () #u64
         (#let-mut result Result (Value 40u64))
         (#set-payload result Value 0 41u64)
@@ -92,7 +92,7 @@ fn enum_constructor_match_and_payload_projection_share_variant_identity() {
 #[test]
 fn global_and_local_references_have_distinct_declaration_kinds() {
     let source = "(#static TOTAL #u64 40u64)
-      (#enum Maybe ((Some #u64) None))
+      (#enum Maybe () ((Some #u64) None))
       (#fn parameter ((argument #u64)) #u64 (#return argument))
       (#fn local () #u64
         (#let local-total #u64 42u64)
@@ -140,11 +140,11 @@ fn local_bindings_may_not_shadow_visible_names() {
     for source in [
         "(#fn main () #u64 (#let value #u64 1u64) (#let value #u64 2u64) (#return value))",
         "(#fn main () #u64 (#let value #u64 1u64) (#return (#block (#let value #u64 2u64) value)))",
-        "(#enum Maybe ((Some #u64) None)) (#fn main ((value Maybe)) #u64 (#return (#match value (#case (Some value) value) (#case None 0u64))))",
+        "(#enum Maybe () ((Some #u64) None)) (#fn main ((value Maybe)) #u64 (#return (#match value (#case (Some value) value) (#case None 0u64))))",
         "(#static value #u64 1u64) (#fn read ((value #u64)) #u64 (#return value))",
         "(#fn main ((value #u64)) #u64 (#let (#tuple value) (#tuple #u64) (#tuple 2u64)) (#return value))",
-        "(#enum Maybe ((Some #u64) None)) (#fn main ((value #u64) (maybe Maybe)) #u64 (#return (#if-let (Some value) maybe value value)))",
-        "(#enum Maybe ((Some #u64) None)) (#fn main ((value #u64) (maybe Maybe)) #u64 (#let-else (Some value) Maybe maybe (#return 0u64)) (#return value))",
+        "(#enum Maybe () ((Some #u64) None)) (#fn main ((value #u64) (maybe Maybe)) #u64 (#return (#if-let (Some value) maybe value value)))",
+        "(#enum Maybe () ((Some #u64) None)) (#fn main ((value #u64) (maybe Maybe)) #u64 (#let-else (Some value) Maybe maybe (#return 0u64)) (#return value))",
         "(#fn main ((counter #u64)) #u64 (#for (#let counter #u64 0u64) true () (#break)) (#return counter))",
         "(#fn main ((offset #u64)) #u64 (#for-range (offset #u64) 0u64 2u64 ()) (#return offset))",
     ] {
@@ -173,8 +173,8 @@ fn sibling_enum_patterns_with_the_same_name_have_distinct_typed_storage() {
     let executable = scratch.path().join("program");
     std::fs::write(
         &source,
-        "(#enum Small ((Number #u64) Zero))
-      (#enum Wide ((Words (#tuple #u64 #u64 #u64 #u64)) Absent))
+        "(#enum Small () ((Number #u64) Zero))
+      (#enum Wide () ((Words (#tuple #u64 #u64 #u64 #u64)) Absent))
       (#fn main () #u64
         (#let small Small (Number 20u64))
         (#let wide Wide (Words (#tuple (#tuple #u64 #u64 #u64 #u64) 22u64 3u64 4u64 5u64)))
@@ -212,7 +212,7 @@ fn scoped_statement_destinations_do_not_alias_same_spelled_initializer_patterns(
     let scratch = support::Scratch::new("scoped-statement-destinations");
     let executable = scratch.path().join("program");
     for (index, source) in [
-        "(#enum Maybe ((Some #u64) None))
+        "(#enum Maybe () ((Some #u64) None))
           (#fn main () #u64
             (#let answer #u64 (#match (Some 41u64)
               (#case (Some answer) answer) (#case None 0u64)))
@@ -222,7 +222,7 @@ fn scoped_statement_destinations_do_not_alias_same_spelled_initializer_patterns(
           (#let second #u64 (#block (#let-mut value (#tuple #u64 #u64)
             (#tuple (#tuple #u64 #u64) 20u64 9u64)) (#set-field value 0 21u64) (#get value 0)))
           (#return (#u64.+.wrap first second)))",
-        "(#struct Pair (: first #u64 : second #u64))
+        "(#struct Pair () (: first #u64 : second #u64))
           (#fn main () #u64
             (#let first #u64 (#block (#let-mut value Pair
               (#struct-literal Pair (: first 20u64 : second 9u64)))
@@ -321,7 +321,7 @@ fn generated_static_access_still_requires_unsafe() {
 #[test]
 fn imported_declaration_nodes_retain_source_spans_and_deterministic_ids() {
     let scratch = support::Scratch::new("declaration-import-spans");
-    let module = "(#struct Record ((value #u64)))\n\
+    let module = "(#struct Record () ((value #u64)))\n\
       (#static BASE #u64 1u64)\n\
       (#fn imported () #u64\n\
         (#return (#u64.+.wrap (#get (#struct-literal Record ((value 40u64))) value) (#unsafe BASE))))";
@@ -362,8 +362,8 @@ fn resolved_field_mutation_and_reference_projection_execute_correctly() {
     let executable = scratch.path().join("program");
     std::fs::write(
         &source,
-        "(#struct First ((value #u64)))
-         (#struct Second ((value #u64)))
+        "(#struct First () ((value #u64)))
+         (#struct Second () ((value #u64)))
          (#fn main () #u64
            (#let-mut first First (#struct-literal First ((value 1u64))))
            (#let-mut second Second (#struct-literal Second ((value 2u64))))

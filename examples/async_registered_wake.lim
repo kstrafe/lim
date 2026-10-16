@@ -2,9 +2,9 @@
 (#import "../library/local_waker.lim")
 (#import "../library/wake_ready4.lim")
 
-(#struct WakeExecutor ((queue WakeReady4)))
-(#struct WakeMetadata ((token WakeToken4)))
-(#linear WakeMetadata)
+(#struct WakeExecutor () ((queue WakeReady4)))
+(#struct WakeMetadata (#linear) ((token WakeToken4)))
+
 
 (#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref WakeMetadata))) ()
   (#assert (#call wake-ready4-notify

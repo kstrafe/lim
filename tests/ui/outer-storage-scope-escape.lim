@@ -1,4 +1,4 @@
-(#struct Holder (: view (#ref #u64)))
+(#struct Holder () (: view (#ref #u64)))
 (#fn inspect (: external (#ref #u64)) #u64
   (#let-mut holder Holder (#struct-literal Holder (: view external)))
   (#let done () (#block

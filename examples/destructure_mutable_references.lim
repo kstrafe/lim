@@ -1,5 +1,5 @@
-(#struct InnerView ((left (#ref-mut #u64)) (right (#ref-mut #u64))))
-(#struct OuterView ((inner InnerView)))
+(#struct InnerView () ((left (#ref-mut #u64)) (right (#ref-mut #u64))))
+(#struct OuterView () ((inner InnerView)))
 
 (#fn main () #u64
   (#let-mut left-value #u64 20u64)

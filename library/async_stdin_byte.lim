@@ -11,17 +11,17 @@
 (#const LINUX-FCNTL-F_DUPFD-CLOEXEC #i32 1030i32)
 (#const LINUX-O_NONBLOCK #u64 2048u64)
 
-(#struct AsyncByteRead1
+(#struct AsyncByteRead1 (#linear)
   ((fd #i64) (destination (#ref-mut #u8)) (memory (#ptr-mut #u8))
    (queue WakeReady4) (token WakeToken4)))
 (#opaque AsyncByteRead1)
-(#linear AsyncByteRead1)
-(#enum AsyncByteReadCreate1
+
+(#enum AsyncByteReadCreate1 ()
   ((AsyncByteReadCreated1 AsyncByteRead1) (AsyncByteReadCreateFailed1 #i64)))
-(#enum AsyncByteReadPoll1
+(#enum AsyncByteReadPoll1 ()
   (AsyncByteReadPending1 (AsyncByteReadReady1 #u8)
    AsyncByteReadEof1 (AsyncByteReadFailed1 #i64)))
-(#enum AsyncByteReadWait1
+(#enum AsyncByteReadWait1 ()
   (AsyncByteReadWoken1 (AsyncByteReadWaitFailed1 #i64)))
 
 (#fn async-byte-read1-source ((task (#ref AsyncByteRead1))) AsyncPollSource4

@@ -2,8 +2,8 @@ use std::{process::Command, time::Duration};
 mod support;
 
 const SOURCE: &str = r#"
-  (#enum Value (Empty (Full #u64)))
-  (#struct Link (: value Value : view (#pin-ref #u64)))
+  (#enum Value () (Empty (Full #u64)))
+  (#struct Link () (: value Value : view (#pin-ref #u64)))
   (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
     (#let view (#pin-ref #u64)
       (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
@@ -143,8 +143,8 @@ fn an_initializer_guard_does_not_authorize_writes_after_the_branch_join() {
 #[test]
 fn mutable_reference_in_enum_payload_blocks_owner_reads_through_callees() {
     let source = r#"
-      (#enum View (NoView (HasView (#pin-ref-mut #u64))))
-      (#struct Link (: value #u64 : view View))
+      (#enum View () (NoView (HasView (#pin-ref-mut #u64))))
+      (#struct Link () (: value #u64 : view View))
       (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
         (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
         (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view)))
@@ -181,8 +181,8 @@ fn mutable_reference_in_enum_payload_blocks_owner_reads_through_callees() {
 #[test]
 fn inactive_conditional_child_allows_guarded_owner_reads_but_active_child_does_not() {
     let source = r#"
-      (#enum View (NoView (HasView (#pin-ref-mut #u64))))
-      (#struct Link (: value #u64 : view View))
+      (#enum View () (NoView (HasView (#pin-ref-mut #u64))))
+      (#struct Link () (: value #u64 : view View))
       (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
         (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
         (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view)))
@@ -237,8 +237,8 @@ fn inactive_conditional_child_allows_guarded_owner_reads_but_active_child_does_n
 #[test]
 fn shared_reference_in_enum_payload_blocks_owner_mut_borrows_through_callees() {
     let source = r#"
-      (#enum View (NoView (HasView (#pin-ref #u64))))
-      (#struct Link (: value #u64 : view View))
+      (#enum View () (NoView (HasView (#pin-ref #u64))))
+      (#struct Link () (: value #u64 : view View))
       (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
         (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
         (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view)))
@@ -274,9 +274,9 @@ fn shared_reference_in_enum_payload_blocks_owner_mut_borrows_through_callees() {
 #[test]
 fn mutable_reference_to_enum_payload_blocks_owner_access_through_callees() {
     let source = r#"
-      (#enum Value (Empty (Full #u64)))
-      (#enum View (NoView (Self (#pin-ref-mut #u64))))
-      (#struct Link (: value Value : view View))
+      (#enum Value () (Empty (Full #u64)))
+      (#enum View () (NoView (Self (#pin-ref-mut #u64))))
+      (#struct Link () (: value Value : view View))
       (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
         (#let view (#pin-ref-mut #u64)
           (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0))
@@ -312,9 +312,9 @@ fn mutable_reference_to_enum_payload_blocks_owner_access_through_callees() {
 #[test]
 fn owner_checks_follow_mutable_references_stored_in_nested_owners() {
     let source = r#"
-      (#enum View (Empty (Full (#ref-mut #u64))))
-      (#struct Inner (: value #u64 : view View))
-      (#struct Outer (: inner (#ref-mut Inner)))
+      (#enum View () (Empty (Full (#ref-mut #u64))))
+      (#struct Inner () (: value #u64 : view View))
+      (#struct Outer () (: inner (#ref-mut Inner)))
       (#fn install (: target (#ref-mut Outer)) (#ref-mut Outer)
         (#let inner (#ref-mut Inner) (#get target inner))
         (#let child (#ref-mut #u64) (#borrow-mut (#get inner value)))
@@ -344,8 +344,8 @@ fn owner_checks_follow_mutable_references_stored_in_nested_owners() {
 #[test]
 fn unknown_direct_payload_slot_does_not_hide_a_mutable_owner_alias() {
     let source = r#"
-      (#enum View (Empty (Full (#ref-mut #u64))))
-      (#struct Link (: value #u64 : view View))
+      (#enum View () (Empty (Full (#ref-mut #u64))))
+      (#struct Link () (: value #u64 : view View))
       (#fn install (: target (#ref-mut Link)) (#ref-mut Link)
         (#let child (#ref-mut #u64) (#borrow-mut (#get target value)))
         (#deref-set (#borrow-mut (#get target view)) (Full child))

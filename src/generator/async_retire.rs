@@ -747,7 +747,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         prepare(&format!(
-            "(#struct Resource (: value #u64)) (#linear Resource)
+            "(#struct Resource (#linear) (: value #u64))
              (#fn make (: value #u64) Resource
                (#return (#struct-literal Resource (: value value))))
              (#fn work () () {statements} (#return ()))"
@@ -777,8 +777,8 @@ mod tests {
     #[test]
     fn projected_clone_retention_excludes_only_its_parent_formations() {
         let (mut graph, _) = prepare(
-            "(#struct Resource (: value #u64)) (#linear Resource)
-             (#struct Envelope (: item (#tuple Resource #u64)))
+            "(#struct Resource (#linear) (: value #u64))
+             (#struct Envelope () (: item (#tuple Resource #u64)))
              (#fn make () Envelope
                (#return (#struct-literal Envelope (: item
                  (#tuple (#tuple Resource #u64)
@@ -975,7 +975,7 @@ mod tests {
         assert!(Plan::new(&graph, &types).is_none());
         for source in [
             "(#fn work (: view (#ref-mut #u64)) #u64 (#return (#deref view)))",
-            "(#struct Holder (: view (#ref #u64))) (#linear Holder)
+            "(#struct Holder (#linear) (: view (#ref #u64)))
                 (#fn work (: owner Holder) () (#forget owner) (#return ()))",
         ] {
             let (graph, types) = prepare(source);
@@ -1087,7 +1087,7 @@ mod tests {
     fn exclusive_candidate_requests_cannot_retire_arbitrary_owners() {
         for source in [
             "(#fn work (: value #u64) #u64 (#return value))",
-            "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+            "(#struct Holder (#linear) (: view (#ref-mut #u64)))
              (#fn work (: value Holder) Holder (#return value))",
         ] {
             let (graph, types) = prepare(source);
@@ -1164,8 +1164,8 @@ mod tests {
     #[test]
     fn pending_retains_evaluated_operands_and_restores_only_its_child() {
         let context = crate::parse_program(
-            "(#enum Child ((Waiting #u64))) (#linear Child)
-          (#enum ChildPoll ((Pending Child) (Ready #u64)))
+            "(#enum Child (#linear) ((Waiting #u64)))
+          (#enum ChildPoll () ((Pending Child) (Ready #u64)))
           (#fn step-poll (: task Child : waker (#ref #u64)) ChildPoll
             (#return (#match task (#case (Waiting count)
               (#if (#u64.== count 0u64) (Ready 42u64) (Pending (Waiting 0u64)))))))

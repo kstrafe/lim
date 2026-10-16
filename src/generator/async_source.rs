@@ -1092,8 +1092,8 @@ mod tests {
     use super::*;
 
     const CONTEXT: &str = "
-      (#enum Child ((Waiting #u64))) (#linear Child)
-      (#enum ChildPoll ((Pending Child) (Ready #u64)))
+      (#enum Child (#linear) ((Waiting #u64)))
+      (#enum ChildPoll () ((Pending Child) (Ready #u64)))
       (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting count)
@@ -1166,7 +1166,7 @@ mod tests {
     fn nested_await_child_is_evaluated_before_its_outer_driver() {
         let context = format!(
             "{CONTEXT}
-          (#enum BuilderPoll ((BuilderPending Child) (BuilderReady Child)))
+          (#enum BuilderPoll () ((BuilderPending Child) (BuilderReady Child)))
           (#fn build-poll ((task Child) (waker (#ref #u64))) BuilderPoll
             (#return (BuilderReady task)))"
         );
@@ -1217,7 +1217,7 @@ mod tests {
 
     #[test]
     fn ordinary_owned_exit_check_rejects_missing_cleanup_at_original_binding() {
-        let context = format!("{CONTEXT} (#struct Token ((value #u64))) (#linear Token)");
+        let context = format!("{CONTEXT} (#struct Token (#linear) ((value #u64))) ");
         let (base, _, lowered) = prepare(
             &context,
             "(#fn work ((token Token)) #u64
@@ -1238,8 +1238,8 @@ mod tests {
     #[test]
     fn child_result_reference_keeps_original_source_borrow() {
         let context = "
-          (#enum Child ((Holding (#ref #u64)))) (#linear Child)
-          (#enum ChildPoll ((Pending Child) (Ready (#ref #u64))))
+          (#enum Child (#linear) ((Holding (#ref #u64))))
+          (#enum ChildPoll () ((Pending Child) (Ready (#ref #u64))))
           (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
             (#return (#match task (#case (Holding view) (Ready view)))))";
         let (base, _, lowered) = prepare(
@@ -1497,7 +1497,7 @@ mod tests {
     fn unnamed_reference_bearing_operand_retains_its_actual_owner() {
         let context = format!(
             "{CONTEXT}
-          (#struct Held ((view (#ref #u64)))) (#linear Held)
+          (#struct Held (#linear) ((view (#ref #u64))))
           (#fn make-held ((view (#ref #u64))) Held
             (#return (#struct-literal Held ((view view)))))
           (#fn combine ((held Held) (value #u64)) #u64
@@ -1587,8 +1587,8 @@ mod tests {
             )
         };
         let source = include_str!("../../examples/async_fn_local_self_reference.lim").replace(
-            "(#struct LocalOwner ((payload LocalPayload)))",
-            "(#struct LocalOwner ((payload LocalPayload))) (#linear LocalOwner)",
+            "(#struct LocalOwner () ((payload LocalPayload)))",
+            "(#struct LocalOwner (#linear) ((payload LocalPayload))) ",
         ).replace("(#return (#u64.+.wrap (#deref view) result))", "(#let answer #u64 (#u64.+.wrap (#deref view) result))\n    (#forget view) (#forget owner) (#return answer)");
         let program = parse(&source).unwrap();
         let mut runtime = program.clone();

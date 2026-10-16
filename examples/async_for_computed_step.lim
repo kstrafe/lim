@@ -1,15 +1,15 @@
 ; The condition and the expression used by the step both suspend.
-(#enum ConditionTask ((Check #u64) (Recheck #u64)))
-(#linear ConditionTask)
-(#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady #bool)))
+(#enum ConditionTask (#linear) ((Check #u64) (Recheck #u64)))
+
+(#enum ConditionPoll () ((ConditionPending ConditionTask) (ConditionReady #bool)))
 (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
   (#return (#match task
     (#case (Check index) (ConditionPending (Recheck index)))
     (#case (Recheck index) (ConditionReady (#u64.< index 2u64))))))
 
-(#enum StepTask ((Start #u64 #bool) (Resume #u64 #bool)))
-(#linear StepTask)
-(#enum StepPoll ((StepPending StepTask) (StepReady #u64)))
+(#enum StepTask (#linear) ((Start #u64 #bool) (Resume #u64 #bool)))
+
+(#enum StepPoll () ((StepPending StepTask) (StepReady #u64)))
 (#fn step-poll ((task StepTask) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start index body-ran)

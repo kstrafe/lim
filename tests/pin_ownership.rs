@@ -69,8 +69,8 @@ fn movable_heap_owners_initialize_native_scalars_and_large_aggregates() {
 fn pin_owned_reference_enum_initialization_preserves_inactive_and_live_slots() {
     for initializer in ["Empty", "(Full (#borrow source))"] {
         let source = format!(
-            "(#enum Slot ((Empty) (Full (#ref #u64))))
-          (#struct Holder (: slot Slot))
+            "(#enum Slot () ((Empty) (Full (#ref #u64))))
+          (#struct Holder () (: slot Slot))
           (#fn forward (: owner (#pin-own Holder)) (#pin-own Holder) (#return owner))
           (#fn read (: view (#pin-ref Holder)) #u64
             (#return (#if (#variant-is (#pin-borrow (#get view slot)) Empty) 42u64

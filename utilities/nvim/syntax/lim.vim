@@ -18,6 +18,8 @@ syn match limCharacter "#\\\%(u{[[:xdigit:]]\+}\|[[:alpha:]][[:alnum:]_-]*\|.\)"
 " Lim forms, operators, and generator operations use a leading #.
 syn match limKeyword +#[[:alpha:]_][^[:space:]();"'`,@#]*+
 syn match limGenerated +@#\?[[:alpha:]_][^[:space:]();"'`,@#]*+
+" Type properties are declaration annotations, not callable forms.
+syn match limTypeProperty +#\%(linear\|repr-c\)\ze\%($\|[[:space:]();"'`,@#]\)+
 
 " Match complete tokens, including the sigil. In particular, #u64 is a type
 " but #u64.+.wrap is an operator and an unprefixed u64 is a user identifier.
@@ -43,7 +45,7 @@ syn match limParen3 "[()]" contained
 syn match limParen4 "[()]" contained
 syn match limParen5 "[()]" contained
 syn match limParen6 "[()]" contained
-syn cluster limForms contains=limKeyword,limGenerated,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
+syn cluster limForms contains=limKeyword,limGenerated,limTypeProperty,limType,limTypeForm,limOperator,limDeclaration,limConditional,limRepeat,limControl,limUnsafe,limPin,limGeneratorKeyword,limCfg,limNumber,limString,limCharacter,limComment
 syn region limNest1 transparent start="(" end=")" contains=@limForms,limNest2,limParen1
 syn region limNest2 transparent start="(" end=")" contained contains=@limForms,limNest3,limParen2
 syn region limNest3 transparent start="(" end=")" contained contains=@limForms,limNest4,limParen3
@@ -57,6 +59,7 @@ hi def link limEscape SpecialChar
 hi def link limCharacter Character
 hi def link limKeyword Keyword
 hi def link limGenerated Special
+hi def link limTypeProperty Keyword
 hi def link limType Type
 hi def link limTypeForm Type
 hi def link limOperator Operator

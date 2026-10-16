@@ -424,8 +424,8 @@ pub(in crate::typed_flow) fn word_and_scalar_return_guarantees(
 mod tests {
     use super::*;
 
-    const SOURCE: &str = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: state #u64 : words (#array #u64 1)))
+    const SOURCE: &str = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: state #u64 : words (#array #u64 1)))
       (#fn make (: value (#ref #u64) : flag #bool : unknown #u64) Frame
         (#let-mut frame Frame (#struct-literal Frame (: state 0u64 : words (#array-repeat 0u64))))
         (#if flag (#block
@@ -519,8 +519,8 @@ mod tests {
                 && fact.storage.last() == Some(&Segment::Index(0))));
         let source = source
             .replace(
-                "(#struct Frame",
-                "(#enum Outcome ((Pending Frame) (Ready #u64))) (#struct Frame",
+                "(#struct Frame ()",
+                "(#enum Outcome () ((Pending Frame) (Ready #u64))) (#struct Frame ()",
             )
             .replace(") Frame\n", ") Outcome\n")
             .replace(

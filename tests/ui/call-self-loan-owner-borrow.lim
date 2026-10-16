@@ -1,4 +1,4 @@
-(#struct Link (: value #u64 : state #u32 : view (#pin-ref #u64)))
+(#struct Link () (: value #u64 : state #u32 : view (#pin-ref #u64)))
 (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
   (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
   (#pin-set-field target view view) (#return target))

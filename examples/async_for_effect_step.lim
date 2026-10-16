@@ -1,7 +1,7 @@
 ; Await an argument of an effect-only step with a synchronous condition.
-(#enum StepTask ((Start #u64) (Resume #u64)))
-(#linear StepTask)
-(#enum StepPoll ((StepPending StepTask) (StepReady #u64)))
+(#enum StepTask (#linear) ((Start #u64) (Resume #u64)))
+
+(#enum StepPoll () ((StepPending StepTask) (StepReady #u64)))
 
 (#fn step-poll (: task StepTask : waker (#ref #u64)) StepPoll
   (#return (#match task

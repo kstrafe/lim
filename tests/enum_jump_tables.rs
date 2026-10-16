@@ -50,7 +50,7 @@ fn fieldless_source(tags: &[u64]) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "(#enum Tag ({variants}))
+        "(#enum Tag () ({variants}))
         (#fn dispatch (: value Tag) #u64 (#return (#match value {arms})))
         (#fn main () #u64 {checks} (#return 42u64))"
     )
@@ -102,7 +102,7 @@ fn small_sparse_and_few_destination_matches_keep_direct_branches() {
         assert!(assembly.contains("cmp QWORD PTR [rsp]"));
     }
     let assembly = compile_and_run(
-        "(#enum Tag (A B C D E))
+        "(#enum Tag () (A B C D E))
         (#fn dispatch (: value Tag) #u64 (#return (#match value (#case A 1u64) (#case _ 42u64))))
         (#fn main () #u64 (#return (#call dispatch (: value E))))",
     );
@@ -112,7 +112,7 @@ fn small_sparse_and_few_destination_matches_keep_direct_branches() {
 #[test]
 fn wildcard_entries_use_the_original_default_arm() {
     let assembly = compile_and_run(
-        "(#enum Tag (A B C D E F))
+        "(#enum Tag () (A B C D E F))
         (#fn dispatch (: value Tag) #u64 (#return (#match value
           (#case D 4u64) (#case B 2u64) (#case A 1u64) (#case _ 42u64))))
         (#fn main () #u64
@@ -134,7 +134,7 @@ fn guards_and_refutable_payloads_preserve_ordered_fallback() {
         "(#case (A 7) 17u64)",
     ] {
         let source = format!(
-            "(#enum Tag ((A #u64) B C D))
+            "(#enum Tag () ((A #u64) B C D))
             (#fn dispatch (: value Tag) #u64 (#return (#match value
               {first} (#case B 20u64)
               (#case C 30u64) (#case D 40u64) (#case _ 42u64))))
@@ -154,7 +154,7 @@ fn guards_and_refutable_payloads_preserve_ordered_fallback() {
 #[test]
 fn wildcard_guard_failure_does_not_skip_later_variants() {
     let assembly = compile_and_run(
-        "(#enum Tag (A B C D E))
+        "(#enum Tag () (A B C D E))
         (#fn dispatch (: value Tag) #u64 (#return (#match value
           (#case A 10u64) (#case B 20u64) (#case C 30u64)
           (#case _ (#when false) 0u64) (#case D 40u64) (#case E 42u64))))
@@ -169,7 +169,7 @@ fn wildcard_guard_failure_does_not_skip_later_variants() {
 #[test]
 fn guarded_repeated_variants_evaluate_guards_once_and_only_for_matching_tags() {
     let assembly = compile_and_run(
-        "(#enum Tag ((A #u64) B C D))
+        "(#enum Tag () ((A #u64) B C D))
         (#fn dispatch (: value Tag : count (#ref-mut #u64)) #u64
           (#return (#match value
             (#case (A first) (#when (#block
@@ -229,7 +229,7 @@ fn invalid_discriminants_trap_before_indexing_the_table() {
 #[test]
 fn or_patterns_keep_existing_branch_semantics() {
     let assembly = compile_and_run(
-        "(#enum Tag (A B C D E))
+        "(#enum Tag () (A B C D E))
         (#fn dispatch (: value Tag) #u64 (#return (#match value
           (#case (#or A B) 42u64) (#case C 3u64) (#case D 4u64) (#case E 5u64))))
         (#fn main () #u64 (#return (#call dispatch (: value B))))",
@@ -239,7 +239,7 @@ fn or_patterns_keep_existing_branch_semantics() {
 
 #[test]
 fn large_payloads_and_indirect_aggregate_destinations_survive_table_dispatch() {
-    let assembly = compile_and_run("(#enum Tag ((A (#array #u64 10))
+    let assembly = compile_and_run("(#enum Tag () ((A (#array #u64 10))
           (B (#array #u64 10)) (C (#array #u64 10)) (D (#array #u64 10))))
         (#fn make (: value #u64) Tag (#return (D (#array-repeat value))))
         (#fn dispatch (: value Tag) Tag (#return (#match value
@@ -263,7 +263,7 @@ fn large_payloads_and_indirect_aggregate_destinations_survive_table_dispatch() {
 #[test]
 fn computed_and_static_scrutinees_and_float_results_preserve_staging() {
     let assembly = compile_and_run(
-        "(#enum Tag ((A #f64) (B #f64) (C #f64) (D #f64)))
+        "(#enum Tag () ((A #f64) (B #f64) (C #f64) (D #f64)))
         (#static Stored Tag (C 42.0f64))
         (#fn make (: count (#ref-mut #u64)) Tag
           (#deref-set count (#u64.+.wrap (#deref count) 1u64))

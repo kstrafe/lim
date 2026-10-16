@@ -573,7 +573,7 @@ mod tests {
     fn shared_snapshot_union_matches_all_point_specific_origins() {
         for source in [
             "(#fn work () #u64 (#return 42u64))",
-            "(#struct Holder (: view (#ref #u64)))
+            "(#struct Holder () (: view (#ref #u64)))
              (#fn work (: choose #bool : external (#ref #u64)) #u64
                (#let left #u64 40u64) (#let right #u64 42u64)
                (#let view (#ref #u64) (#if choose (#borrow left) external))
@@ -742,7 +742,7 @@ mod tests {
     #[test]
     fn aggregates_record_dependencies_for_in_place_cleanup() {
         let plan = plan(
-            "(#struct Held (: view (#ref #u64)))
+            "(#struct Held () (: view (#ref #u64)))
           (#fn work () #u64
             (#let owner #u64 40u64)
             (#let held Held (#struct-literal Held (: view (#borrow owner))))

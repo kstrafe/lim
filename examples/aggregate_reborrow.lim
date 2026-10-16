@@ -1,6 +1,6 @@
-(#struct Owner ((value #u64)))
-(#struct Views ((left (#ref #u64)) (right (#ref #u64))))
-(#struct WrappedViews ((views Views)))
+(#struct Owner () ((value #u64)))
+(#struct Views () ((left (#ref #u64)) (right (#ref #u64))))
+(#struct WrappedViews () ((views Views)))
 
 (#fn left-reference ((views (#ref Views))) (#ref #u64)
   (#return (#get views left)))

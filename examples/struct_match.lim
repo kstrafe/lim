@@ -1,4 +1,4 @@
-(#struct Point ((x #u64) (y #u64)))
+(#struct Point () ((x #u64) (y #u64)))
 
 (#fn classify ((value Point)) #u64
   (#return

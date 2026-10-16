@@ -188,7 +188,7 @@ fn all_range_constructors_trap_on_invalid_bounds() {
 
 #[test]
 fn direct_views_of_array_fields_return_through_helpers() {
-    let source = "(#struct Container (: data (#array #u64 4)))
+    let source = "(#struct Container () (: data (#array #u64 4)))
       (#fn shared (: source (#ref Container)) (#slice #u64)
         (#return (#borrow-slice (#get source data) 1usize 3usize)))
       (#fn exclusive (: source (#ref-mut Container)) (#slice-mut #u64)
@@ -250,7 +250,7 @@ fn bounds_are_evaluated_once_in_start_end_order() {
 #[test]
 fn mutable_range_reborrows_a_field_without_moving_it() {
     let source = format!(
-        "(#struct Holder (: view (#slice-mut #u64)))
+        "(#struct Holder () (: view (#slice-mut #u64)))
       (#fn main () #u64 {ARRAY}
         (#let-mut holder Holder (#struct-literal Holder (: view (#borrow-slice-mut values))))
         (#let child (#slice-mut #u64) (#slice-mut-range (#get holder view) 1usize 3usize))
@@ -265,7 +265,7 @@ fn mutable_range_reborrows_a_field_without_moving_it() {
 #[test]
 fn slice_field_parent_is_suspended_and_sibling_fields_remain_usable() {
     let source = format!(
-        "(#struct Holder (: view (#slice-mut #u64) : other (#slice-mut #u64)))
+        "(#struct Holder () (: view (#slice-mut #u64) : other (#slice-mut #u64)))
          (#fn main () #u64 {ARRAY}
            (#let-mut holder Holder (#struct-literal Holder
              (: view (#borrow-slice-mut values 0usize 2usize)
@@ -296,7 +296,7 @@ fn slice_field_parent_is_suspended_and_sibling_fields_remain_usable() {
 #[test]
 fn slice_field_reborrowing_rejects_shared_and_temporary_receivers() {
     let source = format!(
-        "(#struct Holder (: view (#slice-mut #u64)))
+        "(#struct Holder () (: view (#slice-mut #u64)))
          (#fn main () #u64 {ARRAY}
            (#let holder Holder (#struct-literal Holder (: view (#borrow-slice-mut values))))
            (#let child (#slice-mut #u64) (#slice-mut-range (#get holder view) 0usize 1usize))
@@ -315,7 +315,7 @@ fn slice_field_reborrowing_rejects_shared_and_temporary_receivers() {
 #[test]
 fn returned_slice_field_reborrow_retains_its_owner_and_nested_offset() {
     let source = format!(
-        "(#struct Holder (: view (#slice-mut #u64)))
+        "(#struct Holder () (: view (#slice-mut #u64)))
          (#fn middle (: source (#ref-mut Holder)) (#slice-mut #u64)
            (#return (#slice-mut-range (#get source view) 1usize 3usize)))
          (#fn main () #u64 {ARRAY}
@@ -340,7 +340,7 @@ fn returned_slice_field_reborrow_retains_its_owner_and_nested_offset() {
 #[test]
 fn nested_tuple_slice_handles_reborrow_and_prevent_parent_moves() {
     let source = format!(
-        "(#struct Holder (: pair (#tuple #u64 (#slice-mut #u64))))
+        "(#struct Holder () (: pair (#tuple #u64 (#slice-mut #u64))))
          (#fn main () #u64 {ARRAY}
            (#let-mut holder Holder (#struct-literal Holder
              (: pair (#tuple (#tuple #u64 (#slice-mut #u64)) 7u64 (#borrow-slice-mut values)))))
@@ -372,7 +372,7 @@ fn bound_effects_cannot_consume_backing_storage() {
         } else {
             "#slice-mut-idx"
         };
-        let source = format!("(#struct Token (: value #u64)) (#linear Token)
+        let source = format!("(#struct Token (#linear) (: value #u64))
           (#fn consume (: input (#array Token 1)) #usize (#forget input) (#return 0usize))
           (#fn main () #u64
             (#let-mut values (#array Token 1) (#array-of (#array Token 1) (#struct-literal Token (: value 42u64))))
@@ -390,7 +390,7 @@ fn bound_effects_cannot_consume_backing_storage() {
 
 #[test]
 fn direct_slice_borrow_cannot_erase_a_pinned_projection() {
-    let source = "(#struct Container (: data (#array #u64 2)))
+    let source = "(#struct Container () (: data (#array #u64 2)))
       (#fn bad (: source (#pin-ref-mut Container)) (#slice-mut #u64)
         (#return (#borrow-slice-mut (#get source data))))";
     assert!(check_types(&parse_program(source).unwrap())
@@ -400,7 +400,7 @@ fn direct_slice_borrow_cannot_erase_a_pinned_projection() {
 
 #[test]
 fn aggregate_elements_use_their_full_storage_stride() {
-    let source = "(#struct Pair (: left #u64 : right #u64))
+    let source = "(#struct Pair () (: left #u64 : right #u64))
       (#fn main () #u64
         (#let-mut values (#array Pair 3) (#array-of (#array Pair 3)
           (#struct-literal Pair (: left 1u64 : right 2u64))

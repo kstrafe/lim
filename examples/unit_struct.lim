@@ -1,4 +1,4 @@
-(#struct Marker ())
+(#struct Marker () ())
 
 (#fn make () Marker
   (#return (#struct-literal Marker ())))

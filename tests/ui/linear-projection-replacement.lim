@@ -1,6 +1,6 @@
-(#struct Resource ((number #u64)))
-(#linear Resource)
-(#struct Owner ((item Resource)))
+(#struct Resource (#linear) ((number #u64)))
+
+(#struct Owner () ((item Resource)))
 (#fn main () #u64
   (#let-mut owner Owner
     (#struct-literal Owner ((item (#struct-literal Resource ((number 1u64)))))))

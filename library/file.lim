@@ -1,13 +1,13 @@
 ; Safe descriptor ownership and explicitly allocated buffered byte input.
 (#import "string.lim")
-(#struct File (: descriptor #i64))
+(#struct File (#linear) (: descriptor #i64))
 (#opaque File)
-(#linear File)
-(#enum FileError ((FileIoError #i64) (FileTextError StringError)
+
+(#enum FileError () ((FileIoError #i64) (FileTextError StringError)
   (FileAllocationError SystemAllocationError) FilePathContainsNul))
-(#enum FileOpenResult ((FileOpened File) (FileOpenFailed FileError)))
-(#enum FileStatus (FileOk (FileFailed FileError)))
-(#enum FileWriteResult ((FileWritten #usize) (FileWriteFailed #usize FileError)))
+(#enum FileOpenResult () ((FileOpened File) (FileOpenFailed FileError)))
+(#enum FileStatus () (FileOk (FileFailed FileError)))
+(#enum FileWriteResult () ((FileWritten #usize) (FileWriteFailed #usize FileError)))
 
 (#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
   (#unsafe-fn file-open-descriptor (: path (#ptr-mut #u8) : flags #u32 : permissions #u32) #i64
@@ -81,12 +81,12 @@
         (#block (#return (FileWriteFailed offset (FileIoError (#if (#i64.== count 0i64) -5i64 count))))))))
   (#return (FileWritten offset)))
 
-(#struct FileReader (: file File : buffer (#ptr-mut #u8) : capacity #usize
+(#struct FileReader (#linear) (: file File : buffer (#ptr-mut #u8) : capacity #usize
   : position #usize : length #usize : ended #bool))
 (#opaque FileReader)
-(#linear FileReader)
-(#enum FileReaderCreateResult ((FileReaderCreated FileReader) (FileReaderCreateFailed File FileError)))
-(#enum FileByteResult ((FileByte #u8) FileByteEof (FileByteFailed FileError)))
+
+(#enum FileReaderCreateResult () ((FileReaderCreated FileReader) (FileReaderCreateFailed File FileError)))
+(#enum FileByteResult () ((FileByte #u8) FileByteEof (FileByteFailed FileError)))
 
 (#fn FileReader-create (: file File : capacity #usize) FileReaderCreateResult
   (#return (#match (#call system-allocate (: size capacity))

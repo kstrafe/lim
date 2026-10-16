@@ -2,7 +2,7 @@ use std::{process::Command, time::Duration};
 mod support;
 
 const SOURCE: &str = r#"
-  (#struct Link (: value #u64 : state #u32 : view (#pin-ref #u64)))
+  (#struct Link () (: value #u64 : state #u32 : view (#pin-ref #u64)))
   (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
     (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
     (#pin-set-field target view view) (#return target))
@@ -114,7 +114,7 @@ fn a_shared_internal_child_blocks_an_exclusive_borrow_at_the_actual_call_argumen
 }
 
 const EXCLUSIVE_SOURCE: &str = r#"
-  (#struct Link (: value #u64 : state #u32 : view (#pin-ref-mut #u64)))
+  (#struct Link () (: value #u64 : state #u32 : view (#pin-ref-mut #u64)))
   (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
     (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
     (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view))

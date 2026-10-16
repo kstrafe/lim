@@ -9,8 +9,8 @@ fn config() -> lim::CompileConfig {
     config
 }
 
-const CHILD: &str = "(#enum Child ((Waiting #u64))) (#linear Child)
-  (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+const CHILD: &str = "(#enum Child (#linear) ((Waiting #u64)))
+  (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
     (#return (#match task
       (#case (Waiting count)
@@ -152,7 +152,7 @@ fn rejects_mutable_alias_created_while_local_loan_is_live_across_await() {
 #[test]
 fn rejects_moving_owner_while_borrow_is_live_across_await() {
     let source = format!(
-        "{CHILD}\n(#struct Owner (: value #u64)) (#linear Owner)
+        "{CHILD}\n(#struct Owner (#linear) (: value #u64))
         (#fn destroy-owner (: value Owner) () (#forget value) (#return ()))
         (@#async-fn-pinned (: protocol WorkAwait : waker #u64
           : cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child)))
@@ -319,7 +319,7 @@ fn pinned_local_mutable_borrow_survives_repeated_pending_polls() {
 fn pinned_local_nested_mutable_projection_survives_repeated_pending_polls() {
     let source = format!(
         "{CHILD}
-        (#struct Owner (: amount #i8)) (#linear Owner)
+        (#struct Owner (#linear) (: amount #i8))
         (#fn destroy-owner (: value Owner) () (#forget value) (#return ()))
         (@#async-fn-pinned (: protocol WorkAwait : waker #u64
           : cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child)))
@@ -351,7 +351,7 @@ fn pinned_local_nested_mutable_projection_survives_repeated_pending_polls() {
 fn pinned_shared_owner_reference_reads_second_field_after_repeated_pending_polls() {
     let source = format!(
         "{CHILD}
-        (#struct Owner (: first #u64 : second #i8)) (#linear Owner)
+        (#struct Owner (#linear) (: first #u64 : second #i8))
         (#fn destroy-owner (: value Owner) () (#forget value) (#return ()))
         (@#async-fn-pinned (: protocol WorkAwait : waker #u64
           : cancel (work-cancel ((owner destroy-owner) (await-0 cancel-child)))
@@ -662,7 +662,7 @@ fn mixed_internal_external_reference_retains_caller_storage() {
 #[test]
 fn mixed_external_projection_preserves_native_layout_and_releases_on_cancel() {
     let source = format!("{CHILD}
-      (#struct Outside (: other #u64 : selected #u64))
+      (#struct Outside () (: other #u64 : selected #u64))
       (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
         : function (#fn work (: external (#ref-mut Outside) : choose #bool) #u64
           (#let-mut owner (#tuple #u64 #u64) (#tuple (#tuple #u64 #u64) 80u64 40u64))
@@ -737,7 +737,7 @@ fn mixed_selected_future_cannot_erase_a_callers_borrow_or_escape_its_local() {
 fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
     let source = format!(
         "{CHILD}
-      (#struct Values (: first #u64 : second #u64 : third #u64 : fourth #u64
+      (#struct Values () (: first #u64 : second #u64 : third #u64 : fourth #u64
         : fifth #u64 : sixth #u64 : seventh #u64 : last #u64))
       (@#async-fn-pinned (: protocol WorkAwait : waker #u64 {CANCEL}
         : function (#fn work (: external (#ref-mut Values) : choose #bool) #u64
@@ -772,9 +772,9 @@ fn mixed_aggregate_reference_preserves_stack_and_frame_layouts() {
 fn selected_internal_projections_preserve_offsets_and_mutable_writes() {
     let source = format!(
         "{CHILD}
-      (#struct Left (: selected #u64 : other #u64))
-      (#struct Right (: other #u64 : selected #u64))
-      (#linear Left) (#linear Right)
+      (#struct Left (#linear) (: selected #u64 : other #u64))
+      (#struct Right (#linear) (: other #u64 : selected #u64))
+
       (#fn destroy-left (: value Left) ()
         (#assert (#u64.== (#get value selected) 10u64)) (#forget value) (#return ()))
       (#fn destroy-right (: value Right) ()
@@ -849,7 +849,7 @@ fn selected_internal_reference_can_switch_owners_on_loop_backedges() {
 fn selected_internal_references_do_not_invent_branch_correlated_consumption() {
     let source = format!(
         "{CHILD}
-      (#struct Owner (: value #u64)) (#linear Owner)
+      (#struct Owner (#linear) (: value #u64))
       (#fn destroy-owner (: value Owner) () (#forget value) (#return ()))
       (@#async-fn-pinned (: protocol WorkAwait : waker #u64
         : cancel (work-cancel ((left destroy-owner) (right destroy-owner) (await-0 cancel-child)))

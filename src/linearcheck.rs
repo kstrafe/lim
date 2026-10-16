@@ -166,13 +166,15 @@ impl LinearTypes {
         let mut types = Self::default();
         for item in items {
             match item {
-                Item::LinearAnnotation { type_name } => {
-                    types.explicitly_linear.insert(type_name.clone());
-                }
-                Item::TypeAlias { name, target, .. } => {
-                    types.aliases.insert(name.clone(), target.clone());
-                }
-                Item::Struct { name, fields, .. } => {
+                Item::Struct {
+                    name,
+                    fields,
+                    linear,
+                    ..
+                } => {
+                    if *linear {
+                        types.explicitly_linear.insert(name.clone());
+                    }
                     types.structs.insert(
                         name.clone(),
                         fields.iter().map(|field| field.ty.clone()).collect(),
@@ -185,7 +187,18 @@ impl LinearTypes {
                             .collect(),
                     );
                 }
-                Item::Enum { name, variants, .. } => {
+                Item::TypeAlias { name, target, .. } => {
+                    types.aliases.insert(name.clone(), target.clone());
+                }
+                Item::Enum {
+                    name,
+                    variants,
+                    linear,
+                    ..
+                } => {
+                    if *linear {
+                        types.explicitly_linear.insert(name.clone());
+                    }
                     types.enums.insert(
                         name.clone(),
                         variants
@@ -1701,6 +1714,54 @@ mod tests {
     use crate::{check_types, parse_program};
 
     #[test]
+    fn inline_linear_property_propagates_through_aggregates() {
+        use super::{LinearProjection, LinearTypes};
+        use crate::Type;
+
+        let program = parse_program(
+            "(#struct Resource (#linear) ((value #u64)))
+             (#struct Nested () ((contents (#tuple #u64 (#array Resource 2)))))
+             (#enum Choice () (Empty (Selected (#tuple #bool Nested))))
+             (#struct CopyOnly () ((number #u64) (view (#ref #u64))))",
+        )
+        .unwrap();
+        let types = LinearTypes::from_program(&program);
+
+        for ty in [
+            Type::Named("Resource".into()),
+            Type::Named("Nested".into()),
+            Type::Named("Choice".into()),
+            Type::Tuple(vec![Type::U64, Type::Named("Nested".into())]),
+            Type::Array(Box::new(Type::Named("Nested".into())), 3),
+        ] {
+            assert!(types.is_linear(&ty), "{ty:?} should be linear");
+            assert!(!types.can_repeat(&ty), "{ty:?} should be move only");
+        }
+
+        let choice_paths = types.linear_obligation_paths(&Type::Named("Choice".into()));
+        assert_eq!(
+            choice_paths,
+            [0, 1]
+                .into_iter()
+                .map(|index| {
+                    vec![
+                        LinearProjection::Payload("Selected".into(), 0),
+                        LinearProjection::Tuple(1),
+                        LinearProjection::Field("contents".into()),
+                        LinearProjection::Tuple(1),
+                        LinearProjection::Index(index),
+                    ]
+                })
+                .collect::<Vec<_>>()
+        );
+
+        let copy_only = Type::Named("CopyOnly".into());
+        assert!(!types.is_linear(&copy_only));
+        assert!(types.can_repeat(&copy_only));
+        assert!(types.contains_reference(&copy_only));
+    }
+
+    #[test]
     fn named_property_cache_preserves_root_walks_and_cycle_contexts() {
         use super::{
             contains_exclusive_reference, contains_reference, is_linear, LinearTypes, TypeProperty,
@@ -1708,18 +1769,18 @@ mod tests {
         use crate::Type;
         use std::collections::HashSet;
         let program = parse_program(
-            "(#struct Plain (: value #u64))
-             (#struct Forced (: value #u64)) (#linear Forced)
-             (#struct Shared (: link (#ref #u64)))
-             (#struct Exclusive (: link (#ref-mut #u64)))
-             (#struct Nested (: child (#pin-own Exclusive)))
-             (#struct Diamond (: left Shared : right Shared))
-             (#struct EmptyArray (: items (#array Forced 0)))
-             (#enum Choice ((Data Plain) (View Shared) Empty))
+            "(#struct Plain () (: value #u64))
+             (#struct Forced (#linear) (: value #u64))
+             (#struct Shared () (: link (#ref #u64)))
+             (#struct Exclusive () (: link (#ref-mut #u64)))
+             (#struct Nested () (: child (#pin-own Exclusive)))
+             (#struct Diamond () (: left Shared : right Shared))
+             (#struct EmptyArray () (: items (#array Forced 0)))
+             (#enum Choice () ((Data Plain) (View Shared) Empty))
              (#type Alias Choice) (#type Pair (#tuple Plain Exclusive))
              (#type LoopA LoopB) (#type LoopB LoopA)
-             (#struct Recursive (: next (#ref Recursive)))
-             (#struct UnknownCarrier (: value Missing))",
+             (#struct Recursive () (: next (#ref Recursive)))
+             (#struct UnknownCarrier () (: value Missing))",
         )
         .unwrap();
         let types = LinearTypes::from_program(&program);
@@ -1799,9 +1860,9 @@ mod tests {
     fn property_caches_are_separate_for_different_declarations() {
         use super::LinearTypes;
         let copy =
-            LinearTypes::from_program(&parse_program("(#struct Value (: item #u64))").unwrap());
+            LinearTypes::from_program(&parse_program("(#struct Value () (: item #u64))").unwrap());
         let exclusive = LinearTypes::from_program(
-            &parse_program("(#struct Value (: item (#ref-mut #u64)))").unwrap(),
+            &parse_program("(#struct Value () (: item (#ref-mut #u64)))").unwrap(),
         );
         let ty = crate::Type::Named("Value".into());
         for _ in 0..3 {
@@ -1819,10 +1880,10 @@ mod tests {
         use std::collections::HashSet;
 
         let program = parse_program(
-            "(#struct Shared (: link (#ref #u64)))
-             (#struct Exclusive (: link (#ref-mut #u64)))
-             (#struct Nested (: child (#pin-own Exclusive)))
-             (#enum Choice (: Empty : Present (#pin-own Shared)))",
+            "(#struct Shared () (: link (#ref #u64)))
+             (#struct Exclusive () (: link (#ref-mut #u64)))
+             (#struct Nested () (: child (#pin-own Exclusive)))
+             (#enum Choice () (: Empty : Present (#pin-own Shared)))",
         )
         .unwrap();
         let types = LinearTypes::from_program(&program);
@@ -1856,7 +1917,7 @@ mod tests {
 
     #[test]
     fn returning_branches_do_not_join_restored_loop_state() {
-        let source = "(#struct Resource ((value #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((value #u64)))
           (#fn main () #u64
             (#let-mut state Resource (#struct-literal Resource ((value 0u64))))
             (#for-range (turn #u64) 0u64 2u64
@@ -1892,7 +1953,7 @@ mod tests {
 
     #[test]
     fn all_returning_for_paths_have_no_ownership_back_edge() {
-        let source = "(#struct Resource ((value #u64))) (#linear Resource)
+        let source = "(#struct Resource (#linear) ((value #u64)))
           (#fn main () #u64
             (#let resource Resource (#struct-literal Resource (: value 42u64)))
             (#for-range (turn #u64) 0u64 2u64
@@ -1935,7 +1996,7 @@ mod tests {
 
     #[test]
     fn dotted_bindings_move_independently_of_fields_and_shadowing() {
-        let source = "(#struct R ((b #u64))) (#linear R)
+        let source = "(#struct R (#linear) ((b #u64)))
           (#fn main () #u64
             (#let a R (#struct-literal R ((b 1u64))))
             (#let a.b R (#struct-literal R ((b 2u64))))
@@ -1953,14 +2014,14 @@ mod tests {
     #[test]
     fn values_are_linear_and_clone_is_explicit() {
         let duplicate = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#fn consume ((value Resource)) () (#forget value) (#return ())) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 20u64)))) (#call consume (: value value)) (#call consume (: value value)) (#return 0u64))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) () (#forget value) (#return ())) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 20u64)))) (#call consume (: value value)) (#call consume (: value value)) (#return 0u64))",
         ).unwrap();
         assert!(check_types(&duplicate)
             .unwrap_err()
             .contains("linear value 'value' was used more than once"));
 
         let cloned = parse_program(
-            "(#struct Resource ((value #u64))) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 20u64)))) (#forget (#clone value)) (#forget value) (#return 0u64))",
+            "(#struct Resource () ((value #u64))) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 20u64)))) (#forget (#clone value)) (#forget value) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&cloned).is_ok());
@@ -1969,7 +2030,7 @@ mod tests {
     #[test]
     fn cloning_a_moved_value_is_rejected() {
         let program = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#fn consume ((value Resource)) Resource (#return value)) (#fn inspect ((value Resource)) #u64 (#forget value) (#return 0u64)) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 1u64)))) (#let moved Resource (#call consume (: value value))) (#forget moved) (#return (#call inspect (: value (#clone value)))))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) Resource (#return value)) (#fn inspect ((value Resource)) #u64 (#forget value) (#return 0u64)) (#fn main () #u64 (#let value Resource (#struct-literal Resource ((value 1u64)))) (#let moved Resource (#call consume (: value value))) (#forget moved) (#return (#call inspect (: value (#clone value)))))",
         )
         .unwrap();
         let error = check_types(&program).unwrap_err();
@@ -2002,7 +2063,7 @@ mod tests {
     #[test]
     fn explicit_clone_codegen_handles_aggregates() {
         let program = parse_program(
-            "(#struct Pair ((left #u64) (right #u64))) (#fn main () #u64 (#let value Pair (#struct-literal Pair ((left 20) (right 22)))) (#let duplicate Pair (#clone value)) (#let result #u64 (#u64.+.wrap (#get duplicate left) (#get duplicate right))) (#forget duplicate) (#forget value) (#return result))",
+            "(#struct Pair () ((left #u64) (right #u64))) (#fn main () #u64 (#let value Pair (#struct-literal Pair ((left 20) (right 22)))) (#let duplicate Pair (#clone value)) (#let result #u64 (#u64.+.wrap (#get duplicate left) (#get duplicate right))) (#forget duplicate) (#forget value) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -2012,7 +2073,7 @@ mod tests {
     #[test]
     fn named_clone_functions_define_deep_clone_behavior() {
         let program = parse_program(
-            "(#struct Point ((x #u64))) (#fn Point-clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) #u64 (#let result #u64 (#get point x)) (#forget point) (#return result)) (#fn main () #u64 (#let value Point (#struct-literal Point ((x 4)))) (#let result #u64 (#call consume (: point (#clone value)))) (#forget value) (#return result))",
+            "(#struct Point () ((x #u64))) (#fn Point-clone ((source Point)) Point (#return source)) (#fn consume ((point Point)) #u64 (#let result #u64 (#get point x)) (#forget point) (#return result)) (#fn main () #u64 (#let value Point (#struct-literal Point ((x 4)))) (#let result #u64 (#call consume (: point (#clone value)))) (#forget value) (#return result))",
         )
         .unwrap();
         assert!(check_types(&program).is_ok());
@@ -2024,7 +2085,7 @@ mod tests {
     #[test]
     fn field_values_are_moved_independently_and_can_be_cloned() {
         let duplicate = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#fn use ((resource Resource)) () (#forget resource) (#return ())) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 20u64)))) (#call use (: resource resource)) (#call use (: resource resource)) (#return 0u64))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn use ((resource Resource)) () (#forget resource) (#return ())) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 20u64)))) (#call use (: resource resource)) (#call use (: resource resource)) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&duplicate)
@@ -2032,7 +2093,7 @@ mod tests {
             .contains("linear value 'resource' was used more than once"));
 
         let cloned = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#struct Point ((x Resource) (y #u64))) (#fn main () #u64 (#let point Point (#struct-literal Point ((x (#struct-literal Resource ((value 20u64)))) (y 22u64)))) (#forget (#clone (#get point x))) (#forget point) (#return 0u64))",
+            "(#struct Resource (#linear) ((value #u64)))  (#struct Point () ((x Resource) (y #u64))) (#fn main () #u64 (#let point Point (#struct-literal Point ((x (#struct-literal Resource ((value 20u64)))) (y 22u64)))) (#forget (#clone (#get point x))) (#forget point) (#return 0u64))",
         )
         .unwrap();
         assert!(check_types(&cloned).is_ok());
@@ -2040,7 +2101,7 @@ mod tests {
 
     #[test]
     fn repeated_linear_field_move_highlights_the_repeated_projection() {
-        let source = "(#struct Resource ((value #u64)))\n(#linear Resource)\n(#struct Pair ((item Resource) (other #u64)))\n(#fn main () #u64\n  (#let pair Pair (#struct-literal Pair ((item (#struct-literal Resource ((value 1u64)))) (other 0u64))))\n  (#let first Resource (#get pair item))\n  (#let second Resource (#get pair item))\n  (#forget first)\n  (#forget second)\n  (#forget pair)\n  (#return 0u64))";
+        let source = "(#struct Resource (#linear) ((value #u64)))\n\n(#struct Pair () ((item Resource) (other #u64)))\n(#fn main () #u64\n  (#let pair Pair (#struct-literal Pair ((item (#struct-literal Resource ((value 1u64)))) (other 0u64))))\n  (#let first Resource (#get pair item))\n  (#let second Resource (#get pair item))\n  (#forget first)\n  (#forget second)\n  (#forget pair)\n  (#return 0u64))";
         let program = parse_program(source).unwrap();
         let (error, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
         assert!(error.contains("linear projection 'pair.item' was used more than once"));
@@ -2050,7 +2111,7 @@ mod tests {
 
     #[test]
     fn repeated_linear_array_move_highlights_the_repeated_index() {
-        let source = "(#struct Resource ((value #u64)))\n(#linear Resource)\n(#fn main () #u64\n  (#let values (#array Resource 2) (#array-of (#array Resource 2) (#struct-literal Resource ((value 1u64))) (#struct-literal Resource ((value 2u64)))))\n  (#let first Resource (#index values 0))\n  (#let second Resource (#index values 0))\n  (#forget first)\n  (#forget second)\n  (#forget values)\n  (#return 0u64))";
+        let source = "(#struct Resource (#linear) ((value #u64)))\n\n(#fn main () #u64\n  (#let values (#array Resource 2) (#array-of (#array Resource 2) (#struct-literal Resource ((value 1u64))) (#struct-literal Resource ((value 2u64)))))\n  (#let first Resource (#index values 0))\n  (#let second Resource (#index values 0))\n  (#forget first)\n  (#forget second)\n  (#forget values)\n  (#return 0u64))";
         let program = parse_program(source).unwrap();
         let (error, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
         assert!(error.contains("linear projection 'values[0]' was used more than once"));
@@ -2061,14 +2122,14 @@ mod tests {
     #[test]
     fn linear_values_must_be_consumed_before_return() {
         let leaked = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return 0u64))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return 0u64))",
         ).unwrap();
         assert!(check_types(&leaked)
             .unwrap_err()
             .contains("must be consumed before returning"));
 
         let forgotten = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#forget resource) (#return 0u64))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#forget resource) (#return 0u64))",
         ).unwrap();
         assert!(check_types(&forgotten).is_ok());
 
@@ -2079,7 +2140,7 @@ mod tests {
 
     #[test]
     fn linearity_diagnostics_point_to_the_exact_binding() {
-        let source = "(#struct Resource ((value #u64)))\n(#linear Resource)\n(#fn main () #u64\n  (#let resource Resource (#struct-literal Resource ((value 1u64))))\n  (#return 0u64))";
+        let source = "(#struct Resource (#linear) ((value #u64)))\n\n(#fn main () #u64\n  (#let resource Resource (#struct-literal Resource ((value 1u64))))\n  (#return 0u64))";
         let program = parse_program(source).unwrap();
         let (_, _, span, _) = crate::typecheck::check_types_with_span(&program).unwrap_err();
         let span = span.expect("unconsumed local has a structured span");
@@ -2089,26 +2150,26 @@ mod tests {
     #[test]
     fn linearity_is_checked_at_scope_exits_and_control_flow_joins() {
         let escaping = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#fn main () #u64 (#return (#block (#let resource Resource (#struct-literal Resource ((value 1u64)))) 0u64)))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn main () #u64 (#return (#block (#let resource Resource (#struct-literal Resource ((value 1u64)))) 0u64)))",
         ).unwrap();
         assert!(check_types(&escaping)
             .unwrap_err()
             .contains("before leaving its scope"));
 
         let branch_leak = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#fn consume ((value Resource)) #u64 (#forget value) (#return 1u64)) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume (: value resource)) 0u64)))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) #u64 (#forget value) (#return 1u64)) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume (: value resource)) 0u64)))",
         ).unwrap();
         assert!(check_types(&branch_leak)
             .unwrap_err()
             .contains("consumed consistently on every control-flow path"));
 
         let both_branches_consume = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#fn consume ((value Resource)) #u64 (#forget value) (#return 1u64)) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume (: value resource)) (#call consume (: value resource)))))",
+            "(#struct Resource (#linear) ((value #u64)))  (#fn consume ((value Resource)) #u64 (#forget value) (#return 1u64)) (#fn main () #u64 (#let resource Resource (#struct-literal Resource ((value 1u64)))) (#return (#if true (#call consume (: value resource)) (#call consume (: value resource)))))",
         ).unwrap();
         assert!(check_types(&both_branches_consume).is_ok());
 
         let different_fields = parse_program(
-            "(#struct Resource ((value #u64))) (#linear Resource) (#struct Pair ((left Resource) (right Resource))) (#fn main () #u64 (#let pair Pair (#struct-literal Pair ((left (#struct-literal Resource ((value 1u64)))) (right (#struct-literal Resource ((value 2u64))))))) (#return (#if true (#block (#forget (#get pair left)) 1u64) (#block (#forget (#get pair right)) 2u64))))",
+            "(#struct Resource (#linear) ((value #u64)))  (#struct Pair () ((left Resource) (right Resource))) (#fn main () #u64 (#let pair Pair (#struct-literal Pair ((left (#struct-literal Resource ((value 1u64)))) (right (#struct-literal Resource ((value 2u64))))))) (#return (#if true (#block (#forget (#get pair left)) 1u64) (#block (#forget (#get pair right)) 2u64))))",
         ).unwrap();
         let error = check_types(&different_fields).unwrap_err();
         assert!(
@@ -2119,9 +2180,9 @@ mod tests {
 
     #[test]
     fn consuming_all_linear_fields_discharges_struct_owner() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Pair ((item Resource) (other #u64)))
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Pair () ((item Resource) (other #u64)))
           (#fn main () #u64
             (#let pair Pair (#struct-literal Pair
               ((item (#struct-literal Resource ((value 1u64)))) (other 0u64))))
@@ -2133,9 +2194,9 @@ mod tests {
 
     #[test]
     fn partial_consumption_keeps_remaining_linear_fields_live() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Pair ((left Resource) (right Resource)))
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Pair () ((left Resource) (right Resource)))
           (#fn main () #u64
             (#let pair Pair (#struct-literal Pair
               ((left (#struct-literal Resource ((value 1u64))))
@@ -2156,10 +2217,10 @@ mod tests {
 
     #[test]
     fn explicitly_linear_owner_is_not_discharged_by_its_fields() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Wrapper ((item Resource)))
-          (#linear Wrapper)
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Wrapper (#linear) ((item Resource)))
+
           (#fn main () #u64
             (#let wrapper Wrapper (#struct-literal Wrapper
               ((item (#struct-literal Resource ((value 1u64)))))))
@@ -2174,9 +2235,9 @@ mod tests {
 
     #[test]
     fn replacing_fully_consumed_owner_revives_all_fields() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Wrapper ((item Resource)))
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Wrapper () ((item Resource)))
           (#fn main () #u64
             (#let-mut wrapper Wrapper (#struct-literal Wrapper
               ((item (#struct-literal Resource ((value 1u64)))))))
@@ -2190,9 +2251,9 @@ mod tests {
 
     #[test]
     fn nested_block_uses_same_linear_type_metadata() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Wrapper ((item Resource)))
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Wrapper () ((item Resource)))
           (#fn main () #u64
             (#return (#block
               (#let wrapper Wrapper (#struct-literal Wrapper
@@ -2204,9 +2265,9 @@ mod tests {
 
     #[test]
     fn copy_field_of_linear_owner_can_be_read_repeatedly() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Pair ((item Resource) (other #u64)))
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Pair () ((item Resource) (other #u64)))
           (#fn main () #u64
             (#let pair Pair (#struct-literal Pair
               ((item (#struct-literal Resource ((value 1u64)))) (other 2u64))))
@@ -2220,8 +2281,8 @@ mod tests {
 
     #[test]
     fn tuple_and_array_owners_complete_by_linear_elements() {
-        let tuple = "(#struct Resource ((value #u64)))
-          (#linear Resource)
+        let tuple = "(#struct Resource (#linear) ((value #u64)))
+
           (#fn main () #u64
             (#let pair (#tuple Resource #u64)
               (#tuple (#tuple Resource #u64)
@@ -2229,8 +2290,8 @@ mod tests {
             (#forget (#get pair 0))
             (#return 0u64))";
         check_types(&parse_program(tuple).unwrap()).unwrap();
-        let array = "(#struct Resource ((value #u64)))
-          (#linear Resource)
+        let array = "(#struct Resource (#linear) ((value #u64)))
+
           (#fn main () #u64
             (#let items (#array Resource 2)
               (#array-of (#array Resource 2)
@@ -2244,9 +2305,9 @@ mod tests {
 
     #[test]
     fn copy_field_cannot_be_read_after_owner_is_consumed() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Pair ((item Resource) (other #u64)))
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Pair () ((item Resource) (other #u64)))
           (#fn main () #u64
             (#let pair Pair (#struct-literal Pair
               ((item (#struct-literal Resource ((value 1u64)))) (other 2u64))))
@@ -2258,7 +2319,7 @@ mod tests {
 
     #[test]
     fn computed_match_payload_types_are_retained_on_early_return() {
-        let copy = "(#enum Choice ((Value #u64)))
+        let copy = "(#enum Choice () ((Value #u64)))
           (#fn make () Choice (#return (Value 42u64)))
           (#fn main () #u64
             (#let result #u64 (#match (#call make ())
@@ -2266,8 +2327,8 @@ mod tests {
             (#return result))";
         check_types(&parse_program(copy).unwrap()).unwrap();
 
-        let linear = "(#struct Resource ((value #u64))) (#linear Resource)
-          (#enum Choice ((Value Resource)))
+        let linear = "(#struct Resource (#linear) ((value #u64)))
+          (#enum Choice () ((Value Resource)))
           (#fn make () Choice
             (#return (Value (#struct-literal Resource ((value 42u64))))))
           (#fn main () #u64
@@ -2285,7 +2346,7 @@ mod tests {
 
     #[test]
     fn copy_match_payload_can_be_read_repeatedly() {
-        let source = "(#enum Choice ((Value #u64)))
+        let source = "(#enum Choice () ((Value #u64)))
           (#fn main () #u64
             (#let choice Choice (Value 3u64))
             (#return (#match choice
@@ -2295,9 +2356,9 @@ mod tests {
 
     #[test]
     fn branch_join_accepts_equivalent_whole_and_fieldwise_consumption() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Wrapper ((item Resource) (copy #u64)))
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Wrapper () ((item Resource) (copy #u64)))
           (#fn main () #u64
             (#let wrapper Wrapper (#struct-literal Wrapper
               ((item (#struct-literal Resource ((value 1u64)))) (copy 2u64))))
@@ -2309,9 +2370,9 @@ mod tests {
 
     #[test]
     fn branch_join_rejects_whole_against_incomplete_fields() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Pair ((left Resource) (right Resource)))
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Pair () ((left Resource) (right Resource)))
           (#fn main () #u64
             (#let pair Pair (#struct-literal Pair
               ((left (#struct-literal Resource ((value 1u64))))
@@ -2325,10 +2386,10 @@ mod tests {
 
     #[test]
     fn branch_join_keeps_explicitly_linear_owner_obligation() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Wrapper ((item Resource)))
-          (#linear Wrapper)
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Wrapper (#linear) ((item Resource)))
+
           (#fn main () #u64
             (#let wrapper Wrapper (#struct-literal Wrapper
               ((item (#struct-literal Resource ((value 1u64)))))))
@@ -2341,9 +2402,9 @@ mod tests {
 
     #[test]
     fn match_join_accepts_equivalent_whole_and_fieldwise_consumption() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
-          (#struct Wrapper ((item Resource)))
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
+          (#struct Wrapper () ((item Resource)))
           (#fn main () #u64
             (#let wrapper Wrapper (#struct-literal Wrapper
               ((item (#struct-literal Resource ((value 1u64)))))))

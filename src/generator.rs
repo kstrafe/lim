@@ -1466,7 +1466,8 @@ pub(crate) fn format_generated_source(source: &str) -> Result<String, String> {
         let prefix = match head {
             "#fn" | "#unsafe-fn" => 4,
             "#case" | "#call" | "#match" | "#if" => 2,
-            "#enum" | "#struct" | "#struct-literal" => 2,
+            "#enum" | "#struct" => 3,
+            "#struct-literal" => 2,
             "#let" | "#let-mut" => 3,
             "#thread-task" => 3,
             _ => 1,
@@ -3094,7 +3095,7 @@ mod tests {
         let source = "(#syntax-collection Errors)
           (#syntax-contribute Errors second (Second #u32))
           (#syntax-contribute Errors first (First #u64))
-          (#gn errors (entries name) `((#enum ,name ,entries)))
+          (#gn errors (entries name) `((#enum ,name () ,entries)))
           (@errors (#syntax-distribute Errors) Error)";
         let expand = |source: &str| {
             expand_with_generated_cached_and_hits(

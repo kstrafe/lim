@@ -48,7 +48,7 @@ fn bounded_timer_slice_shares_one_blocking_wait() {
 
 #[test]
 fn expression_statement_does_not_become_a_large_return_value() {
-    let source = "(#struct Large ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64)))
+    let source = "(#struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64)))
       (#fn make () Large
         (#assert true)
         (#return (#struct-literal Large
@@ -62,7 +62,7 @@ fn expression_statement_does_not_become_a_large_return_value() {
 
 #[test]
 fn large_aggregate_return_accepts_a_block_value() {
-    let source = "(#struct Large ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64)))
+    let source = "(#struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64)))
       (#fn make () Large
         (#return (#block
           (#assert true)

@@ -164,7 +164,7 @@ fn whole_value_copy_access_rejects_exclusive_reference_fields() {
     let scratch = support::Scratch::new("pin-api-copy-exclusive");
     let source = format!(
         "{}
-      (#struct Held (: reference (#ref-mut #u64)))
+      (#struct Held () (: reference (#ref-mut #u64)))
       (@#pin (: type Held : name PinnedHeld : copy true))",
         source()
     );
@@ -177,8 +177,8 @@ fn whole_value_copy_access_rejects_exclusive_reference_fields() {
 fn projection_source() -> String {
     format!(
         "(#import \"{}/library/pin.lim\")
-      (#struct Inner (: value #u64)) (#linear Inner)
-      (#struct Outer (: child Inner)) (#linear Outer)
+      (#struct Inner (#linear) (: value #u64))
+      (#struct Outer (#linear) (: child Inner))
       (@#pin (: type Inner : name PinnedInner : fields (: value #u64)))
       (@#pin (: type Outer : name PinnedOuter : projections (: child PinnedInner)))
       (@#pin-scope (: type Outer : pin PinnedOuter : name with-outer

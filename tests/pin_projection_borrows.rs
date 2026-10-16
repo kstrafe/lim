@@ -4,8 +4,8 @@ mod support;
 fn prefix() -> String {
     format!(
         r#"(#import "{}/library/pin.lim")
-      (#struct Inner (: value #u64)) (#linear Inner)
-      (#struct Outer (: left Inner : right Inner)) (#linear Outer)
+      (#struct Inner (#linear) (: value #u64))
+      (#struct Outer (#linear) (: left Inner : right Inner))
       (@#pin (: type Inner : name PinnedInner : fields (: value #u64)))
       (@#pin (: type Outer : name PinnedOuter : projections (: left PinnedInner : right PinnedInner)))
       (@#pin-scope (: type Outer : pin PinnedOuter : name with-outer

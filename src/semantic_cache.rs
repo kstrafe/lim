@@ -20,7 +20,7 @@ use crate::{
     CompileConfig, Item, Program, Type,
 };
 
-const MAGIC: &[u8] = b"lim-semantic-v43\0";
+const MAGIC: &[u8] = b"lim-semantic-v44\0";
 const LIMIT: usize = 16 * 1024 * 1024;
 type Entries = HashMap<(String, bool), Vec<u8>>;
 
@@ -639,15 +639,15 @@ mod tests {
     #[test]
     fn inferred_summaries_round_trip_in_both_transfer_modes() {
         let mut d = declarations(
-            "(#struct Holder (: value (#ref #u64)))
-          (#enum Choice ((Found Holder) Missing))
+            "(#struct Holder () (: value (#ref #u64)))
+          (#enum Choice () ((Found Holder) Missing))
           (#fn choose (: owner (#ref #u64) : flag #bool) Choice
             (#return (#if flag (Found (#struct-literal Holder (: value owner))) Missing)))
           (#fn set (: slot (#ref-mut (#ref #u64)) : value (#ref #u64)) ()
             (#deref-set slot value) (#return ()))
           (#fn project (: slot (#ref-mut (#ref-mut #u64))) (#ref-mut #u64)
             (#return (#borrow-mut (#deref (#deref slot)))))
-          (#struct Counter (: pc #u64))
+          (#struct Counter () (: pc #u64))
           (#fn make () Counter (#return (#struct-literal Counter (: pc 0u64))))
           (#fn bounded (: flag #bool) Counter
             (#if flag
@@ -697,12 +697,12 @@ mod tests {
 
     #[test]
     fn declaration_ids_are_remapped_by_name_not_arena_index() {
-        let source = "(#static Shared #u64 0u64) (#struct Holder (: value (#ref #u64)))
-          (#enum Choice ((Found Holder) Missing)) (#fn main () #u64 (#return 0u64))";
+        let source = "(#static Shared #u64 0u64) (#struct Holder () (: value (#ref #u64)))
+          (#enum Choice () ((Found Holder) Missing)) (#fn main () #u64 (#return 0u64))";
         let before = declarations(source);
         let after = declarations(&format!(
             "(#static AAA #u64 1u64)
-          (#struct AAAHolder (: value #u64)) (#enum AAAChoice ((AAAFound #u64))) {source}"
+          (#struct AAAHolder () (: value #u64)) (#enum AAAChoice () ((AAAFound #u64))) {source}"
         ));
         let field = before
             .field_id(&Type::Named("Holder".into()), "value")

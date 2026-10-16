@@ -1,6 +1,6 @@
 ; A function installs a caller-supplied reference in caller-owned storage.
 ; The compiler retains that loan across the call until holder is released.
-(#struct Holder (: view (#ref #u64)))
+(#struct Holder () (: view (#ref #u64)))
 
 (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
   (#deref-set target (#struct-literal Holder (: view value)))

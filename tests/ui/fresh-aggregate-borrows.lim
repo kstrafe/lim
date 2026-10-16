@@ -1,4 +1,4 @@
-(#struct Pair (: left (#ref-mut #u64) : right (#ref-mut #u64)))
+(#struct Pair () (: left (#ref-mut #u64) : right (#ref-mut #u64)))
 (#fn main () ()
   (#let-mut owner #u64 42u64)
   (#let pair Pair (#struct-literal Pair (: left (#borrow-mut owner) : right (#borrow-mut owner))))

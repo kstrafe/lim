@@ -816,12 +816,7 @@ fn type_reference(expressions: &[SpannedExpr], byte: usize) -> Option<String> {
             Some("#let" | "#let-mut" | "#const" | "#static" | "#type") => Some(2),
             Some("#struct-literal") => Some(1),
             Some("#struct" | "#enum") => {
-                let fields_index = if matches!(expr.children.get(2).map(|child| &child.expr), Some(Expr::Symbol(name)) if name == "#repr-c")
-                {
-                    3
-                } else {
-                    2
-                };
+                let fields_index = 3;
                 if let Some(fields) = expr.children.get(fields_index) {
                     for field in &fields.children {
                         for ty in field.children.iter().skip(1) {

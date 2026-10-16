@@ -12,7 +12,7 @@ fn block_wrapped_loop_references_keep_their_source_borrow() {
         ),
     ] {
         let source = format!(
-            "(#struct Holder (: view (#ref #u64)))
+            "(#struct Holder () (: view (#ref #u64)))
           (#fn main () #u64
             (#let-mut owner #u64 42u64)
             (#let saved {ty} (#block (#block (#label result (#loop
@@ -50,8 +50,8 @@ fn loop_payload_bounds_do_not_invent_missing_reference_slots() {
         "(#block (#label result (#loop (#break-to result (Present (Second (#borrow owner)))))))",
     ] {
         let source = format!(
-            "(#enum Inner (: First (#ref #u64) : Second (#ref #u64)))
-          (#enum Outer (: Present Inner : Absent #u64))
+            "(#enum Inner () (: First (#ref #u64) : Second (#ref #u64)))
+          (#enum Outer () (: Present Inner : Absent #u64))
           (#fn use-value (: input Outer) #u64
             (#return (#match input
               (#case (Present child) (#match child
@@ -70,7 +70,7 @@ fn loop_payload_bounds_do_not_invent_missing_reference_slots() {
 
 #[test]
 fn loop_result_bounds_keep_unknown_alternatives_conservative() {
-    let source = "(#enum Choice (: Borrowed (#ref #u64) : Value #u64))
+    let source = "(#enum Choice () (: Borrowed (#ref #u64) : Value #u64))
       (#fn select (: input Choice : choose #bool) Choice
         (#return (#block (#label result (#loop
           (#if choose (#block (#break-to result input))

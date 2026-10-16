@@ -321,7 +321,7 @@ mod tests {
         for source in [
             "(#fn work ((#mut counter #u64)) #u64
               (#set counter (#await #u32 Step Pending Ready poll task)) (#return counter))",
-            "(#struct Bounds ((z (#tuple #u8 #u16)) (a #u64)))
+            "(#struct Bounds () ((z (#tuple #u8 #u16)) (a #u64)))
               (#fn work ((bounds Bounds)) #u64
                 (#for (#let-mut (Bounds (#tuple index limit) bias) Bounds bounds)
                   true (#set limit (#await #u8 Step Pending Ready poll task)) ())

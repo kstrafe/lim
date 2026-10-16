@@ -189,7 +189,7 @@ fn every_subview_range_matches_rust_boundaries_for_both_storage_layouts() {
 fn nested_views_and_iterators_keep_the_source_borrow_not_temporary_containers() {
     execute(
         r#"(#std)
-      (#struct StoredView (: contents StringView))
+      (#struct StoredView () (: contents StringView))
       (#fn middle (: owner (#ref String)) StoredView
         (#let parent StringView (#call String-view (: string owner)))
         (#let child StringView (#match (#call StringView-subview (: view (#borrow parent) : start 1usize : end 3usize))

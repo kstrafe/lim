@@ -36,7 +36,7 @@ mod tests {
 
     #[test]
     fn emission_metadata_retains_resolved_field_declaration_ids() {
-        let source = "(#struct Pair ((left #u64) (right #u64)))
+        let source = "(#struct Pair () ((left #u64) (right #u64)))
           (#fn read ((pair Pair)) #u64 (#return (#get pair left)))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn emission_metadata_retains_enum_variant_owner_and_identity() {
-        let source = "(#enum Maybe ((Some #u64) None))
+        let source = "(#enum Maybe () ((Some #u64) None))
           (#fn main () Maybe (#return None))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn match_arms_use_the_checked_scrutinee_node_type() {
-        let source = "(#enum Choice ((Value #u64) Empty))
+        let source = "(#enum Choice () ((Value #u64) Empty))
           (#fn main () #u64
             (#let choice Choice (Value 42u64))
             (#return (#match choice
@@ -220,8 +220,8 @@ mod tests {
 
     #[test]
     fn typed_bindings_retain_the_source_identifier_span() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
           (#fn main () #u64
             (#let resource Resource (#struct-literal Resource ((value 1u64))))
             (#forget resource)
@@ -241,8 +241,8 @@ mod tests {
 
     #[test]
     fn typed_parameters_retain_the_source_identifier_span() {
-        let source = "(#struct Resource ((value #u64)))
-          (#linear Resource)
+        let source = "(#struct Resource (#linear) ((value #u64)))
+
           (#fn consume ((token Resource)) ()
             (#forget token)
             (#return ()))";
@@ -622,7 +622,7 @@ mod tests {
     #[test]
     fn emission_statement_targets_distinguish_an_initializer_pattern_from_its_destination() {
         let program = crate::parse_program(
-            "(#enum Maybe ((Some #u64) None))
+            "(#enum Maybe () ((Some #u64) None))
           (#fn main () #u64
             (#let answer #u64 (#match (Some 41u64)
               (#case (Some answer) answer) (#case None 0u64)))
@@ -820,7 +820,7 @@ mod tests {
     fn lowering_preserves_mutation_projections_and_nested_control_flow() {
         let sources = [
             "(#fn main () #u64 (#let-mut value #u64 0u64) (#while (#u64.< value 2u64) (#set value (#u64.+.wrap value 1u64))) (#return value))",
-            "(#struct Pair ((a #u64) (b #u64))) (#fn main () #u64 (#let-mut value Pair (#struct-literal Pair ((a 1u64) (b 2u64)))) (#set-field value b 42u64) (#return (#get value b)))",
+            "(#struct Pair () ((a #u64) (b #u64))) (#fn main () #u64 (#let-mut value Pair (#struct-literal Pair ((a 1u64) (b 2u64)))) (#set-field value b 42u64) (#return (#get value b)))",
         ];
         for source in sources {
             let program = crate::parse_program(source).unwrap();
@@ -840,7 +840,7 @@ mod tests {
 
     #[test]
     fn expression_branches_and_match_scopes_are_explicit_in_the_body_ir() {
-        let source = "(#enum Maybe ((Some #u64) None))\n\
+        let source = "(#enum Maybe () ((Some #u64) None))\n\
           (#fn choose ((flag #bool) (input Maybe)) #u64\n\
             (#return (#if flag\n\
               (#match input (#case (Some payload) payload) (#case None 0u64))\n\

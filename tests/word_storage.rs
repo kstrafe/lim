@@ -4,8 +4,8 @@ use lim::{CompileConfig, DiagnosticCode, TargetDescription};
 
 #[test]
 fn stored_word_views_retain_addresses_without_granting_opaque_pointer_capabilities() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: state #u64 : words (#array #u64 1)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: state #u64 : words (#array #u64 1)))
       (#fn make (: source (#ref (#array #u64 1))) Frame
         (#let-mut frame Frame (#struct-literal Frame (: state 1u64 : words (#array-repeat 0u64))))
         (#let view (#ref #u64) (#unsafe (#word-view (#ref #u64) (#borrow-slice (#deref source)))))
@@ -53,8 +53,8 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 
 #[test]
 fn declared_frame_references_do_not_initialize_unrelated_word_cells() {
-    let prefix = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: source (#ref #u64) : words (#array #u64 1)))
+    let prefix = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: source (#ref #u64) : words (#array #u64 1)))
       (#fn read (: frame (#ref-mut Frame)) #u64
         (#let restored Holder (#unsafe (#word-take Holder (#borrow-slice-mut (#get frame words)))))
         (#let answer #u64 (#deref (#get restored value)))
@@ -95,7 +95,7 @@ fn declared_frame_references_do_not_initialize_unrelated_word_cells() {
 
 #[test]
 fn loop_dispatch_proves_initialization_in_every_reachable_read_context() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn work (: flag #bool) #u64
         (#let amount #u64 42u64)
         (#let-mut result #u64 0u64)
@@ -133,7 +133,7 @@ fn loop_dispatch_proves_initialization_in_every_reachable_read_context() {
 #[test]
 fn scalar_dispatch_does_not_require_loans_from_proven_unreachable_readers() {
     let source = "
-      (#struct Holder (: value (#ref #u64)))
+      (#struct Holder () (: value (#ref #u64)))
       (#fn number () #u64 (#return 1u64))
       (#fn main () #u64
         (#let-mut selector #u64 1u64)
@@ -164,8 +164,8 @@ fn scalar_dispatch_does_not_require_loans_from_proven_unreachable_readers() {
 
 #[test]
 fn scalar_loop_field_bounds_exclude_only_proven_unreachable_word_readers() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct State (: pc #u64))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct State () (: pc #u64))
       (#fn dispatch (: condition #bool) #u64
         (#let-mut state State (#struct-literal State (: pc 0u64)))
         (#let words (#array #u64 1) (#array-repeat 0u64))
@@ -187,8 +187,8 @@ fn scalar_loop_field_bounds_exclude_only_proven_unreachable_word_readers() {
 
 #[test]
 fn clone_hook_writes_cannot_leave_stale_scalar_reader_bounds() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Payload (: target (#ptr-mut #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Payload () (: target (#ptr-mut #u64)))
       (#fn Payload-clone (: value Payload) Payload
         (#unsafe (#ptr-write (#get value target) 1u64)) (#return value))
       (#fn main () #u64
@@ -226,8 +226,8 @@ fn clone_hook_writes_cannot_leave_stale_scalar_reader_bounds() {
 
 #[test]
 fn selected_parameter_cases_exclude_only_fresh_nested_word_readers() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: selector #u64 : words (#array #u64 1)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: selector #u64 : words (#array #u64 1)))
       (#fn read (: frame (#ref-mut Frame)) #u64
         (#return (#match (#get frame selector)
           (#case 1 (#block
@@ -261,8 +261,8 @@ fn selected_parameter_cases_exclude_only_fresh_nested_word_readers() {
 
 #[test]
 fn conditional_owned_word_returns_require_every_path_to_initialize_the_cell() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Storage (: words (#array #u64 1)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Storage () (: words (#array #u64 1)))
       (#fn make (: value (#ref #u64) : flag #bool) Storage
         (#let-mut storage Storage (#struct-literal Storage (: words (#array-repeat 0u64))))
         (#if flag (#unsafe (#word-write Holder (#borrow-slice-mut (#get storage words))
@@ -349,8 +349,8 @@ fn conditional_owned_word_returns_require_every_path_to_initialize_the_cell() {
 
 #[test]
 fn conditional_call_effects_cannot_initialize_or_revive_word_loans() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: source (#ref #u64) : words (#array #u64 1) : other (#array #u64 1)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: source (#ref #u64) : words (#array #u64 1) : other (#array #u64 1)))
       (#fn conditional (: frame (#ref-mut Frame) : flag #bool) ()
         (#if flag
           (#unsafe (#word-write Holder (#borrow-slice-mut (#get frame other))
@@ -405,8 +405,8 @@ fn conditional_call_effects_cannot_initialize_or_revive_word_loans() {
 
 #[test]
 fn returned_state_guarantees_initialize_only_the_corresponding_owned_cells() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: state #u64 : words (#array #u64 1)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: state #u64 : words (#array #u64 1)))
       (#fn make (: value (#ref #u64) : flag #bool) Frame
         (#let-mut frame Frame (#struct-literal Frame (: state 0u64 : words (#array-repeat 0u64))))
         (#if flag (#block
@@ -441,9 +441,9 @@ fn returned_state_guarantees_initialize_only_the_corresponding_owned_cells() {
 
 #[test]
 fn persistent_cells_and_transient_copies_have_distinct_entry_obligations() {
-    let source = "(#struct Stored (: view (#ref #u64)))
-      (#struct Frame (: pc #u64 : source (#ref #u64) : kept (#array #u64 1) : temporary (#array #u64 1)))
-      (#enum Poll ((Pending Frame) (Ready #u64)))
+    let source = "(#struct Stored () (: view (#ref #u64)))
+      (#struct Frame () (: pc #u64 : source (#ref #u64) : kept (#array #u64 1) : temporary (#array #u64 1)))
+      (#enum Poll () ((Pending Frame) (Ready #u64)))
       (#fn read (: value Stored) #u64 (#return (#deref (#get value view))))
       (#fn step (: input Frame) Poll
         (#let-mut frame Frame input)
@@ -486,8 +486,8 @@ fn persistent_cells_and_transient_copies_have_distinct_entry_obligations() {
 
 #[test]
 fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: pc #u64 : source (#ref #u64) : words (#array #u64 1)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: pc #u64 : source (#ref #u64) : words (#array #u64 1)))
       (#fn work (: frame (#ref-mut Frame)) #u64
         (#loop (#match (#get frame pc)
           (#case 0 (#block
@@ -530,8 +530,8 @@ fn a_loop_backedge_store_does_not_initialize_a_direct_resume_entry() {
             .code,
         DiagnosticCode::Linear
     );
-    let projected_wrapper = "(#struct Pair (: inner Frame : decoy Frame))
-      (#struct Nest (: selected Pair : decoy Pair))
+    let projected_wrapper = "(#struct Pair () (: inner Frame : decoy Frame))
+      (#struct Nest () (: selected Pair : decoy Pair))
       (#fn from-pair (: root Pair) #u64
         (#let answer #u64 (#call work (: frame (#get root inner))))
         (#forget root) (#return answer))
@@ -725,7 +725,7 @@ fn run(source: &str) {
 }
 
 const SOURCE: &str = "
-(#struct Pair (: left #u8 : right #u64))
+(#struct Pair () (: left #u8 : right #u64))
 (#fn inspect (: pair (#ref Pair)) #u64
   (#return (#u64.+.wrap (#as (#get pair left) #u64) (#get pair right))))
 (#fn main () #u64
@@ -742,7 +742,7 @@ fn flat_word_views_preserve_stack_layout() {
 }
 
 const EMPTY_REFERENCE_CELL: &str = "
-(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
 (#fn main () #u64
   (#let-mut words (#array #u64 2) (#array-repeat 0u64))
   (#unsafe (#word-write Cell (#borrow-slice-mut words) (Vacant)))
@@ -750,7 +750,7 @@ const EMPTY_REFERENCE_CELL: &str = "
   (#forget cell) (#return 42u64))";
 
 const OPTIONAL_WORD_READER: &str = "
-(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
 (#fn inspect (: words (#slice #u64)) #u64
   (#let cell Cell (#unsafe (#word-read Cell words)))
   (#return (#match cell
@@ -765,7 +765,7 @@ const OPTIONAL_WORD_READER: &str = "
 
 #[test]
 fn typed_view_cleanup_publishes_empty_tags_and_retires_actual_word_loans() {
-    let source = "(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
       (#fn clear (: slot (#pin-ref-mut Cell)) ()
         (#unsafe (#forget (#pin-read slot)))
         (#unsafe (#pin-write slot (Vacant))) (#return ()))
@@ -782,8 +782,8 @@ fn typed_view_cleanup_publishes_empty_tags_and_retires_actual_word_loans() {
 
 #[test]
 fn typed_view_writers_export_real_loans_at_nested_physical_offsets() {
-    let source = "(#enum Cell ((Vacant) (Occupied (#ref #u64))))
-      (#struct Buffer (: prefix #u64 : cell Cell : suffix #u64))
+    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+      (#struct Buffer () (: prefix #u64 : cell Cell : suffix #u64))
       (#fn install (: buffer (#pin-ref-mut Buffer) : value (#ref #u64)) ()
         (#unsafe (#forget (#pin-read (#pin-borrow-mut (#get buffer cell)))))
         (#unsafe (#pin-write (#pin-borrow-mut (#get buffer cell)) (Occupied value))) (#return ()))
@@ -813,7 +813,7 @@ fn typed_view_writers_export_real_loans_at_nested_physical_offsets() {
 
 #[test]
 fn typed_view_mutation_footprints_preserve_neighboring_empty_cells() {
-    let source = "(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
       (#fn clear (: slot (#pin-ref-mut Cell)) ()
         (#unsafe (#forget (#pin-read slot)))
         (#unsafe (#pin-write slot (Vacant))) (#return ()))
@@ -830,8 +830,8 @@ fn typed_view_mutation_footprints_preserve_neighboring_empty_cells() {
 
 #[test]
 fn typed_view_writes_through_stored_references_do_not_overwrite_pointer_words() {
-    let source = "(#struct External (: amount #u64))
-      (#struct Holder (: target (#ref-mut External)))
+    let source = "(#struct External () (: amount #u64))
+      (#struct Holder () (: target (#ref-mut External)))
       (#fn change (: holder (#ref-mut Holder)) ()
         (#deref-set (#borrow-mut (#get (#get holder target) amount)) 42u64) (#return ()))
       (#fn main () #u64
@@ -876,8 +876,8 @@ fn metadata_only_helpers_preserve_tags_but_never_restore_retired_loans() {
 
 #[test]
 fn word_owner_restoration_preserves_borrowed_pointee_fields() {
-    let source = "(#struct Holder (: link (#ref #u64)))
-      (#struct Words (: words (#array #u64 1)))
+    let source = "(#struct Holder () (: link (#ref #u64)))
+      (#struct Words () (: words (#array #u64 1)))
       (#fn restore (: storage (#ref-mut Words)) (#pin-own Holder)
         (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words))))))
       (#fn forward (: storage (#ref-mut Words)) (#pin-own Holder)
@@ -902,7 +902,7 @@ fn word_owner_restoration_preserves_borrowed_pointee_fields() {
           (#let-mut working Words storage)
           (#let restored (#pin-own Holder) (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get working words)))))
           (#forget working) (#return restored))",
-    ).replace("(#struct Words (: words (#array #u64 1)))", "(#struct Words (: words (#array #u64 1))) (#linear Words)")
+    ).replace("(#struct Words () (: words (#array #u64 1)))", "(#struct Words (#linear) (: words (#array #u64 1))) ")
         .replace("(#fn forward (: storage (#ref-mut Words))", "(#fn forward (: storage Words)")
         .replace("(#call forward (: storage (#borrow-mut storage)))", "(#call forward (: storage storage))")
         .replace("(#forget storage)", "");
@@ -929,9 +929,9 @@ fn word_owner_restoration_preserves_borrowed_pointee_fields() {
 
 #[test]
 fn optional_owned_word_results_require_their_allocation_pointer() {
-    let source = "(#enum Input ((NoInput) (HasInput (#pin-own #u64))))
-      (#enum Output ((NoOutput) (HasOutput (#pin-own #u64))))
-      (#struct Words (: words (#array #u64 2)))
+    let source = "(#enum Input () ((NoInput) (HasInput (#pin-own #u64))))
+      (#enum Output () ((NoOutput) (HasOutput (#pin-own #u64))))
+      (#struct Words () (: words (#array #u64 2)))
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
         (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput owner) (HasOutput owner)))))
@@ -978,9 +978,9 @@ fn optional_owned_word_results_require_their_allocation_pointer() {
 
 #[test]
 fn optional_word_outputs_preserve_absent_concrete_input_sources() {
-    let source = "(#enum Input ((NoInput) (HasInput (#ref #u64))))
-      (#enum Output ((NoOutput) (HasOutput (#ref #u64))))
-      (#struct Words (: words (#array #u64 2)))
+    let source = "(#enum Input () ((NoInput) (HasInput (#ref #u64))))
+      (#enum Output () ((NoOutput) (HasOutput (#ref #u64))))
+      (#struct Words () (: words (#array #u64 2)))
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
         (#return (#match input (#case (NoInput) (NoOutput))
@@ -1024,9 +1024,9 @@ fn optional_word_outputs_preserve_absent_concrete_input_sources() {
 
 #[test]
 fn optional_owned_word_outputs_do_not_require_impossible_payloads() {
-    let source = "(#enum Input ((NoInput) (HasInput (#ref #u64))))
-      (#enum Output ((NoOutput) (HasOutput (#ref #u64))))
-      (#struct Words (: state #u64 : words (#array #u64 2)))
+    let source = "(#enum Input () ((NoInput) (HasInput (#ref #u64))))
+      (#enum Output () ((NoOutput) (HasOutput (#ref #u64))))
+      (#struct Words () (: state #u64 : words (#array #u64 2)))
       (#fn convert (: storage Words) Output
         (#let output Output (#match (#get storage state)
           (#case 0 (NoOutput))
@@ -1069,9 +1069,9 @@ fn optional_owned_word_outputs_do_not_require_impossible_payloads() {
 
 #[test]
 fn absent_owned_mutation_payloads_preserve_disjoint_word_selectors() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: state #u64 : words (#array #u64 1)))
-      (#enum Handle ((Empty) (Full (#ref-mut #u64))))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: state #u64 : words (#array #u64 1)))
+      (#enum Handle () ((Empty) (Full (#ref-mut #u64))))
       (#fn empty () Handle (#return (Empty)))
       (#fn mutate (: handle Handle) ()
         (#match handle (#case (Empty) ())
@@ -1102,8 +1102,8 @@ fn absent_owned_mutation_payloads_preserve_disjoint_word_selectors() {
 
 #[test]
 fn atomic_writers_preserve_disjoint_word_selectors() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: state #u64 : words (#array #u64 1)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: state #u64 : words (#array #u64 1)))
       (#fn update (: count (#ref (#atomic #u64))) ()
         (#atomic-store count 1u64 #memory-relaxed) (#return ()))
       (#fn read (: frame (#ref Frame)) #u64
@@ -1250,7 +1250,7 @@ fn guarded_word_readers_check_each_address_and_exact_enum_identity() {
     let wrong_type = OPTIONAL_WORD_READER
         .replace(
             "(#fn main",
-            "(#enum Other ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
+            "(#enum Other () ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
         )
         .replace(
             "#word-write Cell (#borrow-slice-mut words) (Vacant)",
@@ -1291,7 +1291,7 @@ fn opaque_word_addresses_cannot_waive_payload_entry_loans() {
 fn disjoint_metadata_writes_preserve_entry_tag_conditions() {
     let prefix = OPTIONAL_WORD_READER.split("(#fn main").next().unwrap();
     let source = format!("{prefix}
-      (#struct Buffer (: counter #u64 : words (#array #u64 2)))
+      (#struct Buffer () (: counter #u64 : words (#array #u64 2)))
       (#fn update-and-read (: buffer (#ref-mut Buffer)) #u64
         (#deref-set (#borrow-mut (#get buffer counter)) 1u64)
         (#return (#call inspect (: words (#borrow-slice (#get buffer words))))))
@@ -1376,9 +1376,9 @@ fn numeric_zero_is_not_an_empty_constructor_witness() {
 
 #[test]
 fn nested_constructor_facts_use_nonzero_backing_offsets_and_enum_identity() {
-    let source = "(#enum Cell ((Vacant) (Occupied (#ref #u64))))
-      (#enum Outer ((Absent) (Present Cell)))
-      (#struct Holder (: prefix #u64 : cell Outer : suffix #u64))
+    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+      (#enum Outer () ((Absent) (Present Cell)))
+      (#struct Holder () (: prefix #u64 : cell Outer : suffix #u64))
       (#fn main () #u64
         (#let-mut words (#array #u64 7) (#array-repeat 0u64))
         (#unsafe (#word-write Holder (#borrow-slice-mut words 1usize 6usize)
@@ -1395,7 +1395,7 @@ fn nested_constructor_facts_use_nonzero_backing_offsets_and_enum_identity() {
     let wrong_type = EMPTY_REFERENCE_CELL
         .replace(
             "(#fn main",
-            "(#enum Other ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
+            "(#enum Other () ((OtherVacant) (OtherOccupied (#ref #u64)))) (#fn main",
         )
         .replace(
             "#word-write Cell (#borrow-slice-mut words) (Vacant)",
@@ -1409,7 +1409,7 @@ fn nested_constructor_facts_use_nonzero_backing_offsets_and_enum_identity() {
 
 #[test]
 fn occupied_word_cells_need_real_reference_provenance_after_retirement() {
-    let source = "(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
       (#fn main () #u64
         (#let amount #u64 42u64)
         (#let-mut words (#array #u64 2) (#array-repeat 0u64))
@@ -1433,7 +1433,7 @@ fn occupied_word_cells_need_real_reference_provenance_after_retirement() {
 
 #[test]
 fn constructor_facts_are_per_cell_and_required_on_every_reaching_address() {
-    let source = "(#enum Cell ((Vacant) (Occupied (#ref #u64))))
+    let source = "(#enum Cell () ((Vacant) (Occupied (#ref #u64))))
       (#fn choose (: flag #bool) #u64
         (#let amount #u64 42u64)
         (#let-mut first (#array #u64 2) (#array-repeat 0u64))
@@ -1486,7 +1486,7 @@ fn raw_mutation_invalidates_word_constructor_facts() {
 }
 
 const REFERENCE_WORDS: &str = "
-(#struct Pair (: left #u8 : right #u64))
+(#struct Pair () (: left #u8 : right #u64))
 (#fn expose (: value (#pin-ref-mut Pair)) (#slice-mut #u64)
   (#return (#unsafe (#word-view (#slice-mut #u64) value))))
 (#fn main () #u64
@@ -1563,7 +1563,7 @@ fn reference_word_views_check_unsafe_mutability_types_and_escapes() {
 
 #[test]
 fn word_staging_preserves_observable_clone_hooks() {
-    let source = "(#struct Value (: number #u64 : count (#ptr-mut #u64)))
+    let source = "(#struct Value () (: number #u64 : count (#ptr-mut #u64)))
       (#fn Value-clone (: value Value) Value
         (#unsafe (#ptr-write (#get value count)
           (#u64.+.wrap (#ptr-read (#get value count)) 1u64))) (#return value))
@@ -1598,7 +1598,7 @@ fn word_staging_preserves_observable_clone_hooks() {
 
 #[test]
 fn zero_word_markers_do_not_exhaust_native_return_registers() {
-    run("(#struct Marked (: number #u64
+    run("(#struct Marked () (: number #u64
         : a (#array #u64 0) : b (#array #u64 0) : c (#array #u64 0)
         : d (#array #u64 0) : e (#array #u64 0) : f (#array #u64 0)))
       (#fn make () Marked
@@ -1612,7 +1612,7 @@ fn zero_word_markers_do_not_exhaust_native_return_registers() {
 
 #[test]
 fn releasing_owned_storage_ends_only_its_contained_handles() {
-    let source = "(#struct Owner (: number #u64 : words (#array #u64 1)))
+    let source = "(#struct Owner () (: number #u64 : words (#array #u64 1)))
       (#fn main () #u64
         (#let-mut owner Owner (#struct-literal Owner
           (: number 42u64 : words (#array-repeat 0u64))))
@@ -1646,7 +1646,7 @@ fn releasing_owned_storage_ends_only_its_contained_handles() {
 
 #[test]
 fn word_take_transfers_reference_ownership_and_retires_source_provenance() {
-    let source = "(#struct Holder (: view (#ref-mut #u64)))
+    let source = "(#struct Holder () (: view (#ref-mut #u64)))
       (#fn main () #u64
         (#let-mut seed #u64 40u64)
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
@@ -1678,8 +1678,8 @@ fn word_take_transfers_reference_ownership_and_retires_source_provenance() {
 
 #[test]
 fn nested_word_view_field_addresses_keep_external_pointees_separate() {
-    let source = "(#struct Inner (: value (#ref #u64)))
-      (#struct Outer (: inner Inner))
+    let source = "(#struct Inner () (: value (#ref #u64)))
+      (#struct Outer () (: inner Inner))
       (#fn main () #u64
         (#let-mut seed #u64 42u64)
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
@@ -1746,7 +1746,7 @@ fn nested_word_view_field_addresses_keep_external_pointees_separate() {
 
 #[test]
 fn typed_reference_holder_lends_its_word_view_without_duplicating_the_loan() {
-    let source = "(#struct Holder (: view (#ref-mut #u64)))
+    let source = "(#struct Holder () (: view (#ref-mut #u64)))
       (#fn touch (: target (#ref-mut #u64)) ()
         (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return ()))
       (#fn main () #u64
@@ -1961,9 +1961,9 @@ fn returned_views_retain_their_callers_storage_lifetime() {
 
 #[test]
 fn typed_word_view_maps_callee_consumption_to_actual_backing_regions() {
-    let source = "(#struct Token (: amount #u64)) (#linear Token)
-      (#enum Slot ((Empty) (Full Token))) (#linear Slot)
-      (#struct Buffer (: prefix #u64 : slot Slot : suffix #u64))
+    let source = "(#struct Token (#linear) (: amount #u64))
+      (#enum Slot (#linear) ((Empty) (Full Token)))
+      (#struct Buffer () (: prefix #u64 : slot Slot : suffix #u64))
       (#fn clear (: slot (#pin-ref-mut Slot)) ()
         (#unsafe (#forget (#pin-read slot)))
         (#unsafe (#pin-write slot (Empty))) (#return ()))
@@ -2096,7 +2096,7 @@ fn word_forget_does_not_end_transferred_or_neighboring_loans() {
 
 #[test]
 fn numeric_words_cannot_invent_reference_provenance() {
-    let source = "(#struct Holder (: item (#ref #u64)))
+    let source = "(#struct Holder () (: item (#ref #u64)))
       (#fn bad (: words (#slice #u64)) (#ref #u64)
         (#let holder (#ref Holder) (#unsafe (#word-view (#ref Holder) words)))
         (#return (#get holder item)))
@@ -2115,7 +2115,7 @@ fn numeric_words_cannot_invent_reference_provenance() {
 
 #[test]
 fn typed_word_writes_preserve_contained_reference_provenance() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn main () #u64
         (#let-mut seed #u64 42u64)
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
@@ -2150,7 +2150,7 @@ fn typed_word_writes_preserve_contained_reference_provenance() {
 
 #[test]
 fn typed_word_reference_slots_use_real_flat_offsets() {
-    let source = "(#struct Holder (: prefix #u128 : value (#ref #u64) : suffix #u64))
+    let source = "(#struct Holder () (: prefix #u128 : value (#ref #u64) : suffix #u64))
       (#fn main () #u64
         (#let-mut seed #u64 40u64)
         (#let-mut words (#array #u64 6) (#array-repeat 0u64))
@@ -2172,8 +2172,9 @@ fn typed_word_reference_slots_use_real_flat_offsets() {
 
 #[test]
 fn owned_nested_word_slots_preserve_tuple_and_array_reference_origins() {
-    let source = "(#struct Holder (: prefix #u128 : nested (#tuple #u64 (#array (#ref #u64) 2))))
-      (#linear Holder)
+    let source =
+        "(#struct Holder (#linear) (: prefix #u128 : nested (#tuple #u64 (#array (#ref #u64) 2))))
+
       (#fn main () #u64
         (#let-mut left #u64 20u64) (#let-mut right #u64 22u64)
         (#let-mut words (#array #u64 5) (#array-repeat 0u64))
@@ -2195,7 +2196,7 @@ fn owned_nested_word_slots_preserve_tuple_and_array_reference_origins() {
 
 #[test]
 fn numeric_overwrites_retire_typed_word_reference_provenance() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn main () #u64
         (#let-mut seed #u64 1u64)
         (#let-mut words (#array #u64 1) (#array-repeat 0u64))
@@ -2215,7 +2216,7 @@ fn numeric_overwrites_retire_typed_word_reference_provenance() {
 
 #[test]
 fn exclusive_word_reads_require_an_exclusive_source_and_keep_aliases_checked() {
-    let source = "(#struct Holder (: value (#ref-mut #u64)))
+    let source = "(#struct Holder () (: value (#ref-mut #u64)))
       (#fn write (: value (#ref-mut #u64)) () (#deref-set value 42u64) (#return ()))
       (#fn main () #u64
         (#let-mut seed #u64 1u64)
@@ -2245,7 +2246,7 @@ fn exclusive_word_reads_require_an_exclusive_source_and_keep_aliases_checked() {
 
 #[test]
 fn typed_word_writes_cannot_export_short_lived_references() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn bad (: words (#slice-mut #u64)) ()
         (#let local #u64 42u64)
         (#unsafe (#word-write Holder words
@@ -2260,7 +2261,7 @@ fn typed_word_writes_cannot_export_short_lived_references() {
 
 #[test]
 fn typed_word_reference_writes_require_resolved_slot_addresses() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn store (: words (#slice-mut #u64) : offset #usize : source (#ref #u64)) ()
         (#unsafe (#word-write Holder (#slice-mut-range words offset 2usize)
           (#struct-literal Holder (: value source))))
@@ -2274,7 +2275,7 @@ fn typed_word_reference_writes_require_resolved_slot_addresses() {
 
 #[test]
 fn typed_word_writer_helpers_export_real_source_loans() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn store (: words (#slice-mut #u64) : source (#ref #u64)) ()
         (#unsafe (#word-write Holder words (#struct-literal Holder (: value source))))
         (#return ()))
@@ -2299,7 +2300,7 @@ fn typed_word_writer_helpers_export_real_source_loans() {
 
 #[test]
 fn typed_word_reader_helpers_require_actual_reference_inputs() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn read (: words (#slice #u64)) #u64
         (#let restored Holder (#unsafe (#word-read Holder words)))
         (#let answer #u64 (#deref (#get restored value)))
@@ -2329,8 +2330,8 @@ fn typed_word_reader_helpers_require_actual_reference_inputs() {
 
 #[test]
 fn moved_by_value_word_backing_retains_caller_validated_loans() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Storage (: words (#array #u64 2))) (#linear Storage)
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Storage (#linear) (: words (#array #u64 2)))
       (#fn read (: incoming Storage) #u64
         (#let-mut saved Storage incoming)
         (#let restored Holder (#unsafe (#word-read Holder
@@ -2378,8 +2379,8 @@ fn moved_by_value_word_backing_retains_caller_validated_loans() {
 
 #[test]
 fn moved_exclusive_word_backing_keeps_permissions_and_effects() {
-    let source = "(#struct Holder (: value (#ref-mut #u64)))
-      (#struct Storage (: words (#array #u64 1))) (#linear Storage)
+    let source = "(#struct Holder () (: value (#ref-mut #u64)))
+      (#struct Storage (#linear) (: words (#array #u64 1)))
       (#fn update (: incoming Storage) ()
         (#let-mut saved Storage incoming)
         (#let restored Holder (#unsafe (#word-read Holder
@@ -2415,8 +2416,8 @@ fn moved_exclusive_word_backing_keeps_permissions_and_effects() {
 
 #[test]
 fn a_running_thread_retains_by_value_word_input_loans_until_join() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Storage (: words (#array #u64 1))) (#linear Storage)
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Storage (#linear) (: words (#array #u64 1)))
       (#fn read (: incoming Storage) #u64
         (#let-mut saved Storage incoming)
         (#let restored Holder (#unsafe (#word-read Holder (#borrow-slice (#get saved words)))))
@@ -2474,7 +2475,7 @@ fn documented_word_reader_contract_example_runs_natively() {
 
 #[test]
 fn exclusive_word_reader_helpers_cannot_upgrade_shared_permissions() {
-    let source = "(#struct Holder (: value (#ref-mut #u64)))
+    let source = "(#struct Holder () (: value (#ref-mut #u64)))
       (#fn update (: words (#slice-mut #u64)) ()
         (#let restored Holder (#unsafe (#word-read Holder words)))
         (#deref-set (#get restored value) 42u64)
@@ -2490,7 +2491,7 @@ fn exclusive_word_reader_helpers_cannot_upgrade_shared_permissions() {
     let invalid = source
         .replace("value (#borrow-mut seed)", "value (#borrow seed)")
         .replace("(#word-write Holder", "(#word-write SharedHolder");
-    let invalid = format!("(#struct SharedHolder (: value (#ref #u64))) {invalid}").replace(
+    let invalid = format!("(#struct SharedHolder () (: value (#ref #u64))) {invalid}").replace(
         "(#struct-literal Holder (: value (#borrow seed)))",
         "(#struct-literal SharedHolder (: value (#borrow seed)))",
     );
@@ -2500,8 +2501,8 @@ fn exclusive_word_reader_helpers_cannot_upgrade_shared_permissions() {
 
 #[test]
 fn word_reader_contracts_require_permission_on_every_reaching_branch() {
-    let source = "(#struct SharedHolder (: value (#ref #u64)))
-      (#struct UniqueHolder (: value (#ref-mut #u64)))
+    let source = "(#struct SharedHolder () (: value (#ref #u64)))
+      (#struct UniqueHolder () (: value (#ref-mut #u64)))
       (#fn fill (: words (#slice-mut #u64) : left (#ref-mut #u64) : right (#ref #u64) : flag #bool) ()
         (#if flag
           (#unsafe (#word-write UniqueHolder words (#struct-literal UniqueHolder (: value left))))
@@ -2542,8 +2543,8 @@ fn scalar_float_wide_and_pinned_views_use_the_same_word_layout() {
 
 #[test]
 fn contiguous_partial_ownership_restoration_keeps_the_whole_address() {
-    run("(#struct Token (: value #u64)) (#linear Token)
-      (#struct Owner (: kept #u64 : item Token))
+    run("(#struct Token (#linear) (: value #u64))
+      (#struct Owner () (: kept #u64 : item Token))
       (#fn inspect (: owner (#ref Owner)) #u64
         (#return (#u64.+.wrap (#get owner kept) (#get (#get owner item) value))))
       (#fn main () #u64
@@ -2567,8 +2568,8 @@ fn contiguous_partial_ownership_restoration_keeps_the_whole_address() {
 
 #[test]
 fn contiguous_reference_owner_restoration_keeps_address_and_real_caller_loan() {
-    let source = "(#struct Token (: value #u64)) (#linear Token)
-      (#struct Owner (: kept (#ref #u64) : item Token))
+    let source = "(#struct Token (#linear) (: value #u64))
+      (#struct Owner () (: kept (#ref #u64) : item Token))
       (#fn inspect (: owner (#ref Owner)) #u64
         (#return (#u64.+.wrap (#deref (#get owner kept)) (#get (#get owner item) value))))
       (#fn main () #u64

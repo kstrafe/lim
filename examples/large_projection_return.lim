@@ -1,4 +1,4 @@
-(#struct Wrapped
+(#struct Wrapped ()
   ((payload (#array #u64 7))))
 
 (#fn project () (#array #u64 7)

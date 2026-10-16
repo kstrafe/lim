@@ -1,4 +1,4 @@
-(#enum Choice (Ready Stop))
+(#enum Choice () (Ready Stop))
 (#fn main () #u64
   (#let value Choice Ready)
   (#variant-is value Ready)

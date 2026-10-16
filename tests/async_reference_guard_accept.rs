@@ -3,8 +3,8 @@ mod support;
 use std::{process::Command, time::Duration};
 
 const CONTEXT: &str = "
-  (#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
-  (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+  (#enum Child (#linear) ((Start #u64) (Resume #u64)))
+  (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
     (#return (#match task
       (#case (Start value) (ChildPending (Resume value)))
@@ -36,7 +36,7 @@ fn run_guard(guard_accepts: bool) {
     };
     let source = format!(
         "{CONTEXT}
-      (#enum Holder ((Holding (#ref #u64)))) (#linear Holder)
+      (#enum Holder (#linear) ((Holding (#ref #u64))))
       (@#async-fn-pinned (: protocol WorkAwait : waker #u64
         : function (#fn work (: source (#ref #u64)) #u64
           (#let-mut marker #u64 0u64)

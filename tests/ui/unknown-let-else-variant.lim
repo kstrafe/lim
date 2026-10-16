@@ -1,4 +1,4 @@
-(#enum State (Ready))
+(#enum State () (Ready))
 (#fn main () #u64
   (#let value State Ready)
   (#let-else Missing State value (#return 1u64))

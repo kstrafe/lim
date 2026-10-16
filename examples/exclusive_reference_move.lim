@@ -1,5 +1,5 @@
 ; Mutable handles transfer once; their pointee stays initialized in place.
-(#struct ExclusiveView (: item (#ref-mut #u64)))
+(#struct ExclusiveView () (: item (#ref-mut #u64)))
 
 (#fn main () #u64
   (#let-mut value #u64 40u64)

@@ -13,8 +13,8 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
     )
 }
 
-const SOURCE: &str = "(#struct Holder (: link (#ref #u64)))
-  (#struct Frame (: state #u64 : original (#array #u64 1) : moved (#array #u64 1)))
+const SOURCE: &str = "(#struct Holder () (: link (#ref #u64)))
+  (#struct Frame () (: state #u64 : original (#array #u64 1) : moved (#array #u64 1)))
   (#fn relay (: frame Frame : transfer #bool) Frame
     (#let-mut result Frame frame)
     (#match (#get result state)

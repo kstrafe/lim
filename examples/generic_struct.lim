@@ -1,6 +1,6 @@
 (
   #struct
-  BoxU64
+  BoxU64 ()
   (
     (value #u64)
   )

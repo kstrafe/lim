@@ -4,8 +4,8 @@ use lim::{check_types, parse_program};
 fn repeating_a_linear_element_requires_exactly_one_slot() {
     for (length, allowed) in [(0, false), (1, true), (2, false)] {
         let source = format!(
-            "(#struct Token ((value #u64)))
-             (#linear Token)
+            "(#struct Token (#linear) ((value #u64)))
+
              (#fn main () ()
                (#let values (#array Token {length})
                  (#array-repeat (#struct-literal Token ((value 1u64)))))
@@ -28,7 +28,7 @@ fn repeating_a_linear_element_requires_exactly_one_slot() {
 
 #[test]
 fn repeating_exclusive_references_is_rejected_even_without_linear_cleanup() {
-    let source = "(#struct Holder ((view (#ref-mut #u64))))
+    let source = "(#struct Holder () ((view (#ref-mut #u64))))
       (#fn main () ()
         (#let-mut owner #u64 1u64)
         (#let holder Holder (#struct-literal Holder ((view (#borrow-mut owner)))))
@@ -72,8 +72,8 @@ fn repeating_copy_elements_and_shared_references_remains_valid() {
 
 #[test]
 fn contextual_single_slot_repeat_consumes_the_linear_source() {
-    let source = "(#struct Token ((value #u64)))
-      (#linear Token)
+    let source = "(#struct Token (#linear) ((value #u64)))
+
       (#fn main () ()
         (#let token Token (#struct-literal Token ((value 7u64))))
         (#let values (#array Token 1) (#array-repeat token))
@@ -94,8 +94,8 @@ fn contextual_array_and_tuple_consume_the_first_value() {
         ("(#tuple Token)", "(#tuple (#block token))"),
     ] {
         let source = format!(
-            "(#struct Token ((value #u64)))
-             (#linear Token)
+            "(#struct Token (#linear) ((value #u64)))
+
              (#fn main () ()
                (#let token Token (#struct-literal Token ((value 7u64))))
                (#let values {ty} {constructor})
@@ -117,8 +117,8 @@ fn contextual_array_and_tuple_accept_a_single_linear_transfer() {
         ("(#tuple Token)", "(#tuple (#block token))"),
     ] {
         let source = format!(
-            "(#struct Token ((value #u64)))
-             (#linear Token)
+            "(#struct Token (#linear) ((value #u64)))
+
              (#fn main () ()
                (#let token Token (#struct-literal Token ((value 7u64))))
                (#let values {ty} {constructor})
@@ -132,8 +132,8 @@ fn contextual_array_and_tuple_accept_a_single_linear_transfer() {
 
 #[test]
 fn aliased_contextual_constructor_consumes_a_list_valued_operand() {
-    let source = "(#struct Token ((value #u64)))
-      (#linear Token)
+    let source = "(#struct Token (#linear) ((value #u64)))
+
       (#type Tokens (#array Token 1))
       (#fn main () ()
         (#let token Token (#struct-literal Token ((value 7u64))))

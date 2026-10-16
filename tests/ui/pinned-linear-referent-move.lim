@@ -1,5 +1,5 @@
-(#struct Resource ((number #u64)))
-(#linear Resource)
+(#struct Resource (#linear) ((number #u64)))
+
 (#fn inspect ((reference (#pin-ref-mut Resource))) ()
   (#let moved Resource (#deref reference))
   (#forget moved)

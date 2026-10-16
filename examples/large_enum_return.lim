@@ -1,5 +1,5 @@
 ; Oversized enum values use the native ABI's indirect return storage.
-(#enum LargeChoice ((Values (#array #u64 8)) (Empty)))
+(#enum LargeChoice () ((Values (#array #u64 8)) (Empty)))
 
 (#fn make-large-choice () LargeChoice
   (#return (Values

@@ -103,7 +103,7 @@ fn packed_scalar_references_access_exact_width_at_a_guard_page() {
 #[test]
 fn odd_byte_references_survive_calls_struct_storage_and_native_boundaries() {
     run(
-        r#"(#struct Holder (: byte (#ref #u8)))
+        r#"(#struct Holder () (: byte (#ref #u8)))
       (#fn forward (: byte (#ref #u8)) (#ref #u8) (#return byte))
       (#fn main () #u64
         (#let base (#ptr-mut #u8) (#unsafe (#linux-syscall (#ptr-mut #u8) 9usize
@@ -131,7 +131,7 @@ fn odd_byte_references_survive_calls_struct_storage_and_native_boundaries() {
 #[test]
 fn word_backed_narrow_locals_and_heap_fields_still_store_canonical_words() {
     run(
-        r#"(#struct Value (: field #i8))
+        r#"(#struct Value () (: field #i8))
       (#fn update (: field (#ref-mut #i8)) () (#deref-set field 42i8) (#return ()))
       (#fn main () #u64
         (#let-mut local #i8 -1i8)

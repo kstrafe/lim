@@ -1,4 +1,4 @@
-(#struct Point ((x #u64)))
+(#struct Point () ((x #u64)))
 (#fn main () #u64
   (#let point Point (#struct-literal Point ((x 1u64) (x 2u64))))
   (#return 0u64))

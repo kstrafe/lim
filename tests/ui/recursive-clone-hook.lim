@@ -1,4 +1,4 @@
-(#struct Value ((number #u64)))
+(#struct Value () ((number #u64)))
 (#fn Value-clone ((value Value)) Value
   (#return (#clone value)))
 (#fn main () #u64

@@ -8,7 +8,7 @@ fn fieldless_variant_returns_from_a_payload_enum() {
     let binary = scratch.path().join("program");
     fs::write(
         &input,
-        "(#enum Answer ((Value #u64) Empty))
+        "(#enum Answer () ((Value #u64) Empty))
       (#fn empty () Answer (#return Empty))
       (#fn main () #u64
         (#return (#match (#call empty (:))

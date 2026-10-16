@@ -1,9 +1,9 @@
 ; Linear local pin loads transfer loans; pin writes explicitly restore storage.
-(#struct Owner (: number #u64))
-(#struct View (: item (#ref #u64)))
-(#linear View)
-(#struct Resource (: number #u64))
-(#linear Resource)
+(#struct Owner () (: number #u64))
+(#struct View (#linear) (: item (#ref #u64)))
+
+(#struct Resource (#linear) (: number #u64))
+
 
 (#fn choose-view (: input (#ref #u64) : alternative (#ref #u64) : first #bool) View
   (#return

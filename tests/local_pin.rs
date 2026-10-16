@@ -37,7 +37,7 @@ fn reject(source: &str, expected: &str) {
     );
 }
 
-const JOB: &str = "(#struct Job (: state #u64)) (#linear Job)";
+const JOB: &str = "(#struct Job (#linear) (: state #u64)) ";
 const POLL: &str = "(#fn poll (: target (#pin-ref-mut Job)) #u64
   (#let answer #u64 (#get target state))
   (#pin-set-field target state (#u64.+.wrap answer 1u64))
@@ -115,13 +115,13 @@ fn invalid_pin_argument_preserves_structured_diagnostic_span_and_cache() {
 #[test]
 fn documented_local_pin_cleanup_runs_natively() {
     let source = include_str!("../docs/language.md")
-        .split_once("(#struct LocalJob (: state #u64))")
+        .split_once("(#struct LocalJob () (: state #u64))")
         .unwrap()
         .1
         .split_once("```")
         .unwrap()
         .0;
-    run(&format!("(#struct LocalJob (: state #u64)){source}"), 42);
+    run(&format!("(#struct LocalJob () (: state #u64)){source}"), 42);
 }
 
 #[test]

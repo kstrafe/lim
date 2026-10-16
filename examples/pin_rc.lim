@@ -1,8 +1,8 @@
 (#import "../library/pin_rc.lim")
 
-(#struct Arena (: destroyed (#atomic #u64) : deallocated (#atomic #u64)))
-(#enum ArenaError (OutOfMemory))
-(#enum AllocationResult ((Allocated (#ptr-mut PinnedNumberRcAllocation)) (AllocationFailed ArenaError)))
+(#struct Arena () (: destroyed (#atomic #u64) : deallocated (#atomic #u64)))
+(#enum ArenaError () (OutOfMemory))
+(#enum AllocationResult () ((Allocated (#ptr-mut PinnedNumberRcAllocation)) (AllocationFailed ArenaError)))
 (@#pin-rc (: type #u64 : allocator Arena : name PinnedNumberRc
   : error ArenaError : alloc-result AllocationResult : alloc-ok Allocated
   : alloc-error AllocationFailed : alloc arena-allocate : dealloc arena-deallocate

@@ -7,7 +7,7 @@ fn large_argument_diverging_match_and_if_arms_emit_traps() {
     use std::os::unix::process::ExitStatusExt;
 
     let source = r#"
-      (#enum Choice (First Second))
+      (#enum Choice () (First Second))
       (#fn read (: values (#array #u64 10)) #u64
         (#let result #u64 (#index values 9usize))
         (#forget values) (#return result))
@@ -66,9 +66,9 @@ fn large_enum_reference_reads_writes_and_matches_use_storage() {
             ("#ref-mut", "#borrow-mut", "#deref", "#deref-set")
         };
         let source = format!(
-            "(#struct Large (: values (#array #u64 10)))
-          (#enum Container ((Empty) (Full Large))) (#linear Container)
-          (#struct Wrapper (: item Container)) (#linear Wrapper)
+            "(#struct Large () (: values (#array #u64 10)))
+          (#enum Container (#linear) ((Empty) (Full Large)))
+          (#struct Wrapper (#linear) (: item Container))
           (#fn extract (: slot ({reference} Container)) Large
             (#let previous Container (#unsafe ({read} slot)))
             (#unsafe ({write} slot Empty))

@@ -1,15 +1,15 @@
 ; An await can produce the task consumed by another await, even inside an
 ; arithmetic operand. Both tasks suspend once before returning their value.
-(#enum OuterTask ((Waiting #u64) (Resuming #u64)))
-(#linear OuterTask)
-(#enum OuterPoll ((OuterPending OuterTask) (OuterReady #u64)))
+(#enum OuterTask (#linear) ((Waiting #u64) (Resuming #u64)))
+
+(#enum OuterPoll () ((OuterPending OuterTask) (OuterReady #u64)))
 (#fn outer-poll ((task OuterTask) (waker (#ref #u64))) OuterPoll
   (#return (#match task
     (#case (Waiting value) (OuterPending (Resuming value)))
     (#case (Resuming value) (OuterReady value)))))
 
-(#enum InnerTask (MakeOuter ResumeOuter))
-(#enum InnerPoll ((InnerPending InnerTask) (InnerReady OuterTask)))
+(#enum InnerTask () (MakeOuter ResumeOuter))
+(#enum InnerPoll () ((InnerPending InnerTask) (InnerReady OuterTask)))
 (#fn inner-poll ((task InnerTask) (waker (#ref #u64))) InnerPoll
   (#return (#match task
     (#case MakeOuter (InnerPending ResumeOuter))

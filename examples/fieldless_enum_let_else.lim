@@ -1,4 +1,4 @@
-(#enum Color (Red Green Blue))
+(#enum Color () (Red Green Blue))
 
 (#fn classify ((value Color)) #u64
   (#let-else (#or Green Blue) Color value

@@ -170,12 +170,12 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
     ] {
         for choose in [false, true] {
             let source = format!(
-                "(#struct Counter (: value #u64))
-                (#struct Wide (: padding #u8 : value #u128))
+                "(#struct Counter () (: value #u64))
+                (#struct Wide () (: padding #u8 : value #u128))
                 (#fn touch (: target (#ref-mut #u64)) ()
                   (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return ()))
-                (#enum Child (Start Resume)) (#linear Child)
-                (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+                (#enum Child (#linear) (Start Resume))
+                (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
                 (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
                   (#return (#match task (#case Start (ChildPending Resume))
                     (#case Resume (ChildReady 0u64)))))
@@ -201,13 +201,13 @@ fn stored_local_handles_are_retired_before_moving_a_pending_frame() {
 }
 
 fn whole_array_element_source() -> &'static str {
-    "(#struct Counter (: value #u64)) (#linear Counter)
+    "(#struct Counter (#linear) (: value #u64))
       (#fn touch-counter (: target (#ref-mut Counter)) ()
         (#deref-set (#borrow-mut (#get target value))
           (#u64.+.wrap (#get target value) 1u64))
         (#return ()))
-      (#enum Child (Start Resume)) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#enum Child (#linear) (Start Resume))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task (#case Start (ChildPending Resume))
           (#case Resume (ChildReady 0u64)))))
@@ -242,7 +242,7 @@ fn whole_array_element_source() -> &'static str {
 fn whole_array_element_borrows_end_before_suspension() {
     for source in [
         whole_array_element_source().to_owned(),
-        whole_array_element_source().replace("(#linear Counter)", ""),
+        whole_array_element_source().replace("(#struct Counter (#linear)", "(#struct Counter ()"),
     ] {
         run_with_role(&source, &[], "owner-project-array");
     }
@@ -484,8 +484,8 @@ fn slice_borrows_do_not_allow_local_escape_or_mutation_of_live_referents() {
 #[test]
 fn noncopy_array_slices_require_a_nonmoving_storage_lease() {
     let source = r#"
-      (#struct Token ((value #u64)))
-      (#linear Token)
+      (#struct Token (#linear) ((value #u64)))
+
       (#fn inspect (: items (#slice Token)) #u64
         (#return (#get (#slice-idx items 0usize) value)))
       (@#async-fn (: protocol WorkAwait : waker #u64
@@ -539,7 +539,7 @@ fn computed_step_retains_body_binding_through_awaits_and_continue() {
     ));
 }
 
-const PAIR_SOURCE: &str = "(#struct Pair (: left #u64 : right #u64))
+const PAIR_SOURCE: &str = "(#struct Pair () (: left #u64 : right #u64))
   (#fn touch (: left (#ref-mut #u64) : right (#ref-mut #u64)) ()
     (#deref-set left 20u64) (#deref-set right 22u64) (#return ()))
   (@#async-fn (: protocol WorkAwait : waker #u64 : function (#fn work () #u64

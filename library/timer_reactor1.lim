@@ -5,15 +5,15 @@
 (#import "wake_ready4.lim")
 (#import "async_poll4.lim")
 
-(#struct TimerReactor1
+(#struct TimerReactor1 (#linear)
   ((fd #i64) (memory (#ptr-mut #u8)) (queue WakeReady4) (token WakeToken4)))
 (#opaque TimerReactor1)
-(#linear TimerReactor1)
-(#enum TimerCreate1 ((TimerCreated1 TimerReactor1) (TimerCreateFailed1 #i64)))
-(#enum TimerWait1 (TimerWoken1 (TimerWaitFailed1 #i64)))
-(#enum TimerWait2 ((TimerPairWoken1 #bool #bool) (TimerPairFailed1 #i64)))
-(#enum TimerManyWait ((TimerManyReady #u64) (TimerManyFailed #i64)))
-(#enum TimerPoll1 (TimerPending1 (TimerReady1 #u64) (TimerPollFailed1 #i64)))
+
+(#enum TimerCreate1 () ((TimerCreated1 TimerReactor1) (TimerCreateFailed1 #i64)))
+(#enum TimerWait1 () (TimerWoken1 (TimerWaitFailed1 #i64)))
+(#enum TimerWait2 () ((TimerPairWoken1 #bool #bool) (TimerPairFailed1 #i64)))
+(#enum TimerManyWait () ((TimerManyReady #u64) (TimerManyFailed #i64)))
+(#enum TimerPoll1 () (TimerPending1 (TimerReady1 #u64) (TimerPollFailed1 #i64)))
 
 (#fn timer-reactor1-source ((timer (#ref TimerReactor1))) AsyncPollSource4
   (#return (#call async-poll4-source

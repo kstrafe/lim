@@ -110,8 +110,8 @@ fn queue_field_can_be_used_through_a_mutable_owner_reference() {
     let source = format!(
         "(#import \"{}/library/ready_queue.lim\")
          (@#ready-queue Queue QueueEnqueue QueueDequeue queue-create queue-enqueue queue-dequeue Enqueued Full Item Empty (a b))
-         (#struct Holder ((ready Queue)))
-         (#linear Holder)
+         (#struct Holder (#linear) ((ready Queue)))
+
          (#fn push ((holder (#ref-mut Holder))) ()
            (#let result QueueEnqueue
              (#call queue-enqueue (: queue (#borrow-mut (#get holder ready)) : task-id 42u64)))

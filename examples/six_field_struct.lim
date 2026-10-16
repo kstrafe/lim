@@ -1,6 +1,6 @@
 (
   #struct
-  Values
+  Values ()
   (
     (a #u64)
     (b #u64)

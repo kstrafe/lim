@@ -1,13 +1,13 @@
 ;; Source-slot cancellation; compile with --cfg async-lowering=graph.
-(#enum Child ((Waiting #u64)))
-(#linear Child)
-(#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+(#enum Child (#linear) ((Waiting #u64)))
+
+(#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
 (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
   (#return (ChildPending task)))
 (#fn child-cancel ((task Child)) () (#forget task) (#return ()))
 
-(#enum Token ((TokenValue #u64)))
-(#linear Token)
+(#enum Token (#linear) ((TokenValue #u64)))
+
 (#fn destroy-token ((task Token)) () (#forget task) (#return ()))
 
 (@#async-fn

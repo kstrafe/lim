@@ -1,4 +1,4 @@
-(#enum Wrapped
+(#enum Wrapped ()
   ((Values (#array #u64 7)) Empty))
 
 (#fn main () #u64

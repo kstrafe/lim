@@ -1,15 +1,15 @@
 ; A local owner is moved into the pinned frame before its reference is formed.
-(#enum LocalChild ((Waiting #u64)))
-(#linear LocalChild)
-(#enum LocalChildPoll ((LocalChildPending LocalChild) (LocalChildReady #u64)))
+(#enum LocalChild (#linear) ((Waiting #u64)))
+
+(#enum LocalChildPoll () ((LocalChildPending LocalChild) (LocalChildReady #u64)))
 (#fn local-child-poll ((task LocalChild) (waker (#ref #u64))) LocalChildPoll
   (#return (#match task
     (#case (Waiting count)
       (#if (#u64.== count 0u64)
         (LocalChildPending (Waiting 1u64))
         (LocalChildReady 2u64))))))
-(#struct LocalPayload ((left #u64) (right #u64)))
-(#struct LocalOwner ((payload LocalPayload)))
+(#struct LocalPayload () ((left #u64) (right #u64)))
+(#struct LocalOwner () ((payload LocalPayload)))
 
 (@#async-fn-pinned ( : protocol LocalSelfRefAwait : waker #u64 : function
   (#fn local-self-ref ((seed #u64)) #u64

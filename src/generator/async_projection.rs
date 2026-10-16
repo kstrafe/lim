@@ -259,8 +259,8 @@ mod tests {
         crate::linearcheck::LinearTypes,
     ) {
         let source = format!(
-            "(#struct Owner (: value #u64)) (#linear Owner) (#type Scalar {scalar})
-          (#struct Outer (: pair (#tuple Scalar Scalar)))
+            "(#struct Owner (#linear) (: value #u64))  (#type Scalar {scalar})
+          (#struct Outer () (: pair (#tuple Scalar Scalar)))
           (#type View ({handle} Outer))
           (#fn project (: input View) ({handle} Scalar)
             (#return (#{}borrow{} (#get (#get input pair) 1))))",
@@ -308,7 +308,7 @@ mod tests {
                 .declaration("generated", "input")
                 .contains("(#get (#get input pair) 1)"));
             let source = format!(
-                "(#type Scalar #u64) (#struct Outer (: pair (#tuple Scalar Scalar)))
+                "(#type Scalar #u64) (#struct Outer () (: pair (#tuple Scalar Scalar)))
               (#type View ({handle} Outer)) {}",
                 projection.declaration("generated", "input")
             );
@@ -336,7 +336,7 @@ mod tests {
             let generated = result.declaration("generated", "input");
             assert!(generated.contains("(#deref input)"));
             let source = format!(
-                "(#type Scalar #u64) (#struct Outer (: pair (#tuple Scalar Scalar))) {generated}"
+                "(#type Scalar #u64) (#struct Outer () (: pair (#tuple Scalar Scalar))) {generated}"
             );
             let program = crate::parse_program(&source).unwrap();
             crate::CheckedProgram::validate(&program)
@@ -402,7 +402,7 @@ mod tests {
             let write = Write::new(&graph, &place, &declarations, &types).unwrap();
             assert_eq!(write.value, Type::U64);
             let source = format!(
-                "(#type Scalar #u64) (#struct Outer (: pair (#tuple Scalar Scalar)))
+                "(#type Scalar #u64) (#struct Outer () (: pair (#tuple Scalar Scalar)))
               (#type View ({handle} Outer)) {}",
                 write.declaration("generated", "input", "value")
             );

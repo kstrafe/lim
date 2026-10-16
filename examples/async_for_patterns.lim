@@ -1,7 +1,7 @@
 ; The loop initializer destructures a struct into mutable, explicitly typed leaves.
-(#struct Bounds ((z (#tuple #u64 #u64)) (a #u64)))
-(#enum Step ((Start #u64) (Resume #u64)))
-(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#struct Bounds () ((z (#tuple #u64 #u64)) (a #u64)))
+(#enum Step () ((Start #u64) (Resume #u64)))
+(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))

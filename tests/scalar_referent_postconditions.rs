@@ -13,7 +13,7 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
     )
 }
 
-const PROGRAM: &str = "(#struct Holder (: value (#ref #u64)))
+const PROGRAM: &str = "(#struct Holder () (: value (#ref #u64)))
   (#fn update (: selector (#ref-mut #u64) : flag #bool) ()
     (#deref-set selector 1u64)
     (#if flag (#block (#return ())) ())
@@ -33,8 +33,8 @@ const PROGRAM: &str = "(#struct Holder (: value (#ref #u64)))
 
 #[test]
 fn fresh_pinned_heap_initializers_provide_only_current_scalar_facts() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct State (: pc #u64))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct State () (: pc #u64))
       (#fn mode (: flag #bool) #u64 (#return (#if flag 0u64 1u64)))
       (#fn inspect (: state (#pin-ref State) : words (#slice #u64)) #u64
         (#return (#match (#get state pc)

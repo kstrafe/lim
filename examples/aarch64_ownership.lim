@@ -1,5 +1,5 @@
 ; Exclusive references transfer through aggregate arguments and return values.
-(#struct View ((value (#ref-mut #u64))))
+(#struct View () ((value (#ref-mut #u64))))
 (#fn package ((value (#ref-mut #u64))) View
   (#return (#struct-literal View ((value value)))))
 (#fn increment ((view View)) #u64

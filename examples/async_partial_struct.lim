@@ -1,11 +1,11 @@
 ; Each field has its own initialization state in the generated frame.
 ; Left is moved out across Pending, then rebuilt without moving Right.
-(#struct Resource (: value #u64))
-(#linear Resource)
-(#struct Pair (: left Resource : right Resource))
-(#enum Step ((Start #u64) (Resume #u64)))
-(#linear Step)
-(#enum StepPoll ((Pending Step) (Ready #u64)))
+(#struct Resource (#linear) (: value #u64))
+
+(#struct Pair () (: left Resource : right Resource))
+(#enum Step (#linear) ((Start #u64) (Resume #u64)))
+
+(#enum StepPoll () ((Pending Step) (Ready #u64)))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return
     (#match task

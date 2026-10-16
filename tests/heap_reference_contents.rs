@@ -31,7 +31,7 @@ fn run(source: &str) {
 }
 
 const PREFIX: &str = r#"
-  (#struct Holder (: link (#ref #u64)))
+  (#struct Holder () (: link (#ref #u64)))
   (#fn make (: pointer (#ptr-mut Holder) : source (#ref #u64)) (#pin-own Holder)
     (#return (#unsafe (#pin-own-of pointer (#struct-literal Holder (: link source))))))
   (#fn forward (: owner (#pin-own Holder)) (#pin-own Holder) (#return owner))
@@ -45,8 +45,8 @@ const PREFIX: &str = r#"
 "#;
 
 const OWNER_CELL: &str = r#"
-  (#enum OwnerCell (: Empty () : Full (#pin-own Holder)))
-  (#linear OwnerCell)
+  (#enum OwnerCell (#linear) (: Empty () : Full (#pin-own Holder)))
+
   (#fn take-owner (: cell (#pin-ref-mut OwnerCell)) (#pin-own Holder)
     (#let previous OwnerCell (#unsafe (#pin-read cell)))
     (#unsafe (#pin-write cell (Empty ())))
@@ -273,7 +273,7 @@ fn loop_join_keeps_pre_loop_and_written_heap_field_referents() {
 
 #[test]
 fn uncertain_heap_destination_keeps_all_candidate_contents() {
-    let source = r#"(#struct Holder (: link (#ref #u64)))
+    let source = r#"(#struct Holder () (: link (#ref #u64)))
       (#fn make (: pointer (#ptr-mut Holder) : source (#ref #u64)) (#pin-own Holder)
         (#return (#unsafe (#pin-own-of pointer (#struct-literal Holder (: link source))))))
       (#fn destroy (: owner (#pin-own Holder)) () (#forget owner) (#return ()))
@@ -444,7 +444,7 @@ fn replaced_contents_are_read_from_the_heap() {
 fn nested_heap_owners_keep_all_stored_reference_lifetimes() {
     let prefix = format!(
         r#"{PREFIX}
-      (#struct Outer (: inner (#pin-own Holder)))
+      (#struct Outer () (: inner (#pin-own Holder)))
       (#fn wrap (: pointer (#ptr-mut Outer) : inner (#pin-own Holder)) (#pin-own Outer)
         (#return (#unsafe (#pin-own-of pointer (#struct-literal Outer (: inner inner))))))
       (#fn erase (: owner (#pin-own Outer)) () (#forget owner) (#return ()))"#
@@ -479,7 +479,7 @@ fn nested_heap_owners_keep_all_stored_reference_lifetimes() {
 
 #[test]
 fn storing_an_exclusive_reference_in_heap_storage_blocks_other_borrows() {
-    let prefix = r#"(#struct Exclusive (: link (#ref-mut #u64)))
+    let prefix = r#"(#struct Exclusive () (: link (#ref-mut #u64)))
       (#fn make (: pointer (#ptr-mut Exclusive) : source (#ref-mut #u64)) (#pin-own Exclusive)
         (#return (#unsafe (#pin-own-of pointer (#struct-literal Exclusive (: link source))))))
       (#fn erase (: owner (#pin-own Exclusive)) () (#forget owner) (#return ()))"#;
@@ -506,7 +506,7 @@ fn storing_an_exclusive_reference_in_heap_storage_blocks_other_borrows() {
 
 #[test]
 fn stored_exclusive_field_blocks_a_later_borrow_of_its_external_referent() {
-    let source = r#"(#struct Holder (: link (#ref-mut #u64)))
+    let source = r#"(#struct Holder () (: link (#ref-mut #u64)))
       (#fn use-both (: holder (#ref-mut Holder) : source (#ref #u64)) () (#return ()))
       (#fn main () ()
         (#let-mut value #u64 1u64)

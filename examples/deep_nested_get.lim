@@ -1,4 +1,4 @@
-(#struct Outer
+(#struct Outer ()
   ((values (#array #u64 7)) (tag #u64)))
 
 (#static GlobalOuter Outer

@@ -1,7 +1,7 @@
-(#struct WidePair ((wide #u128) (small #u64)))
-(#struct WideBlob ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64)))
-(#struct WideRecord ((id #u64) (pair WidePair) (tail #u128) (blob WideBlob)))
-(#enum Envelope ((Value WideRecord) Empty))
+(#struct WidePair () ((wide #u128) (small #u64)))
+(#struct WideBlob () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64)))
+(#struct WideRecord () ((id #u64) (pair WidePair) (tail #u128) (blob WideBlob)))
+(#enum Envelope () ((Value WideRecord) Empty))
 (#static ORIGINAL WideRecord
   (#struct-literal WideRecord ((id 1u64) (pair (#struct-literal WidePair ((wide 18446744073709551616u128) (small 3u64)))) (tail 36893488147419103232u128) (blob (#struct-literal WideBlob ((a 1u64) (b 2u64) (c 3u64) (d 4u64) (e 5u64) (f 6u64) (g 8u64)))))))
 

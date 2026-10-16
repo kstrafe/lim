@@ -1,6 +1,6 @@
 (
   #enum
-  MaybeF
+  MaybeF ()
   (
     (SomeF #f32)
     None

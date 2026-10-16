@@ -1,4 +1,4 @@
-(#enum BigPayload
+(#enum BigPayload ()
   ((Big #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty))
 
 (#fn main () #u64

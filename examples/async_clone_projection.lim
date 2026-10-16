@@ -1,13 +1,13 @@
 ; Clone a reference-bearing field of a computed owning temporary, then suspend.
 ; The cloned Holder retains the caller's loan after its Envelope is consumed.
-(#struct Holder (: reference (#ref #u64)))
-(#linear Holder)
-(#struct Envelope (: item Holder))
+(#struct Holder (#linear) (: reference (#ref #u64)))
+
+(#struct Envelope () (: item Holder))
 (#fn make-envelope (: reference (#ref #u64)) Envelope
   (#return (#struct-literal Envelope (: item (#struct-literal Holder (: reference reference))))))
-(#enum Step (Start Resume))
-(#linear Step)
-(#enum StepPoll ((Pending Step) (Ready ())))
+(#enum Step (#linear) (Start Resume))
+
+(#enum StepPoll () ((Pending Step) (Ready ())))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return
     (#match task

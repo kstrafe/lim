@@ -1239,13 +1239,13 @@ mod tests {
 
     #[test]
     fn selected_patterns_refine_fresh_parameter_reads_only() {
-        let source = "(#struct State (: pc #u64))
+        let source = "(#struct State () (: pc #u64))
           (#fn work (: view (#ref-mut State)) #u64
             (#return (#match (#get view pc)
               (#case 1 (#match (#get view pc) (#case 0 0u64) (#case _ 42u64)))
               (#case _ 0u64))))";
         assert_eq!(pruned(source), vec![0]);
-        let mutated = "(#struct State (: pc #u64))
+        let mutated = "(#struct State () (: pc #u64))
           (#fn work (: view (#ref-mut State)) #u64
             (#return (#match (#get view pc)
               (#case 1 (#when (#block
@@ -1261,7 +1261,7 @@ mod tests {
 
     #[test]
     fn a_selected_alias_does_not_refine_every_possible_referent() {
-        let source = "(#struct State (: pc #u64))
+        let source = "(#struct State () (: pc #u64))
           (#fn work (: condition #bool) #u64
             (#let left State (#struct-literal State (: pc 0u64)))
             (#let right State (#struct-literal State (: pc 1u64)))
@@ -1287,7 +1287,7 @@ mod tests {
 
     #[test]
     fn forward_owned_fields_and_loop_writes_join_every_reaching_value() {
-        let source = "(#struct State (: pc #u64))
+        let source = "(#struct State () (: pc #u64))
           (#fn work (: condition #bool) #u64
             (#let-mut state State (#struct-literal State (: pc 0u64)))
             (#while condition (#set state (#struct-literal State (: pc 1u64))))
@@ -1312,7 +1312,7 @@ mod tests {
 
     #[test]
     fn checked_call_postconditions_replace_facts_but_assembly_invalidates_them() {
-        let prefix = "(#struct State (: pc #u64))
+        let prefix = "(#struct State () (: pc #u64))
           (#fn change (: target (#ref-mut State)) ()
             (#deref-set target (#struct-literal State (: pc 0u64))) (#return ()))";
         for (write, expected) in [
@@ -1330,7 +1330,7 @@ mod tests {
 
     #[test]
     fn complete_scalar_mutation_footprints_preserve_only_disjoint_fields() {
-        let prefix = "(#struct State (: pc #u64 : other #u64 : words (#array #u64 1)))
+        let prefix = "(#struct State () (: pc #u64 : other #u64 : words (#array #u64 1)))
           (#fn erase (: target (#ref-mut #u64)) () (#deref-set target 0u64) (#return ()))
           (#fn forward (: target (#ref-mut #u64)) ()
             (#call erase (: target target)) (#return ()))";
@@ -1373,7 +1373,7 @@ mod tests {
             "(#let view (#pin-ref-mut State) (#pin state)) (#pin-set-field view pc 1u64)",
         ] {
             let source = format!(
-                "(#struct State (: pc #u64))
+                "(#struct State () (: pc #u64))
               (#fn work () #u64
                 (#let-mut state State (#struct-literal State (: pc 0u64))) {setup}
                 (#return (#match (#get view pc)
@@ -1381,7 +1381,7 @@ mod tests {
             );
             assert_eq!(pruned(&source), vec![0, 2], "{source}");
         }
-        let ambiguous = "(#struct State (: pc #u64))
+        let ambiguous = "(#struct State () (: pc #u64))
           (#fn work (: condition #bool) #u64
             (#let-mut left State (#struct-literal State (: pc 0u64)))
             (#let-mut right State (#struct-literal State (: pc 0u64)))
@@ -1398,7 +1398,7 @@ mod tests {
     fn entry_scalar_assumptions_are_distinct_from_later_parameter_writes() {
         for reference in ["#ref-mut", "#pin-ref-mut"] {
             let source = format!(
-                "(#struct State (: pc #u64))
+                "(#struct State () (: pc #u64))
               (#fn work (: view ({reference} State)) #u64
                 (#return (#match (#get view pc) (#case 0 0u64)
                   (#case 1 42u64) (#case _ 2u64))))"

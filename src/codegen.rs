@@ -290,7 +290,7 @@ fn checked_call_uses_resolved_symbol_even_if_syntax_name_differs() {
 #[test]
 fn aggregate_dispatch_uses_checked_identity_even_if_syntax_name_differs() {
     let program = crate::parse_program(
-        "(#struct Large ((a #u64) (b #u64) (c #u64)))
+        "(#struct Large () ((a #u64) (b #u64) (c #u64)))
          (#fn actual () Large
            (#return (#struct-literal Large ((a 1u64) (b 2u64) (c 3u64)))))
          (#fn main () #u64
@@ -1721,9 +1721,7 @@ fn generate_checked_assembly_with_roots(
             Item::Enum { .. } => {}
             Item::TypeAlias { .. } => {}
             Item::Let { .. } | Item::Static { .. } => {}
-            Item::UnsafeThreadAnnotation { .. }
-            | Item::LinearAnnotation { .. }
-            | Item::OpaqueAnnotation { .. } => {}
+            Item::UnsafeThreadAnnotation { .. } | Item::OpaqueAnnotation { .. } => {}
             Item::ThreadTask { name, worker, .. } => generate_thread_task(
                 name,
                 worker,
@@ -5813,8 +5811,8 @@ fn checked_generated_patterns_allocate_by_identity_without_source_alpha_renaming
     // Generated ordinary declarations also enter via parse_item, without
     // parse_program's source-name hygiene. BindingId storage must stand on
     // its own, not depend on an earlier spelling rewrite.
-    let source = "(#enum Small ((Number #u64) Zero))
-      (#enum Wide ((Words (#tuple #u64 #u64 #u64 #u64)) Absent))
+    let source = "(#enum Small () ((Number #u64) Zero))
+      (#enum Wide () ((Words (#tuple #u64 #u64 #u64 #u64)) Absent))
       (#fn main () #u64
         (#let small Small (Number 20u64))
         (#let wide Wide (Words (#tuple (#tuple #u64 #u64 #u64 #u64) 22u64 3u64 4u64 5u64)))

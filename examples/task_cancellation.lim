@@ -1,7 +1,7 @@
 (#import "../library/tasks.lim")
 (#import "../library/cell.lim")
 (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
-(#struct Flag ((released CellU64)))
+(#struct Flag () ((released CellU64)))
 (@#task (Held HeldPoll HeldPending HeldReady) #u64 ((Holding (#ref Flag))))
 (#fn release ((task (#ref Flag))) ()
   (#call CellU64-set (: cell (#borrow (#get task released)) : value 42u64))

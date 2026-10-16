@@ -1,9 +1,9 @@
 ; A retained field reference restores its empty referent across ordinary calls.
 ; Pinning remains permanent after the initial whole pin handle is forgotten.
 ; This is not a suspendable frame or a partial-storage implementation.
-(#struct Token (: value #u64))
-(#linear Token)
-(#struct Owner (: kept #u64 : item Token))
+(#struct Token (#linear) (: value #u64))
+
+(#struct Owner () (: kept #u64 : item Token))
 (#fn consume-item (: item (#pin-ref-mut Token)) ()
   (#let old Token (#unsafe (#pin-read item)))
   (#forget old)

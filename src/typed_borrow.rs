@@ -3015,8 +3015,8 @@ mod tests {
             ("#pin-ref-mut", "#pin-borrow-mut"),
         ] {
             let source = format!(
-                "(#struct Source (: amount #u64))
-              (#struct Holder (: view (#ref Source)))
+                "(#struct Source () (: amount #u64))
+              (#struct Holder () (: view (#ref Source)))
               (#fn project (: input (#ref Source)) (#ref #u64)
                 (#return (#borrow (#get input amount))))
               (#fn read (: holder ({handle} Holder)) #u64
@@ -3052,7 +3052,7 @@ mod tests {
             ("#pin-ref-mut", "#pin-ref", "#pin-ref-mut"),
         ] {
             let source = format!(
-                "(#struct Source (: amount #u64 : other #u64))
+                "(#struct Source () (: amount #u64 : other #u64))
               (#fn read (: input ({handle} Source)) #u64
                 (#let selected ({shared} #u64) (#borrow (#get input amount)))
                 (#let conflicting ({exclusive} #u64) (#borrow-mut (#get input amount)))
@@ -3085,7 +3085,7 @@ mod tests {
                     ("(seed #u64)", "(#borrow seed)")
                 };
                 let source = format!(
-                    "(#struct Holder ((view (#ref #u64))))
+                    "(#struct Holder () ((view (#ref #u64))))
                      (#fn read ({parameter}) (#ref #u64)
                        (#let owner Holder (#struct-literal Holder (: view {initializer})))
                        (#let view ({handle} (#ref #u64)) ({operator} (#get owner view)))
@@ -3133,7 +3133,7 @@ mod tests {
 
     #[test]
     fn earlier_reference_argument_blocks_writes_in_later_operands() {
-        let source = "(#struct Holder (: value (#ref-mut #u64) : other (#ref-mut #u64)))
+        let source = "(#struct Holder () (: value (#ref-mut #u64) : other (#ref-mut #u64)))
           (#fn read (: view (#ref-mut #u64) : amount #u64) #u64
             (#return (#u64.+.wrap (#deref view) amount)))
           (#fn work (: held Holder) #u64
@@ -3364,8 +3364,8 @@ mod tests {
 
     #[test]
     fn moving_a_borrowed_owner_into_a_by_value_call_is_rejected() {
-        let source = "(#struct Token ((value #u64)))
-          (#linear Token)
+        let source = "(#struct Token (#linear) ((value #u64)))
+
           (#fn consume ((token Token)) () (#drop token) (#return ()))
           (#fn main () ()
             (#let-mut owner Token (#struct-literal Token ((value 1u64))))
@@ -3383,10 +3383,10 @@ mod tests {
 
     #[test]
     fn enum_returned_reference_payload_remains_a_live_borrow() {
-        let source = "(#struct Token ((value #u64)))
-          (#struct RefBox ((value (#ref Token))))
+        let source = "(#struct Token () ((value #u64)))
+          (#struct RefBox () ((value (#ref Token))))
           (#opaque RefBox)
-          (#enum Maybe ((Some RefBox) None))
+          (#enum Maybe () ((Some RefBox) None))
           (#fn wrap ((input (#ref Token))) Maybe
             (#return (Some (#struct-literal RefBox ((value input))))))
           (#fn main () ()
@@ -3511,7 +3511,7 @@ mod tests {
 
     #[test]
     fn parameter_loans_are_checked_without_local_borrow_events() {
-        let source = "(#struct Point ((x #u64) (y #u64)))
+        let source = "(#struct Point () ((x #u64) (y #u64)))
           (#fn field ((parent (#ref-mut Point))) (#ref #u64)
             (#return (#borrow (#get parent x))))
           (#fn inspect ((parent (#ref-mut Point))) ()
@@ -3559,7 +3559,7 @@ mod tests {
 
     #[test]
     fn reference_returning_call_writes_conflict_with_live_child_borrows() {
-        let source = "(#struct Point ((x #u64) (y #u64)))
+        let source = "(#struct Point () ((x #u64) (y #u64)))
             (#fn identity ((value (#ref-mut Point))) (#ref-mut Point)
               (#return value))
             (#fn main () #u64
@@ -3619,7 +3619,7 @@ mod tests {
 
     #[test]
     fn dereference_writes_conflict_with_live_child_borrows() {
-        let source = "(#struct Point ((x #u64) (y #u64)))
+        let source = "(#struct Point () ((x #u64) (y #u64)))
             (#fn main () #u64
               (#let-mut point Point (#struct-literal Point ((x 1u64) (y 2u64))))
               (#let parent (#ref-mut Point) (#borrow-mut point))
@@ -3835,7 +3835,7 @@ mod tests {
 
     #[test]
     fn scoped_field_reborrow_conflicts_on_the_referent_projection() {
-        let source = "(#struct Pair ((left #u64) (right #u64)))
+        let source = "(#struct Pair () ((left #u64) (right #u64)))
           (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let parent (#ref-mut Pair) (#borrow-mut pair))
@@ -3851,7 +3851,7 @@ mod tests {
 
     #[test]
     fn scoped_field_reborrow_keeps_disjoint_siblings_available() {
-        let source = "(#struct Pair ((left #u64) (right #u64)))
+        let source = "(#struct Pair () ((left #u64) (right #u64)))
           (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let parent (#ref-mut Pair) (#borrow-mut pair))
@@ -3924,8 +3924,8 @@ mod tests {
 
     #[test]
     fn projected_reborrow_suspends_parent_access_but_preserves_disjoint_fields() {
-        let overlapping = "(#struct Inner ((value #u64)))
-          (#struct Outer ((inner Inner) (other #u64)))
+        let overlapping = "(#struct Inner () ((value #u64)))
+          (#struct Outer () ((inner Inner) (other #u64)))
           (#fn main () #u64
             (#let-mut owner Outer (#struct-literal Outer
               ((inner (#struct-literal Inner ((value 7u64)))) (other 9u64))))
@@ -3974,7 +3974,7 @@ mod tests {
         let span = error.span.unwrap();
         assert_eq!(&overlapping[span.start..span.end], "(#get outer-ref other)");
 
-        let disjoint = "(#struct Outer ((left #u64) (right #u64)))
+        let disjoint = "(#struct Outer () ((left #u64) (right #u64)))
           (#fn main () #u64
             (#let-mut owner Outer (#struct-literal Outer ((left 7u64) (right 9u64))))
             (#let outer-ref (#ref-mut Outer) (#borrow-mut owner))
@@ -3992,7 +3992,7 @@ mod tests {
 
     #[test]
     fn reference_parameter_reborrows_distinguish_overlapping_and_disjoint_fields() {
-        let prefix = "(#struct Pair (: left #u64 : right #u64))\n";
+        let prefix = "(#struct Pair () (: left #u64 : right #u64))\n";
         let overlapping = format!(
             "{prefix}(#fn bad (: target (#ref-mut Pair)) ()
               (#let left (#ref-mut #u64) (#borrow-mut (#get target left)))
@@ -4021,7 +4021,7 @@ mod tests {
 
     #[test]
     fn aggregate_held_loan_conflicts_with_checked_borrow_event() {
-        let source = "(#struct Holder ((view (#ref-mut #u64))))
+        let source = "(#struct Holder () ((view (#ref-mut #u64))))
           (#fn main () #u64
             (#let-mut left #u64 1u64)
             (#let-mut right #u64 2u64)
@@ -4065,7 +4065,7 @@ mod tests {
 
     #[test]
     fn explicit_release_keeps_aggregate_loan_live() {
-        let source = "(#struct Holder ((view (#ref-mut #u64))))
+        let source = "(#struct Holder () ((view (#ref-mut #u64))))
           (#fn main () #u64
             (#let-mut left #u64 1u64)
             (#let-mut right #u64 2u64)
@@ -4264,7 +4264,7 @@ mod tests {
 
     #[test]
     fn disjoint_field_read_does_not_read_entire_base() {
-        let source = "(#struct Pair ((left #u64) (right #u64)))
+        let source = "(#struct Pair () ((left #u64) (right #u64)))
           (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
@@ -4295,9 +4295,9 @@ mod tests {
     #[test]
     fn caller_loop_preserves_initial_and_resumed_exclusive_aggregate_slots() {
         let source = "
-          (#enum LeftSlot ((LeftEmpty) (LeftFull (#ref-mut #u64))))
-          (#enum RightSlot ((RightEmpty) (RightFull (#ref-mut #u64))))
-          (#struct Frame (: left LeftSlot : right RightSlot))
+          (#enum LeftSlot () ((LeftEmpty) (LeftFull (#ref-mut #u64))))
+          (#enum RightSlot () ((RightEmpty) (RightFull (#ref-mut #u64))))
+          (#struct Frame () (: left LeftSlot : right RightSlot))
           (#fn shift (: frame Frame) Frame
             (#let left LeftSlot (#get frame left))
             (#let right RightSlot (#get frame right))
@@ -4351,7 +4351,7 @@ mod tests {
 
     #[test]
     fn disjoint_struct_fields_can_be_borrowed_together() {
-        let source = "(#struct Pair ((left #u64) (right #u64)))
+        let source = "(#struct Pair () ((left #u64) (right #u64)))
           (#fn inspect ((left (#ref-mut #u64)) (right (#ref #u64))) #u64
             (#forget left) (#forget right) (#return 0u64))
           (#fn main () #u64
@@ -4372,7 +4372,7 @@ mod tests {
 
     #[test]
     fn borrow_inside_struct_argument_conflicts_with_another_argument() {
-        let source = "(#struct Holder ((item (#ref #u64))))
+        let source = "(#struct Holder () ((item (#ref #u64))))
           (#fn inspect ((holder Holder) (right (#ref-mut #u64))) #u64
             (#let (Holder item) Holder holder)
             (#drop item) (#drop right) (#return 0u64))
@@ -4390,7 +4390,7 @@ mod tests {
 
     #[test]
     fn bound_reference_aggregate_conflicts_with_another_call_argument() {
-        let source = "(#struct Holder ((item (#ref #u64))))
+        let source = "(#struct Holder () ((item (#ref #u64))))
           (#fn inspect ((holder Holder) (right (#ref-mut #u64))) #u64
             (#forget holder) (#forget right) (#return 0u64))
           (#fn main () #u64
@@ -4410,7 +4410,7 @@ mod tests {
 
     #[test]
     fn projected_bound_reference_aggregate_conflicts_with_call_argument() {
-        let source = "(#struct Holder ((item (#ref #u64)) (other (#ref #u64))))
+        let source = "(#struct Holder () ((item (#ref #u64)) (other (#ref #u64))))
           (#fn inspect ((item (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#forget item) (#forget right) (#return 0u64))
           (#fn main () #u64
@@ -4433,8 +4433,8 @@ mod tests {
 
         let disjoint = source
             .replace(
-                "(#struct Holder ((item (#ref #u64)) (other (#ref #u64))))",
-                "(#struct Holder ((item (#ref #u64)) (other #u64)))",
+                "(#struct Holder () ((item (#ref #u64)) (other (#ref #u64))))",
+                "(#struct Holder () ((item (#ref #u64)) (other #u64)))",
             )
             .replace("(other (#borrow other))", "(other other)")
             .replace("(#borrow-mut value))))", "(#borrow-mut other))))");
@@ -4563,7 +4563,7 @@ mod tests {
 
     #[test]
     fn borrow_inside_enum_argument_conflicts_with_another_argument() {
-        let source = "(#enum Holder ((Has (#ref #u64))))
+        let source = "(#enum Holder () ((Has (#ref #u64))))
           (#fn inspect ((left Holder) (right (#ref-mut #u64))) #u64
             (#let-else (Has item) Holder left (#return 0u64))
             (#drop item) (#drop right) (#return 0u64))
@@ -4684,7 +4684,7 @@ mod tests {
 
     #[test]
     fn struct_destructuring_retains_field_loan_paths() {
-        let source = "(#struct Pair ((left (#ref #u64)) (right (#ref #u64))))
+        let source = "(#struct Pair () ((left (#ref #u64)) (right (#ref #u64))))
           (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
           (#fn main () #u64
@@ -4706,7 +4706,7 @@ mod tests {
 
     #[test]
     fn enum_payload_destructuring_retains_loan_paths() {
-        let source = "(#enum Holder ((Held (#ref #u64)) (Empty)))
+        let source = "(#enum Holder () ((Held (#ref #u64)) (Empty)))
           (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
           (#fn main () #u64
@@ -4727,7 +4727,7 @@ mod tests {
 
     #[test]
     fn enum_match_binding_retains_payload_loan_path() {
-        let source = "(#enum Holder ((Held (#ref #u64)) (Empty)))
+        let source = "(#enum Holder () ((Held (#ref #u64)) (Empty)))
           (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
           (#fn main () #u64
@@ -4749,8 +4749,8 @@ mod tests {
 
     #[test]
     fn nested_struct_patterns_retain_full_loan_path() {
-        let source = "(#struct Inner ((item (#ref #u64))))
-          (#struct Outer ((inner Inner)))
+        let source = "(#struct Inner () ((item (#ref #u64))))
+          (#struct Outer () ((inner Inner)))
           (#fn inspect ((left (#ref #u64)) (right (#ref-mut #u64))) #u64
             (#drop left) (#drop right) (#return 0u64))
           (#fn main () #u64
@@ -4996,7 +4996,7 @@ mod tests {
         assert!(combine(alternatives.clone(), shared(0), "inspect", None).is_err());
         assert!(combine(alternatives, shared(2), "inspect", None).is_ok());
 
-        let source = "(#enum Choice ((First (#ref-mut #u64)) (Second (#ref-mut #u64))))
+        let source = "(#enum Choice () ((First (#ref-mut #u64)) (Second (#ref-mut #u64))))
             (#fn inspect ((choice Choice)) #u64
               (#return (#match choice
                 (#case (First first) (#block (#drop first) 0u64))
@@ -5152,7 +5152,7 @@ mod tests {
 
     #[test]
     fn projected_borrow_uses_reference_bindings_referent_place() {
-        let source = "(#struct Pair ((left #u64) (right #u64)))
+        let source = "(#struct Pair () ((left #u64) (right #u64)))
           (#fn main () #u64
             (#let-mut pair Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
             (#let pair-ref (#ref-mut Pair) (#borrow-mut pair))
@@ -5218,8 +5218,8 @@ mod tests {
 
     #[test]
     fn projected_borrow_follows_two_known_reference_bindings() {
-        let source = "(#struct Inner ((x #u64)))
-          (#struct Outer ((inner Inner)))
+        let source = "(#struct Inner () ((x #u64)))
+          (#struct Outer () ((inner Inner)))
           (#fn main () #u64
             (#let-mut owner Outer (#struct-literal Outer
               ((inner (#struct-literal Inner ((x 3u64)))))))

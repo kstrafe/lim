@@ -1,7 +1,7 @@
 ; Fully typed, contiguous backing: no Empty/Full wrapper or field flags.
-(#struct Token (: value #u64))
-(#linear Token)
-(#struct Owner (: kept (#ref #u64) : item Token))
+(#struct Token (#linear) (: value #u64))
+
+(#struct Owner () (: kept (#ref #u64) : item Token))
 (#unsafe-fn take-item (: item (#pin-ref-mut Token)) ()
   (#let moved Token (#unsafe (#pin-read item)))
   (#forget moved)

@@ -78,7 +78,7 @@ fn large_array_dereference_returns_preserve_local_static_and_pinned_layout() {
 fn large_string_array_payloads_use_aggregate_destinations() {
     native_exit(
         r#"
-      (#enum Message ((Text (#array #char 14))))
+      (#enum Message () ((Text (#array #char 14))))
       (#fn message () Message (#return (Text "abcdefghijklm*")))
       (#fn main () #u64
         (#return (#match (#call message ())

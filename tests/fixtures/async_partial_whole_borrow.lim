@@ -2,14 +2,14 @@
 ; Its ordinary counterpart is partial_aggregate_whole_borrow.lim.
 ; This returns 42 and
 ; retain the exact address of the sibling across suspension and restoration.
-(#struct Token (: value #u64))
-(#linear Token)
-(#struct Owner (: kept #u64 : item Token))
+(#struct Token (#linear) (: value #u64))
+
+(#struct Owner () (: kept #u64 : item Token))
 (#fn inspect (: owner (#ref Owner)) #u64
   (#return (#u64.+.wrap (#get owner kept) (#get (#get owner item) value))))
-(#enum Step (Start Resume))
-(#linear Step)
-(#enum StepPoll ((Pending Step) (Ready ())))
+(#enum Step (#linear) (Start Resume))
+
+(#enum StepPoll () ((Pending Step) (Ready ())))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return (#match task (#case Start (Pending Resume)) (#case Resume (Ready ())))))
 (@#async-fn-pinned (: protocol WorkAwait : waker #u64 : function

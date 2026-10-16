@@ -164,7 +164,7 @@ fn wake_executor_runs_every_supported_fixed_capacity() {
         }
         let body = format!(
             "(@#task (Task Poll Pending Ready) #u64 ((Waiting)))
-             (#struct Waker ((marker #u64)))
+             (#struct Waker () ((marker #u64)))
              (#fn poll ((task Task) (waker (#ref Waker))) Poll
                (#forget waker) (#forget task) (#return (Ready 1u64)))
              (#fn wait ((context #u32)) WaitResult (#return (WaitReady context)))
@@ -215,8 +215,8 @@ fn wake_executor_polls_only_selected_slots_across_ready_masks() {
     let scratch = support::Scratch::new("wake-executor-fairness");
     let body = "
       (@#task (Task Poll Pending Ready) #u64 ((Run #u64 #u64)))
-      (#struct Waker ((marker #u64)))
-      (#struct WaitContext ((waits #u32)))
+      (#struct Waker () ((marker #u64)))
+      (#struct WaitContext () ((waits #u32)))
       (#fn poll ((task Task) (waker (#ref Waker))) Poll
         (#forget waker)
         (#return (#match task
@@ -305,7 +305,7 @@ fn wake_executor_shutdown_cancels_pending_and_completed_states() {
     ) + "
       (@#task (StopTask StopPoll StopPending StopReady) #u64
         (ReadyNow (Waiting #u64 Waker TimerReactor1)))
-      (#struct Waker ((marker #u64)))
+      (#struct Waker () ((marker #u64)))
       (#fn destroy-waker ((waker Waker)) ()
         (#forget waker) (#return ()))
       (#fn stop-poll ((task StopTask) (waker (#ref Waker))) StopPoll

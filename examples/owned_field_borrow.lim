@@ -1,6 +1,6 @@
-(#struct Position ((x #u64) (y #u64)))
-(#struct Object ((marker #u64) (position Position)))
-(#linear Object)
+(#struct Position () ((x #u64) (y #u64)))
+(#struct Object (#linear) ((marker #u64) (position Position)))
+
 
 (#fn main () #u64
   (#let-mut object Object

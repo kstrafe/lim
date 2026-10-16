@@ -1016,7 +1016,7 @@ mod tests {
         let output = directory.join("program");
         fs::write(
             &input,
-            "(#struct Pair ((slot-a #u64) (slot-b #u64)))\n\
+            "(#struct Pair () ((slot-a #u64) (slot-b #u64)))\n\
              (#fn set-value ((target (#ref-mut #u64))) #u64 (#deref-set target 10u64) (#return 5u64))\n\
              (#fn read-value ((target (#ref #u64))) #u64 (#return (#deref target)))\n\
              (#fn ordered-call ((write-step #u64) (read-value #u64)) #u64 (#return read-value))\n\
@@ -1214,7 +1214,7 @@ mod tests {
         let output = directory.join("thread");
         fs::write(
             &input,
-            "(#struct Large ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))) (#fn identity ((value Large)) Large (#return value)) (@#thread-spawn (: task LargeTask : worker identity)) (#fn main () #u64 (#return (#match (#call LargeTask-spawn (: value (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 42))))) (#case (LargeTask-spawn-ok task) (#match (#call LargeTask-join (: task task)) (#case (LargeTask-join-ok value) (#get value g)) (#case (LargeTask-join-error (#tuple retry error)) (#panic)))) (#case (LargeTask-spawn-error error) (#panic)))))",
+            "(#struct Large () ((a #u64) (b #u64) (c #u64) (d #u64) (e #u64) (f #u64) (g #u64))) (#fn identity ((value Large)) Large (#return value)) (@#thread-spawn (: task LargeTask : worker identity)) (#fn main () #u64 (#return (#match (#call LargeTask-spawn (: value (#struct-literal Large ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 42))))) (#case (LargeTask-spawn-ok task) (#match (#call LargeTask-join (: task task)) (#case (LargeTask-join-ok value) (#get value g)) (#case (LargeTask-join-error (#tuple retry error)) (#panic)))) (#case (LargeTask-spawn-error error) (#panic)))))",
         )
         .unwrap();
 
@@ -1495,8 +1495,8 @@ mod tests {
     #[test]
     fn allocator_backed_vector_reports_allocation_failure_without_losing_vector() {
         let source = r#"
-(#struct Arena ((identity #u64)))
-(#enum AllocError (OutOfMemory))
+(#struct Arena () ((identity #u64)))
+(#enum AllocError () (OutOfMemory))
 (@#result (: ok (#ptr-mut #u64) : error AllocError : name AllocResult))
 (@#vec (: element #u64 : allocator Arena : name VecU64))
 (@#vec-alloc (: element #u64 : allocator Arena : vector VecU64 : alloc-result AllocResult : alloc-error AllocError : alloc fail-alloc : grow fail-grow : dealloc no-dealloc : destroy drop-u64))

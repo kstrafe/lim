@@ -16,18 +16,18 @@
     (#gn-error "@#pin-rc requires named argument pairs")))
 
 (#gn-fn pin-rc-build (element allocator name block error alloc-result alloc-ok alloc-error alloc dealloc destroy checked)
-    `((#struct ,block (: value ,element : strong (#atomic #usize)))
+    `((#struct ,block () (: value ,element : strong (#atomic #usize)))
       (#opaque ,block)
-      (#struct ,name (: allocator (#ref ,allocator) : pointer (#pin-shared-own ,block)))
+      (#struct ,name () (: allocator (#ref ,allocator) : pointer (#pin-shared-own ,block)))
       (#opaque ,name)
-      (#enum ,(#gn-call pin-rc-name name "CreateResult")
+      (#enum ,(#gn-call pin-rc-name name "CreateResult") (#linear)
         ((,(#gn-call pin-rc-name name "-created") ,name)
          (,(#gn-call pin-rc-name name "-allocation-failed") (#tuple ,error ,element))))
-      (#linear ,(#gn-call pin-rc-name name "CreateResult"))
-      (#enum ,(#gn-call pin-rc-name name "MutResult")
+
+      (#enum ,(#gn-call pin-rc-name name "MutResult") (#linear)
         ((,(#gn-call pin-rc-name name "-unique") (#pin-ref-mut ,element))
          (,(#gn-call pin-rc-name name "-shared"))))
-      (#linear ,(#gn-call pin-rc-name name "MutResult"))
+
       (#fn ,(#gn-call pin-rc-name name "-create")
         (: allocator (#ref ,allocator) : value ,element) ,(#gn-call pin-rc-name name "CreateResult")
         (#let allocated ,alloc-result (#call ,alloc

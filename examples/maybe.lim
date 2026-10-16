@@ -1,6 +1,6 @@
 (
   #enum
-  Maybe
+  Maybe ()
   (
     (Some #u64)
     None

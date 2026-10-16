@@ -1683,7 +1683,7 @@ mod tests {
     use crate::typed_flow::FlowAction;
 
     const SOURCE: &str = "
-      (#struct Link (: value #u64 : state #u32 : view (#pin-ref #u64)))
+      (#struct Link () (: value #u64 : state #u32 : view (#pin-ref #u64)))
       (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
         (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
         (#pin-set-field target view view) (#return target))
@@ -1710,9 +1710,9 @@ mod tests {
     #[test]
     fn selected_payload_snapshot_access_and_reinitialization_are_distinct() {
         let source = r#"
-          (#enum Choice ((Good #u64) (Bad #u64)))
-          (#enum Address (Empty (Full (#pin-ref-mut #u64))))
-          (#struct Frame (: owner Choice : address Address : pc #u32))
+          (#enum Choice () ((Good #u64) (Bad #u64)))
+          (#enum Address () (Empty (Full (#pin-ref-mut #u64))))
+          (#struct Frame () (: owner Choice : address Address : pc #u32))
           (#fn select (: owner (#pin-ref-mut Choice)) (#pin-ref-mut #u64)
             (#return (#pin-get-payload-mut owner Good 0)))
           (#fn install (: target (#pin-ref-mut Frame)) (#pin-ref-mut Frame)
@@ -1840,7 +1840,7 @@ mod tests {
 
     #[test]
     fn parameter_contents_summary_preserves_the_selected_source_slot() {
-        let source = "(#struct Link (: view (#ref #u64)))
+        let source = "(#struct Link () (: view (#ref #u64)))
             (#fn read-link (: value (#ref Link)) #u64
               (#return (#deref (#get (#deref value) view))))
             (#fn caller (: target (#ref Link)) #u64
@@ -1900,8 +1900,8 @@ mod tests {
 
     #[test]
     fn enum_payload_owner_observation_is_not_hidden_by_a_missing_alias() {
-        let source = "(#enum View (NoView (HasView (#pin-ref-mut #u64))))
-          (#struct Link (: value #u64 : view View))
+        let source = "(#enum View () (NoView (HasView (#pin-ref-mut #u64))))
+          (#struct Link () (: value #u64 : view View))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view)))
@@ -1955,8 +1955,8 @@ mod tests {
 
     #[test]
     fn ordinary_function_unknown_enum_tag_retains_possible_mutable_payload_aliases() {
-        let source = "(#enum Value (Empty (Full #u64)))
-          (#struct Link (: value Value : view (#pin-ref-mut #u64)))
+        let source = "(#enum Value () (Empty (Full #u64)))
+          (#struct Link () (: value Value : view (#pin-ref-mut #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref-mut #u64)
               (#pin-get-payload-mut (#pin-borrow-mut (#get target value)) Full 0))
@@ -2024,11 +2024,11 @@ mod tests {
 
     #[test]
     fn nested_dereference_payload_tag_proves_the_stored_reference_is_active() {
-        let source = "(#enum View (NoView (HasView (#pin-ref #u64))))
-          (#struct Inner (: value #u64 : view View))
-          (#struct Middle (: inner (#pin-ref-mut Inner)))
-          (#struct Outer (: middle (#pin-ref-mut Middle)))
-          (#struct Shell (: outer (#pin-ref-mut Outer)))
+        let source = "(#enum View () (NoView (HasView (#pin-ref #u64))))
+          (#struct Inner () (: value #u64 : view View))
+          (#struct Middle () (: inner (#pin-ref-mut Inner)))
+          (#struct Outer () (: middle (#pin-ref-mut Middle)))
+          (#struct Shell () (: outer (#pin-ref-mut Outer)))
           (#fn touch-inner (: target (#pin-ref-mut Inner)) ()
             (#let child (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
             (#drop child) (#return ()))
@@ -2087,7 +2087,7 @@ mod tests {
     #[test]
     fn numeric_backing_metadata_does_not_declare_typed_pointer_paths() {
         let declarations = fixture(
-            "(#struct Packet (: words (#array #u64 2)
+            "(#struct Packet () (: words (#array #u64 2)
           : scalar #u64 : references (#array (#ref #u64) 1) : narrow (#array #u32 2)))",
         );
         let packet = Type::Named("Packet".into());
@@ -2298,7 +2298,7 @@ mod tests {
 
     #[test]
     fn symbolic_nested_pointer_slots_do_not_imply_physical_self_aliases() {
-        let source = "(#struct Link (: value #u64 : view (#pin-ref #u64)))
+        let source = "(#struct Link () (: value #u64 : view (#pin-ref #u64)))
           (#fn tick (: target (#pin-ref-mut Link)) (#pin-ref-mut Link) (#return target))
           (#fn driver (: input (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#return (#call tick (: target input))))";
@@ -2550,8 +2550,8 @@ mod tests {
         assert!(!cache.checked.contains(&(plan, true)));
     }
 
-    const PAYLOAD_ENTRY_SOURCE: &str = "(#enum Value (Empty (Full #u64)))
-          (#struct Link (: value Value : view (#pin-ref #u64)))
+    const PAYLOAD_ENTRY_SOURCE: &str = "(#enum Value () (Empty (Full #u64)))
+          (#struct Link () (: value Value : view (#pin-ref #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref #u64)
               (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
@@ -2587,8 +2587,8 @@ mod tests {
         }
     }
 
-    const STORAGE_ENTRY_SOURCE: &str = "(#enum View (NoView (HasView (#pin-ref #u64))))
-          (#struct Link (: value #u64 : view View))
+    const STORAGE_ENTRY_SOURCE: &str = "(#enum View () (NoView (HasView (#pin-ref #u64))))
+          (#struct Link () (: value #u64 : view View))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (HasView view))) (#return target))
@@ -2750,8 +2750,8 @@ mod tests {
 
     #[test]
     fn entry_payload_aliases_are_correlated_with_checked_physical_tag_guards() {
-        let source = "(#enum Value (Empty (Full #u64)))
-          (#struct Link (: value Value : view (#pin-ref #u64)))
+        let source = "(#enum Value () (Empty (Full #u64)))
+          (#struct Link () (: value Value : view (#pin-ref #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref #u64)
               (#pin-get-payload (#pin-borrow (#get target value)) Full 0))
@@ -2789,8 +2789,8 @@ mod tests {
 
     #[test]
     fn checked_empty_pointer_slots_retire_only_their_stored_entry_alias() {
-        let source = "(#enum View (Empty (Full (#pin-ref-mut #u64))))
-          (#struct Link (: value #u64 : view View))
+        let source = "(#enum View () (Empty (Full (#pin-ref-mut #u64))))
+          (#struct Link () (: value #u64 : view View))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) (Full view))) (#return target))
@@ -2833,7 +2833,7 @@ mod tests {
                 ("", assertion)
             };
             let source = format!(
-                "(#enum Slot (Empty (Full #u64))) (#linear Slot)
+                "(#enum Slot (#linear) (Empty (Full #u64)))
               (#fn initialize (: slot (#pin-ref-mut Slot)) ()
                 {before}
                 (#let previous Slot (#unsafe (#pin-read slot))) (#forget previous)
@@ -2871,7 +2871,7 @@ mod tests {
             "(#call assert (: condition (#variant-is first Empty)))",
             "(#assert (#variant-is (#if choose first second) Empty))",
         ] {
-            let source = format!("(#enum Slot (Empty (Full #u64))) (#linear Slot)
+            let source = format!("(#enum Slot (#linear) (Empty (Full #u64)))
               (#fn assert (: condition #bool) () (#return ()))
               (#fn initialize (: first (#pin-ref-mut Slot) : second (#pin-ref-mut Slot) : choose #bool) ()
                 {assertion}
@@ -3396,7 +3396,7 @@ mod tests {
 
     #[test]
     fn conditional_fresh_borrow_does_not_hide_a_retained_sibling_alias() {
-        let source = "(#struct Link (: value #u64 : view (#pin-ref-mut #u64)))
+        let source = "(#struct Link () (: value #u64 : view (#pin-ref-mut #u64)))
           (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
             (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get target value)))
             (#unsafe (#pin-write (#pin-borrow-mut (#get target view)) view)) (#return target))

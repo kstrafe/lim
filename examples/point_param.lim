@@ -1,6 +1,6 @@
 (
   #struct
-  Point
+  Point ()
   (
     (x #u64)
     (y #u64)

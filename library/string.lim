@@ -5,13 +5,13 @@
 (#import "system_allocator.lim")
 (
   #struct
-  String
+  String (#linear)
   (: pointer (#ptr-mut #u8) : length #usize : capacity #usize))
 (#opaque String)
-(#linear String)
+
 (
   #struct
-  StringBytes
+  StringBytes ()
   (: owner (#ref String)))
 (#opaque StringBytes)
 ; Raw access is an unsafe boundary: retain the owner borrow and do not move,
@@ -123,12 +123,12 @@
       )    )  ))
 (
   #enum
-  StringError
+  StringError ()
   (StringOutOfMemory StringCapacityOverflow StringInvalidUtf8 StringInvalidChar)
 )
 (
   #enum
-  StringStatus
+  StringStatus ()
   (
     StringOk
     (StringErr StringError)
@@ -136,7 +136,7 @@
 )
 (
   #enum
-  StringCreateResult
+  StringCreateResult ()
   (
     (StringCreated String)
     (StringCreateFailed StringError)
@@ -144,7 +144,7 @@
 )
 (
   #enum
-  StringByteResult
+  StringByteResult ()
   (
     (StringByte #u8)
     StringByteOutOfBounds
@@ -152,7 +152,7 @@
 )
 (
   #enum
-  StringPopResult
+  StringPopResult ()
   (
     (StringPopped #char)
     StringEmpty

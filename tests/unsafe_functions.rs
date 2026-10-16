@@ -84,7 +84,7 @@ fn implicit_entry_points_cannot_bypass_unsafe_calls() {
     let scratch = support::Scratch::new("unsafe-implicit-call");
     for (source, message) in [
         ("(#unsafe-fn main () #u64 (#return 42u64))", "implicit entry point 'main' must be safe"),
-        ("(#struct Value ((n #u64))) (#unsafe-fn Value-clone ((value Value)) Value (#return value))", "implicit entry point 'Value-clone' must be safe"),
+        ("(#struct Value () ((n #u64))) (#unsafe-fn Value-clone ((value Value)) Value (#return value))", "implicit entry point 'Value-clone' must be safe"),
         ("(#unsafe-fn worker () #u64 (#return 42u64)) (@#thread-spawn (: task Task : worker worker))", "thread worker 'worker' must be safe"),
     ] {
         let error = compile(source, &scratch.path().join("main.lim"), &scratch.path().join("cache")).unwrap_err();

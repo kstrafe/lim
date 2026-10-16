@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn scoped_reborrow_retains_the_referent_and_not_the_parent_handles_address() {
         let (program, declarations, facts) = prepare_staged(
-            "(#struct Owner ((value #u64)))
+            "(#struct Owner () ((value #u64)))
              (#fn work () ()
                (#let-mut owner Owner (#struct-literal Owner (: value 1u64)))
                (#let view (#ref-mut Owner) (#borrow-mut owner))
@@ -527,7 +527,7 @@ mod tests {
     #[test]
     fn callee_consumption_and_forwarded_initialization_change_cleanup() {
         let (program, declarations, facts) = prepare_staged(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
              (#fn consume ((value (#ref-mut Resource))) ()
                (#forget (#deref value)) (#return ()))
              (#fn initialize ((value (#ref-mut Resource))) ()
@@ -561,8 +561,8 @@ mod tests {
     #[test]
     fn callee_consumes_only_the_projected_linear_field() {
         let (program, declarations, facts) = prepare_staged(
-            "(#struct Resource ((value #u64))) (#linear Resource)
-             (#struct Pair (: left.part Resource : right Resource))
+            "(#struct Resource (#linear) ((value #u64)))
+             (#struct Pair () (: left.part Resource : right Resource))
              (#fn consume ((value (#ref-mut Pair))) ()
                (#forget (#get value left.part)) (#return ()))
              (#fn work ((#mut owner Pair)) ()
@@ -586,7 +586,7 @@ mod tests {
     #[test]
     fn consuming_one_of_two_aliases_cannot_prove_either_owner_empty() {
         let (program, declarations, facts) = prepare_staged(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
              (#fn consume ((value (#ref-mut Resource))) ()
                (#forget (#deref value)) (#return ()))
              (#fn work ((choice #bool)) ()
@@ -616,7 +616,7 @@ mod tests {
     #[test]
     fn nonreturning_callee_has_no_following_suspension_snapshot() {
         let (program, declarations, facts) = prepare_staged(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
              (#fn stop () () (#loop ()) (#return ()))
              (#fn work ((owner Resource)) ()
                (#call stop (:)) (#call checkpoint (:)) (#return ()))",
@@ -630,7 +630,7 @@ mod tests {
     #[test]
     fn unresolved_effects_reach_later_events_and_cannot_prove_full_storage() {
         let (program, declarations) = prepare(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
              (#fn work ((owner Resource)) ()
                (#call checkpoint (:)) (#call checkpoint (:)) (#return ()))",
         );
@@ -654,7 +654,7 @@ mod tests {
     #[test]
     fn opaque_reference_contract_does_not_produce_storage_proofs() {
         let (program, mut declarations) = prepare(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
              (#extern-fn #abi-c opaque ((owner (#ref-mut Resource))) ())
              (#fn work ((owner (#ref-mut Resource))) ()
                (#unsafe (#call opaque (: owner owner)))
@@ -679,8 +679,8 @@ mod tests {
     #[test]
     fn selected_initializer_outcome_refines_full_and_empty_slots() {
         let (program, declarations, facts) = prepare_staged(
-            "(#struct Resource ((value #u64))) (#linear Resource)
-             (#enum Outcome ((Ready) (Pending)))
+            "(#struct Resource (#linear) ((value #u64)))
+             (#enum Outcome () ((Ready) (Pending)))
              (#fn initialize ((value (#ref-mut Resource)) (complete #bool)) Outcome
                (#return (#if complete
                  (#block (#deref-set value (#struct-literal Resource (: value 42u64))) (Ready))
@@ -731,7 +731,7 @@ mod tests {
     #[test]
     fn clearing_borrowed_contents_retires_their_address_dependency() {
         let (program, declarations, facts) = prepare_staged(
-            "(#enum Choice ((Empty) (Full (#ref #u64))))
+            "(#enum Choice () ((Empty) (Full (#ref #u64))))
              (#fn clear ((target (#ref-mut Choice))) ()
                (#deref-set target (Empty)) (#return ()))
              (#fn work () ()
@@ -755,7 +755,7 @@ mod tests {
     #[test]
     fn unread_owners_need_cleanup_and_consumed_owners_do_not() {
         let (program, declarations) = prepare(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
              (#fn work ((unread Resource) (consumed Resource)) ()
                (#forget consumed) (#call checkpoint (:)) (#return ()))",
         );
@@ -781,7 +781,7 @@ mod tests {
     #[test]
     fn branch_consumption_is_conditional_and_restoration_is_full() {
         let (program, declarations) = prepare(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
              (#fn work ((#mut owner Resource) (flag #bool)) ()
                (#if flag (#forget owner) ())
                (#call checkpoint (:))
@@ -834,7 +834,7 @@ mod tests {
     #[test]
     fn scopes_and_unreachable_events_have_no_initialized_slots() {
         let (program, declarations) = prepare(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
              (#fn work () ()
                (#block (#let local Resource (#struct-literal Resource (: value 1u64)))
                  (#forget local))
@@ -856,8 +856,8 @@ mod tests {
     #[test]
     fn partially_consumed_aggregate_is_never_a_full_loadable_value() {
         let (program, declarations) = prepare(
-            "(#struct Resource ((value #u64))) (#linear Resource)
-             (#struct Pair (: left.part Resource : right Resource))
+            "(#struct Resource (#linear) ((value #u64)))
+             (#struct Pair () (: left.part Resource : right Resource))
              (#fn work ((owner.part Pair)) ()
                (#let extracted Resource (#get owner.part left.part))
                (#call checkpoint (:))
@@ -926,7 +926,7 @@ mod tests {
     #[test]
     fn releasing_one_reference_field_preserves_only_the_other_loan() {
         let (program, declarations) = prepare(
-            "(#struct Holder (: first (#ref #u64) : second (#ref #u64)))
+            "(#struct Holder () (: first (#ref #u64) : second (#ref #u64)))
              (#fn work () ()
                (#let first-owner #u64 1u64) (#let second-owner #u64 2u64)
                (#let holder Holder (#struct-literal Holder

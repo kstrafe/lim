@@ -3,8 +3,8 @@ mod support;
 use std::{fs, process::Command, time::Duration};
 
 const CONTEXT: &str = "
-  (#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
-  (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+  (#enum Child (#linear) ((Start #u64) (Resume #u64)))
+  (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
     (#return (#match task
       (#case (Start value) (ChildPending (Resume value)))
@@ -162,7 +162,7 @@ fn self_reference_example_uses_source_named_access_and_cleanup_on_the_same_frame
     let artifact = run_expected(&source, "async-graph-self-reference-example", 58);
     assert!(artifact.contains("(#fn work-owner-replace "));
     assert!(artifact.contains("(#fn work-owner-read "));
-    assert!(artifact.contains("(#struct Work-frame-cleanup"));
+    assert!(artifact.contains("(#struct Work-frame-cleanup (#linear)"));
     assert!(!source.contains("work-poll-cancel"));
     assert!(!source.contains("work-frame-await-0"));
     assert!(!source.contains("(#set-field frame owner"));
@@ -251,7 +251,7 @@ fn enum_self_reference_graph_pending_handle_blocks_frame_destruction() {
 
 #[test]
 fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
-    let counter = "(#struct Counter (: storage (#atomic #u64))) (#linear Counter)
+    let counter = "(#struct Counter (#linear) (: storage (#atomic #u64)))
       (#fn read-counter (: count (#ref Counter)) #u64
         (#return (#atomic-load (#borrow (#get count storage)) #memory-relaxed)))
       (#fn bump-counter (: count (#ref Counter)) ()
@@ -266,7 +266,10 @@ fn enum_self_reference_public_cleanup_handles_entry_pending_and_ready() {
         .replace("Read-after-await", "Work")
         .replace("ReadAfterAwaitAwait", "WorkAwait")
         .replace(": waker #u64", ": waker #u64 : cancel (work-cancel ((await-0 cancel-child)))")
-        .replace("(#enum Child ((Waiting #u64)))", "(#enum Child ((Waiting (#ref Counter) #u64)))")
+        .replace(
+            "(#enum Child (#linear) ((Waiting #u64)))",
+            "(#enum Child (#linear) ((Waiting (#ref Counter) #u64)))",
+        )
         .replace("(Waiting count)", "(Waiting counter count)")
         .replace("(Waiting 1u64)", "(Waiting counter 1u64)")
         .replace("(Waiting 0u64)", "(Waiting counter 0u64)")
@@ -325,8 +328,9 @@ fn source_named_cleanup_runs_at_entry_pending_ready_and_repeated_cancel() {
             (#forget task) (#return 42u64))"
         );
         let artifact = run(&source, "async-graph-cancel");
-        assert!(artifact
-            .contains("(#struct Work-frame-cleanup ((await-0 Work-frame-cleanup-await-0)))"));
+        assert!(artifact.contains(
+            "(#struct Work-frame-cleanup (#linear) ((await-0 Work-frame-cleanup-await-0)))"
+        ));
     }
 }
 
@@ -428,8 +432,8 @@ fn shared_reference_guard_preview_keeps_the_referent_through_rejected_awaits() {
 fn aggregate_reference_guard_source() -> String {
     shared_reference_guard_source()
         .replace(
-            "(#enum Holder ((Holding (#ref #u64))))",
-            "(#struct View ((value (#ref #u64))))\n(#enum Holder ((Holding View)))",
+            "(#enum Holder (#linear) ((Holding (#ref #u64))))",
+            "(#struct View () ((value (#ref #u64))))\n(#enum Holder (#linear) ((Holding View)))",
         )
         .replace(
             "(Holding source)",
@@ -458,8 +462,8 @@ fn linear_reference_aggregate_guard_lends_stationary_preview_aliases() {
 fn linear_exclusive_reference_aggregate_guard_lends_without_copying_the_handle() {
     let source = exclusive_reference_guard_source(&linear_reference_guard_source())
         .replace(
-            "View ((value (#ref #u64)))",
-            "View ((value (#ref-mut #u64)))",
+            "View (#linear) ((value (#ref #u64)))",
+            "View (#linear) ((value (#ref-mut #u64)))",
         )
         .replace(
             "(#deref (#get (#borrow view) value))",
@@ -475,8 +479,8 @@ fn linear_exclusive_reference_aggregate_guard_lends_without_copying_the_handle()
 #[test]
 fn linear_exclusive_reference_fields_are_read_directly_without_moving_the_handle() {
     let source = exclusive_reference_guard_source(&linear_reference_guard_source()).replace(
-        "View ((value (#ref #u64)))",
-        "View ((value (#ref-mut #u64)))",
+        "View (#linear) ((value (#ref #u64)))",
+        "View (#linear) ((value (#ref-mut #u64)))",
     );
     run(&source, "async-direct-exclusive-field-guard");
 }
@@ -485,8 +489,8 @@ fn linear_exclusive_reference_fields_are_read_directly_without_moving_the_handle
 fn direct_pinned_exclusive_reference_fields_are_lent_for_scalar_reads() {
     let source = exclusive_reference_guard_source(&linear_reference_guard_source())
         .replace(
-            "View ((value (#ref #u64)))",
-            "View ((value (#ref-mut #u64)))",
+            "View (#linear) ((value (#ref #u64)))",
+            "View (#linear) ((value (#ref-mut #u64)))",
         )
         .replace("(#ref-mut #u64)", "(#pin-ref-mut #u64)")
         .replace("(#borrow-mut owner)", "(#pin-borrow-mut owner)");
@@ -496,7 +500,10 @@ fn direct_pinned_exclusive_reference_fields_are_lent_for_scalar_reads() {
 #[test]
 fn direct_exclusive_field_reads_do_not_release_the_callers_unique_loan() {
     let source = exclusive_reference_guard_source(&linear_reference_guard_source())
-        .replace("View ((value (#ref #u64)))", "View ((value (#ref-mut #u64)))")
+        .replace(
+            "View (#linear) ((value (#ref #u64)))",
+            "View (#linear) ((value (#ref-mut #u64)))",
+        )
         .replace("(#let second Work-poll-result", "(#let conflicting (#ref #u64) (#borrow owner))\n(#forget conflicting)\n(#let second Work-poll-result");
     let scratch = support::Scratch::new("async-direct-field-caller-conflict");
     let error = lim::compile_source_to_assembly(
@@ -518,8 +525,8 @@ fn direct_exclusive_field_reads_do_not_release_the_callers_unique_loan() {
 fn direct_exclusive_field_reads_keep_nested_struct_and_tuple_projections() {
     let source = exclusive_reference_guard_source(&linear_reference_guard_source())
         .replace(
-            "View ((value (#ref #u64)))",
-            "View ((value (#ref-mut #u64)))",
+            "View (#linear) ((value (#ref #u64)))",
+            "View (#linear) ((value (#ref-mut #u64)))",
         )
         .replace("(#ref-mut #u64)", "(#ref-mut Point)")
         .replace(
@@ -530,11 +537,11 @@ fn direct_exclusive_field_reads_keep_nested_struct_and_tuple_projections() {
             "(#deref (#get (#borrow view) value))",
             "(#get (#get (#borrow view) value) amount)",
         );
-    let source = format!("(#struct Point (: amount #u64 : other #u64))\n{source}");
+    let source = format!("(#struct Point () (: amount #u64 : other #u64))\n{source}");
     run(&source, "async-direct-nested-exclusive-field");
     let tuple = source
         .replace(
-            "(#struct Point (: amount #u64 : other #u64))",
+            "(#struct Point () (: amount #u64 : other #u64))",
             "(#type Point (#tuple #u64 #u64))",
         )
         .replace(
@@ -552,7 +559,7 @@ fn direct_exclusive_field_reads_keep_nested_struct_and_tuple_projections() {
 fn repeated_direct_field_reads_lend_a_unique_parent_before_and_after_pending() {
     let source = format!(
         "{CONTEXT}
-      (#struct View (: field (#ref-mut #u64))) (#linear View)
+      (#struct View (#linear) (: field (#ref-mut #u64)))
       (@#async-fn-pinned (: protocol WorkAwait : waker #u64
         : function (#fn work (: view (#ref-mut View)) #u64
           (#let first #u64 (#deref (#get view field)))
@@ -576,8 +583,8 @@ fn repeated_direct_field_reads_lend_a_unique_parent_before_and_after_pending() {
 fn linear_reference_guard_source() -> String {
     aggregate_reference_guard_source()
         .replace(
-            "(#struct View ((value (#ref #u64))))",
-            "(#struct View ((value (#ref #u64)))) (#linear View)",
+            "(#struct View () ((value (#ref #u64))))",
+            "(#struct View (#linear) ((value (#ref #u64)))) ",
         )
         .replace(
             "\n        (#deref (#get view value)))",
@@ -701,7 +708,7 @@ fn linear_reference_guard_cancellation_reads_and_releases_the_retained_owner() {
 fn copy_reference_tuple_guard_retains_nested_referents_across_rejection() {
     let source = aggregate_reference_guard_source()
         .replace(
-            "(#struct View ((value (#ref #u64))))",
+            "(#struct View () ((value (#ref #u64))))",
             "(#type View (#tuple #u64 (#ref #u64)))",
         )
         .replace(
@@ -716,8 +723,8 @@ fn copy_reference_tuple_guard_retains_nested_referents_across_rejection() {
 fn alternative_reference_guards_do_not_preview_payloads() {
     let source = shared_reference_guard_source()
         .replace(
-            "(#enum Holder ((Holding (#ref #u64))))",
-            "(#enum Holder ((Holding (#ref #u64)) (Other (#ref #u64))))",
+            "(#enum Holder (#linear) ((Holding (#ref #u64))))",
+            "(#enum Holder (#linear) ((Holding (#ref #u64)) (Other (#ref #u64))))",
         )
         .replace(
             "(#case (Holding view)",
@@ -736,8 +743,8 @@ fn alternative_reference_guards_do_not_preview_payloads() {
 fn alternative_reference_guards_reject_payload_bindings_before_publication() {
     let source = shared_reference_guard_source()
         .replace(
-            "(#enum Holder ((Holding (#ref #u64))))",
-            "(#enum Holder ((Holding (#ref #u64)) (Other (#ref #u64))))",
+            "(#enum Holder (#linear) ((Holding (#ref #u64))))",
+            "(#enum Holder (#linear) ((Holding (#ref #u64)) (Other (#ref #u64))))",
         )
         .replace(
             "(#case (Holding view)",
@@ -790,10 +797,10 @@ fn suspended_aggregate_guard_keeps_the_callers_loan_alive() {
 
 fn guard_cancellation_declarations() -> String {
     let source = shared_reference_guard_source();
-    source[..source.find("(#fn main").unwrap()]
+    let declarations = source[..source.find("(#fn main").unwrap()]
         .replace(
-            "(#enum Holder ((Holding (#ref #u64)))) (#linear Holder)",
-            "(#enum Holder ((Holding (#ref #u64)))) (#linear Holder)
+            "(#enum Holder (#linear) ((Holding (#ref #u64))))",
+            "(#enum Holder (#linear) ((Holding (#ref #u64))))
              (#fn cancel-holder (: holder Holder) () (#forget holder) (#return ()))",
         )
         .replace(
@@ -801,7 +808,9 @@ fn guard_cancellation_declarations() -> String {
             ": cancel (work-cancel ((source-expression-11 cancel-holder)
                (await-0 cancel-child) (await-1 cancel-child)))
              : function (#fn work",
-        )
+        );
+    assert!(declarations.contains("(#fn cancel-holder"));
+    declarations
 }
 
 fn cancelled_guard_source(declarations: &str, polls: &str, handle: &str) -> String {
@@ -862,8 +871,8 @@ fn reading_guard_cleanup_resolves_conditional_call_input_provenance() {
 fn reading_aggregate_guard_cleanup_preserves_and_releases_nested_loans() {
     let declarations = guard_cancellation_declarations()
         .replace(
-            "(#enum Holder ((Holding (#ref #u64))))",
-            "(#struct View ((value (#ref #u64))))\n(#enum Holder ((Holding View)))",
+            "(#enum Holder (#linear) ((Holding (#ref #u64))))",
+            "(#struct View () ((value (#ref #u64))))\n(#enum Holder (#linear) ((Holding View)))",
         )
         .replace(
             "(Holding source)",
@@ -924,8 +933,8 @@ fn pinned_exclusive_reference_guard_reborrows_without_losing_pinning() {
 fn exclusive_reference_guard_source(source: &str) -> String {
     source
         .replace(
-            "Holder ((Holding (#ref #u64)))",
-            "Holder ((Holding (#ref-mut #u64)))",
+            "Holder (#linear) ((Holding (#ref #u64)))",
+            "Holder (#linear) ((Holding (#ref-mut #u64)))",
         )
         .replace(
             "work (: source (#ref #u64))",
@@ -984,8 +993,8 @@ fn nested_guard_previews_lend_only_exclusive_fields_regardless_of_order() {
         };
         let source = source
             .replace(
-                "(#enum Holder ((Holding (#ref-mut #u64))))",
-                &format!("(#struct View {fields})\n(#enum Holder ((Holding View)))"),
+                "(#enum Holder (#linear) ((Holding (#ref-mut #u64))))",
+                &format!("(#struct View () {fields})\n(#enum Holder (#linear) ((Holding View)))"),
             )
             .replace(
                 "work (: source (#ref-mut #u64))",
@@ -1124,14 +1133,14 @@ fn invalid_scoped_borrows_fail_before_cache_publication() {
 
 #[test]
 fn delayed_owner_initialization_and_configured_destruction_are_exactly_once() {
-    let declarations = "(#struct Counter (: storage (#atomic #u64))) (#linear Counter)
+    let declarations = "(#struct Counter (#linear) (: storage (#atomic #u64)))
       (#fn read-counter (: count (#ref Counter)) #u64
         (#return (#atomic-load (#borrow (#get count storage)) #memory-relaxed)))
       (#fn bump-counter (: count (#ref Counter)) ()
         (#atomic-store (#borrow (#get count storage))
           (#u64.+.wrap (#call read-counter (: count count)) 1u64) #memory-relaxed)
         (#return ()))
-      (#struct Source (: amount #u64 : destroyed (#ref Counter))) (#linear Source)
+      (#struct Source (#linear) (: amount #u64 : destroyed (#ref Counter)))
       (#fn make-owner (: created (#ref Counter) : destroyed (#ref Counter)) Source
         (#call bump-counter (: count created))
         (#return (#struct-literal Source (: amount 40u64 : destroyed destroyed))))

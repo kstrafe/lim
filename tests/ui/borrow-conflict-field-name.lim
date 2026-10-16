@@ -1,4 +1,4 @@
-(#struct Pair ((owner #u64)))
+(#struct Pair () ((owner #u64)))
 (#fn main () (#tuple #u64 #u64)
   (#let-mut owner #u64 1u64)
   (#let pair Pair (#struct-literal Pair ((owner 2u64))))

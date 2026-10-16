@@ -879,7 +879,7 @@ mod tests {
     #[test]
     fn normalized_structs_render_explicit_keyed_literals_and_variants_stay_direct() {
         let declarations_source =
-            "(#struct Pair ((left #u32) (right #u64))) (#enum Choice ((Some Pair) Empty))";
+            "(#struct Pair () ((left #u32) (right #u64))) (#enum Choice () ((Some Pair) Empty))";
         let source = format!(
             "{declarations_source}
           (#fn main () Choice (#return (Some
@@ -915,7 +915,7 @@ mod tests {
     fn patterns_rename_even_unused_checked_binding_ids_without_preview_copies() {
         let (declarations, graph) = prepare(
             "
-          (#enum Choice ((Some #u64) Empty))
+          (#enum Choice () ((Some #u64) Empty))
           (#fn main ((choice Choice)) #u64 (#return (#match choice
             (#case (Some unused) 1u64) (#case Empty 0u64))))",
             "main",
@@ -976,7 +976,7 @@ mod tests {
     #[test]
     fn enum_tag_test_replaces_only_the_handle_and_retains_variant_identity() {
         let (declarations, graph) = prepare(
-            "(#enum Choice ((Some #u64) Empty)) (#linear Choice)
+            "(#enum Choice (#linear) ((Some #u64) Empty))
              (#fn inspect ((value (#pin-ref Choice))) #bool
                (#return (#variant-is value Some)))",
             "inspect",
@@ -993,7 +993,7 @@ mod tests {
             .unwrap();
         assert_eq!(text(&rendered), "(#variant-is stored0 Some)");
         check(&format!(
-            "(#enum Choice ((Some #u64) Empty)) (#linear Choice)
+            "(#enum Choice (#linear) ((Some #u64) Empty))
           (#fn again ((stored0 (#pin-ref Choice))) #bool (#return {}))",
             text(&rendered)
         ));

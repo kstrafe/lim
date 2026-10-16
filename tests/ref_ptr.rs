@@ -51,7 +51,7 @@ fn scalar_and_aggregate_roundtrips_lend_all_four_reference_kinds() {
                     let suffix = if mutable { "-mut" } else { "" };
                     let source = format!(
                         r#"
-                      (#struct Pair (: left #u64 : right #u64))
+                      (#struct Pair () (: left #u64 : right #u64))
                       (#fn extract (: view (#{pin}ref{suffix} {ty})) (#ptr{suffix} {ty})
                         (#return (#ref-ptr view)))
                       (#fn main () #u64
@@ -103,7 +103,7 @@ fn projected_exclusive_handles_are_lent_without_being_moved() {
     for pin in ["", "pin-"] {
         let source = format!(
             r#"
-          (#struct Holder (: view (#{pin}ref-mut #u64)))
+          (#struct Holder () (: view (#{pin}ref-mut #u64)))
           (#fn main () #u64
             (#let-mut value #u64 42u64)
             (#let holder Holder (#struct-literal Holder (: view (#{pin}borrow-mut value))))
@@ -154,7 +154,7 @@ fn extraction_is_safe_but_raw_access_and_reborrowing_are_unsafe() {
 #[test]
 fn raw_pointers_do_not_derive_thread_properties() {
     let program = lim::parse_program(
-        "(#struct Shared (: pointer (#ptr #u64))) (#struct Exclusive (: pointer (#ptr-mut #u64)))",
+        "(#struct Shared () (: pointer (#ptr #u64))) (#struct Exclusive () (: pointer (#ptr-mut #u64)))",
     )
     .unwrap();
     for ty in [

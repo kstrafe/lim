@@ -1,6 +1,6 @@
 ; The labeled loop owns block-local state across suspension.
-(#enum Step ((Start #u64) (Resume #u64)))
-(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#enum Step () ((Start #u64) (Resume #u64)))
+(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))

@@ -1,4 +1,4 @@
-(#struct Holder (: view (#ref #u64)))
+(#struct Holder () (: view (#ref #u64)))
 (#fn main () #u64
   (#let-mut old #u64 7u64)
   (#let-mut value #u64 42u64)

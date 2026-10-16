@@ -1,4 +1,4 @@
-(#enum Result ((Ok 7 #u64) (Err 99 #u64)))
+(#enum Result () ((Ok 7 #u64) (Err 99 #u64)))
 
 (#fn main () #u64
   (#let value Result (Ok 42))

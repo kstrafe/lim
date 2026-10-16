@@ -5,7 +5,7 @@ use std::{fs, process::Command, time::Duration};
 fn source(body: &str) -> String {
     format!(
         "(#import \"{}/library/local_waker.lim\")
-         (#struct WakeExecutor ((count #u64)))
+         (#struct WakeExecutor () ((count #u64)))
          (#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref #u64))) ()
            (#return ()))
          (#fn clone-metadata ((metadata (#ref #u64))) #u64
@@ -97,7 +97,7 @@ fn generated_local_waker_is_inspectable_and_reports_shape_errors() {
         .map(|entry| fs::read_to_string(entry.path()).unwrap())
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(generated.contains("(#struct CounterWaker"));
+    assert!(generated.contains("(#struct CounterWaker ()"));
     assert!(generated.contains("counter-waker-wake-by-ref"));
     assert!(generated.contains("(#ptr #u8)"));
 

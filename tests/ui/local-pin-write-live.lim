@@ -1,5 +1,5 @@
-(#struct Resource (: number #u64))
-(#linear Resource)
+(#struct Resource (#linear) (: number #u64))
+
 (#fn main () ()
   (#let-mut owner Resource (#struct-literal Resource (: number 1u64)))
   (#let target (#pin-ref-mut Resource) (#pin-borrow-mut owner))

@@ -1,10 +1,10 @@
 (#import "../library/pin_rc.lim")
 
-(#struct Arena ())
-(#enum ArenaError (OutOfMemory))
-(#enum Step (: Step-waiting #u64 #u64))
-(#linear Step)
-(#enum StepPoll (: StepPending Step : StepReady #u64))
+(#struct Arena () ())
+(#enum ArenaError () (OutOfMemory))
+(#enum Step (#linear) (: Step-waiting #u64 #u64))
+
+(#enum StepPoll () (: StepPending Step : StepReady #u64))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return (#match task
     (#case (Step-waiting value remaining)
@@ -18,7 +18,7 @@
     (#let value #u64 (#await (#syntax-splice StepAwait) (Step-waiting 42u64 1u64)))
     (#return value))))
 
-(#enum AllocationResult ((Allocated (#ptr-mut PinnedFrameRcAllocation)) (AllocationFailed ArenaError)))
+(#enum AllocationResult () ((Allocated (#ptr-mut PinnedFrameRcAllocation)) (AllocationFailed ArenaError)))
 (@#pin-rc (: type Work-frame : allocator Arena : name PinnedFrameRc
   : error ArenaError : alloc-result AllocationResult : alloc-ok Allocated
   : alloc-error AllocationFailed : alloc arena-allocate : dealloc arena-deallocate

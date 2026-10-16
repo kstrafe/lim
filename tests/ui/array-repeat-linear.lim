@@ -1,5 +1,5 @@
-(#struct Token ((value #u64)))
-(#linear Token)
+(#struct Token (#linear) ((value #u64)))
+
 (#fn main () ()
   (#let values (#array Token 2) (#array-repeat (#struct-literal Token ((value 1u64)))))
   (#forget values)

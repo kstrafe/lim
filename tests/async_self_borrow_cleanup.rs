@@ -4,8 +4,8 @@ use std::{fs, process::Command, time::Duration};
 
 #[test]
 fn child_retaining_a_parent_borrow_cannot_be_exported_by_cleanup() {
-    let source = "(#enum Child ((Holding (#ref #u64) #u64))) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+    let source = "(#enum Child (#linear) ((Holding (#ref #u64) #u64)))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task (#case (Holding view count)
           (#if (#u64.== count 0u64) (ChildPending (Holding view 1u64))
@@ -41,9 +41,9 @@ fn child_retaining_a_parent_borrow_cannot_be_exported_by_cleanup() {
 
 #[test]
 fn cancellation_clears_internal_handles_before_exporting_stationary_owners() {
-    let source = "(#struct Owner (: amount #u64)) (#linear Owner)
-      (#enum Child ((Start #u64)))
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+    let source = "(#struct Owner (#linear) (: amount #u64))
+      (#enum Child () ((Start #u64)))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task (#case (Start count)
           (#if (#u64.== count 0u64) (ChildPending (Start 2u64)) (ChildReady count))))))

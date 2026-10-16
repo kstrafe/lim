@@ -1181,7 +1181,7 @@ mod tests {
 
     #[test]
     fn match_and_if_let_keep_declared_pattern_types_and_guard_paths() {
-        let source = "(#enum Choice ((Some (#tuple #u64 #bool)) (None)))
+        let source = "(#enum Choice () ((Some (#tuple #u64 #bool)) (None)))
           (#fn work ((choice Choice)) #u64
             (#return (#match choice
               (#case (Some (#tuple amount enabled)) (#when enabled)
@@ -1229,7 +1229,7 @@ mod tests {
 
     #[test]
     fn named_operands_follow_declarations_not_written_order() {
-        let source = "(#struct Values ((first #u64) (second #u64)))
+        let source = "(#struct Values () ((first #u64) (second #u64)))
           (#fn combine ((first #u64) (second #u64)) #u64 (#return first))
           (#fn work () #u64
             (#let record Values (#struct-literal Values (: second

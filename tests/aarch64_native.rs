@@ -81,7 +81,7 @@ fn scalar_register_stack_boundaries_and_nested_calls_execute() {
 #[test]
 fn aggregates_functions_mutation_and_pattern_bindings_execute() {
     returns(
-        "(#struct Value ((tag #u64) (items (#array #u64 6)) (pair (#tuple #u64 #u64))))
+        "(#struct Value () ((tag #u64) (items (#array #u64 6)) (pair (#tuple #u64 #u64))))
       (#fn make ((n #u64)) Value (#return (#struct-literal Value
         ((pair (#tuple (#tuple #u64 #u64) n 2u64)) (tag 9u64)
          (items (#array-of (#array #u64 6) 1u64 2u64 3u64 4u64 5u64 6u64))))))
@@ -108,14 +108,14 @@ fn references_exclusive_moves_and_aggregate_reference_returns_execute() {
     returns(include_str!("../examples/reference_parent_call.lim"), 42);
     returns(include_str!("../examples/reference_assignment.lim"), 42);
     returns(
-        "(#struct Views ((value (#ref #u64))))
+        "(#struct Views () ((value (#ref #u64))))
       (#fn lend ((owner (#ref #u64))) Views (#return (#struct-literal Views ((value owner)))))
       (#fn main () #u64 (#let owner #u64 42u64)
         (#let views Views (#call lend (: owner (#borrow owner))))
         (#return (#deref (#get views value))))",
         42,
     );
-    returns("(#struct Pair ((left #u64) (right #u64)))
+    returns("(#struct Pair () ((left #u64) (right #u64)))
       (#fn replace ((target (#ref-mut Pair)) (value Pair)) () (#deref-set target value) (#return ()))
       (#fn main () #u64 (#let-mut owner Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
         (#call replace (: target (#borrow-mut owner) : value (#struct-literal Pair ((left 40u64) (right 2u64)))))
@@ -125,7 +125,7 @@ fn references_exclusive_moves_and_aggregate_reference_returns_execute() {
 #[test]
 fn enum_match_let_else_guards_and_loop_values_execute() {
     returns(
-        "(#enum Maybe ((Some #u64) None))
+        "(#enum Maybe () ((Some #u64) None))
       (#fn choose ((value Maybe)) #u64
         (#return (#match value (#case (Some n) (#when (#u64.> n 40u64)) n)
           (#case (Some _) 0u64) (#case None 0u64))))

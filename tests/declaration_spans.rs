@@ -20,7 +20,7 @@ fn declaration_failures_select_occurrences_deterministically() {
     let cache = directory.join("cache");
     for (source, expected) in [
         (
-            "(#struct Value ())\n(#struct Value ())\n(#struct Value ())",
+            "(#struct Value () ())\n(#struct Value () ())\n(#struct Value () ())",
             "Value",
         ),
         (
@@ -58,14 +58,14 @@ fn declaration_failures_select_occurrences_deterministically() {
             previous = Some(output.stderr);
         }
     }
-    let source = "(#struct Value ())\n(#unsafe-impl #send Value)\n(#unsafe-impl #sync Value)\n(#unsafe-impl #send Value)\n(#unsafe-impl #send Value)";
+    let source = "(#struct Value () ())\n(#unsafe-impl #send Value)\n(#unsafe-impl #sync Value)\n(#unsafe-impl #send Value)\n(#unsafe-impl #send Value)";
     let error = diagnostic(source, &path, &cache);
     assert_eq!(
         error.span.unwrap().start,
         source.match_indices("Value").nth(3).unwrap().0
     );
 
-    let source = "(#fn worker () #u64 (#return 0u64))\n(@#thread-spawn (: task First : worker worker))\n(@#thread-spawn (: task Second : worker worker))\n(#struct Invalid ((Second First) (First Second)))";
+    let source = "(#fn worker () #u64 (#return 0u64))\n(@#thread-spawn (: task First : worker worker))\n(@#thread-spawn (: task Second : worker worker))\n(#struct Invalid () ((Second First) (First Second)))";
     let expected = source.find("Second First").unwrap() + "Second ".len();
     for _ in 0..4 {
         let error = diagnostic(source, &path, &cache);

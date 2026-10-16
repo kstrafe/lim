@@ -330,7 +330,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "repeats parameter",
         ),
         (
-            "(#struct Token (: amount #u64)) (#linear Token)",
+            "(#struct Token (#linear) (: amount #u64)) ",
             "#async-fn-pinned",
             "(: amount Token)",
             "(amount work-amount)",
@@ -346,7 +346,7 @@ fn parameter_access_rejects_invalid_requests_without_publishing_generated_code()
             "reference-free Copy",
         ),
         (
-            "(#struct Holder (: value (#ref #u64)))",
+            "(#struct Holder () (: value (#ref #u64)))",
             "#async-fn-pinned",
             "(: amount Holder)",
             "(amount work-amount)",
@@ -483,8 +483,8 @@ fn access_traps_before_terminal_even_when_no_internal_reference_is_retained() {
     use std::os::unix::process::ExitStatusExt;
     for pending in [false, true] {
         for replace in [false, true] {
-            let prefix = "(#enum Child ((Waiting #u64))) (#linear Child)
-              (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+            let prefix = "(#enum Child (#linear) ((Waiting #u64)))
+              (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
               (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
                 (#return (#match task (#case (Waiting count)
                   (#if (#u64.== count 0u64) (ChildPending (Waiting 1u64)) (ChildReady 42u64))))))

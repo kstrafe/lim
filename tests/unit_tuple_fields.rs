@@ -39,11 +39,15 @@ fn zero_word_aggregate_locals_can_be_enum_payloads() {
     for (declarations, ty, value) in [
         ("", "(#tuple () ())", "(#tuple (#tuple () ()) () ())"),
         ("", "(#array () 2)", "(#array-of (#array () 2) () ())"),
-        ("(#struct Empty ())", "Empty", "(#struct-literal Empty (:))"),
+        (
+            "(#struct Empty () ())",
+            "Empty",
+            "(#struct-literal Empty (:))",
+        ),
     ] {
         let source = format!(
             "{declarations}
-          (#enum Outcome ((Done {ty})))
+          (#enum Outcome () ((Done {ty})))
           (#fn make () Outcome
             (#let empty {ty} {value}) (#return (Done empty)))
           (#fn main () #u64

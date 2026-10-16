@@ -531,8 +531,8 @@ fn specialize_impl(
 mod tests {
     use super::*;
 
-    const PHASE_SOURCE: &str = "(#struct Holder (: value (#ref #u64)))
-          (#struct Frame (: pc #u64 : source (#ref #u64) : words (#array #u64 1)))
+    const PHASE_SOURCE: &str = "(#struct Holder () (: value (#ref #u64)))
+          (#struct Frame () (: pc #u64 : source (#ref #u64) : words (#array #u64 1)))
           (#fn work (: frame (#ref-mut Frame)) #u64
             (#loop (#match (#get frame pc)
               (#case 0 (#block
@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn projected_assignment_epochs_follow_the_physical_referent() {
         let program = crate::parse_program(
-            "(#struct Frame (: pc #u64))
+            "(#struct Frame () (: pc #u64))
             (#fn work (: frame (#ref-mut Frame)) ()
               (#let-mut alias (#ref-mut #u64) (#borrow-mut (#get frame pc)))
               (#deref-set alias 1u64) (#return ()))",

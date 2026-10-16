@@ -30,8 +30,8 @@ fn run(source: &str) -> std::process::ExitStatus {
 
 #[test]
 fn variant_tests_borrow_linear_values_without_consuming_them() {
-    let source = "(#enum Choice ((Number 7 #u64) (Other 19 #u64)))
-      (#linear Choice)
+    let source = "(#enum Choice (#linear) ((Number 7 #u64) (Other 19 #u64)))
+
       (#type ChoiceAlias Choice)
       (#fn main () #u64
         (#let-mut value ChoiceAlias (Number 42u64))
@@ -52,7 +52,7 @@ fn variant_tests_borrow_linear_values_without_consuming_them() {
 
 #[test]
 fn pinned_shared_and_exclusive_references_and_explicit_discriminants_work() {
-    let source = "(#enum Choice ((Number 7 #u64) (Other 19 #u64)))
+    let source = "(#enum Choice () ((Number 7 #u64) (Other 19 #u64)))
       (#fn main () #u64
         (#let-mut value Choice (Other 42u64))
         (#let shared (#pin-ref Choice) (#pin-borrow value))
@@ -70,7 +70,7 @@ fn pinned_shared_and_exclusive_references_and_explicit_discriminants_work() {
 
 #[test]
 fn computed_receiver_is_evaluated_once() {
-    let source = "(#enum Choice ((Yes #u64) No))
+    let source = "(#enum Choice () ((Yes #u64) No))
       (#fn counted ((counter (#ref-mut #u64)) (value (#ref Choice))) (#ref Choice)
         (#deref-set counter (#u64.+.wrap (#deref counter) 1u64))
         (#return value))
@@ -86,7 +86,7 @@ fn computed_receiver_is_evaluated_once() {
 
 #[test]
 fn builtin_sigils_do_not_reserve_the_unprefixed_function_name() {
-    let source = "(#enum Choice (Ready Stop))
+    let source = "(#enum Choice () (Ready Stop))
       (#fn variant-is ((number #u64)) #u64 (#return number))
       (#fn main () #u64
         (#let value Choice Ready)
@@ -108,9 +108,9 @@ fn variant_test_rejects_invalid_operands_and_reports_the_expression_line() {
     let scratch = support::Scratch::new("variant-is-diagnostics");
     for (expression, offending) in cases {
         let source = format!(
-            "(#enum Choice (Yes No))\n\
-             (#enum Other (Right))\n\
-             (#struct Record ())\n\
+            "(#enum Choice () (Yes No))\n\
+             (#enum Other () (Right))\n\
+             (#struct Record () ())\n\
              (#fn main () #bool\n  \
                (#let value Choice Yes)\n  \
                (#let record Record (#struct-literal Record ()))\n  \
@@ -137,8 +137,8 @@ fn variant_test_rejects_invalid_operands_and_reports_the_expression_line() {
 
 #[test]
 fn exclusive_handles_in_fields_and_computed_blocks_remain_usable() {
-    let source = "(#enum Choice ((Number #u64) Empty)) (#linear Choice)
-      (#struct Holder ((view (#ref-mut Choice))))
+    let source = "(#enum Choice (#linear) ((Number #u64) Empty))
+      (#struct Holder () ((view (#ref-mut Choice))))
       (#type Alias Choice)
       (#fn main () #u64
         (#let-mut value Choice (Number 42u64))
@@ -161,7 +161,7 @@ fn tag_tests_do_not_bypass_live_mutable_child_loans() {
     for receiver in ["parent", "(#block parent)"] {
         let expression = format!("(#variant-is {receiver} Number)");
         let source = format!(
-            "(#enum Choice ((Number #u64) Empty))
+            "(#enum Choice () ((Number #u64) Empty))
           (#fn main () #u64
             (#let-mut value Choice (Number 42u64))
             (#let parent (#pin-ref-mut Choice) (#pin-borrow-mut value))

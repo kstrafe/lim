@@ -158,7 +158,7 @@ fn returned_element_reference_can_relinquish_its_mutable_slice_parent() {
 
 #[test]
 fn returned_field_reference_can_relinquish_its_mutable_reference_parent() {
-    let source = "(#struct Pair (: left #u64 : right #u64))
+    let source = "(#struct Pair () (: left #u64 : right #u64))
       (#fn pick (: target (#ref-mut Pair)) (#ref-mut #u64)
         (#let child (#ref-mut #u64) (#borrow-mut (#get target left)))
         (#forget target)
@@ -178,8 +178,8 @@ fn returned_field_reference_can_relinquish_its_mutable_reference_parent() {
 
 #[test]
 fn returned_aggregate_reference_can_relinquish_its_mutable_parent() {
-    let source = "(#struct Pair (: left #u64 : right #u64))
-      (#struct View (: selected (#ref-mut #u64)))
+    let source = "(#struct Pair () (: left #u64 : right #u64))
+      (#struct View () (: selected (#ref-mut #u64)))
       (#fn pick (: target (#ref-mut Pair)) View
         (#let child (#ref-mut #u64) (#borrow-mut (#get target left)))
         (#forget target)
@@ -200,8 +200,8 @@ fn returned_aggregate_reference_can_relinquish_its_mutable_parent() {
 
 #[test]
 fn returned_reference_from_owned_reference_container_keeps_its_referent() {
-    let source = "(#struct Pair (: value #u64))
-      (#struct Holder (: view (#ref-mut #u64)))
+    let source = "(#struct Pair () (: value #u64))
+      (#struct Holder () (: view (#ref-mut #u64)))
       (#fn take (: holder Holder) (#ref-mut #u64)
         (#let child (#ref-mut #u64) (#get holder view))
         (#forget holder)
@@ -222,7 +222,7 @@ fn returned_reference_from_owned_reference_container_keeps_its_referent() {
 
 #[test]
 fn parent_handle_release_does_not_transfer_an_unreturned_sibling_loan() {
-    let source = "(#struct Pair (: left #u64 : right #u64))
+    let source = "(#struct Pair () (: left #u64 : right #u64))
       (#fn pick (: target (#ref-mut Pair)) (#ref-mut #u64)
         (#let selected (#ref-mut #u64) (#borrow-mut (#get target left)))
         (#let other (#ref-mut #u64) (#borrow-mut (#get target right)))
@@ -285,8 +285,8 @@ fn ranged_slice_offsets_survive_a_reference_parameter_return() {
 
 #[test]
 fn projected_reborrow_conflicts_follow_multiple_reference_bindings() {
-    let source = "(#struct Inner (: value #u64))
-      (#struct Outer (: inner Inner))
+    let source = "(#struct Inner () (: value #u64))
+      (#struct Outer () (: inner Inner))
       (#fn main () ()
         (#let-mut owner Outer (#struct-literal Outer
           (: inner (#struct-literal Inner (: value 1u64)))))
@@ -305,8 +305,8 @@ fn projected_reborrow_conflicts_follow_multiple_reference_bindings() {
 
     let disjoint = source
         .replace(
-            "(#struct Inner (: value #u64))",
-            "(#struct Inner (: value #u64 : other #u64))",
+            "(#struct Inner () (: value #u64))",
+            "(#struct Inner () (: value #u64 : other #u64))",
         )
         .replace(
             "(: inner (#struct-literal Inner (: value 1u64)))",

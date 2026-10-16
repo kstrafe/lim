@@ -53,7 +53,7 @@ fn executable_keeps_transitive_callees_but_library_keeps_exports() {
 #[test]
 fn implicit_copy_clone_hooks_and_their_callees_are_retained() {
     let scratch = support::Scratch::new("reachable-clone-hooks");
-    let source = "(#struct Value ((number #u64)))
+    let source = "(#struct Value () ((number #u64)))
       (#type Alias Value)
       (#fn increment ((value Value)) Value
         (#return (#struct-literal Value
@@ -90,12 +90,12 @@ fn implicit_copy_clone_hooks_and_their_callees_are_retained() {
 #[test]
 fn implicit_clone_hooks_cannot_form_direct_or_mutual_recursion() {
     let sources = [
-        "(#struct Value ((number #u64)))
+        "(#struct Value () ((number #u64)))
          (#fn Value-clone ((value Value)) Value (#return (#clone value)))",
-        "(#struct Value ((number #u64)))
+        "(#struct Value () ((number #u64)))
          (#fn Value-clone ((value Value)) Value (#return (#call helper (: value value))))
          (#fn helper ((value Value)) Value (#return (#clone value)))",
-        "(#struct Left ((number #u64))) (#struct Right ((number #u64)))
+        "(#struct Left () ((number #u64))) (#struct Right () ((number #u64)))
          (#fn Left-clone ((value Left)) Left
            (#let right Right (#clone (#struct-literal Right (: number 0u64))))
            (#return value))

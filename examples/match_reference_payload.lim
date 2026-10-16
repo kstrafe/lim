@@ -1,4 +1,4 @@
-(#enum Holder ((Has (#ref #u64))))
+(#enum Holder () ((Has (#ref #u64))))
 
 (#fn select ((source (#ref #u64))) (#ref #u64)
   (#let holder Holder (Has source))

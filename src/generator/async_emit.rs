@@ -2171,7 +2171,7 @@ impl<'a> Emitter<'a> {
             }
             let alive = self.fresh("AggregateAlive");
             self.projections
-                .push(format!("(#enum {name} ({alive}))\n(#linear {name})"));
+                .push(format!("(#enum {name} (#linear) ({alive}))"));
             let slot = self.add_slot(format!("binding.{}.{suffix}", binding.0), Type::Named(name));
             self.slots[slot].copy = false;
             self.slots[slot].linear = true;
@@ -2592,7 +2592,7 @@ impl<'a> Emitter<'a> {
                 // cell helper. End all old loaded aliases before restoration.
                 // Full source checking and ordinary call contracts still
                 // determine which incoming referents the cell retains.
-                return format!("{lend}(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
+                return format!("{lend}(#enum {name} (#linear) (({empty}) ({full} {ty})))\n\
                   (#fn {put} ((slot (#pin-ref-mut {name})) (value {ty})) ()\n\
                     (#let previous {name} (#unsafe (#pin-read slot)))\n\
                     (#match previous (#case {empty} ()) (#case ({full} occupied) (#forget occupied)))\n\
@@ -2613,7 +2613,7 @@ impl<'a> Emitter<'a> {
                 // Owned reference transfers are emitted at the actual local
                 // cell, where input-slot identities and Empty/Full tags stay
                 // visible. Do not emit unused abstract take/put helpers.
-                return format!("{lend}(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
+                return format!("{lend}(#enum {name} (#linear) (({empty}) ({full} {ty})))\n\
                   (#fn {finish} ((slot {name})) ()\n\
                     (#match slot (#case {empty} ()) (#case ({full} occupied) {occupied}))\n\
                     (#return ()))\n\
@@ -2625,7 +2625,7 @@ impl<'a> Emitter<'a> {
                     name=slot.name, empty=slot.empty, full=slot.full,
                     finish=slot.finish, clear=slot.clear);
             }
-            format!("{lend}(#enum {name} (({empty}) ({full} {ty})))\n(#linear {name})\n\
+            format!("{lend}(#enum {name} (#linear) (({empty}) ({full} {ty})))\n\
               {take}\n\
               (#fn {put} ((slot (#pin-ref-mut {name})) (value {ty})) ()\n\
                 {empty_guard}\n\
@@ -6476,7 +6476,7 @@ impl<'a> Emitter<'a> {
                 }
             }
             definitions.push(format!(
-                "(#enum {cell} (({empty}) ({full} {})))\n(#linear {cell})",
+                "(#enum {cell} (#linear) (({empty}) ({full} {})))",
                 crate::type_source(&slot.ty)
             ));
             fields.push(format!("({field} {cell})"));
@@ -6554,9 +6554,7 @@ impl<'a> Emitter<'a> {
                 .map(|slot| format!("({} {})", slot.field, slot.name))
                 .collect::<Vec<_>>()
                 .join(" ");
-            definitions.push(format!(
-                "(#struct {name} ((pc #u32) {fields}))\n(#linear {name})"
-            ));
+            definitions.push(format!("(#struct {name} (#linear) ((pc #u32) {fields}))"));
             name
         } else {
             self.frame.clone()
@@ -6594,7 +6592,7 @@ impl<'a> Emitter<'a> {
             format!("(#let-mut state {} task)", self.frame)
         };
         let mut source = format!(
-            "{}\n(#struct {cleanup} ({}))\n(#linear {cleanup})\n\
+            "{}\n(#struct {cleanup} (#linear) ({}))\n\
             (#fn {}-cleanup (: task {receiver}) {cleanup}\n\
               {extraction}\n{}\n\
               (#forget state) (#return (#struct-literal {cleanup} ({}))))",
@@ -7248,8 +7246,8 @@ impl<'a> Emitter<'a> {
         };
         let source = format!(
             "{}\n\
-          (#struct {} ((pc #u32) {fields}))\n(#linear {})\n(#opaque {})\n\
-          (#enum {} (({} {}) ({} {})))\n\
+          (#struct {} (#linear) ((pc #u32) {fields}))\n(#opaque {})\n\
+          (#enum {} () (({} {}) ({} {})))\n\
           (#fn {} ({signature}) {}\n\
             {}\n\
             (#return (#struct-literal {} ((pc {}u32) {}))))\n\
@@ -7259,7 +7257,6 @@ impl<'a> Emitter<'a> {
             (#loop (#match (#get task pc) {} (#case _ (#unreachable))))\n\
             (#return (#unreachable)))\n",
             self.slot_definitions(),
-            self.frame,
             self.frame,
             self.frame,
             self.poll_type,
@@ -7427,8 +7424,8 @@ mod tests {
         let planning = prepare_generator(
             "#async-fn-pinned",
             function,
-            "(#struct View (: value (#ref #u64))) (#linear View)
-             (#enum Holder ((Holding View))) (#linear Holder)",
+            "(#struct View (#linear) (: value (#ref #u64)))
+             (#enum Holder (#linear) ((Holding View))) ",
         );
         let mut emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
         let binding = *emitter.preview_aliases.patterns.keys().next().unwrap();
@@ -7489,8 +7486,8 @@ mod tests {
     };
 
     const CONTEXT: &str = "
-      (#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#enum Child (#linear) ((Start #u64) (Resume #u64)))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Start value) (ChildPending (Resume value)))
@@ -7693,7 +7690,7 @@ mod tests {
             };
             assert_eq!(region.capacity, expected);
             assert!(fields.contains(&format!("({} (#array #u64 {expected}))", region.field)));
-            assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+            assert!(!definitions.contains(&format!("(#enum {} (#linear) ", slot.name)));
             assert!(!definitions.contains(&format!("(#fn {} ", slot.put)));
             // The old cell used one discriminator plus the same value words.
             saved_words += 1;
@@ -7718,7 +7715,7 @@ mod tests {
                 "primitive temporary {} is still tagged",
                 slot.field
             );
-            assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+            assert!(!definitions.contains(&format!("(#enum {} (#linear) ", slot.name)));
         }
     }
 
@@ -7735,7 +7732,7 @@ mod tests {
           (#drop view) (#forget owner) (#return answer))";
         for choose in ["true", "false"] {
             let main = format!(
-                "(#enum Choice ((Left #u64) (Right #u64))) (#linear Choice)
+                "(#enum Choice (#linear) ((Left #u64) (Right #u64)))
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut task Work-frame (#call work (: choose {choose})))
                 (#let first Work-poll-result (#call work-poll
@@ -7785,7 +7782,7 @@ mod tests {
           (#let answer #u64 (#deref view)) (#drop view) (#forget owner) (#return answer))";
         for choose in ["true", "false"] {
             let main = format!(
-                "(#enum Choice ((Left (#array #u64 2)) (Right (#array #u64 2)))) (#linear Choice)
+                "(#enum Choice (#linear) ((Left (#array #u64 2)) (Right (#array #u64 2))))
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut task Work-frame (#call work (: choose {choose})))
                 (#let first Work-poll-result (#call work-poll
@@ -7825,7 +7822,7 @@ mod tests {
               (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
               (#let answer #u64 (#deref (#get holder view)))
               (#forget holder) (#return (#u64.+.wrap answer extra)))",
-            "(#struct Holder (: view (#ref #u64))) (#linear Holder)
+            "(#struct Holder (#linear) (: view (#ref #u64)))
              (#fn main () #u64 (#return 0u64))",
         );
         let emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
@@ -7883,7 +7880,7 @@ mod tests {
                 )
                 .unwrap()
             );
-            assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+            assert!(!definitions.contains(&format!("(#enum {} (#linear) ", slot.name)));
             assert!(!definitions.contains(&format!("(#unsafe-fn {} ", slot.take)));
             if matches!(ty, Type::Named(_) | Type::Array(_, _) | Type::Tuple(_)) {
                 aggregates += 1;
@@ -7903,8 +7900,8 @@ mod tests {
           (#set-field owner item (#struct-literal Token (: value 2u64)))
           (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
           (#forget owner) (#return seed))";
-        let main = "(#struct Token (: value #u64)) (#linear Token)
-          (#struct Owner (: kept #u64 : item Token))";
+        let main = "(#struct Token (#linear) (: value #u64))
+          (#struct Owner () (: kept #u64 : item Token))";
         let planning = prepare_generator("#async-fn-pinned", function, main);
         let mut emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
         let owner = planning.functions[0]
@@ -7958,7 +7955,7 @@ mod tests {
             assert_eq!(words.owner, slot.storage);
             assert!(matches!(words.owner, Type::RawPointer { .. }));
             assert!(slot.anchor.is_some());
-            assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+            assert!(!definitions.contains(&format!("(#enum {} (#linear) ", slot.name)));
             assert!(!definitions.contains(&format!("(#unsafe-fn {} ", slot.take)));
             let read = emitter.read(index, false);
             assert!(read.contains("#word-read (#ptr"));
@@ -7988,8 +7985,8 @@ mod tests {
           (#let extra #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#set-field owner item (#struct-literal Token (: value extra)))
           (#let answer #u64 (#deref kept)) (#forget kept) (#forget owner) (#return answer))";
-        let main = "(#struct Token (: value #u64)) (#linear Token)
-          (#struct Owner (: kept #u64 : pointer (#ptr #u64) : item Token))";
+        let main = "(#struct Token (#linear) (: value #u64))
+          (#struct Owner () (: kept #u64 : pointer (#ptr #u64) : item Token))";
         let planning = prepare_generator("#async-fn-pinned", function, main);
         let generated = generate(&planning).unwrap();
         assert!(generated[0].source.contains("(#array Owner 0)"));
@@ -8017,8 +8014,8 @@ mod tests {
           (#let answer #u64 (#u64.+.wrap (#deref kept) extra))
           (#assert (#u64.== (#deref external) 0u64))
           (#forget kept) (#forget owner) (#return answer))";
-        let main = "(#struct Token (: value #u64)) (#linear Token)
-          (#struct Owner (: kept #u64 : item Token))
+        let main = "(#struct Token (#linear) (: value #u64))
+          (#struct Owner () (: kept #u64 : item Token))
           (#fn main () #u64
             (#let waker #u64 0u64)
             (#let-mut task Work-frame (#call work (: seed 40u64 : external (#borrow waker))))
@@ -8196,7 +8193,7 @@ mod tests {
                 "(#forget task)"
             };
             let main = format!(
-                "(#struct Pair (: left #u64 : right #u64))
+                "(#struct Pair () (: left #u64 : right #u64))
               (#fn main () #u64
                 (#let waker #u64 0u64) {setup}
                 (#let-else (work-pending next) Work-poll-result (#call work-poll
@@ -8224,7 +8221,7 @@ mod tests {
                     } else {
                         copies += 1;
                     }
-                    assert!(!definitions.contains(&format!("(#enum {} ", slot.name)));
+                    assert!(!definitions.contains(&format!("(#enum {} (#linear) ", slot.name)));
                     assert!(!definitions.contains(&format!("(#unsafe-fn {} ", slot.take)));
                 } else {
                     panic!(
@@ -8260,7 +8257,7 @@ mod tests {
             "(#let pair Pair (#struct-literal Pair (: left seed : right 0u64)))
              (#forget (#get pair left)) (#let owner #u64 (#get pair left)) (#forget pair)",
         );
-        let projected_main = format!("(#struct Pair (: left #u64 : right #u64))\n{main}");
+        let projected_main = format!("(#struct Pair () (: left #u64 : right #u64))\n{main}");
         let planning = prepare_generator("#async-fn-pinned", &projected, &projected_main);
         assert!(Emitter::new(&planning, &planning.functions[0])
             .unwrap()
@@ -8491,8 +8488,8 @@ mod tests {
           (#let delta #u64 (#await Child ChildPending ChildReady child-poll (Start 0u64)))
           (#let result #u64 (#deref (#get duplicate reference)))
           (#forget duplicate) (#return result))";
-        let main = "(#struct Holder (: reference (#ref #u64))) (#linear Holder)
-          (#struct Envelope (: item Holder))
+        let main = "(#struct Holder (#linear) (: reference (#ref #u64)))
+          (#struct Envelope () (: item Holder))
           (#fn make-envelope (: reference (#ref #u64)) Envelope
             (#return (#struct-literal Envelope
               (: item (#struct-literal Holder (: reference reference))))))
@@ -8523,8 +8520,8 @@ mod tests {
         runtime_planned(prepare_function(&tuple_function, &tuple_main), 42);
         let hooked_main = main
             .replace(
-                "(#struct Holder (: reference (#ref #u64)))",
-                "(#struct Holder (: reference (#ref #u64) : offset #u64))",
+                "(#struct Holder (#linear) (: reference (#ref #u64)))",
+                "(#struct Holder (#linear) (: reference (#ref #u64) : offset #u64))",
             )
             .replace(
                 "(#struct-literal Holder (: reference reference))",
@@ -8598,7 +8595,7 @@ mod tests {
           (#let result #u64 (#u64.+.wrap (#deref (#get duplicate reference))
             (#u64.+.wrap (#deref (#get original reference)) delta)))
           (#forget duplicate) (#forget original) (#return result))";
-        let main = "(#struct Holder (: reference (#ref #u64))) (#linear Holder)
+        let main = "(#struct Holder (#linear) (: reference (#ref #u64)))
           (#fn make-holder (: reference (#ref #u64)) Holder
             (#return (#struct-literal Holder (: reference reference))))
           (#fn main () #u64
@@ -8704,14 +8701,14 @@ mod tests {
                 kind,
                 "(#fn work (: seed #u64) #u64
                   (#return (#await Child ChildPending ChildReady child-poll (Start seed))))",
-                "(#struct Work-frame-state (: value #u64))",
+                "(#struct Work-frame-state () (: value #u64))",
             );
             let generated = generate(&planning).unwrap();
             let output = &generated[0];
             assert!(output.source.contains("(#fn work-poll-cleanup "));
             assert!(output
                 .source
-                .contains(&format!("(#struct {}-cleanup ", output.frame)));
+                .contains(&format!("(#struct {}-cleanup (#linear) ", output.frame)));
             assert!(!output.source.contains("work-poll-cancel"));
             assert!(!output.source.contains("Work-frame-state"));
             crate::CheckedProgram::validate(&program(&planning, &generated).unwrap()).unwrap();
@@ -8824,7 +8821,7 @@ mod tests {
     fn owning_cell_initializers_check_empty_before_extracting_pinned_storage() {
         let planning = prepare(
             "(#let child Child (Start seed)) (#forget child) (#return seed)",
-            "(#struct RefOwner (: view (#ref-mut #u64))) (#linear RefOwner)
+            "(#struct RefOwner (#linear) (: view (#ref-mut #u64)))
              (#fn main () #u64 (#return 0u64))",
         );
         let mut emitter = Emitter::new(&planning, &planning.functions[0]).unwrap();
@@ -9023,9 +9020,9 @@ mod tests {
     #[test]
     fn linear_nested_aggregate_patterns_only_load_copy_leaves() {
         let main = format!(
-            "(#struct Leaf ((number #u64) (enabled #bool))) (#linear Leaf)
-          (#struct Container ((leaf Leaf) (items (#array #u64 2)))) (#linear Container)
-          (#enum Owned ((Packed Container) Absent)) (#linear Owned)
+            "(#struct Leaf (#linear) ((number #u64) (enabled #bool)))
+          (#struct Container (#linear) ((leaf Leaf) (items (#array #u64 2))))
+          (#enum Owned (#linear) ((Packed Container) Absent))
           {RUN}"
         );
         runtime(
@@ -9088,8 +9085,8 @@ mod tests {
     fn copy_fields_are_read_in_place_and_staged_before_later_awaits() {
         let main = format!(
             "(#type Pair (#tuple #u64 #u64))
-          (#struct Inner ((padding #u64) (empty ()) (pair Pair))) (#linear Inner)
-          (#struct Owner ((padding #u64) (inner Inner))) (#linear Owner)
+          (#struct Inner (#linear) ((padding #u64) (empty ()) (pair Pair)))
+          (#struct Owner (#linear) ((padding #u64) (inner Inner)))
           {RUN}"
         );
         runtime(
@@ -9251,8 +9248,8 @@ mod tests {
     #[test]
     fn copy_children_keep_shared_loans_and_transfer_ready_references() {
         let extra =
-            "(#enum ReferenceStep ((ReferenceStart (#ref #u64)) (ReferenceResume (#ref #u64))))
-          (#enum ReferencePoll ((ReferencePending ReferenceStep) (ReferenceReady (#ref #u64))))
+            "(#enum ReferenceStep () ((ReferenceStart (#ref #u64)) (ReferenceResume (#ref #u64))))
+          (#enum ReferencePoll () ((ReferencePending ReferenceStep) (ReferenceReady (#ref #u64))))
           (#fn reference-poll (: task ReferenceStep : waker (#ref #u64)) ReferencePoll
             (#return (#match task
               (#case (ReferenceStart value) (ReferencePending (ReferenceResume value)))
@@ -9322,9 +9319,9 @@ mod tests {
 
     #[test]
     fn owned_exclusive_children_transfer_without_copying_their_handles() {
-        let extra = "(#enum ExclusiveChild ((ExclusiveStart (#ref-mut #u64)) (ExclusiveResume (#ref-mut #u64))))
-          (#linear ExclusiveChild)
-          (#enum ExclusivePoll ((ExclusivePending ExclusiveChild) (ExclusiveReady #u64)))
+        let extra = "(#enum ExclusiveChild (#linear) ((ExclusiveStart (#ref-mut #u64)) (ExclusiveResume (#ref-mut #u64))))
+
+          (#enum ExclusivePoll () ((ExclusivePending ExclusiveChild) (ExclusiveReady #u64)))
           (#fn exclusive-poll (: task ExclusiveChild : waker (#ref #u64)) ExclusivePoll
             (#return (#match task
               (#case (ExclusiveStart view) (#block
@@ -9462,7 +9459,7 @@ mod tests {
           (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 1u64)))
           (#let answer #u64 (#u64.+.wrap (#deref (#get returned view)) child))
           (#forget returned) (#drop view) (#return answer))";
-        let main = "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+        let main = "(#struct Holder (#linear) (: view (#ref-mut #u64)))
           (#fn capture (: view (#ref-mut #u64) : amount #u64) Holder
             (#deref-set view (#u64.+.wrap (#deref view) amount))
             (#return (#struct-literal Holder (: view view))))
@@ -9505,7 +9502,7 @@ mod tests {
             (format!("{first}\n{second}"), "last", 41),
         ] {
             let main = format!(
-                "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+                "(#struct Holder (#linear) (: view (#ref-mut #u64)))
                   (#fn capture (: view (#ref-mut #u64) : amount #u64) Holder
                     (#deref-set view (#u64.+.wrap (#deref view) amount))
                     (#return (#struct-literal Holder (: view view))))
@@ -9549,7 +9546,7 @@ mod tests {
 
     #[test]
     fn projected_exclusive_arguments_snapshot_before_later_suspension() {
-        let declarations = "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+        let declarations = "(#struct Holder (#linear) (: view (#ref-mut #u64)))
           (#fn capture (: view (#ref-mut #u64)) Holder
             (#return (#struct-literal Holder (: view view))))
           (#fn capture-tuple (: view (#ref-mut #u64)) (#tuple (#ref-mut #u64) #u64)
@@ -9816,7 +9813,7 @@ mod tests {
           (#let holder Holder (#call echo (: view view)))
           (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#return (#call read-holder (: holder holder : amount child))))";
-        let main = "(#struct Source (: amount #u64)) (#struct Holder (: view (#ref #u64)))
+        let main = "(#struct Source () (: amount #u64)) (#struct Holder () (: view (#ref #u64)))
           (#fn echo (: view (#ref-mut Source)) Holder
             (#return (#struct-literal Holder (: view (#borrow (#get view amount))))))
           (#fn read-holder (: holder Holder : amount #u64) #u64
@@ -9932,7 +9929,7 @@ mod tests {
         let error = prepare_generator_result(
             "#async-fn-pinned",
             function,
-            "(#struct Source (: amount #u64)) (#linear Source)",
+            "(#struct Source (#linear) (: amount #u64)) ",
         )
         .err()
         .expect("a consumed owner cannot supply a borrow");
@@ -9949,7 +9946,7 @@ mod tests {
           (#let view (#pin-ref Empty) (#pin-borrow owner))
           (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#drop view) (#forget owner) (#return (#u64.+.wrap seed child)))";
-        let main = "(#struct Empty ()) (#linear Empty)
+        let main = "(#struct Empty (#linear) ())
           (#fn main () #u64 (#let waker #u64 0u64)
           (#let-mut task Work-frame (#call work (: seed 40u64)))
           (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
@@ -9972,7 +9969,7 @@ mod tests {
             (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 1u64))))
           (#let answer #u64 (#u64.+.wrap (#deref left) (#deref right)))
           (#drop left) (#drop right) (#forget owner) (#return answer))";
-        let main = "(#struct Source (: left #u64 : right #u64)) (#linear Source)
+        let main = "(#struct Source (#linear) (: left #u64 : right #u64))
           (#fn main () #u64 (#let waker #u64 0u64)
             (#let-mut task Work-frame (#call work (: seed 38u64)))
             (#let-mut running (#pin-ref-mut Work-frame) (#pin-borrow-mut task))
@@ -9988,7 +9985,7 @@ mod tests {
 
         // Distinct consumed continuation handles already retain those loans.
         // The source async loop itself is unchanged and suspends twice.
-        let main = "(#struct Source (: left #u64 : right #u64)) (#linear Source)
+        let main = "(#struct Source (#linear) (: left #u64 : right #u64))
           (#fn main () #u64 (#let waker #u64 0u64)
             (#let-mut task Work-frame (#call work (: seed 38u64)))
             (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
@@ -10056,7 +10053,7 @@ mod tests {
             let planning = prepare_generator(
                 "#async-fn-pinned",
                 function,
-                "(#struct Source (: amount #u64)) (#linear Source)",
+                "(#struct Source (#linear) (: amount #u64)) ",
             );
             let mut generated = generate(&planning).unwrap();
             let parsed = program(&planning, &generated).unwrap();
@@ -10162,7 +10159,7 @@ mod tests {
                   (#return total))"
             );
             let main = format!(
-                "(#struct Source (: amount #u64)) (#linear Source)
+                "(#struct Source (#linear) (: amount #u64))
                   (#fn make-owner (: seed #u64 : count (#ptr-mut #u64)) Source
                     (#unsafe (#ptr-write count (#u64.+.wrap (#ptr-read count) 1u64)))
                     (#return (#struct-literal Source (: amount seed))))
@@ -10198,7 +10195,7 @@ mod tests {
           (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#let observed #u64 (#deref view)) (#drop view) (#forget owner)
           (#return (#u64.+.wrap observed child)))";
-        let main = "(#struct Source (: padding #u64 : amount #u64)) (#linear Source)
+        let main = "(#struct Source (#linear) (: padding #u64 : amount #u64))
           (#fn make-owner (: seed #u64 : count (#ptr-mut #u64)) Source
             (#unsafe (#ptr-write count (#u64.+.wrap (#ptr-read count) 1u64)))
             (#return (#struct-literal Source (: padding 99u64 : amount seed))))
@@ -10230,14 +10227,14 @@ mod tests {
           (#let observed #u64 (#deref view)) (#drop view)
           (#call destroy-owner (: owner owner : count destroyed))
           (#return (#u64.+.wrap observed child)))";
-        let declarations = "(#struct Counter (: storage (#atomic #u64))) (#linear Counter)
+        let declarations = "(#struct Counter (#linear) (: storage (#atomic #u64)))
           (#fn read-counter (: count (#ref Counter)) #u64
             (#return (#atomic-load (#borrow (#get count storage)) #memory-relaxed)))
           (#fn bump-counter (: count (#ref Counter)) ()
             (#atomic-store (#borrow (#get count storage))
               (#u64.+.wrap (#call read-counter (: count count)) 1u64) #memory-relaxed)
             (#return ()))
-          (#struct Source (: amount #u64)) (#linear Source)
+          (#struct Source (#linear) (: amount #u64))
           (#fn make-owner (: amount #u64 : count (#ref Counter)) Source
             (#call bump-counter (: count count))
             (#return (#struct-literal Source (: amount amount))))
@@ -10324,7 +10321,7 @@ mod tests {
           (#let observed #u64 (#deref (#deref view)))
           (#drop view) (#forget owner)
           (#return (#u64.+.wrap observed child)))";
-        let main = "(#struct Source (: amount (#ref #u64)))
+        let main = "(#struct Source () (: amount (#ref #u64)))
           (#fn main () #u64 (#let waker #u64 0u64)
             (#let-mut task Work-frame (#call work (: seed 40u64)))
             (#let first Work-poll-result (#call work-poll
@@ -10346,7 +10343,7 @@ mod tests {
           (#let child #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
           (#let observed #u64 (#deref view)) (#drop view) (#forget owner)
           (#return (#u64.+.wrap observed child)))";
-        let main = "(#struct Source (: amount #u64)) (#linear Source)
+        let main = "(#struct Source (#linear) (: amount #u64))
           (#fn main () #u64 (#let waker #u64 0u64)
             (#let-mut task Work-frame (#call work (: seed 40u64)))
             (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
@@ -10368,7 +10365,7 @@ mod tests {
                 "task",
             ),
         ] {
-            let bad = format!("(#struct Source (: amount #u64)) (#linear Source)
+            let bad = format!("(#struct Source (#linear) (: amount #u64))
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut task Work-frame (#call work (: seed 40u64)))
                 (#let first Work-poll-result (#call work-poll (: task (#pin-borrow-mut task) : waker (#borrow waker))))
@@ -10409,7 +10406,7 @@ mod tests {
               {destination} (#await Child ChildPending ChildReady child-poll (Start 40u64)))
               (#return (#u64.+.wrap (#get view amount) 2u64)))"
             );
-            let main = format!("(#struct Source (: padding #u64 : amount #u64)) (#linear Source)
+            let main = format!("(#struct Source (#linear) (: padding #u64 : amount #u64))
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut owner Source (#struct-literal Source (: padding 99u64 : amount 10u64)))
                 (#let-mut task Work-frame (#call work (: view ({borrow} owner))))
@@ -10455,7 +10452,7 @@ mod tests {
               (#return (#u64.+.wrap (#deref selected) child)))"
             );
             let main = format!(
-                "(#struct Source (: amount #u64)) (#linear Source)
+                "(#struct Source (#linear) (: amount #u64))
               (#fn main () #u64 (#let waker #u64 0u64)
               (#let-mut owner Source (#struct-literal Source (: amount 40u64)))
               (#let-mut task Work-frame (#call work (: view ({borrow} owner))))
@@ -10529,7 +10526,7 @@ mod tests {
               (#let step #u64 (#await Child ChildPending ChildReady child-poll (Start 2u64)))
               {write} (#return (#u64.+.wrap (#deref selected) step)))"
                 );
-                let main = format!("(#struct Source (: padding #u64 : amount {field_type})) (#linear Source)
+                let main = format!("(#struct Source (#linear) (: padding #u64 : amount {field_type}))
               (#fn main () #u64 (#let waker #u64 0u64)
                 (#let-mut owner Source (#struct-literal Source (: padding 99u64 : amount {field_value})))
                 (#let-mut task Work-frame (#call work (: view ({initial} owner))))
@@ -10657,7 +10654,7 @@ mod tests {
                   (#forget owned) (#return answer))"
             );
             let main = format!(
-                "(#struct Owned (: value #u64)) (#linear Owned)
+                "(#struct Owned (#linear) (: value #u64))
                   (#fn increment (: view ({ty} #u64)) ()
                     {write} (#return ()))
                   (#fn capture (: view ({ty} #u64)) Owned
@@ -10733,7 +10730,7 @@ mod tests {
                   (#return total))"
             );
             let main = format!(
-                "(#struct Holder (: amount #u64)) (#linear Holder)
+                "(#struct Holder (#linear) (: amount #u64))
                   (#fn main () #u64
                     (#let waker #u64 0u64)
                     (#let-mut owner Holder (#struct-literal Holder (: amount 20u64)))
@@ -10756,8 +10753,8 @@ mod tests {
         ] {
             for (declarations, target, construct, projection) in [
                 (
-                    "(#struct Inner (: amount #u64)) (#linear Inner)
-                   (#struct Holder (: inner Inner)) (#linear Holder)",
+                    "(#struct Inner (#linear) (: amount #u64))
+                   (#struct Holder (#linear) (: inner Inner)) ",
                     "Holder",
                     "(#struct-literal Holder (: inner (#struct-literal Inner (: amount 40u64))))",
                     "(#get (#get view inner) amount)",
@@ -10814,7 +10811,7 @@ mod tests {
     #[test]
     fn shared_reference_fields_survive_outer_handle_release() {
         for (ty, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
-            let extra = "(#struct Holder (: padding #u64 : view (#ref #u64)))";
+            let extra = "(#struct Holder () (: padding #u64 : view (#ref #u64)))";
             let function = format!(
                 "(#fn work (: holder ({ty} Holder)) #u64
                   (#let loaded (#ref #u64) (#get holder view)) (#drop holder)
@@ -10880,8 +10877,8 @@ mod tests {
 
     #[test]
     fn shared_copy_aggregate_fields_keep_nested_references_across_pending() {
-        let main = "(#struct Stored (: view (#ref #u64)))
-          (#struct Holder (: padding #u64 : stored Stored)) (#linear Holder)
+        let main = "(#struct Stored () (: view (#ref #u64)))
+          (#struct Holder (#linear) (: padding #u64 : stored Stored))
           (#fn read-stored (: value Stored) #u64 (#return (#deref (#get value view))))
           (#fn main () #u64
             (#let waker #u64 0u64) (#let value #u64 40u64)
@@ -10911,8 +10908,8 @@ mod tests {
         for (ty, borrow) in [("#ref", "#borrow"), ("#pin-ref", "#pin-borrow")] {
             let main = format!(
                 "(#type Pair (#tuple #u64 #u64))
-                (#struct Inner ((padding #u64) (pair Pair))) (#linear Inner)
-                (#struct Owner ((padding #u64) (inner Inner))) (#linear Owner)
+                (#struct Inner (#linear) ((padding #u64) (pair Pair)))
+                (#struct Owner (#linear) ((padding #u64) (inner Inner)))
                 (#fn main () #u64
                   (#let waker #u64 0u64)
                   (#let owner Owner (#struct-literal Owner (: padding 77u64
@@ -11003,7 +11000,7 @@ mod tests {
               (#return (#u64.+.wrap
                 (#get (#unsafe (#call select (: view view : count count))) value)
                 (#await Child ChildPending ChildReady child-poll (Start 2u64)))))",
-            "(#struct Owner ((padding #u64) (value #u64))) (#linear Owner)
+            "(#struct Owner (#linear) ((padding #u64) (value #u64)))
               (#unsafe-fn select ((view (#ref Owner)) (count (#ptr-mut #u64))) (#ref Owner)
                 (#unsafe (#ptr-write count (#u64.+.wrap (#ptr-read count) 1u64)))
                 (#return view))
@@ -11028,7 +11025,7 @@ mod tests {
 
     #[test]
     fn copy_projected_operands_survive_pending_without_moving_the_owner() {
-        let main = format!("(#struct Owner ((value #u64))) (#linear Owner) {RUN}");
+        let main = format!("(#struct Owner (#linear) ((value #u64)))  {RUN}");
         runtime(
             "(#let owner Owner (#struct-literal Owner (: value seed)))
           (#let result #u64 (#u64.+.wrap (#get owner value)
@@ -11042,9 +11039,8 @@ mod tests {
 
     #[test]
     fn copy_fields_are_updated_after_rhs_awaits_without_moving_the_owner() {
-        let main = format!(
-            "(#struct Owner ((padding #u64) (empty ()) (value #u64))) (#linear Owner) {RUN}"
-        );
+        let main =
+            format!("(#struct Owner (#linear) ((padding #u64) (empty ()) (value #u64)))  {RUN}");
         let generated = runtime(
             "(#let-mut owner Owner (#struct-literal Owner (: padding 77u64 : empty () : value 0u64)))
           (#set-field owner value (#await Child ChildPending ChildReady child-poll (Start seed)))
@@ -11062,7 +11058,7 @@ mod tests {
 
     #[test]
     fn projected_write_rhs_is_evaluated_once_before_pending_retries() {
-        let main = "(#struct Owner ((padding #u64) (value #u64))) (#linear Owner)
+        let main = "(#struct Owner (#linear) ((padding #u64) (value #u64)))
           (#fn counted ((count (#ptr-mut #u64))) Child
             (#unsafe (#ptr-write count (#u64.+.wrap (#ptr-read count) 1u64)))
             (#return (Start 2u64)))
@@ -11098,7 +11094,7 @@ mod tests {
             "(#let-mut owner Owner (#struct-literal Owner (: value seed)))
              (#let result #u64 (#get owner value))
              (#forget owner) (#return result)",
-            &format!("(#struct Owner ((value #u64))) (#linear Owner) {RUN}"),
+            &format!("(#struct Owner (#linear) ((value #u64)))  {RUN}"),
         );
         let function = &mut planning.functions[0];
         let body = &planning.declarations.bodies[&function.model.body_name];
@@ -11143,8 +11139,8 @@ mod tests {
           (#let duplicate Pair (#clone owner)) (#forget duplicate)
           (#forget owner) (#return seed))";
         let declarations = format!(
-            "(#struct Resource (: value #u64)) (#linear Resource)
-          (#struct Pair (: left Resource : right Resource)) {RUN}"
+            "(#struct Resource (#linear) (: value #u64))
+          (#struct Pair () (: left Resource : right Resource)) {RUN}"
         );
         for function in [
             function.to_owned(),
@@ -11196,9 +11192,9 @@ mod tests {
           (#let duplicate Pair (#clone (#get owner inner))) (#forget duplicate)
           (#forget owner) (#return seed))";
         let declarations = format!(
-            "(#struct Resource (: value #u64)) (#linear Resource)
-             (#struct Pair (: left Resource : right Resource))
-             (#struct Outer (: inner Pair)) {RUN}"
+            "(#struct Resource (#linear) (: value #u64))
+             (#struct Pair () (: left Resource : right Resource))
+             (#struct Outer () (: inner Pair)) {RUN}"
         );
         for function in [
             function.to_owned(),
@@ -11250,9 +11246,9 @@ mod tests {
           (#let result #u64 (#deref view))
           (#drop view) (#forget pair) (#return result))";
         let declarations = format!(
-            "(#struct Resource (: value #u64)) (#linear Resource)
-             (#struct Holder (: data (#array #u64 2))) (#linear Holder)
-             (#struct Pair (: left Resource : right Holder)) {RUN}"
+            "(#struct Resource (#linear) (: value #u64))
+             (#struct Holder (#linear) (: data (#array #u64 2)))
+             (#struct Pair () (: left Resource : right Holder)) {RUN}"
         );
         let mut planning = prepare_function(function, &declarations);
         assert!(generate(&planning).is_ok());
@@ -11299,7 +11295,7 @@ mod tests {
                     (#let-mut owner Owner (#struct-literal Owner (: value seed)))
                     {body} (#forget owner) (#return 42u64))"
                 ),
-                &format!("(#struct Owner ((value #u64))) (#linear Owner) {RUN}"),
+                &format!("(#struct Owner (#linear) ((value #u64)))  {RUN}"),
             )
             .err()
             .expect("a consumed owner cannot supply a projection");
@@ -11317,7 +11313,7 @@ mod tests {
           (#set-field owner value (#u64.+.wrap (#get owner value)
             (#await Child ChildPending ChildReady child-poll (Start 2u64))))
           (#let result #u64 (#get owner value)) (#forget owner) (#return result)",
-            &format!("(#struct Owner ((value #u64))) (#linear Owner) {RUN}"),
+            &format!("(#struct Owner (#linear) ((value #u64)))  {RUN}"),
             42,
         );
     }
@@ -11332,14 +11328,14 @@ mod tests {
               (#await Child ChildPending ChildReady child-poll (Start 1u64)))))
           (#assert (#u64.== (#get owner padding) 77u64))
           (#let result #u64 (#get owner value)) (#forget owner) (#return result)",
-            &format!("(#struct Owner ((padding #u64) (value #u64))) (#linear Owner) {RUN}"),
+            &format!("(#struct Owner (#linear) ((padding #u64) (value #u64)))  {RUN}"),
             42,
         );
     }
 
     #[test]
     fn copy_clone_hooks_run_once_for_projected_and_plain_loads() {
-        let main = "(#struct Value ((number #u64) (count (#ptr-mut #u64))))
+        let main = "(#struct Value () ((number #u64) (count (#ptr-mut #u64))))
           (#fn Value-clone ((value Value)) Value
             (#unsafe (#ptr-write (#get value count)
               (#u64.+.wrap (#ptr-read (#get value count)) 1u64)))
@@ -11460,8 +11456,8 @@ mod tests {
 
     #[test]
     fn selected_payload_and_nested_array_addresses_keep_their_checked_owners() {
-        let main = "(#enum Choice ((Good #u64) (Bad #u64)))
-          (#struct Owner (: values (#array #u64 2)))
+        let main = "(#enum Choice () ((Good #u64) (Bad #u64)))
+          (#struct Owner () (: values (#array #u64 2)))
           (#fn main () #u64
             (#let waker #u64 0u64)
             (#let-mut task Work-frame (#call work (: seed 42u64)))
@@ -11519,7 +11515,7 @@ mod tests {
     #[test]
     fn movable_polls_keep_explicitly_retired_local_handles_within_the_poll() {
         let main = format!(
-            "(#struct Counter (: value #u64))
+            "(#struct Counter () (: value #u64))
           (#fn touch (: target (#ref-mut #u64)) ()
             (#deref-set target (#u64.+.wrap (#deref target) 1u64)) (#return ()))
           {RUN}"
@@ -11659,7 +11655,7 @@ mod tests {
         ] {
             let planning = prepare(
                 body,
-                &format!("(#struct Holder (: view (#ref #u64))) {RUN}"),
+                &format!("(#struct Holder () (: view (#ref #u64))) {RUN}"),
             );
             let error = generate(&planning)
                 .err()

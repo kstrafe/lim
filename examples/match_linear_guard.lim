@@ -1,6 +1,6 @@
-(#struct Token ((value #u64)))
-(#linear Token)
-(#enum Choice ((Owned Token) Empty))
+(#struct Token (#linear) ((value #u64)))
+
+(#enum Choice () ((Owned Token) Empty))
 
 (#fn exceeds (: token (#ref Token) : limit #u64) #bool
   (#return (#u64.> (#get token value) limit)))

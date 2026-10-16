@@ -1,6 +1,6 @@
-(#struct Token ((value #u64)))
-(#linear Token)
-(#enum Choice ((Owned Token) Empty))
+(#struct Token (#linear) ((value #u64)))
+
+(#enum Choice () ((Owned Token) Empty))
 (#fn main () ()
   (#let choice Choice (Owned (#struct-literal Token ((value 1u64)))))
   (#match choice

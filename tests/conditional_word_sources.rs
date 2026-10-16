@@ -15,7 +15,7 @@ fn compile(source: &str) -> Result<String, lim::Diagnostic> {
 
 #[test]
 fn pinned_extraction_from_disjoint_word_cell_preserves_neighbor_source() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn main () #u64
         (#let amount #u64 42u64)
         (#let-mut words (#array #u64 2) (#array-repeat 0u64))
@@ -35,7 +35,7 @@ fn pinned_extraction_from_disjoint_word_cell_preserves_neighbor_source() {
 
 #[test]
 fn pinned_extraction_does_not_initialize_a_disjoint_word_cell() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn main () #u64
         (#let amount #u64 42u64)
         (#let-mut words (#array #u64 2) (#array-repeat 0u64))
@@ -55,7 +55,7 @@ fn pinned_extraction_does_not_initialize_a_disjoint_word_cell() {
 
 #[test]
 fn cloning_a_builtin_raw_pointer_preserves_disjoint_selector_facts() {
-    let source = "(#struct Holder (: value (#ref #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
       (#fn main () #u64
         (#let-mut selector #u64 0u64)
         (#let-mut unrelated #u64 7u64)
@@ -74,8 +74,8 @@ fn cloning_a_builtin_raw_pointer_preserves_disjoint_selector_facts() {
 
 #[test]
 fn custom_clone_through_a_raw_pointer_invalidates_selector_facts() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Payload (: target (#ptr-mut #u64)))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Payload () (: target (#ptr-mut #u64)))
       (#fn Payload-clone (: value Payload) Payload
         (#unsafe (#ptr-write (#get value target) 1u64)) (#return value))
       (#fn main () #u64
@@ -96,8 +96,8 @@ fn custom_clone_through_a_raw_pointer_invalidates_selector_facts() {
     assert_eq!(error.code, DiagnosticCode::Linear, "{error:?}");
 }
 
-const RETURNED_FRAME: &str = "(#struct Holder (: value (#ref #u64)))
-  (#struct Frame (: state #u64 : words (#array #u64 1)))
+const RETURNED_FRAME: &str = "(#struct Holder () (: value (#ref #u64)))
+  (#struct Frame () (: state #u64 : words (#array #u64 1)))
   (#fn make (: value (#ref #u64) : flag #bool) Frame
     (#let-mut frame Frame (#struct-literal Frame
       (: state 0u64 : words (#array-repeat 0u64))))
@@ -171,10 +171,10 @@ fn word_forget_alias_revokes_returned_conditional_word_guarantee() {
 
 #[test]
 fn absent_owned_enum_payload_does_not_create_a_nested_write_footprint() {
-    let source = "(#struct Holder (: value (#ref #u64)))
-      (#struct Frame (: state #u64 : words (#array #u64 1)))
-      (#struct Container (: target (#ref-mut #u64)))
-      (#enum Handle ((Empty) (Full (#ref-mut Container))))
+    let source = "(#struct Holder () (: value (#ref #u64)))
+      (#struct Frame () (: state #u64 : words (#array #u64 1)))
+      (#struct Container () (: target (#ref-mut #u64)))
+      (#enum Handle () ((Empty) (Full (#ref-mut Container))))
       (#fn empty () Handle (#return (Empty)))
       (#fn mutate (: handle Handle) ()
         (#match handle
@@ -215,9 +215,9 @@ fn absent_owned_enum_payload_does_not_create_a_nested_write_footprint() {
     );
 }
 
-const CONDITIONAL_SCALAR_OUTCOME: &str = "(#struct Holder (: value (#ref #u64)))
-  (#struct Frame (: state #u64 : words (#array #u64 1)))
-  (#enum Outcome ((Empty) (Full)))
+const CONDITIONAL_SCALAR_OUTCOME: &str = "(#struct Holder () (: value (#ref #u64)))
+  (#struct Frame () (: state #u64 : words (#array #u64 1)))
+  (#enum Outcome () ((Empty) (Full)))
   (#fn choose (: state (#ref-mut #u64) : full #bool) Outcome
     (#if full
       (#block (#deref-set state 1u64) (#return (Full)))

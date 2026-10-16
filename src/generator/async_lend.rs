@@ -140,7 +140,7 @@ mod tests {
             assert!(matches!(accesses[0], Access::Move(_)), "{tail}");
         }
         let (body, plan) = classify(
-            "(#struct Holder (: view (#ref-mut #u64)))
+            "(#struct Holder () (: view (#ref-mut #u64)))
              (#fn work (: view (#ref-mut #u64)) Holder
                (#return (#struct-literal Holder (: view view))))",
         );

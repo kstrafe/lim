@@ -1,6 +1,6 @@
 (
   #enum
-  Color
+  Color ()
   (Red Green Blue)
 )
 

@@ -74,7 +74,7 @@ contents:
 ```lisp library
 (#import "../library/cell.lim")
 (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
-(#struct Arena ((cursor CellU64)))
+(#struct Arena () ((cursor CellU64)))
 (#fn advance ((cursor (#ref CellU64))) #u64
   (#let next #u64 (#u64.+.wrap
     (#call CellU64-get (: cell (#clone cursor))) 1u64))
@@ -165,7 +165,7 @@ derives both properties recursively for structs, enums, tuples, and arrays:
 Unsafe native or opaque types may opt in explicitly:
 
 ```lisp library
-(#struct NativeResource ((handle (#ptr #u8))))
+(#struct NativeResource () ((handle (#ptr #u8))))
 (#unsafe-impl #send NativeResource)
 (#unsafe-impl #sync NativeResource)
 ```
@@ -296,7 +296,7 @@ original source borrow remains active for as long as the containing aggregate
 is live.
 
 ```lisp run=42
-(#struct Point ((x #u64) (y #u64)))
+(#struct Point () ((x #u64) (y #u64)))
 (#fn main () #u64
   (#let-mut point Point (#struct-literal Point ((x 1) (y 2))))
   (#let point-ref (#ref-mut Point) (#borrow-mut point))
@@ -430,8 +430,8 @@ assignment remains forbidden. Each new loop iteration initializes fresh local
 storage; explicitly end the previous iteration's local after its views end.
 
 ```lisp run=42
-(#struct LocalJob (: state #u64))
-(#linear LocalJob)
+(#struct LocalJob (#linear) (: state #u64))
+
 (#fn main () #u64
   (#let-mut job LocalJob (#struct-literal LocalJob (: state 0u64)))
   (#let view (#pin-ref-mut LocalJob) (#pin job))
@@ -1217,9 +1217,22 @@ frozen after active imports and before generators. A direct invocation argument
 [collections and tasks](collections-and-tasks.md) for the user-defined
 distributed-slice, error-enum, and cooperative async generators.
 
-`(#linear Type)` makes a concrete struct or enum non-Copy even when every
-field is plain data. Generated task state types use this annotation; Send/Sync
-and layout are unaffected.
+Struct and enum declarations require a property list between the name and their
+fields or variants. Use `()` when no properties are needed. The supported
+properties are `#linear` and `#repr-c`:
+
+```lisp syntax
+(#struct FileHandle (#linear) ((descriptor #u64)))
+(#enum Maybe (#repr-c) ((Some #u64) None))
+(#struct NativeOwner (#linear #repr-c) ((handle (#ptr #u8))))
+```
+
+Aggregates become linear transitively when they own a linear field or, for an
+enum, any linear payload in any variant. References do not make their
+containing aggregate linear because they do not own their referents. Explicit
+`#linear` forces a struct or enum to be linear even when all fields or
+payloads are plain data. It does not change layout or Send/Sync. Generated
+task state types use this property.
 
 Imports load Lim source relative to the importing file. Internal imports keep
 identifiers unchanged. External imports prefix user identifiers from the
@@ -1719,7 +1732,7 @@ Aliases are concrete.  Recursive aliases are rejected.
 Structs are value types with named fields:
 
 ```lisp run=9
-(#struct Point ((x #u64) (y #u64)))
+(#struct Point () ((x #u64) (y #u64)))
 
 (#fn main () #u64
   (#let point Point (#struct-literal Point ((x 7u64) (y 9u64))))
@@ -1734,7 +1747,7 @@ structs is needed.
 Variants may be fieldless or carry one or more values:
 
 ```lisp library
-(#enum Message
+(#enum Message ()
   (Quit
    (Move #i32 #i32)
    (Write (#array #char 8))))
@@ -1863,7 +1876,7 @@ must be supplied exactly once; fields may appear in any order, and omitted
 fields are not defaulted:
 
 ```lisp library
-(#struct Point ((x #u64) (y #u64)))
+(#struct Point () ((x #u64) (y #u64)))
 (#let point Point
   (#struct-literal Point
     ((y 22u64) (x 20u64))))
@@ -1995,7 +2008,7 @@ user-written destruction function has released a value's resources. For
 example:
 
 ```lisp syntax
-(#struct Buffer ((allocation Allocation)))
+(#struct Buffer () ((allocation Allocation)))
 (#fn Buffer-destroy ((buffer Buffer)) ()
   (Allocation-release (#get buffer allocation))
   (#forget buffer)
@@ -2202,7 +2215,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#deref` | `(#deref reference)` | `(#return (#deref r))` (expression) | Reads through a Lim reference. |
 | `#deref-set` | `(#deref-set mutable-reference value)` | `(#deref-set r 7u64)` (statement) | Writes through a mutable Lim reference. |
 | `#drop` | `(#drop value)` | `(#drop resource)` (statement) | Explicitly discards a value without calling user destruction code. Dropping a reference-bearing place ends its loan and makes that place unusable; plain Copy scalars remain reusable. |
-| `#enum` | `(#enum Name [#repr-c] ((Variant [discriminant] PayloadType...)...))` | `(#enum Maybe ((Some #u64) None))` (top level) | Declares a concrete enum; variants can carry typed payloads and explicit discriminants. |
+| `#enum` | `(#enum Name (properties...) ((Variant [discriminant] PayloadType...)...))` | `(#enum Maybe (#repr-c) ((Some #u64) None))` (top level) | Declares a concrete enum; properties may include `#linear` and `#repr-c`; variants can carry typed payloads and explicit discriminants. |
 | `#extern-fn` | `(#extern-fn #abi-c name (: arg Type : ...) ReturnType)`; the parameter list may also use nested pairs | `(#extern-fn #abi-c c_abs (: value #i32) #i32)` (top level) | Declares a C-ABI external function. Calling foreign functions uses the platform linker and is outside the direct-syscall-only standard library. |
 | `#f32` | `#f32` | `(#fn identity ((value #f32)) #f32 (#return value))` (function signature) | 32-bit IEEE 754 floating-point scalar type. |
 | `#f64` | `#f64` | `(#fn identity ((value #f64)) #f64 (#return value))` (function signature) | 64-bit IEEE 754 floating-point scalar type. |
@@ -2244,7 +2257,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#let` | `(#let pattern-or-name Type value)` | `(#let count #u32 0u32)` (function body) | Declares an immutable local with an explicit type. |
 | `#let-else` | `(#let-else pattern Type value else-statement...)` | `(#let-else (Some x) Maybe maybe (#return 0u64))` (function body) | Destructures on success; the else branch must diverge. |
 | `#let-mut` | `(#let-mut name-or-pattern Type value)` | `(#let-mut count #u32 0u32)` (function body) | Declares a mutable local with an explicit type. |
-| `#linear` | `(#linear TypeName)` | `(#linear FileHandle)` (top level) | Disables structural Copy for the named struct/enum, making its values linear. |
+| `#linear` | Property in `(#struct Name (#linear) fields)` or `(#enum Name (#linear) variants)` | `(#struct FileHandle (#linear) ((descriptor #u64)))` (top level) | Forces the declared struct or enum to be linear; also inherited by aggregates that own linear fields or payloads. |
 | `#linux-syscall` | `(#linux-syscall ResultType number (arg...))` | `(#unsafe (#linux-syscall #i64 39usize ()))` (expression) | Emits a raw Linux x86-64 syscall instruction with up to six machine-word arguments and unmodified negative-errno results. |
 | `#literal` | `(#literal NumericType literal)` | `(#let n #u16 (#literal #u16 42))` (expression) | Gives an integer/float literal an explicit numeric type. |
 | `#loop` | `(#loop body...)` | `(#return (#loop (#break 42u64)))` (function returning `#u64`) | Repeats indefinitely until broken; a break value makes it value-producing. |
@@ -2256,7 +2269,7 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#memory-seq-cst` | `#memory-seq-cst` | `(#atomic-load r #memory-seq-cst)` (ordering operand) | Selects sequentially consistent ordering. |
 | `#mut` | `(#mut parameter Type)` | `(#fn advance ((#mut count #u64)) #u64 (#set count 1u64) (#return count))` (parameter list) | Marks a function parameter mutable; local mutable bindings use `#let-mut`. |
 | `#offset-of` | `(#offset-of ReprCType field)` | `(#offset-of Header payload)` (expression) | Computes a field's offset in the declared C layout; requires a `#repr-c` struct. |
-| `#opaque` | `(#opaque StructName)` | `(#struct Token ((slot #u64))) (#opaque Token)` (top level) | Restricts construction, field access, and cloning of a linear struct to its defining source module; external code can use its public functions. The annotation must appear in the same source module as the concrete struct. |
+| `#opaque` | `(#opaque StructName)` | `(#struct Token () ((slot #u64))) (#opaque Token)` (top level) | Restricts construction, field access, and cloning of a linear struct to its defining source module; external code can use its public functions. The annotation must appear in the same source module as the concrete struct. |
 | `#or` | `(#or pattern pattern...)` | `(#case (#or Red Blue) 1u64)` (pattern) | Matches any listed alternative; alternatives must bind consistently. |
 | `#os` | `(#cfg-is #os literal)` | `(#cfg-if (#cfg-is #os linux) (#type Fd #i32))` (top level) | Automatically populated OS cfg key; overridable with `--cfg os=VALUE`. |
 | `#panic` | `(#panic)` | `(#if failed (#panic) ())` (expression) | Traps and never returns. |
@@ -2303,9 +2316,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#ref` | `(#ref TargetType)` | `(#let r (#ref #u64) (#borrow value))` (type/binding) | Shared-reference type. |
 | `#ref-mut` | `(#ref-mut TargetType)` | `(#let r (#ref-mut #u64) (#borrow-mut value))` (type/binding) | Mutable-reference type. |
 | `#ref-ptr` | `(#ref-ptr reference)` | `(#let p (#ptr-mut Node) (#ref-ptr pinned))` (expression) | Safely extracts a thin ordinary or pinned reference's raw pointer with the same pointee and mutability. Lends the input handle without moving or duplicating it; the pointer retains no loan and does not extend the pointee lifetime or pinning guarantee. Slices are rejected. Raw memory access and pointer-to-reference borrowing still require unsafe context and valid lifetime/aliasing proofs. Raw pointers do not automatically implement Send or Sync. |
-| `#repr-c` | `(#struct Name #repr-c fields)` or `(#enum Name #repr-c variants)` | `(#struct Header #repr-c ((tag #u8) (length #u32)))` (declaration) | Requests C layout metadata for layout queries; does not make arbitrary Lim values FFI-safe. |
+| `#repr-c` | Property in `(#struct Name (#repr-c) fields)` or `(#enum Name (#repr-c) variants)` | `(#struct Header (#repr-c) ((tag #u8) (length #u32)))` (top level) | Requests C layout metadata for layout queries; does not make arbitrary Lim values FFI-safe. |
 | `#return` | `(#return value)` | `(#return ())` (function body) | Exits a function with its explicitly typed result; void functions must return `()`. |
-| `#send` | `(#unsafe-impl #send Type)` | `(#struct Handle ((raw (#ptr #u8)))) (#unsafe-impl #send Handle)` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
+| `#send` | `(#unsafe-impl #send Type)` | `(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #send Handle)` (top level) | Unsafe promise that ownership of the type may be transferred between threads. Without an override, Send is derived structurally. |
 | `#set` | `(#set name value)` | `(#set count (#u32.+.wrap count 1u32))` (statement) | Reassigns a mutable local. |
 | `#set-field` | `(#set-field aggregate field-or-index value)` | `(#set-field point x 4u64)` (statement) | Mutates a struct field or tuple slot; a linear member must first be consumed. |
 | `#set-index` | `(#set-index array index value)` | `(#set-index values 0usize 9u8)` (statement) | Mutates an array element after a bounds check; a linear element needs proven prior consumption at a constant index. |
@@ -2324,9 +2337,9 @@ alias. Quasiquote and unquote are syntax punctuation, not `#` builtins:
 | `#slice-range` | `(#slice-range slice start end)` | `(#slice-range view 1usize 3usize)` (expression) | Creates a checked half-open immutable subslice `[start,end)`. |
 | `#static` | `(#static name Type value)` | `(#static answer #u64 42u64)` (top level) | Declares storage with static lifetime; accesses must be inside `#unsafe`. |
 | `#std` | `(#std)` | `(#std)` (top level) | Loads the embedded standard String and stdout modules into the program. This is explicit opt-in and works without a source checkout. |
-| `#struct` | `(#struct Name [#repr-c] ((field Type)...))` | `(#struct Point ((x #u64) (y #u64)))` (top level) | Declares a concrete struct; optional `#repr-c` selects C layout for layout queries. |
+| `#struct` | `(#struct Name (properties...) ((field Type)...))` | `(#struct Point () ((x #u64) (y #u64)))` (top level) | Declares a concrete struct; properties may include `#linear` and `#repr-c`. |
 | `#struct-literal` | `(#struct-literal Type ((field value)...))` | `(#struct-literal Point ((x 1u64) (y 2u64)))` (expression) | Constructs a struct by explicitly naming every field; no defaults are applied. |
-| `#sync` | `(#unsafe-impl #sync Type)` | `(#struct Handle ((raw (#ptr #u8)))) (#unsafe-impl #sync Handle)` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |
+| `#sync` | `(#unsafe-impl #sync Type)` | `(#struct Handle () ((raw (#ptr #u8)))) (#unsafe-impl #sync Handle)` (top level) | Unsafe promise that sharing references to this type across threads is sound. Without an override, Sync is derived structurally. |
 | `#syntax` | `(#syntax Name (syntax ...))` | `(#syntax StepAwait (#u64 Step StepPending StepReady step-poll))` (top level) | Declares an immutable literal syntax bundle with a unique identifier; no values are evaluated and no types are inferred. |
 | `#syntax-collection` | `(#syntax-collection name)` | `(#syntax-collection handlers)` (top level) | Declares a deterministic compile-time syntax collection, frozen before generator expansion. |
 | `#syntax-contribute` | `(#syntax-contribute collection key syntax)` | `(#syntax-contribute handlers Read (Read #u64))` (top level) | Adds literal syntax under a key; duplicate keys must contribute identical syntax. |
@@ -3038,7 +3051,7 @@ does not re-import stale entry loans. Typed word writes likewise register the
 actual owner and pointee loans they store; raw bytes alone do not register them.
 
 ```lisp run=42
-(#struct RefValue (: value (#ref #u64)))
+(#struct RefValue () (: value (#ref #u64)))
 (#fn read-value (: words (#slice #u64)) #u64
   (#let restored RefValue (#unsafe (#word-read RefValue words)))
   (#let answer #u64 (#deref (#get restored value)))

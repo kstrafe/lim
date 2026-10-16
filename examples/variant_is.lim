@@ -1,5 +1,5 @@
-(#enum Value ((Number #u64) Empty))
-(#linear Value)
+(#enum Value (#linear) ((Number #u64) Empty))
+
 
 (#fn main () #u64
   (#let value Value (Number 42u64))

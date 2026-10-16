@@ -13,10 +13,10 @@
 
 (#gn #pin-slot (names element)
   (#gn-if (#gn-equal (#gn-length names) 9)
-    `((#enum ,(#gn-first names)
+    `((#enum ,(#gn-first names) (#linear)
         ((,(#gn-call pin-slot-second names))
          (,(#gn-call pin-slot-third names) ,element)))
-      (#linear ,(#gn-first names))
+
       (#fn ,(#gn-call pin-slot-fourth names) () ,(#gn-first names)
         (#return (,(#gn-call pin-slot-second names))))
       (#unsafe-fn ,(#gn-call pin-slot-fifth names)
@@ -26,7 +26,7 @@
         (#return previous))
       ;; Try to refill the stable slot. Taking first ensures the destination is
       ;; Empty; an occupied value is restored before the caller gets its input.
-      (#enum ,(#gn-call pin-slot-sixth names)
+      (#enum ,(#gn-call pin-slot-sixth names) ()
         ((,(#gn-call pin-slot-seventh names))
          (,(#gn-call pin-slot-eighth names) ,element)))
       (#fn ,(#gn-call pin-slot-ninth names)

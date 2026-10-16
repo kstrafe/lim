@@ -1,6 +1,6 @@
 ;; Contiguous explicit tags use a bounds-checked native jump table. Source
 ;; declaration and case order need not match the discriminant order.
-(#enum Work
+(#enum Work ()
   ((Read 11 #u64)
    (Idle 10)
    (Finished 13 #u64)

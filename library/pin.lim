@@ -73,10 +73,10 @@
         (: view (#pin-borrow (#get (#get pin view) ,(#gn-first field))))))))))
 
 (#gn-fn pin-build (element name shared fields projections copy checked)
-  `((#struct ,name (: view (#pin-ref-mut ,element)))
-    (#opaque ,name) (#linear ,name)
-    (#struct ,shared (: view (#pin-ref ,element)))
-    (#opaque ,shared) (#linear ,shared)
+  `((#struct ,name (#linear) (: view (#pin-ref-mut ,element)))
+    (#opaque ,name)
+    (#struct ,shared (#linear) (: view (#pin-ref ,element)))
+    (#opaque ,shared)
     (#unsafe-fn ,(#gn-call pin-name name "-from-mut")
       (: view (#pin-ref-mut ,element)) ,name
       (#return (#struct-literal ,name (: view view))))

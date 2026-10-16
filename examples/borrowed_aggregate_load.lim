@@ -1,10 +1,10 @@
-(#struct Resource (: number #u64))
-(#linear Resource)
-(#struct Container (: item Resource : other Resource))
-(#struct Views (: left (#ref Resource) : right (#ref Resource)))
-(#struct Nested (: views Views))
-(#struct Outer (: nested Nested))
-(#struct ReferenceTable (: refs (#array (#ref Resource) 2)))
+(#struct Resource (#linear) (: number #u64))
+
+(#struct Container () (: item Resource : other Resource))
+(#struct Views () (: left (#ref Resource) : right (#ref Resource)))
+(#struct Nested () (: views Views))
+(#struct Outer () (: nested Nested))
+(#struct ReferenceTable () (: refs (#array (#ref Resource) 2)))
 
 (#fn load (: outer (#ref Outer)) Nested
   (#return (#get outer nested)))

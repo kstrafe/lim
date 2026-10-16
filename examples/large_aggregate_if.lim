@@ -1,8 +1,8 @@
-(#struct Large
+(#struct Large ()
   ((a #u64) (b #u64) (c #u64) (d #u64)
    (e #u64) (f #u64) (g #u64)))
 
-(#enum LargePayload
+(#enum LargePayload ()
   ((Big #u64 #u64 #u64 #u64 #u64 #u64 #u64) Empty))
 
 (#fn main () #u64

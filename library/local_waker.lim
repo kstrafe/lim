@@ -23,8 +23,8 @@
   (#gn-if (#gn-equal (#gn-length names) 6)
     (#gn-if (#gn-equal (#gn-length types) 2)
       (#gn-if (#gn-equal (#gn-length callbacks) 3)
-        `((#struct ,(#gn-first names) ((executor (#ref ,(#gn-first types))) (metadata ,(#gn-call local-waker-second types)) (local-marker (#ptr #u8))))
-          (#linear ,(#gn-first names))
+        `((#struct ,(#gn-first names) (#linear) ((executor (#ref ,(#gn-first types))) (metadata ,(#gn-call local-waker-second types)) (local-marker (#ptr #u8))))
+
           (#fn ,(#gn-call local-waker-second names) ((executor (#ref ,(#gn-first types))) (metadata ,(#gn-call local-waker-second types))) ,(#gn-first names)
             (#return
               (#struct-literal

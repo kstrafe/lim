@@ -3,7 +3,7 @@ mod support;
 use std::{process::Command, time::Duration};
 
 const PREFIX: &str = r#"
-(#struct Data (: padding #u128 : value #u64 : sentinel #u64))
+(#struct Data () (: padding #u128 : value #u64 : sentinel #u64))
 (#static Fallback Data (#struct-literal Data (: padding 999u128 : value 60u64 : sentinel 70u64)))
 (#static Destroyed (#atomic #u64) (#atomic-init #u64 0u64))
 (#static Cancelled (#atomic #u64) (#atomic-init #u64 0u64))
@@ -21,8 +21,8 @@ const PREFIX: &str = r#"
   (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
   (#let ignored #u64 (#unsafe (#atomic-fetch-add (#borrow Destroyed) 1u64 #memory-relaxed)))
   (#return ()))
-(#enum Child (: Holding (#pin-ref #u64) #u64)) (#linear Child)
-(#enum ChildPoll (: ChildPending Child : ChildReady #u64))
+(#enum Child (#linear) (: Holding (#pin-ref #u64) #u64))
+(#enum ChildPoll () (: ChildPending Child : ChildReady #u64))
 (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
   (#return (#match task (#case (Holding reference count)
     (#if (#u64.< count 2u64)

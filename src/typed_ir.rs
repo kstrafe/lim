@@ -2935,7 +2935,7 @@ mod tests {
     #[test]
     fn reference_variant_completion_skips_large_scalar_arrays_and_pointer_boundaries() {
         let program = crate::parse_program(
-            "(#enum Holder ((Holding (#ref #u64)))) (#fn main () () (#return ()))",
+            "(#enum Holder () ((Holding (#ref #u64)))) (#fn main () () (#return ()))",
         )
         .unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();
@@ -2960,7 +2960,7 @@ mod tests {
     #[test]
     fn reference_variant_completion_keeps_all_alternatives_at_each_array_index() {
         let program = crate::parse_program(
-            "(#enum Holder ((Holding (#ref #u64)) (Plain #u64)))
+            "(#enum Holder () ((Holding (#ref #u64)) (Plain #u64)))
              (#fn main () () (#return ()))",
         )
         .unwrap();
@@ -3051,9 +3051,9 @@ mod tests {
     #[test]
     fn declaration_ids_resolve_metadata_and_ignore_top_level_declaration_order() {
         let forms = [
-            "(#struct Z ((z #u64) (a #u32)))",
-            "(#struct A.Type ((a #u8)))",
-            "(#enum M ((Second #u16) First))",
+            "(#struct Z () ((z #u64) (a #u32)))",
+            "(#struct A.Type () ((a #u8)))",
+            "(#enum M () ((Second #u16) First))",
             "(#const Zed #u64 7u64)",
             "(#const Alpha.answer #u64 42u64)",
             "(#type ZAlias Z)",
@@ -3157,7 +3157,7 @@ mod tests {
     #[test]
     fn checked_declarations_retain_types_spans_and_deterministic_function_ids() {
         let source = "(#type Word #u64)
-            (#struct Pair ((left Word) (right (#ref Word))))
+            (#struct Pair () ((left Word) (right (#ref Word))))
             (#const Answer Word 42u64)
             (#fn z ((value (#ref Word))) Word (#return (#deref value)))
             (#fn main () Word (#return Answer))";

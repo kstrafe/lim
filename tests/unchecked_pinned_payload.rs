@@ -3,8 +3,8 @@ mod support;
 use lim::{CompileConfig, DiagnosticCode, TargetDescription};
 
 const SOURCE: &str = "
-(#struct Pair (: left #u64 : right #u64))
-(#enum Slot ((Empty) (Full Pair)))
+(#struct Pair () (: left #u64 : right #u64))
+(#enum Slot () ((Empty) (Full Pair)))
 (#fn main () #u64
   (#let-mut slot Slot (Full (#struct-literal Pair (: left 39u64 : right 2u64))))
   (#let pinned (#pin-ref-mut Slot) (#pin-borrow-mut slot))
@@ -119,8 +119,8 @@ fn unchecked_projection_still_checks_payload_types_and_lifetimes() {
         assert!(diagnostic.message.contains(message), "{diagnostic:?}");
         assert!(diagnostic.span.is_some(), "{diagnostic:?}");
     }
-    let source = "(#struct Pair (: left #u64 : right #u64))
-      (#enum Slot ((Empty) (Full Pair)))
+    let source = "(#struct Pair () (: left #u64 : right #u64))
+      (#enum Slot () ((Empty) (Full Pair)))
       (#fn bad () (#pin-ref Pair)
         (#let-mut slot Slot (Full (#struct-literal Pair (: left 1u64 : right 2u64))))
         (#let pinned (#pin-ref Slot) (#pin-borrow slot))

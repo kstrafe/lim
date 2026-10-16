@@ -50,7 +50,7 @@ fn semantic_decisions(report: &str, decision: &str) -> usize {
 fn scalar_reader_reachability_is_preserved_and_invalidated_on_cache_hits() {
     let scratch = support::Scratch::new("semantic-scalar-reader");
     let directory = scratch.path();
-    let library = "(#struct Holder (: value (#ref #u64)))
+    let library = "(#struct Holder () (: value (#ref #u64)))
       (#fn answer (: words (#slice #u64)) #u64
         (#let selector #u64 1u64)
         (#return (#match selector
@@ -93,8 +93,8 @@ fn imported_word_owners_retain_pointee_loans_on_cache_hits() {
     fs::write(
         directory.join("lib.lim"),
         "
-      (#struct Holder (: link (#ref #u64)))
-      (#struct Words (: words (#array #u64 1)))
+      (#struct Holder () (: link (#ref #u64)))
+      (#struct Words () (: words (#array #u64 1)))
       (#fn restore (: storage (#ref-mut Words)) (#pin-own Holder)
         (#return (#unsafe (#word-take (#pin-own Holder) (#borrow-slice-mut (#get storage words))))))
       (#fn forward (: storage (#ref-mut Words)) (#pin-own Holder)
@@ -130,9 +130,9 @@ fn imported_optional_word_owners_prune_only_proven_absent_allocations() {
     let scratch = support::Scratch::new("semantic-optional-word-owner");
     let directory = scratch.path();
     fs::write(directory.join("lib.lim"), "
-      (#enum Input ((NoInput) (HasInput (#pin-own #u64))))
-      (#enum Output ((NoOutput) (HasOutput (#pin-own #u64))))
-      (#struct Words (: words (#array #u64 2)))
+      (#enum Input () ((NoInput) (HasInput (#pin-own #u64))))
+      (#enum Output () ((NoOutput) (HasOutput (#pin-own #u64))))
+      (#struct Words () (: words (#array #u64 2)))
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
         (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput owner) (HasOutput owner)))))
@@ -173,9 +173,9 @@ fn imported_optional_word_results_preserve_absent_and_live_sources() {
     let scratch = support::Scratch::new("semantic-optional-word-result");
     let directory = scratch.path();
     fs::write(directory.join("lib.lim"), "
-      (#enum Input ((NoInput) (HasInput (#ref #u64))))
-      (#enum Output ((NoOutput) (HasOutput (#ref #u64))))
-      (#struct Words (: words (#array #u64 2)))
+      (#enum Input () ((NoInput) (HasInput (#ref #u64))))
+      (#enum Output () ((NoOutput) (HasOutput (#ref #u64))))
+      (#struct Words () (: words (#array #u64 2)))
       (#fn convert (: storage (#ref-mut Words)) Output
         (#let input Input (#unsafe (#word-take Input (#borrow-slice-mut (#get storage words)))))
         (#return (#match input (#case (NoInput) (NoOutput)) (#case (HasInput view) (HasOutput view)))))
@@ -221,8 +221,8 @@ fn imported_typed_word_view_cleanup_exports_physical_tags_and_loans() {
     let scratch = support::Scratch::new("semantic-word-view-cleanup");
     let directory = scratch.path();
     fs::write(directory.join("lib.lim"), "
-      (#enum Cell ((Vacant) (Occupied (#ref #u64))))
-      (#struct Storage (: words (#array #u64 4)))
+      (#enum Cell () ((Vacant) (Occupied (#ref #u64))))
+      (#struct Storage () (: words (#array #u64 4)))
       (#fn clear (: slot (#pin-ref-mut Cell)) ()
         (#unsafe (#forget (#pin-read slot)))
         (#unsafe (#pin-write slot (Vacant))) (#return ()))
@@ -265,7 +265,7 @@ fn imported_conditional_word_input_guards_survive_cache_hits() {
     fs::write(
         directory.join("lib.lim"),
         "
-      (#enum Cell ((Vacant) (Occupied (#ref #u64))))
+      (#enum Cell () ((Vacant) (Occupied (#ref #u64))))
       (#fn inspect (: words (#slice #u64)) #u64
         (#let value Cell (#unsafe (#word-read Cell words)))
         (#return (#match value (#case (Vacant) 42u64) (#case (Occupied view) (#deref view)))))
@@ -303,7 +303,7 @@ fn imported_word_constructor_facts_survive_cache_hits() {
     fs::write(
         directory.join("lib.lim"),
         "
-      (#enum Cell ((Vacant) (Occupied (#ref #u64))))
+      (#enum Cell () ((Vacant) (Occupied (#ref #u64))))
       (#fn initialize (: words (#slice-mut #u64)) ()
         (#unsafe (#word-write Cell words (Vacant))) (#return ()))
       (#fn initialize-and-read (: words (#ref-mut (#array #u64 2))) ()
@@ -342,9 +342,9 @@ fn imported_typed_word_view_consumer_maps_geometry_on_cache_hits() {
     let directory = scratch.path();
     fs::write(
         directory.join("lib.lim"),
-        "(#struct Token (: amount #u64)) (#linear Token)
-         (#enum Slot ((Empty) (Full Token))) (#linear Slot)
-         (#struct Buffer (: prefix #u64 : slot Slot : suffix #u64))
+        "(#struct Token (#linear) (: amount #u64))
+         (#enum Slot (#linear) ((Empty) (Full Token)))
+         (#struct Buffer () (: prefix #u64 : slot Slot : suffix #u64))
          (#fn clear (: slot (#pin-ref-mut Slot)) ()
            (#unsafe (#forget (#pin-read slot)))
            (#unsafe (#pin-write slot (Empty))) (#return ()))
@@ -420,7 +420,7 @@ fn imported_word_writer_retains_real_loans_on_cache_hits() {
     let dir = scratch.path();
     fs::write(
         dir.join("lib.lim"),
-        "(#struct Holder (: value (#ref #u64)))
+        "(#struct Holder () (: value (#ref #u64)))
          (#fn store (: words (#slice-mut #u64) : source (#ref #u64)) ()
            (#unsafe (#word-write Holder words (#struct-literal Holder (: value source))))
            (#return ()))",
@@ -455,7 +455,7 @@ fn imported_word_reader_checks_required_loans_after_cache_hits() {
     let dir = scratch.path();
     fs::write(
         dir.join("lib.lim"),
-        "(#struct Holder (: value (#ref #u64)))
+        "(#struct Holder () (: value (#ref #u64)))
          (#fn read (: words (#slice #u64)) #u64
            (#let restored Holder (#unsafe (#word-read Holder words)))
            (#let answer #u64 (#deref (#get restored value)))
@@ -491,8 +491,8 @@ fn imported_by_value_word_reader_preserves_requirements_after_cache_hits() {
     let dir = scratch.path();
     fs::write(
         dir.join("lib.lim"),
-        "(#struct Holder (: value (#ref #u64)))
-         (#struct Storage (: words (#array #u64 2)))
+        "(#struct Holder () (: value (#ref #u64)))
+         (#struct Storage () (: words (#array #u64 2)))
          (#fn read (: incoming Storage) #u64
            (#let-mut extracted (#array #u64 2) (#get incoming words))
            (#forget incoming)
@@ -534,7 +534,7 @@ fn imported_word_take_preserves_transferred_loans_and_source_retirement() {
     let dir = scratch.path();
     fs::write(
         dir.join("lib.lim"),
-        "(#struct Holder (: view (#ref-mut #u64)))
+        "(#struct Holder () (: view (#ref-mut #u64)))
          (#unsafe-fn take (: words (#slice-mut #u64)) Holder
            (#return (#unsafe (#word-take Holder words))))",
     )
@@ -571,8 +571,8 @@ fn imported_nested_word_view_projection_preserves_loans_after_cache_hits() {
     let dir = scratch.path();
     fs::write(
         dir.join("lib.lim"),
-        "(#struct Inner (: value (#ref #u64)))
-         (#struct Outer (: inner Inner))
+        "(#struct Inner () (: value (#ref #u64)))
+         (#struct Outer () (: inner Inner))
          (#fn read (: owner (#pin-ref Outer)) (#ref #u64)
            (#let projected (#pin-ref Inner) (#pin-borrow (#get owner inner)))
            (#let slot (#pin-ref (#ref #u64)) (#pin-borrow (#get projected value)))
@@ -644,7 +644,7 @@ fn transitive_dependency_root_cfg_and_type_changes_invalidate() {
     assert_eq!(semantic_decisions(&report, "hit"), 0);
     fs::write(
         dir.join("dep.lim"),
-        format!("(#struct Added (: value #u64)) {LIB}"),
+        format!("(#struct Added () (: value #u64)) {LIB}"),
     )
     .unwrap();
     let (result, report) = compile(dir, MAIN, &config);
@@ -713,8 +713,8 @@ fn aggregate_outcomes_and_mutable_reference_stores_match_cold_analysis() {
     let dir = scratch.path();
     fs::write(
         dir.join("lib.lim"),
-        "(#struct Holder (: value (#ref #u64)))
-      (#enum Choice ((Found Holder) Missing))
+        "(#struct Holder () (: value (#ref #u64)))
+      (#enum Choice () ((Found Holder) Missing))
       (#fn choose (: owner (#ref #u64) : flag #bool) Choice
         (#return (#if flag (Found (#struct-literal Holder (: value owner))) Missing)))
       (#fn replace (: slot (#ref-mut (#ref #u64)) : value (#ref #u64)) ()

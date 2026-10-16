@@ -3,7 +3,7 @@ mod support;
 
 use std::{process::Command, time::Duration};
 
-const CONTEXT: &str = "(#struct Resource (: value #u64)) (#linear Resource)";
+const CONTEXT: &str = "(#struct Resource (#linear) (: value #u64)) ";
 
 fn run(body: &str) {
     let program = lim::parse_program(&format!("{CONTEXT} {body}")).unwrap();

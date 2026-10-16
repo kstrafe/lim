@@ -95,7 +95,7 @@ fn destructured_reference_cannot_be_reused_after_drop() {
 
 #[test]
 fn a_mutable_reference_cannot_be_moved_into_two_aggregate_fields() {
-    let source = "(#struct Pair ((left (#ref-mut #u64)) (right (#ref-mut #u64))))
+    let source = "(#struct Pair () ((left (#ref-mut #u64)) (right (#ref-mut #u64))))
       (#fn main () #u64
         (#let-mut owner #u64 1u64)
         (#let reference (#ref-mut #u64) (#borrow-mut owner))

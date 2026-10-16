@@ -1,9 +1,9 @@
 (#import "../library/cell.lim")
 (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
-(#struct Resource ((owned #u64)))
-(#linear Resource)
-(#struct Bundle ((left Resource) (right Resource)))
-(#struct Counter ((total CellU64)))
+(#struct Resource (#linear) ((owned #u64)))
+
+(#struct Bundle () ((left Resource) (right Resource)))
+(#struct Counter () ((total CellU64)))
 
 (#fn Resource-destroy ((counter (#ref Counter)) (value Resource)) ()
   (#let (Resource owned) Resource value)

@@ -1,4 +1,4 @@
-(#enum NestedScalar ((Value #u64) Empty))
+(#enum NestedScalar () ((Value #u64) Empty))
 
 (#fn main () #u64
   (#let pair (#tuple #u64 #u64)

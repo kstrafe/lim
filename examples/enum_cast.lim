@@ -1,4 +1,4 @@
-(#enum Color (Red Green))
+(#enum Color () (Red Green))
 
 (#fn discriminant ((value Color)) #u64
   (#return (#as value #u64)))

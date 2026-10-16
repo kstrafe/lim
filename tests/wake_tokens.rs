@@ -154,7 +154,7 @@ fn opaque_field_is_not_readable_from_a_foreign_global_initializer() {
     let scratch = support::Scratch::new("opaque-global-projection");
     std::fs::write(
         scratch.path().join("module.lim"),
-        "(#struct Private ((value #u64)))
+        "(#struct Private () ((value #u64)))
          (#opaque Private)
          (#const VALUE Private (#struct-literal Private ((value 42u64))))",
     )

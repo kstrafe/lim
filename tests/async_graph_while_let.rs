@@ -81,8 +81,8 @@ fn awaited_pattern_can_return_after_two_body_suspensions() {
 fn awaited_pattern_payload_preserves_an_external_reference() {
     let source = include_str!("../examples/async_while_let_return.lim")
         .replace(
-            "(#enum Choice ((Chosen #u64) Empty))",
-            "(#enum Choice ((Chosen (#ref #u64)) Empty))",
+            "(#enum Choice () ((Chosen #u64) Empty))",
+            "(#enum Choice () ((Chosen (#ref #u64)) Empty))",
         )
         .replace("(Start value)))", "(Start (#deref value))))")
         .replace(

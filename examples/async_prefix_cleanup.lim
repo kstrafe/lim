@@ -1,14 +1,14 @@
 ; Consume a linear field before suspension, retaining only its plain result.
-(#struct Token ((value #u64)))
-(#linear Token)
-(#struct Values ((z (#tuple #u16 #u16)) (a Token)))
+(#struct Token (#linear) ((value #u64)))
+
+(#struct Values () ((z (#tuple #u16 #u16)) (a Token)))
 (#fn destroy-token ((token Token)) #u64
   (#let value #u64 (#get token value))
   (#forget token)
   (#return value))
 
-(#enum Step ((Start #u64) (Resume #u64)))
-(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#enum Step () ((Start #u64) (Resume #u64)))
+(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))

@@ -468,7 +468,7 @@ mod tests {
 
     fn borrowed_field() -> Checked {
         Checked::new(
-            "(#struct View (: field (#ref-mut #u64))) (#linear View)
+            "(#struct View (#linear) (: field (#ref-mut #u64)))
           (#fn work (: view (#ref View)) #u64 (#return (#deref (#get view field))))",
         )
     }
@@ -709,7 +709,7 @@ mod tests {
                     _ => "(#struct-literal Owned (: value (#deref view)))",
                 };
                 let checked = Checked::new(&format!(
-                    "(#struct Owned (: value #u64)) (#linear Owned)
+                    "(#struct Owned (#linear) (: value #u64))
                      (#fn read (: view ({ty} #u64)) {result} (#return {value}))
                      (#fn work (: view ({ty} #u64)) {result} (#return (#call read (: view view))))"
                 ));
@@ -733,8 +733,8 @@ mod tests {
     fn projected_exclusive_handles_only_elide_certified_immediate_windows() {
         for projection in ["(#get owner view)", "(#get (#get owner pair) 0)"] {
             let context =
-                "(#struct Holder (: view (#ref-mut #u64) : pair (#tuple (#ref-mut #u64))))
-              (#linear Holder)
+                "(#struct Holder (#linear) (: view (#ref-mut #u64) : pair (#tuple (#ref-mut #u64))))
+
               (#fn read (: view (#ref-mut #u64) : amount #u64) #u64
                 (#return (#u64.+.wrap (#deref view) amount)))
               (#fn later () #u64 (#return 1u64))";
@@ -766,7 +766,7 @@ mod tests {
     #[test]
     fn projected_snapshots_require_checked_pure_paths_and_retain_escapes() {
         let mut retained = Checked::new(
-            "(#struct Holder (: view (#ref-mut #u64))) (#linear Holder)
+            "(#struct Holder (#linear) (: view (#ref-mut #u64)))
              (#fn read (: view (#ref-mut #u64) : amount #u64) #u64 (#return amount))
              (#fn later () #u64 (#return 1u64))
              (#fn work (: owner Holder) #u64
@@ -787,7 +787,7 @@ mod tests {
         for source in [
             "(#fn work (: view (#ref-mut (#array #u64 1))) #u64
                (#return (#index (#deref view) 0usize)))",
-            "(#struct Holder (: view (#ref #u64)))
+            "(#struct Holder () (: view (#ref #u64)))
              (#fn work (: owner Holder) #u64 (#return (#deref (#get owner view))))",
         ] {
             let plan = Checked::new(source).plan();
@@ -800,7 +800,7 @@ mod tests {
         for source in [
             "(#fn read (: view (#ref-mut #u64)) (#ref-mut #u64) (#return view))
              (#fn work (: view (#ref-mut #u64)) (#ref-mut #u64) (#return (#call read (: view view))))",
-            "(#struct Source (: leaf (#ref #u64))) (#struct Holder (: view (#ref #u64)))
+            "(#struct Source () (: leaf (#ref #u64))) (#struct Holder () (: view (#ref #u64)))
              (#fn read (: view (#ref-mut Source)) Holder (#return (#struct-literal Holder (: view (#get view leaf)))))
              (#fn work (: view (#ref-mut Source)) Holder (#return (#call read (: view view))))",
             "(#fn read (: view (#ref-mut #u64) : amount #u64) #u64 (#return amount))
@@ -862,9 +862,9 @@ mod tests {
     #[test]
     fn immediate_field_paths_are_proved_but_checks_and_reference_leaves_are_not() {
         for (source, expected) in [
-            ("(#struct Value (: amount #u64)) (#fn work (: view (#ref-mut Value)) #u64 (#return (#get view amount)))", 1),
+            ("(#struct Value () (: amount #u64)) (#fn work (: view (#ref-mut Value)) #u64 (#return (#get view amount)))", 1),
             ("(#fn work (: view (#ref-mut (#tuple #u64 #u64))) #u64 (#return (#get view 1)))", 1),
-            ("(#struct Value (: nested (#ref #u64))) (#fn work (: view (#ref-mut Value)) (#ref #u64) (#return (#get view nested)))", 0),
+            ("(#struct Value () (: nested (#ref #u64))) (#fn work (: view (#ref-mut Value)) (#ref #u64) (#return (#get view nested)))", 0),
             ("(#fn work (: view (#ref-mut (#array #u64 1))) #u64 (#return (#index (#deref view) 0usize)))", 0),
         ] {
             assert_eq!(Checked::new(source).plan().leases.len(), expected, "{source}");

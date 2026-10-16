@@ -1,4 +1,4 @@
-(#struct Point ((x #u64) (y #u64)))
+(#struct Point () ((x #u64) (y #u64)))
 
 (#fn sum-tuple ((value (#tuple #u64 #u64))) #u64
   (#let (#tuple first second) (#tuple #u64 #u64) value)

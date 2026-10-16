@@ -1,4 +1,4 @@
-(#struct Owner (: value #u64))
+(#struct Owner () (: value #u64))
 (#fn child-of (: owner (#ref-mut Owner)) (#ref-mut #u64)
   (#return (#borrow-mut (#get owner value))))
 (#fn overwrite (: owner (#ref-mut Owner)) ()

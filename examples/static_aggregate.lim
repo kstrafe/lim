@@ -1,10 +1,10 @@
-(#struct Point ((x #u64) (y #u64)))
+(#struct Point () ((x #u64) (y #u64)))
 (#static Values (#array #u64 3)
   (#array (#array #u64 3) 10 20 30))
 (#static Origin Point (#struct-literal Point ((x 7) (y 9))))
 (#static Pair (#tuple #u64 #f64)
   (#tuple (#tuple #u64 #f64) 4 2.5))
-(#enum Maybe ((Some #u64) None))
+(#enum Maybe () ((Some #u64) None))
 (#static Choice Maybe (Some 12))
 
 (#fn take ((values (#array #u64 3)) (point Point)) #u64

@@ -1,8 +1,8 @@
 ; Ordinary pinned typed storage, with no async checker rules or field tags.
-(#struct Token (: value #u64))
-(#linear Token)
-(#struct Owner (: kept (#ref #u64) : item Token))
-(#enum Storage (Empty (Full Owner)))
+(#struct Token (#linear) (: value #u64))
+
+(#struct Owner () (: kept (#ref #u64) : item Token))
+(#enum Storage () (Empty (Full Owner)))
 (#unsafe-fn take-item (: item (#pin-ref-mut Token)) ()
   (#let moved Token (#unsafe (#pin-read item)))
   (#forget moved)

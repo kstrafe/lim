@@ -1,4 +1,4 @@
-(#enum Maybe ((Some #i128) None))
+(#enum Maybe () ((Some #i128) None))
 
 (#fn main () #u64
   (#let value Maybe (Some 42))

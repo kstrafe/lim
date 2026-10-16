@@ -12,7 +12,7 @@ pub(crate) fn declarations(source: &str) -> Result<Vec<Item>, String> {
         .filter(|source| {
             matches!(&source.expr, Expr::List(parts)
             if matches!(parts.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#struct" | "#enum" | "#type" | "#linear")))
+                if matches!(head.as_str(), "#struct" | "#enum" | "#type")))
         })
         .map(|source| crate::parse_item(&crate::normalize_keywords(source.expr)))
         .collect()
@@ -141,9 +141,7 @@ mod tests {
         let child = Type::Named("Child-task".into());
         assert!(!planning.linear_types().contains_reference(&child));
         planning
-            .install_generated_layouts(
-                "(#struct Child-task (: view (#ref #u64))) (#linear Child-task)",
-            )
+            .install_generated_layouts("(#struct Child-task (#linear) (: view (#ref #u64))) ")
             .unwrap();
         assert_eq!(planning.declarations.aggregate_id(&tick), Some(id));
         assert_eq!(planning.program.items.len(), count);

@@ -1,4 +1,4 @@
-(#struct LargeOr
+(#struct LargeOr ()
   ((a #u64) (b #u64) (c #u64) (d #u64)
    (e #u64) (f #u64) (g #u64)))
 

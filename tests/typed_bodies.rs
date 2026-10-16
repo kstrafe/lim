@@ -28,14 +28,18 @@ fn imported_named_operands_keep_exact_spans_in_the_ir() {
 }
 
 #[test]
-fn linear_annotation_errors_underline_the_actual_annotation() {
+fn aggregate_property_errors_underline_the_offending_property() {
     let scratch = support::Scratch::new("linear-annotation");
-    for (source, expected, offset) in [
-        ("(#linear Missing)", "concrete struct or enum", 9),
+    for (source, expected, token) in [
         (
-            "(#struct Token ())\n(#linear Token)\n(#linear Token)",
-            "duplicate #linear",
-            44,
+            "(#enum Token (#unknown) ())",
+            "aggregate properties",
+            "#unknown",
+        ),
+        (
+            "(#struct Token (#linear #linear) ())",
+            "duplicate aggregate property",
+            "#linear",
         ),
     ] {
         let error = lim::compile_source_to_assembly(
@@ -48,7 +52,8 @@ fn linear_annotation_errors_underline_the_actual_annotation() {
         .unwrap_err();
         assert!(error.message.contains(expected), "{}", error.message);
         let span = error.span.unwrap();
-        assert_eq!(span.start, offset, "{source}");
+        assert_eq!(span.start, source.rfind(token).unwrap(), "{source}");
+        assert_eq!(&source[span.start..span.end], token);
         assert!(lim::render_diagnostic(&error, source, "bad.lim").contains('^'));
     }
 }

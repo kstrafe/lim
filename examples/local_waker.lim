@@ -2,9 +2,9 @@
 (#import "../library/cell.lim")
 (@#cell #u64 CellU64 CellU64-create CellU64-get CellU64-set)
 
-(#struct WakeCounter ((count CellU64)))
-(#struct WakeMetadata ((amount #u64)))
-(#linear WakeMetadata)
+(#struct WakeCounter () ((count CellU64)))
+(#struct WakeMetadata (#linear) ((amount #u64)))
+
 
 (#fn counter-notify
   ((executor (#ref WakeCounter)) (metadata (#ref WakeMetadata))) ()

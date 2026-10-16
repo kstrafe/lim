@@ -9,12 +9,12 @@
     enqueued full item empty slots)
   (#gn-if (#gn-equal (#gn-length slots) 0)
     (#gn-error "ready queue requires at least one slot ID")
-    `((#enum ,enqueue-result (,enqueued ,full))
-      (#enum ,dequeue-result ((,item #u64) ,empty))
-      (#struct ,name
+    `((#enum ,enqueue-result () (,enqueued ,full))
+      (#enum ,dequeue-result () ((,item #u64) ,empty))
+      (#struct ,name (#linear)
         ((items (#array #u64 ,(#gn-length slots)))
          (head #u64) (tail #u64) (length #u64)))
-      (#linear ,name)
+
       (#fn ,create () ,name
         (#return (#struct-literal ,name
           ((items (#array-repeat 0u64))

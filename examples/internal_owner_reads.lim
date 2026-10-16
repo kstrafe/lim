@@ -1,6 +1,6 @@
 ;; The stored shared view aliases the owner's value field. Reads through
 ;; either path are valid; an exclusive reborrow through the owner is not.
-(#struct Link (: value #u64 : state #u32 : view (#pin-ref #u64)))
+(#struct Link () (: value #u64 : state #u32 : view (#pin-ref #u64)))
 
 (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
   (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))

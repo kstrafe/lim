@@ -1,6 +1,6 @@
 (
   #enum
-  Pair
+  Pair ()
   (
     (Pair #u64 #u64)
     Empty

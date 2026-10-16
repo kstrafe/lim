@@ -1,4 +1,4 @@
-(#struct Holder ((view (#ref #u64))))
+(#struct Holder () ((view (#ref #u64))))
 
 (#fn main () #u64
   (#let-mut owner #u64 1u64)

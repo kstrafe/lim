@@ -2,9 +2,9 @@
 ;; every resume calls the same work-poll function. The state enum tag is its index.
 (#import "../library/pin.lim")
 
-(#enum Step (: Step-waiting #u64 #u64))
-(#linear Step)
-(#enum StepPoll (: StepPending Step : StepReady #u64))
+(#enum Step (#linear) (: Step-waiting #u64 #u64))
+
+(#enum StepPoll () (: StepPending Step : StepReady #u64))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return (#match task
     (#case (Step-waiting value remaining)

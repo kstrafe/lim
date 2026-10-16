@@ -12,7 +12,7 @@
   (#return (#slice-len owner)))
 (#fn Utf8Source-slice-byte (: owner (#slice #u8) : index #usize) #u8
   (#return (#deref (#slice-idx owner index))))
-(#enum Utf8ByteResult ((Utf8Byte #u8) Utf8ByteOutOfBounds))
+(#enum Utf8ByteResult () ((Utf8Byte #u8) Utf8ByteOutOfBounds))
 
 ; Only these immutable, borrow-checked sources are supported. Arbitrary reader
 ; callbacks could mutate interior storage after validation, breaking invariants.
@@ -25,16 +25,16 @@
         Utf8Source-slice-len Utf8Source-slice-byte)
       (#gn-error "utf8-view owner must be (#ref String) or (#slice #u8)"))))
 (#gn-fn utf8-view-emit (name owner-type owner-len owner-byte)
-  `((#struct ,name (: owner ,owner-type : start #usize : length #usize))
+  `((#struct ,name () (: owner ,owner-type : start #usize : length #usize))
     (#opaque ,name)
-    (#enum ,(#gn-symbol-append name "Result")
+    (#enum ,(#gn-symbol-append name "Result") ()
       ((,(#gn-symbol-append name "Valid") ,name)
         ,(#gn-symbol-append name "InvalidUtf8")
         ,(#gn-symbol-append name "InvalidRange")
         ,(#gn-symbol-append name "InvalidBoundary")))
-    (#struct ,(#gn-symbol-append name "Chars") (: view ,name : cursor #usize))
+    (#struct ,(#gn-symbol-append name "Chars") () (: view ,name : cursor #usize))
     (#opaque ,(#gn-symbol-append name "Chars"))
-    (#enum ,(#gn-symbol-append name "CharResult")
+    (#enum ,(#gn-symbol-append name "CharResult") ()
       ((,(#gn-symbol-append name "Char") #char) ,(#gn-symbol-append name "End")))
     (#fn ,(#gn-symbol-append name "-len") (: view (#ref ,name)) #usize
       (#return (#get view length)))

@@ -1,2 +1,2 @@
-(#enum State (Open Closed))
-(#enum Other (Open))
+(#enum State () (Open Closed))
+(#enum Other () (Open))

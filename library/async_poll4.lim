@@ -3,10 +3,10 @@
 (#import "linux_x86_64.lim")
 (#import "wake_ready4.lim")
 
-(#struct AsyncPollSource4
+(#struct AsyncPollSource4 ()
   ((fd #i64) (queue (#ref WakeReady4)) (token WakeToken4)))
 (#opaque AsyncPollSource4)
-(#enum AsyncPoll4Result ((AsyncPoll4Ready #u32) (AsyncPoll4Failed #i64)))
+(#enum AsyncPoll4Result () ((AsyncPoll4Ready #u32) (AsyncPoll4Failed #i64)))
 
 (#fn async-poll4-source
   ((fd #i64) (queue (#ref WakeReady4)) (token WakeToken4)) AsyncPollSource4

@@ -1,23 +1,23 @@
 ; Each pattern test awaits a factory and the task returned by that factory.
 ; Pattern payloads remain available through both body suspension points.
-(#enum Choice ((Chosen #u64) Empty))
-(#enum ChoiceTask ((ChoiceStart Choice) (ChoiceResume Choice)))
-(#enum ChoicePoll ((ChoicePending ChoiceTask) (ChoiceReady Choice)))
+(#enum Choice () ((Chosen #u64) Empty))
+(#enum ChoiceTask () ((ChoiceStart Choice) (ChoiceResume Choice)))
+(#enum ChoicePoll () ((ChoicePending ChoiceTask) (ChoiceReady Choice)))
 (#fn choice-poll ((task ChoiceTask) (waker (#ref #u64))) ChoicePoll
   (#return (#match task
     (#case (ChoiceStart value) (ChoicePending (ChoiceResume value)))
     (#case (ChoiceResume value) (ChoiceReady value)))))
 
-(#enum Factory ((MakeChoice Choice) (ResumeChoice Choice)))
-(#linear Factory)
-(#enum FactoryPoll ((FactoryPending Factory) (FactoryReady ChoiceTask)))
+(#enum Factory (#linear) ((MakeChoice Choice) (ResumeChoice Choice)))
+
+(#enum FactoryPoll () ((FactoryPending Factory) (FactoryReady ChoiceTask)))
 (#fn factory-poll ((task Factory) (waker (#ref #u64))) FactoryPoll
   (#return (#match task
     (#case (MakeChoice choice) (FactoryPending (ResumeChoice choice)))
     (#case (ResumeChoice choice) (FactoryReady (ChoiceStart choice))))))
 
-(#enum Step ((Start #u64) (Resume #u64)))
-(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#enum Step () ((Start #u64) (Resume #u64)))
+(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Start value) (StepPending (Resume value)))

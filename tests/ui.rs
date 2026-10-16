@@ -749,7 +749,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-type",
             diagnostic_code: "E4000",
-            offending_line: "(#struct Token ())",
+            offending_line: "(#struct Token () ())",
             line_number: 2,
         },
         Case {
@@ -761,19 +761,19 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "duplicate-field",
             diagnostic_code: "E4000",
-            offending_line: "(#struct Point ((x #u64) (x #u64)))",
+            offending_line: "(#struct Point () ((x #u64) (x #u64)))",
             line_number: 1,
         },
         Case {
             name: "duplicate-variant",
             diagnostic_code: "E2000",
-            offending_line: "(#enum State (Open Closed Open))",
+            offending_line: "(#enum State () (Open Closed Open))",
             line_number: 1,
         },
         Case {
             name: "duplicate-variant-global",
             diagnostic_code: "E4000",
-            offending_line: "(#enum Other (Open))",
+            offending_line: "(#enum Other () (Open))",
             line_number: 2,
         },
         Case {
@@ -797,7 +797,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "repr-c-discriminant",
             diagnostic_code: "E4000",
-            offending_line: "(#enum Code #repr-c ((TooLarge 2147483648)))",
+            offending_line: "(#enum Code (#repr-c) ((TooLarge 2147483648)))",
             line_number: 1,
         },
         Case {
@@ -821,7 +821,7 @@ fn compilation_errors_render_the_offending_source_line() {
         Case {
             name: "thread-task-field",
             diagnostic_code: "E4000",
-            offending_line: "(#struct Container ((task Task)))",
+            offending_line: "(#struct Container () ((task Task)))",
             line_number: 3,
         },
         Case {

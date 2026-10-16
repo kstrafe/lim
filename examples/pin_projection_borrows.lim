@@ -1,9 +1,9 @@
 (#import "../library/pin.lim")
 
-(#struct Number (: value #u64))
-(#linear Number)
-(#struct Pair (: left Number : right Number))
-(#linear Pair)
+(#struct Number (#linear) (: value #u64))
+
+(#struct Pair (#linear) (: left Number : right Number))
+
 
 (@#pin (: type Number : name PinnedNumber : fields (: value #u64)))
 (@#pin (: type Pair : name PinnedPair

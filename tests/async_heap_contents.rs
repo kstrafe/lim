@@ -3,7 +3,7 @@ use std::{process::Command, time::Duration};
 mod support;
 
 const PREFIX: &str = r#"
-  (#struct Holder (: link (#ref #u64)))
+  (#struct Holder () (: link (#ref #u64)))
   (#fn make (: pointer (#ptr-mut Holder) : source (#ref #u64)) (#pin-own Holder)
     (#return (#unsafe (#pin-own-of pointer (#struct-literal Holder (: link source))))))
   (#fn get (: owner (#ref (#pin-own Holder))) (#ref #u64)
@@ -13,8 +13,8 @@ const PREFIX: &str = r#"
     (#let pointer (#ptr-mut Holder) (#unsafe (#pin-release owner)))
     (#assert (#i64.== (#unsafe (#linux-syscall #i64 11usize (pointer 4096usize))) 0i64))
     (#return ()))
-  (#enum Step (: Waiting #u64)) (#linear Step)
-  (#enum StepPoll (: StepPending Step : StepReady #u64)) (#linear StepPoll)
+  (#enum Step (#linear) (: Waiting #u64))
+  (#enum StepPoll (#linear) (: StepPending Step : StepReady #u64))
   (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
     (#return (#match task
       (#case (Waiting count)
@@ -147,7 +147,7 @@ fn async_heap_owner_is_transferred_to_explicit_cancellation_cleanup() {
         .replace("(#call destroy (: owner owner : counts counts))", "(#call destroy-counted (: counted owner))");
     let source = format!(
         r#"{prefix}
-      (#struct CountedOwner (: owner (#pin-own Holder) : counts (#ptr-mut #u64)))
+      (#struct CountedOwner () (: owner (#pin-own Holder) : counts (#ptr-mut #u64)))
       (#fn make-counted (: pointer (#ptr-mut Holder) : source (#ref #u64) : counts (#ptr-mut #u64)) CountedOwner
         (#return (#struct-literal CountedOwner
           (: owner (#call make (: pointer pointer : source source : counts counts)) : counts counts))))

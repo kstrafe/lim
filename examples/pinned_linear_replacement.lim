@@ -1,5 +1,5 @@
-(#struct Resource ((number #u64)))
-(#linear Resource)
+(#struct Resource (#linear) ((number #u64)))
+
 
 (#fn replace-resource ((target (#pin-ref-mut Resource))) ()
   (#let old Resource (#unsafe (#pin-read target)))

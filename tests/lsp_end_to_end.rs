@@ -337,7 +337,7 @@ impl Drop for Client {
 #[test]
 fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
     let fixture = Fixture::new("navigation");
-    let leaf_text = "(#type Number #u64)\r\n(#fn glyph () #char (#return #\\😀)) (#fn leaf-value ((value Number)) Number (#return value))\r\n(#struct Holder ((field Number)))\r\n";
+    let leaf_text = "(#type Number #u64)\r\n(#fn glyph () #char (#return #\\😀)) (#fn leaf-value ((value Number)) Number (#return value))\r\n(#struct Holder () ((field Number)))\r\n";
     let leaf = fixture.write("modules α/leaf #%.lim", leaf_text);
     let bridge_text = "(#import \"leaf #%.lim\")\r\n(#cfg-if (#cfg-is #flavor first)\r\n (#fn proxy ((value Number)) Number (#return (#call leaf-value (: value value))))\r\n (#cfg-else (#fn proxy ((value Number)) Number (#return value))))\r\n";
     let bridge = fixture.write("modules α/bridge.lim", bridge_text);
@@ -433,7 +433,7 @@ fn transitive_external_imports_cfg_and_unicode_have_exact_navigation_ranges() {
 #[test]
 fn imported_signature_and_aggregate_type_roles_and_ffi_declarations_navigate() {
     let fixture = Fixture::new("type-roles");
-    let module_text = "(#type Number #u64)\n(#extern-fn #abi-c foreign ((value Number)) Number)\n(#unsafe-fn guarded ((value Number)) Number (#return value))\n(#struct Holder ((field (#ref Number))))\n(#enum Choice ((Data Number Number) Empty))\n(#struct CRecord #repr-c ((c-field Number)))\n(#const LIMIT Number 99u64)\n(#static COUNT Number 42u64)\n";
+    let module_text = "(#type Number #u64)\n(#extern-fn #abi-c foreign ((value Number)) Number)\n(#unsafe-fn guarded ((value Number)) Number (#return value))\n(#struct Holder () ((field (#ref Number))))\n(#enum Choice () ((Data Number Number) Empty))\n(#struct CRecord (#repr-c) ((c-field Number)))\n(#const LIMIT Number 99u64)\n(#static COUNT Number 42u64)\n";
     let module = fixture.write("functions.lim", module_text);
     let root_text = "(#import \"functions.lim\")\n(#fn main () Number\n (#let-mut input Number 42u64)\n (#return (#unsafe (#call foreign (: value (#call guarded (: value input)))))))\n";
     let root = fixture.write("main.lim", root_text);

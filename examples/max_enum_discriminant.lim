@@ -1,4 +1,4 @@
-(#enum Code ((Maximum 18446744073709551615)))
+(#enum Code () ((Maximum 18446744073709551615)))
 
 (#fn main () #u64
   (#return (#if (#u64.== (#as Maximum #u64) 18446744073709551615) 42 0)))

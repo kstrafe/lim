@@ -1,5 +1,5 @@
-(#enum Value (Empty (Full #u64)))
-(#struct Link (: value Value : view (#pin-ref #u64)))
+(#enum Value () (Empty (Full #u64)))
+(#struct Link () (: value Value : view (#pin-ref #u64)))
 
 (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
   (#let view (#pin-ref #u64)

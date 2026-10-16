@@ -47,7 +47,7 @@ fn run_native(source: &str, label: &str) {
 #[test]
 fn nested_array_lifetime_anchor_can_read_through_a_shared_pointer_borrow() {
     run_native(
-        "(#struct Empty ()) (#struct Record (: header #u64 : tail Empty))
+        "(#struct Empty () ()) (#struct Record () (: header #u64 : tail Empty))
       (#fn inspect (: data (#pin-ref-mut (#array Record 2))) #u64
         (#let pointer (#ptr Empty) (#ref-ptr (#pin-borrow (#get (#index data 0usize) tail))))
         (#let view (#ref Empty) (#unsafe (#ptr-borrow
@@ -67,7 +67,7 @@ fn nested_array_lifetime_anchor_can_read_through_a_shared_pointer_borrow() {
 #[test]
 fn empty_struct_layout_is_zero_bytes() {
     run_native(
-        "(#struct Empty ()) (#fn main () #u64\n           (#return (#if (#usize.== (#size-of Empty) 0usize) 42u64 43u64)))",
+        "(#struct Empty () ()) (#fn main () #u64\n           (#return (#if (#usize.== (#size-of Empty) 0usize) 42u64 43u64)))",
         "async-dynamic-empty-layout",
     );
 }
@@ -75,9 +75,9 @@ fn empty_struct_layout_is_zero_bytes() {
 #[test]
 fn dynamic_empty_array_elements_survive_pending_resume_for_local_and_external_owners() {
     let source = r#"
-      (#struct Empty ())
-      (#enum Child ((Waiting #u64))) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#struct Empty () ())
+      (#enum Child (#linear) ((Waiting #u64)))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task
           (#case (Waiting count)
@@ -135,7 +135,7 @@ fn dynamic_nested_trailing_empty_field_survives_pending_resume() {
 fn dynamic_nested_nonempty_fields_preserve_shared_and_exclusive_access() {
     for mutable in [false, true] {
         let mut source = nested_array_source()
-            .replace("(#struct Empty ())", "")
+            .replace("(#struct Empty () ())", "")
             .replace("(#assert (#usize.== (#size-of Empty) 0usize))", "")
             .replace("Empty", "#u64")
             .replace("(#struct-literal #u64 (:))", "42u64")
@@ -171,7 +171,7 @@ fn two_runtime_array_coordinates_preserve_the_selected_leaf() {
     let record = |value| format!("(#struct-literal Record (: header 0u64 : tail {value}u64))");
     let row = |left, right| format!("(#array-of Row {} {})", record(left), record(right));
     let source = nested_array_source()
-        .replace("(#struct Empty ())", "(#type Row (#array Record 2))")
+        .replace("(#struct Empty () ())", "(#type Row (#array Record 2))")
         .replace("(#assert (#usize.== (#size-of Empty) 0usize))", "")
         .replace("Empty", "#u64")
         .replace("(#array Record 2)", "(#array Row 2)")
@@ -219,10 +219,10 @@ fn two_runtime_array_coordinates_preserve_the_selected_leaf() {
 
 fn nested_array_source() -> &'static str {
     r#"
-      (#struct Empty ())
-      (#struct Record ((header #u64) (tail Empty)))
-      (#enum Child ((Waiting #u64))) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#struct Empty () ())
+      (#struct Record () ((header #u64) (tail Empty)))
+      (#enum Child (#linear) ((Waiting #u64)))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task
           (#case (Waiting count)

@@ -4,10 +4,10 @@
 (#import "../library/async_poll4.lim")
 (#import "../library/timer_reactor1.lim")
 
-(#struct WakeExecutor ((queue WakeReady4)))
-(#struct WakeMetadata ((token WakeToken4)))
-(#struct WakeWaitContext ((sources (#slice AsyncPollSource4)) (waits #u64)))
-(#linear WakeMetadata)
+(#struct WakeExecutor () ((queue WakeReady4)))
+(#struct WakeMetadata (#linear) ((token WakeToken4)))
+(#struct WakeWaitContext () ((sources (#slice AsyncPollSource4)) (waits #u64)))
+
 
 (#fn notify ((executor (#ref WakeExecutor)) (metadata (#ref WakeMetadata))) ()
   (#assert (#call wake-ready4-notify

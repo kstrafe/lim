@@ -1,9 +1,9 @@
 ; Awaiting a #u64 does not require the surrounding branch to return a u64.
 ; The chosen branch returns a linear Token; the other branch is immediate.
-(#struct Token ((value #u64)))
-(#enum Step ((Waiting #u64) (Resuming #u64)))
-(#linear Step)
-(#enum StepPoll ((StepPending Step) (StepReady #u64)))
+(#struct Token () ((value #u64)))
+(#enum Step (#linear) ((Waiting #u64) (Resuming #u64)))
+
+(#enum StepPoll () ((StepPending Step) (StepReady #u64)))
 (#fn step-poll ((task Step) (waker (#ref #u64))) StepPoll
   (#return (#match task
     (#case (Waiting value) (StepPending (Resuming value)))

@@ -1,4 +1,4 @@
-(#enum TypedPattern ((Some #u64) None))
+(#enum TypedPattern () ((Some #u64) None))
 
 (#fn main () #u64
   (#let value #u64 42u64)

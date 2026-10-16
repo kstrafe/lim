@@ -1,7 +1,7 @@
 ; A restored aggregate must preserve the address of its borrowed sibling.
-(#struct Token (: value #u64))
-(#linear Token)
-(#struct Owner (: kept #u64 : item Token))
+(#struct Token (#linear) (: value #u64))
+
+(#struct Owner () (: kept #u64 : item Token))
 (#fn inspect (: owner (#ref Owner)) #u64
   (#return (#u64.+.wrap (#get owner kept) (#get (#get owner item) value))))
 (#fn main () #u64

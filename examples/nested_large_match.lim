@@ -1,7 +1,7 @@
-(#struct Inner
+(#struct Inner ()
   ((payload (#array #u64 7))))
 
-(#struct Outer
+(#struct Outer ()
   ((inner Inner)))
 
 (#fn main () #u64

@@ -8,8 +8,8 @@ fn config() -> lim::CompileConfig {
     config
 }
 
-const CONTEXT: &str = "(#enum Child ((Waiting #u64))) (#linear Child)
-  (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+const CONTEXT: &str = "(#enum Child (#linear) ((Waiting #u64)))
+  (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
   (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
     (#return (#match task
       (#case (Waiting count)
@@ -17,7 +17,7 @@ const CONTEXT: &str = "(#enum Child ((Waiting #u64))) (#linear Child)
           (ChildPending (Waiting 1u64))
           (ChildReady count))))))
   (#fn cancel-child (: child Child) () (#forget child) (#return ()))
-  (#struct Owner (: value #u64)) (#linear Owner)
+  (#struct Owner (#linear) (: value #u64))
   (#fn destroy-owner (: owner Owner) () (#forget owner) (#return ()))";
 
 fn checked_source(body: &str, pinned: bool, return_type: &str) -> String {

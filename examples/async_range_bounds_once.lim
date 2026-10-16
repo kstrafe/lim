@@ -1,7 +1,7 @@
 ; The start and end factories run once, in order, despite suspension/continue.
-(#enum ChildTask ((Start #u64) (Resume #u64)))
-(#linear ChildTask)
-(#enum ChildPoll ((ChildPending ChildTask) (ChildReady #u64)))
+(#enum ChildTask (#linear) ((Start #u64) (Resume #u64)))
+
+(#enum ChildPoll () ((ChildPending ChildTask) (ChildReady #u64)))
 (#fn child-poll (: task ChildTask : waker (#ref #u64)) ChildPoll
   (#return
     (#match task

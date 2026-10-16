@@ -1,4 +1,4 @@
-(#struct Point ((x #u64) (y #u64)))
+(#struct Point () ((x #u64) (y #u64)))
 
 (#fn main () #u64
   (#return

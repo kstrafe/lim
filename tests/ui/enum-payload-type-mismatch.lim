@@ -1,4 +1,4 @@
-(#enum Payload ((Pair #bool #u64) Empty))
+(#enum Payload () ((Pair #bool #u64) Empty))
 (#fn main () #u64
   (#let value Payload (Pair true false))
   (#return 0u64))

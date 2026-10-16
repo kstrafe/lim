@@ -256,8 +256,8 @@ mod tests {
 
     fn graph(body: &str) -> Graph {
         let source = format!(
-            "(#enum Child ((Waiting #u64)))
-          (#enum ChildPoll ((Pending Child) (Ready #u64)))
+            "(#enum Child () ((Waiting #u64)))
+          (#enum ChildPoll () ((Pending Child) (Ready #u64)))
           (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
             (#return (#match task (#case (Waiting value) (Ready value)))))
           (#fn touch (: value #u64 : target (#ref-mut #u64)) ()
@@ -267,7 +267,7 @@ mod tests {
           (#fn effect () #u64 (#return 1u64))
           (#fn inspect (: items (#slice #u64)) #u64
             (#return (#deref (#slice-idx items 0usize))))
-          (#struct Pair (: left #u64 : right #u64))
+          (#struct Pair () (: left #u64 : right #u64))
           (#fn touch-two (: left (#ref-mut #u64) : right (#ref-mut #u64)) ()
             (#deref-set left 20u64) (#deref-set right 22u64) (#return ()))
           (@#async-fn (: protocol WorkAwait : waker #u64

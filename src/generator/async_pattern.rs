@@ -428,8 +428,8 @@ mod tests {
 
     #[test]
     fn borrowed_inspection_never_emits_an_owning_read_or_consumption() {
-        let source = "(#struct Payload ((value #u64))) (#linear Payload)
-          (#enum Choice ((Some Payload) Empty)) (#linear Choice)
+        let source = "(#struct Payload (#linear) ((value #u64)))
+          (#enum Choice (#linear) ((Some Payload) Empty))
           (#fn unused () () (#return ()))";
         let program = crate::parse_program(source).unwrap();
         let checked = crate::CheckedProgram::validate(&program).unwrap();

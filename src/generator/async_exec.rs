@@ -2803,8 +2803,8 @@ mod tests {
     use crate::typed_ir::Declarations;
 
     const CONTEXT: &str = "
-      (#enum Child ((Waiting #u64))) (#linear Child)
-      (#enum ChildPoll ((Pending Child) (Ready #u64)))
+      (#enum Child (#linear) ((Waiting #u64)))
+      (#enum ChildPoll () ((Pending Child) (Ready #u64)))
       (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task
           (#case (Waiting count) (#if (#u64.== count 0u64)
@@ -2839,7 +2839,7 @@ mod tests {
     #[test]
     fn let_else_commits_the_failure_pattern_from_the_same_scrutinee() {
         let (lowered, declarations) = prepare_with_context(
-            "(#enum Choice (: Some #u64 : Error #u64))",
+            "(#enum Choice () (: Some #u64 : Error #u64))",
             "(#fn work (: choice Choice) #u64
               (#let-else (Some amount) Choice choice
                 (#else (Error error) (#return error)))
@@ -2908,7 +2908,7 @@ mod tests {
     #[test]
     fn ordinary_borrows_inherit_checked_pinning_and_scoped_context() {
         let (lowered, declarations) = prepare_with_context(
-            "(#struct Pair ((left #u64) (right #u64)))",
+            "(#struct Pair () ((left #u64) (right #u64)))",
             "(#fn work ((owner (#pin-ref-mut Pair))) #u64
               (#let view (#pin-ref #u64) (#borrow (#get owner left)))
               (#drop view)
@@ -2938,7 +2938,7 @@ mod tests {
     #[test]
     fn mutable_destructure_and_immutable_match_bindings_remain_distinct() {
         let (lowered, declarations) = prepare_with_context(
-            "(#struct Pair ((left #u64) (right #u64))) (#enum Choice ((Some #u64) None))",
+            "(#struct Pair () ((left #u64) (right #u64))) (#enum Choice () ((Some #u64) None))",
             "(#fn work ((pair Pair) (choice Choice)) #u64
               (#let-mut (Pair left right) Pair pair)
               (#set left (#call first (:)))
@@ -3033,7 +3033,7 @@ mod tests {
     #[test]
     fn payload_checks_are_explicit_and_missing_or_reordered_operands_are_rejected() {
         let (lowered, declarations) = prepare_with_context(
-            "(#enum Choice ((Some #u64) None))",
+            "(#enum Choice () ((Some #u64) None))",
             "(#fn work ((choice (#ref Choice))) #u64
               (#return (#call combine (: first (#get-payload choice Some 0)
                 : second (#call first (:))))))",

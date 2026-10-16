@@ -1,17 +1,17 @@
 ; Move and restore one part while a sibling is borrowed, then clone the whole.
 ; Cloning snapshots values without relocating the original borrowed part.
-(#struct Part (: value #u64))
-(#linear Part)
-(#struct Parts (: first Part : second Part))
-(#linear Parts)
+(#struct Part (#linear) (: value #u64))
+
+(#struct Parts (#linear) (: first Part : second Part))
+
 (#fn Parts-clone (: original Parts) Parts
   (#let (Parts first second) Parts original)
   (#let value #u64 (#u64.+.wrap (#get first value) 1u64))
   (#forget first)
   (#return (#struct-literal Parts (: first (#struct-literal Part (: value value)) : second second))))
-(#enum Step (Start Resume))
-(#linear Step)
-(#enum StepPoll ((Pending Step) (Ready ())))
+(#enum Step (#linear) (Start Resume))
+
+(#enum StepPoll () ((Pending Step) (Ready ())))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return
     (#match task

@@ -1,4 +1,4 @@
-(#struct Holder (: view (#ref #u64)))
+(#struct Holder () (: view (#ref #u64)))
 (#fn replace (: target (#ref-mut Holder) : value (#ref #u64)) ()
   (#deref-set target (#struct-literal Holder (: view value)))
   (#return ()))

@@ -83,7 +83,7 @@ fn import_paths_and_imported_functions_and_types_are_navigable_with_type_errors(
     std::fs::create_dir_all(&base).unwrap();
     let root = base.join("main.lim");
     let child = base.join("child.lim");
-    let text = "(#import \"child.lim\")\n(#import-external \"child.lim\" ext-)\n(#fn main () #u64 (#let value ext-Number 42u64) (#return (#call ext-read (: ext-value value))))\n(#fn broken () #u64 (#return #true))\n(#struct Holder ((field Number)))\n(#enum Choice ((Present Number) (Absent ())))";
+    let text = "(#import \"child.lim\")\n(#import-external \"child.lim\" ext-)\n(#fn main () #u64 (#let value ext-Number 42u64) (#return (#call ext-read (: ext-value value))))\n(#fn broken () #u64 (#return #true))\n(#struct Holder () ((field Number)))\n(#enum Choice () ((Present Number) (Absent ())))";
     let imported = "(#type Number #u64)\n(#fn read ((value Number)) #u64 (#return value))";
     std::fs::write(&root, text).unwrap();
     std::fs::write(&child, imported).unwrap();
@@ -399,7 +399,7 @@ fn utf16_emoji_diagnostics_and_formatting() {
 #[test]
 fn symbols_and_definition_only_on_declaration_names() {
     let uri = "file:///tmp/lim-lsp-symbols.lim";
-    let text = "(#fn main () #u64 (#return 0u64))\n(#struct Point ())";
+    let text = "(#fn main () #u64 (#return 0u64))\n(#struct Point () ())";
     let mut messages = start();
     messages.push(open(uri, 1, text));
     messages.push(request(2, "textDocument/documentSymbol", &document(uri)));
@@ -426,7 +426,7 @@ fn symbols_and_definition_only_on_declaration_names() {
 #[test]
 fn explicit_call_roles_resolve_unique_functions_but_not_fields_or_templates() {
     let uri = "file:///tmp/lim-lsp-calls.lim";
-    let source = "(#fn target () #u64 (#return 0u64))\n(#fn main () #u64 (#return (#call target (:))))\n(#struct Holder ((target #u64)))\n'(#call target (:))";
+    let source = "(#fn target () #u64 (#return 0u64))\n(#fn main () #u64 (#return (#call target (:))))\n(#struct Holder () ((target #u64)))\n'(#call target (:))";
     let mut messages = start();
     messages.push(open(uri, 1, source));
     for (id, line, character) in [(2, 1, 34), (3, 2, 18), (4, 3, 8)] {

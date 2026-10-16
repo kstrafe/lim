@@ -532,7 +532,7 @@ mod tests {
     #[test]
     fn primitive_field_writes_preserve_a_live_reference_holder() {
         let (graph, types, lending) = prepare(
-            "(#struct Holder (: view (#ref #u64) : count #u64))
+            "(#struct Holder () (: view (#ref #u64) : count #u64))
               (#fn work (: owner Holder) ()
                 (#let-mut holder Holder owner) (#set-field holder count 1u64) (#return ()))",
         );
@@ -562,7 +562,7 @@ mod tests {
     fn pending_retires_only_dead_exclusive_bindings() {
         let context = crate::parse_program(
             "(#type View (#ref-mut #u64))
-              (#enum ChildPoll ((Pending View) (Ready #u64)))
+              (#enum ChildPoll () ((Pending View) (Ready #u64)))
               (#fn step-poll (: task View : waker (#ref #u64)) ChildPoll
                 (#return (Pending task)))",
         )
@@ -653,8 +653,8 @@ mod tests {
     #[test]
     fn pending_preserves_only_the_restored_owned_child() {
         let context = crate::parse_program(
-            "(#enum Child ((Waiting (#ref-mut #u64)))) (#linear Child)
-              (#enum ChildPoll ((Pending Child) (Ready #u64)))
+            "(#enum Child (#linear) ((Waiting (#ref-mut #u64))))
+              (#enum ChildPoll () ((Pending Child) (Ready #u64)))
               (#fn step-poll (: task Child : waker (#ref #u64)) ChildPoll
                 (#return (#match task (#case (Waiting view) (Pending (Waiting view))))))",
         )

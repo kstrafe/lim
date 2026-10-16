@@ -1,16 +1,16 @@
 ; Clone a runtime-selected element of a computed reference-bearing array.
 ; The selected Holder keeps the caller's loan through suspension.
-(#struct Holder (: reference (#ref #u64) : offset #u64))
-(#linear Holder)
+(#struct Holder (#linear) (: reference (#ref #u64) : offset #u64))
+
 (#fn make-array (: owner (#ref #u64)) (#array Holder 2)
   (#return
     (#array-of
       (#array Holder 2)
       (#struct-literal Holder (: reference owner : offset 0u64))
       (#struct-literal Holder (: reference owner : offset 1u64)))))
-(#enum Step (Start Resume))
-(#linear Step)
-(#enum StepPoll ((Pending Step) (Ready ())))
+(#enum Step (#linear) (Start Resume))
+
+(#enum StepPoll () ((Pending Step) (Ready ())))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return
     (#match task

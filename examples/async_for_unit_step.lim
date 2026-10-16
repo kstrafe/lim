@@ -1,7 +1,7 @@
 ; The step suspends for an effect, without producing a value to bind.
-(#enum StepTask (Start Resume))
-(#linear StepTask)
-(#enum StepPoll ((StepPending StepTask) (StepReady ())))
+(#enum StepTask (#linear) (Start Resume))
+
+(#enum StepPoll () ((StepPending StepTask) (StepReady ())))
 
 (#fn step-poll ((task StepTask) (waker (#ref #u64))) StepPoll
   (#return (#match task

@@ -14,7 +14,7 @@ fn binding_lines(dump: &str) -> Vec<&str> {
 
 #[test]
 fn same_spelled_match_payloads_have_distinct_typed_bindings_and_stable_ids() {
-    let source = "(#enum Value ((Small #u32) (Large #u64)))
+    let source = "(#enum Value () ((Small #u32) (Large #u64)))
       (#fn inspect ((value Value)) #u64
         (#return (#match value
           (#case (Small item) (#as item #u64))
@@ -62,7 +62,7 @@ fn same_spelled_match_payloads_have_distinct_typed_bindings_and_stable_ids() {
 
 #[test]
 fn unused_destructured_names_are_recorded_as_bindings() {
-    let source = "(#struct Pair ((left #u32) (right #u64)))
+    let source = "(#struct Pair () ((left #u32) (right #u64)))
       (#fn main ((pair Pair)) #u64
         (#let (Pair unused_left unused_right) Pair pair)
         (#return 0u64))";
@@ -141,7 +141,7 @@ fn scoped_bindings_and_assignment_roots_keep_local_and_global_identity_separate(
 
 #[test]
 fn let_else_bindings_are_available_after_success_and_not_in_the_failure_body() {
-    let source = "(#enum Maybe ((Some #u64) None))
+    let source = "(#enum Maybe () ((Some #u64) None))
       (#fn success ((value Maybe)) #u64
         (#let-else (Some payload) Maybe value (#return 0u64))
         (#return payload))

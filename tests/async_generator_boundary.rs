@@ -70,8 +70,8 @@ fn generated_standalone_with_config(
 
 #[test]
 fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
-    let source = "(#enum Child ((Waiting #u64))) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+    let source = "(#enum Child (#linear) ((Waiting #u64)))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task (#case (Waiting count)
           (#if (#u64.== count 0u64) (ChildPending (Waiting 1u64)) (ChildReady count))))))
@@ -113,7 +113,7 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
             .then_some(items)
             .filter(|items| matches!(items.get(1), Some(lim::Expr::Symbol(name)) if name == "Work-frame"))
     }).unwrap();
-    let lim::Expr::List(fields) = &frame[2] else {
+    let lim::Expr::List(fields) = &frame[3] else {
         panic!("frame fields");
     };
     let left_buffer = fields
@@ -157,9 +157,9 @@ fn graph_selected_internal_references_compile_as_independent_ordinary_code() {
 
 #[test]
 fn graph_mixed_external_references_retain_lifetimes_in_independent_ordinary_code() {
-    let source = "(#struct Outside (: other #u64 : selected #u64))
-      (#enum Child ((Waiting #u64))) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+    let source = "(#struct Outside () (: other #u64 : selected #u64))
+      (#enum Child (#linear) ((Waiting #u64)))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task (#case (Waiting count)
           (#if (#u64.== count 0u64) (ChildPending (Waiting 1u64)) (ChildReady count))))))
@@ -245,9 +245,9 @@ fn check_build_and_run(scratch: &support::Scratch, source: &str, expected: i32) 
 
 #[test]
 fn movable_async_artifact_is_checked_and_run_as_ordinary_lim() {
-    let source = "(#enum Child ((Waiting #u64)))
-      (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+    let source = "(#enum Child (#linear) ((Waiting #u64)))
+
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#syntax ChildAwait (#u64 Child ChildPending ChildReady child-poll))
       (#fn child-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task

@@ -186,7 +186,7 @@ fn user_trap_names_do_not_supply_divergence_or_hide_linear_cleanup() {
         ));
         assert!(error.message.contains("return"), "{error:?}");
         let error = compile_error(&format!(
-            "(#struct Resource ((value #u64))) (#linear Resource)
+            "(#struct Resource (#linear) ((value #u64)))
              (#fn {name} () () (#return ()))
              (#fn main () #u64
                (#let owner Resource (#struct-literal Resource (: value 42u64)))
@@ -198,7 +198,7 @@ fn user_trap_names_do_not_supply_divergence_or_hide_linear_cleanup() {
 
 #[test]
 fn user_clone_consumes_linear_arguments_instead_of_copying() {
-    let source = "(#struct Resource ((value #u64))) (#linear Resource)
+    let source = "(#struct Resource (#linear) ((value #u64)))
       (#fn clone ((value Resource)) Resource (#return value))
       (#fn main () #u64
         (#let owner Resource (#struct-literal Resource (: value 42u64)))

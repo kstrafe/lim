@@ -5,28 +5,28 @@
 ;; The raw marker keeps this interior kernel protocol single-threaded.
 (#import "linux_x86_64.lim")
 
-(#struct AioOwnedContext ((id #usize) (local-marker (#ptr #u8))))
+(#struct AioOwnedContext (#linear) ((id #usize) (local-marker (#ptr #u8))))
 (#opaque AioOwnedContext)
-(#linear AioOwnedContext)
-(#enum AioOwnedContextCreate
+
+(#enum AioOwnedContextCreate ()
   ((AioOwnedContextCreated AioOwnedContext) (AioOwnedContextCreateFailed #i64)))
 
-(#struct AioOwnedPending
+(#struct AioOwnedPending (#linear)
   ((context (#ref AioOwnedContext)) (memory (#ptr-mut #u8)) (length #usize)))
 (#opaque AioOwnedPending)
-(#linear AioOwnedPending)
-(#struct AioOwnedCompleted
+
+(#struct AioOwnedCompleted (#linear)
   ((context (#ref AioOwnedContext)) (memory (#ptr-mut #u8))
    (length #usize) (result #i64)))
 (#opaque AioOwnedCompleted)
-(#linear AioOwnedCompleted)
 
-(#enum AioOwnedSubmit
+
+(#enum AioOwnedSubmit ()
   ((AioOwnedSubmitted AioOwnedPending) (AioOwnedSubmitFailed #i64)))
-(#enum AioOwnedWait
+(#enum AioOwnedWait ()
   ((AioOwnedFinished AioOwnedCompleted)
    (AioOwnedWaitFailed (#tuple AioOwnedPending #i64))))
-(#enum AioOwnedCancel
+(#enum AioOwnedCancel ()
   ((AioOwnedCancelFinished AioOwnedCompleted)
    (AioOwnedCancelFailed (#tuple AioOwnedPending #i64))))
 

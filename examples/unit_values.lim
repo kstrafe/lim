@@ -1,4 +1,4 @@
-(#struct Tagged ((marker ()) (value #u64)))
+(#struct Tagged () ((marker ()) (value #u64)))
 
 (#fn consume ((marker ())) #u64
   (#return 41))

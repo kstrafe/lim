@@ -169,7 +169,7 @@ fn large_loop_results_keep_their_local_or_indirect_destination() {
           (#return (#index values 6usize)))"
         ),
         format!(
-            "(#enum Packet (: Present (#array #u64 7)))
+            "(#enum Packet () (: Present (#array #u64 7)))
           (#fn main () #u64
             (#let packet Packet (#block (#label outer (#loop
               (#forget 0u64) (#break-to outer (Present {values}))))))
@@ -179,7 +179,7 @@ fn large_loop_results_keep_their_local_or_indirect_destination() {
         // The loop writes a nested field at a nonzero offset in an indirect
         // return. Accidentally writing at zero corrupts the sentinel field.
         format!(
-            "(#struct Packet (: sentinel #u64 : values (#array #u64 7)))
+            "(#struct Packet () (: sentinel #u64 : values (#array #u64 7)))
           (#fn make () Packet (#return (#struct-literal Packet
             (: sentinel 9u64 : values {result}))))
           (#fn main () #u64 (#let packet Packet (#call make (:)))

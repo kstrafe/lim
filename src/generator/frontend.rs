@@ -131,7 +131,7 @@ pub(crate) fn copy_type_names(expressions: &[SpannedExpr]) -> HashSet<String> {
         .filter(|expression| {
             matches!(&expression.expr,
             Expr::List(items) if matches!(items.first(), Some(Expr::Symbol(head))
-                if matches!(head.as_str(), "#type" | "#struct" | "#enum" | "#linear")))
+                if matches!(head.as_str(), "#type" | "#struct" | "#enum")))
             || matches!(&expression.expr, Expr::List(items)
                 if matches!(items.first(), Some(Expr::At))
                 && matches!(items.get(1), Some(Expr::Symbol(kind)) if matches!(kind.as_str(), "#optional" | "#result")))
@@ -1108,8 +1108,8 @@ mod async_migration_tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     const CONTEXT: &str = "
-      (#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#enum Child (#linear) ((Start #u64) (Resume #u64)))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
         (#return (#match task
           (#case (Start value) (ChildPending (Resume value)))
@@ -1352,7 +1352,7 @@ mod async_migration_tests {
     fn graph_cache_deduplicates_locations_and_names_retained_source_expressions() {
         let scratch = Scratch::new();
         let text = format!("{CONTEXT}
-          (#struct Source (: amount #u64)) (#linear Source)
+          (#struct Source (#linear) (: amount #u64))
           (#fn make (: amount #u64) Source (#return (#struct-literal Source (: amount amount))))
           (#fn consume (: owner Source : amount #u64) #u64
             (#let result #u64 (#u64.+.wrap (#get owner amount) amount)) (#forget owner) (#return result))

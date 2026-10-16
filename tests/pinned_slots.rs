@@ -14,8 +14,8 @@ fn resolve_pin_slot_import(source: &str) -> String {
 fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
     let source = "(#import \"../library/pin_slot.lim\")
       (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
-      (#struct Frame ((value #u64) (view (#pin-ref #u64)) (payload StableU64)))
-      (#linear Frame)
+      (#struct Frame (#linear) ((value #u64) (view (#pin-ref #u64)) (payload StableU64)))
+
       (#fn main () #u64
         (#let-mut outside #u64 3u64)
         (#let external (#pin-ref #u64) (#pin-borrow outside))
@@ -92,8 +92,8 @@ fn generated_pin_slot_takes_a_linear_value_and_leaves_empty_in_place() {
 fn generated_pin_slot_take_rejects_a_live_borrow_of_the_slot() {
     let source = "(#import \"../library/pin_slot.lim\")
       (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
-      (#struct Frame ((payload StableU64)))
-      (#linear Frame)
+      (#struct Frame (#linear) ((payload StableU64)))
+
       (#fn main () ()
         (#let-mut frame Frame
           (#struct-literal Frame ((payload (StableU64-full 41u64)))))
@@ -177,8 +177,8 @@ fn generated_pin_slot_try_insert_refills_in_place_and_returns_occupied_input() {
 fn a_pinned_slot_payload_can_be_borrowed_and_referenced_in_its_frame() {
     let source = "(#import \"../library/pin_slot.lim\")
       (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
-      (#struct Frame ((payload StableU64) (view (#pin-ref #u64))))
-      (#linear Frame)
+      (#struct Frame (#linear) ((payload StableU64) (view (#pin-ref #u64))))
+
       (#fn main () #u64
         (#let-mut outside #u64 3u64)
         (#let external (#pin-ref #u64) (#pin-borrow outside))
@@ -221,8 +221,8 @@ fn a_pinned_slot_payload_can_be_borrowed_and_referenced_in_its_frame() {
 fn a_pinned_slot_payload_loan_prevents_moving_out_the_slot() {
     let source = "(#import \"../library/pin_slot.lim\")
       (@#pin-slot (StableU64 StableU64-empty StableU64-full stable-u64-empty stable-u64-take StableU64Insert StableU64-inserted StableU64-occupied stable-u64-try-insert) #u64)
-      (#struct Frame ((payload StableU64)))
-      (#linear Frame)
+      (#struct Frame (#linear) ((payload StableU64)))
+
       (#fn main () ()
         (#let-mut frame Frame
           (#struct-literal Frame ((payload (StableU64-full 41u64)))))
@@ -246,7 +246,7 @@ fn a_pinned_slot_payload_loan_prevents_moving_out_the_slot() {
 
 #[test]
 fn pinned_enum_payloads_cannot_be_extracted_by_value() {
-    let source = "(#enum ValueSlot ((Full #u64) Empty))
+    let source = "(#enum ValueSlot () ((Full #u64) Empty))
       (#fn read ((slot (#pin-ref ValueSlot))) #u64
         (#return (#get-payload slot Full 0)))";
     let program = parse_program(source).unwrap();
@@ -259,7 +259,7 @@ fn pinned_enum_payloads_cannot_be_extracted_by_value() {
 
 #[test]
 fn pinned_enum_payload_mut_borrow_requires_mutable_pin() {
-    let source = "(#enum ValueSlot ((Full #u64) Empty))
+    let source = "(#enum ValueSlot () ((Full #u64) Empty))
       (#fn read ((slot (#pin-ref ValueSlot))) (#pin-ref-mut #u64)
         (#return (#pin-get-payload-mut slot Full 0)))";
     let program = parse_program(source).unwrap();

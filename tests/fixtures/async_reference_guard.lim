@@ -1,13 +1,13 @@
 ; Warm-cache performance fixture, also run cold/warm and independently in the
 ; graph-production suite. A rejected suspended guard retains its source loan.
-(#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
-(#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+(#enum Child (#linear) ((Start #u64) (Resume #u64)))
+(#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
 (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
   (#return (#match task
     (#case (Start value) (ChildPending (Resume value)))
     (#case (Resume value) (ChildReady value)))))
 (#fn cancel-child (: child Child) () (#forget child) (#return ()))
-(#enum Holder ((Holding (#ref #u64)))) (#linear Holder)
+(#enum Holder (#linear) ((Holding (#ref #u64))))
 (@#async-fn-pinned (: protocol WorkAwait : waker #u64
   : function (#fn work (: source (#ref #u64)) #u64
     (#let holder Holder (Holding source))

@@ -72,9 +72,13 @@ trait objects, hidden allocations, implicit captures, or recursive calls are
 introduced. Explicit `#clone` remains governed by the normal language rules;
 resource-owning task implementations must not promise invalid clone behavior.
 
-`(#linear Type)` applies to a concrete struct or enum and disables implicit
-structural Copy for that type and aggregates containing it. It does not change
-layout or Send/Sync. Reference values themselves retain their existing rules.
+`#linear` is a type property written in the struct or enum declaration's
+property list. Structs and enums become linear automatically when they own a
+linear field or any enum variant has a linear payload. References do not
+transfer linearity because they do not own their referents. Explicit `#linear`
+forces linearity even when every field or payload is plain data. It does not
+change layout or Send/Sync. Reference values themselves retain their existing
+rules.
 
 ## Fixed-capacity executors
 

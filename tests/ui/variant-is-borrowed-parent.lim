@@ -1,4 +1,4 @@
-(#enum Choice ((Number #u64) Empty))
+(#enum Choice () ((Number #u64) Empty))
 (#fn main () #u64
   (#let-mut value Choice (Number 42u64))
   (#let parent (#pin-ref-mut Choice) (#pin-borrow-mut value))

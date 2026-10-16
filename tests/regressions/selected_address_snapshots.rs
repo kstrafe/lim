@@ -10,13 +10,13 @@ fn run(body: &str, label: &str) {
 fn run_storage(body: &str, label: &str, pinned: bool) {
     let source = format!(
         r#"
-        (#enum Child ((Start #u64) (Resume #u64))) (#linear Child)
-        (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+        (#enum Child (#linear) ((Start #u64) (Resume #u64)))
+        (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
         (#fn child-poll (: task Child : waker (#ref #u64)) ChildPoll
           (#return (#match task
             (#case (Start value) (ChildPending (Resume value)))
             (#case (Resume value) (ChildReady value)))))
-        (#struct Owner (: values (#array #u64 2)))
+        (#struct Owner () (: values (#array #u64 2)))
         (#type WideRow (#array #u128 2))
         (@#async-fn-pinned (: protocol work-await : waker #u64
           : function (#fn work (: seed #u64) #u64 {body})))

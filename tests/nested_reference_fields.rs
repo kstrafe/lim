@@ -22,8 +22,8 @@ fn run(source: &str) -> std::process::ExitStatus {
 
 #[test]
 fn computed_nested_one_word_aggregates_use_the_value_register() {
-    let source = "(#struct Inner ((value #u64)))
-      (#struct Outer ((prefix ()) (inner Inner)))
+    let source = "(#struct Inner () ((value #u64)))
+      (#struct Outer () ((prefix ()) (inner Inner)))
       (#fn main () #u64
         (#let outer Outer (#struct-literal Outer
           ((prefix ()) (inner (#struct-literal Inner ((value 42u64)))))))
@@ -34,9 +34,9 @@ fn computed_nested_one_word_aggregates_use_the_value_register() {
 
 #[test]
 fn computed_nested_mutable_reference_fields_support_writes() {
-    let source = "(#struct Owner ((value #u64)))
-      (#struct View ((item (#ref-mut #u64))))
-      (#struct Wrapper ((view View)))
+    let source = "(#struct Owner () ((value #u64)))
+      (#struct View () ((item (#ref-mut #u64))))
+      (#struct Wrapper () ((view View)))
       (#fn main () #u64
         (#let-mut owner Owner (#struct-literal Owner ((value 1u64))))
         (#let parent (#ref-mut Owner) (#borrow-mut owner))
@@ -53,7 +53,7 @@ fn zero_sized_computed_fields_still_evaluate_the_container() {
     for trap in [false, true] {
         let effect = if trap { "(#assert false)" } else { "" };
         let source = format!(
-            "(#struct Empty ()) (#struct Outer ((empty Empty)))
+            "(#struct Empty () ()) (#struct Outer () ((empty Empty)))
              (#fn main () #u64
                (#let empty Empty (#get
                  (#block {effect} (#struct-literal Outer ((empty (#struct-literal Empty ())))))

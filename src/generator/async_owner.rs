@@ -59,7 +59,7 @@ mod tests {
             "(#get (#get owner pair) 1)"
         };
         let leaf = if whole { "Outer" } else { "#u64" };
-        let source = format!("(#struct Outer (: pair (#tuple #u64 #u64))) (#linear Outer)
+        let source = format!("(#struct Outer (#linear) (: pair (#tuple #u64 #u64)))
           (#type Owner Outer)
           (#fn work (: seed #u64) #u64
             (#let-mut owner Owner (#struct-literal Outer (: pair (#tuple (#tuple #u64 #u64) 7u64 seed))))
@@ -89,7 +89,7 @@ mod tests {
                 let (graph, place, declarations) = fixture(mutable, whole);
                 let plan = Borrow::new(&graph, &place, &declarations, mutable, true, true).unwrap();
                 let source = format!(
-                    "(#struct Outer (: pair (#tuple #u64 #u64))) (#linear Outer) {}",
+                    "(#struct Outer (#linear) (: pair (#tuple #u64 #u64)))  {}",
                     plan.declaration("project", "input")
                 );
                 let program = crate::parse_program(&source).unwrap();
@@ -133,7 +133,7 @@ mod tests {
         let declaration = plan.declaration("project", "input");
         assert!(declaration.contains("(#ptr-borrow projected (#ref-ptr projected))"));
         let source = format!(
-            "(#struct View (: value (#ref-mut #u64))) (#linear View)
+            "(#struct View (#linear) (: value (#ref-mut #u64)))
           {declaration}
           (#fn read-view (: view (#ref View)) #u64 (#return (#deref (#get view value))))
           (#fn main () #u64
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn parameter_owner_projections_require_explicit_mutability_metadata() {
-        let source = "(#struct Owner (: value #u64)) (#linear Owner)
+        let source = "(#struct Owner (#linear) (: value #u64))
           (#fn work ((#mut owner Owner)) #u64
             (#let view (#pin-ref-mut #u64) (#pin-borrow-mut (#get owner value)))
             (#drop view) (#forget owner) (#return 42u64))";

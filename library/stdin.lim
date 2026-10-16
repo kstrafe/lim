@@ -1,8 +1,8 @@
 (#import "string.lim")
 
-(#enum StdReadError ((StdIoError #i64) (StdTextError StringError)))
-(#enum StdReadResult ((StdLineRead #usize) StdEndOfInput (StdReadFailed StdReadError)))
-(#enum StdReadCharResult ((StdReadChar #u8) StdReadCharEof (StdReadCharFailed #i64)))
+(#enum StdReadError () ((StdIoError #i64) (StdTextError StringError)))
+(#enum StdReadResult () ((StdLineRead #usize) StdEndOfInput (StdReadFailed StdReadError)))
+(#enum StdReadCharResult () ((StdReadChar #u8) StdReadCharEof (StdReadCharFailed #i64)))
 
 (#cfg-if (#cfg-and (#cfg-is #os linux) (#cfg-is #arch x86_64))
   (#fn std-read-one-char () StdReadCharResult

@@ -1,12 +1,12 @@
 (#import "../library/linux_x86_64.lim")
 (#import "../library/pin_box.lim")
 
-(#struct Arena ())
-(#enum ArenaError (OutOfMemory))
+(#struct Arena () ())
+(#enum ArenaError () (OutOfMemory))
 (#import "../library/pin.lim")
-(#enum Step (: Step-waiting #u64 #u64))
-(#linear Step)
-(#enum StepPoll (: StepPending Step : StepReady #u64))
+(#enum Step (#linear) (: Step-waiting #u64 #u64))
+
+(#enum StepPoll () (: StepPending Step : StepReady #u64))
 (#fn step-poll (: task Step : waker (#ref #u64)) StepPoll
   (#return (#match task
     (#case (Step-waiting value remaining)

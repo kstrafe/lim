@@ -1,6 +1,6 @@
 ; Continue once, then move a clearing call result through the loop's break.
-(#enum Choice ((Empty) (Full (#ref #u64))))
-(#enum Outcome ((Ready) (Pending)))
+(#enum Choice () ((Empty) (Full (#ref #u64))))
+(#enum Outcome () ((Ready) (Pending)))
 
 (#fn step-choice (: target (#ref-mut Choice) : value (#ref #u64) : complete #bool) Outcome
   (#return

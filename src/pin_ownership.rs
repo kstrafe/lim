@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn an_ordinary_pin_does_not_make_a_linear_owner_movable_again() {
-        let source = "(#struct Frame ((value #u64))) (#linear Frame)
+        let source = "(#struct Frame (#linear) ((value #u64)))
           (#fn main () () (#let-mut frame Frame (#struct-literal Frame (: value 42u64)))
           (#let pin (#pin-ref-mut Frame) (#pin-borrow-mut frame)) (#forget pin)
           (#let moved Frame frame) (#forget moved) (#return ()))";
@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn heap_adoption_preserves_the_initializers_external_reference() {
-        let source = "(#struct Held (: value (#ref #u64)))
+        let source = "(#struct Held () (: value (#ref #u64)))
           (#fn adopt (: pointer (#ptr-mut Held) : source (#ref #u64)) (#pin-own Held)
           (#return (#unsafe (#pin-own-of pointer (#struct-literal Held (: value source))))))";
         check(source).unwrap();
@@ -516,8 +516,8 @@ mod tests {
 
     #[test]
     fn pinning_a_linear_parameter_requires_a_pinned_input() {
-        let source = "(#struct Frame (: value #u64)) (#linear Frame)
-          (#struct Container (: frame Frame))
+        let source = "(#struct Frame (#linear) (: value #u64))
+          (#struct Container () (: frame Frame))
           (#fn view (: container (#ref Container)) (#pin-ref Frame)
           (#return (#pin-borrow (#get container frame))))";
         assert!(check(source).unwrap_err().contains("ordinary reference"));
@@ -526,7 +526,7 @@ mod tests {
 
     #[test]
     fn a_callee_cannot_mutably_access_an_owner_with_a_retained_pointee_view() {
-        let source = "(#struct Data (: value #u64))
+        let source = "(#struct Data () (: value #u64))
           (#fn mutate (: #mut owner (#pin-own Data) : view (#pin-ref Data)) (#pin-own Data)
           (#let exclusive (#pin-ref-mut Data) (#pin-own-borrow-mut owner))
           (#pin-set-field exclusive value 99u64)

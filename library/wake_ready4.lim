@@ -4,10 +4,10 @@
 ;; read/modify/write protocol between threads.
 (#import "wake_tokens.lim")
 
-(#struct WakeReady4
+(#struct WakeReady4 (#linear)
   ((table WakeTable4) (ready (#atomic #u64)) (local-marker (#ptr #u8))))
 (#opaque WakeReady4)
-(#linear WakeReady4)
+
 
 (#fn wake-ready4-create () WakeReady4
   (#let table WakeTable4 (#call wake-table4-create (:)))

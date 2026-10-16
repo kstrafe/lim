@@ -2,8 +2,8 @@
 (#import "../library/pin_box.lim")
 (#import "../library/pin.lim")
 
-(#struct Arena ((identity #u64) (fail #bool)))
-(#enum ArenaError (OutOfMemory))
+(#struct Arena () ((identity #u64) (fail #bool)))
+(#enum ArenaError () (OutOfMemory))
 (@#result (: ok (#ptr-mut #u64) : error ArenaError : name ArenaAllocResult))
 (@#pin-box (: type #u64 : allocator Arena : name PinU64Box : error ArenaError
   : alloc-result ArenaAllocResult : alloc-ok ArenaAllocResult-ok-value

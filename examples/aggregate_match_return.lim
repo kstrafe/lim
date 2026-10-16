@@ -1,4 +1,4 @@
-(#enum Maybe ((Some #u64) None))
+(#enum Maybe () ((Some #u64) None))
 
 (#fn choose ((value Maybe)) (#tuple #u64 #u64)
   (#return (#match value

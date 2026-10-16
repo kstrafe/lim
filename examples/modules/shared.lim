@@ -1,4 +1,4 @@
-(#struct Widget ((value #u64)))
+(#struct Widget () ((value #u64)))
 
 (#fn widget-value ((widget Widget)) #u64
   (#return (#get widget value)))

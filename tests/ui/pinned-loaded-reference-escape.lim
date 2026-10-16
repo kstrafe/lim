@@ -1,4 +1,4 @@
-(#struct Views (: item (#ref #u64)))
+(#struct Views () (: item (#ref #u64)))
 (#fn leak () Views
   (#return (#block
     (#let owner #u64 42u64)

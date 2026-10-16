@@ -1,7 +1,7 @@
 ; Await a boolean condition. work-pending resumes before the loop decides whether
 ; the body runs; work-ready(false) skips it and work-ready(true) advances the capture.
-(#enum ConditionTask ((Waiting #u64)))
-(#enum ConditionPoll ((ConditionPending ConditionTask) (ConditionReady #bool)))
+(#enum ConditionTask () ((Waiting #u64)))
+(#enum ConditionPoll () ((ConditionPending ConditionTask) (ConditionReady #bool)))
 (#fn condition-poll ((task ConditionTask) (waker (#ref #u64))) ConditionPoll
   (#return (#match task
     (#case (Waiting iteration)

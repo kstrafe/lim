@@ -1,4 +1,4 @@
-(#enum State (Ready))
+(#enum State () (Ready))
 (#fn main () #u64
   (#let value State Ready)
   (#return (#match value (#case Ready 0u64) (#case Ready 1u64))))

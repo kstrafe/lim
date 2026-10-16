@@ -321,8 +321,8 @@ mod tests {
     use crate::Type;
 
     const CONTEXT: &str = "
-      (#enum Child ((Waiting #u64))) (#linear Child)
-      (#enum ChildPoll ((ChildPending Child) (ChildReady #u64)))
+      (#enum Child (#linear) ((Waiting #u64)))
+      (#enum ChildPoll () ((ChildPending Child) (ChildReady #u64)))
       (#fn step-poll ((task Child) (waker (#ref #u64))) ChildPoll
         (#return (#match task (#case (Waiting count) (ChildReady count)))))";
 

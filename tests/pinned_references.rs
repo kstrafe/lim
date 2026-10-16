@@ -14,7 +14,7 @@ fn pinned_payload_projection_evaluates_a_computed_receiver_once() {
                 ""
             };
             let source = format!(
-                "(#enum Choice ((Number {discriminant} #u64) (Empty 0)))
+                "(#enum Choice () ((Number {discriminant} #u64) (Empty 0)))
           (#fn main () #u64
             (#let-mut counter #u64 0u64)
             (#let-mut owner (#array Choice 1)
@@ -129,7 +129,7 @@ fn returned_stored_reference_projections_outlive_their_pointer_container_nativel
 
 #[test]
 fn projected_borrow_receivers_are_snapshotted_before_effectful_indices_natively() {
-    let source = "(#struct Holder (: view (#pin-ref (#array #u64 2))))
+    let source = "(#struct Holder () (: view (#pin-ref (#array #u64 2))))
       (#fn select-element (: holder (#pin-ref-mut Holder) : replacement (#pin-ref (#array #u64 2))) (#pin-ref #u64)
         (#return (#pin-borrow (#index (#get holder view)
           (#block (#pin-set-field holder view replacement) 1usize)))))
@@ -176,7 +176,7 @@ fn projected_borrow_receivers_are_snapshotted_before_effectful_indices_natively(
 
 #[test]
 fn mutable_pinned_reference_and_shared_waker_can_be_passed_together() {
-    let source = "(#struct Payload ((value #u64)))
+    let source = "(#struct Payload () ((value #u64)))
       (#fn update ((view (#pin-ref-mut Payload)) (waker (#ref #u64))) ()
         (#pin-set-field view value 42u64)
         (#return ()))
@@ -195,10 +195,10 @@ fn mutable_pinned_reference_and_shared_waker_can_be_passed_together() {
 
 #[test]
 fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
-    let source = "(#struct Payload ((value #u64)))
-      (#enum State (Ready))
-      (#linear State)
-      (#struct Frame ((state State) (owner Payload)))
+    let source = "(#struct Payload () ((value #u64)))
+      (#enum State (#linear) (Ready))
+
+      (#struct Frame () ((state State) (owner Payload)))
       (#fn advance ((state State) (view (#pin-ref-mut Payload)) (waker (#ref #u64))) ()
         (#forget state)
         (#pin-set-field view value 42u64)
@@ -228,7 +228,7 @@ fn frame_field_self_reference_and_state_move_can_share_a_poll_call() {
 
 #[test]
 fn unsafe_pin_read_and_write_preserve_a_stable_aggregate_location() {
-    let source = "(#struct Pair ((left #u64) (right #u64)))
+    let source = "(#struct Pair () ((left #u64) (right #u64)))
       (#fn main () #u64
         (#let-mut owner Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut owner))
@@ -281,7 +281,7 @@ fn pin_storage_reads_and_writes_require_unsafe() {
 
 #[test]
 fn pin_write_cannot_invalidate_a_live_projected_reference() {
-    let source = "(#struct Pair ((left #u64) (right #u64)))
+    let source = "(#struct Pair () ((left #u64) (right #u64)))
       (#fn main () ()
         (#let-mut owner Pair (#struct-literal Pair ((left 1u64) (right 2u64))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut owner))
@@ -302,7 +302,7 @@ fn pin_write_cannot_invalidate_a_live_projected_reference() {
 
 #[test]
 fn pin_set_field_initializes_and_releases_a_self_reference_in_place() {
-    let source = "(#struct Link ((value #u64) (view (#pin-ref #u64))))
+    let source = "(#struct Link () ((value #u64) (view (#pin-ref #u64))))
       (#fn main () #u64
         (#let-mut outside #u64 3u64)
         (#let external (#pin-ref #u64) (#pin-borrow outside))
@@ -340,7 +340,7 @@ fn pin_set_field_initializes_and_releases_a_self_reference_in_place() {
 
 #[test]
 fn pin_set_field_updates_disjoint_copy_state_while_a_field_is_borrowed() {
-    let source = "(#struct Pair ((value #u64) (state #u32)))
+    let source = "(#struct Pair () ((value #u64) (state #u32)))
       (#fn main () #u64
         (#let-mut pair Pair
           (#struct-literal Pair ((value 40u64) (state 0u32))))
@@ -374,7 +374,7 @@ fn pin_set_field_updates_disjoint_copy_state_while_a_field_is_borrowed() {
 
 #[test]
 fn pin_set_field_cannot_write_the_referent_of_a_live_pin() {
-    let source = "(#struct Pair ((value #u64) (state #u32)))
+    let source = "(#struct Pair () ((value #u64) (state #u32)))
       (#fn main () ()
         (#let-mut pair Pair
           (#struct-literal Pair ((value 40u64) (state 0u32))))
@@ -394,8 +394,8 @@ fn pin_set_field_cannot_write_the_referent_of_a_live_pin() {
 
 #[test]
 fn pin_set_field_updates_a_fieldless_enum_state_in_place() {
-    let source = "(#enum State (Idle Running))
-      (#struct Pair ((value #u64) (state State)))
+    let source = "(#enum State () (Idle Running))
+      (#struct Pair () ((value #u64) (state State)))
       (#fn main () #u64
         (#let-mut pair Pair
           (#struct-literal Pair ((value 40u64) (state Idle))))
@@ -429,7 +429,7 @@ fn pin_set_field_updates_a_fieldless_enum_state_in_place() {
 
 #[test]
 fn pin_set_field_rejects_replacing_a_borrowed_reference_field() {
-    let source = "(#struct Link ((value #u64) (view (#pin-ref #u64))))
+    let source = "(#struct Link () ((value #u64) (view (#pin-ref #u64))))
       (#fn main () ()
         (#let-mut outside #u64 3u64)
         (#let external (#pin-ref #u64) (#pin-borrow outside))
@@ -453,7 +453,7 @@ fn pin_set_field_rejects_replacing_a_borrowed_reference_field() {
 
 #[test]
 fn pin_set_field_does_not_duplicate_mutable_references() {
-    let source = "(#struct Link ((view (#pin-ref-mut #u64))))
+    let source = "(#struct Link () ((view (#pin-ref-mut #u64))))
       (#fn main () ()
         (#let-mut target #u64 3u64)
         (#let replacement (#pin-ref-mut #u64) (#pin-borrow-mut target))
@@ -474,7 +474,7 @@ fn pin_set_field_does_not_duplicate_mutable_references() {
 
 #[test]
 fn a_stored_self_reference_keeps_its_pinned_owner_borrowed() {
-    let source = "(#struct Link ((value #u64) (view (#pin-ref #u64))))
+    let source = "(#struct Link () ((value #u64) (view (#pin-ref #u64))))
       (#fn main () ()
         (#let-mut outside #u64 3u64)
         (#let external (#pin-ref #u64) (#pin-borrow outside))
@@ -509,8 +509,8 @@ fn a_pinned_referent_cannot_be_copied_while_the_pin_is_live() {
 
 #[test]
 fn a_pinned_linear_referent_cannot_be_moved() {
-    let source = "(#struct Resource ((value #u64)))
-      (#linear Resource)
+    let source = "(#struct Resource (#linear) ((value #u64)))
+
       (#fn main () #u64
         (#let owner Resource (#struct-literal Resource ((value 7u64))))
         (#let pinned (#pin-ref Resource) (#pin-borrow owner))
@@ -537,7 +537,7 @@ fn a_pinned_mutable_reference_cannot_replace_its_referent() {
 
 #[test]
 fn fields_of_a_pinned_referent_cannot_be_replaced_implicitly() {
-    let source = "(#struct Pair ((left #u64)))
+    let source = "(#struct Pair () ((left #u64)))
       (#fn main () #u64
         (#let-mut pair Pair (#struct-literal Pair ((left 7u64))))
         (#let pinned (#pin-ref-mut Pair) (#pin-borrow-mut pair))
@@ -589,7 +589,7 @@ fn a_stack_pin_cannot_escape_its_owner_function() {
 
 #[test]
 fn a_stack_pin_cannot_escape_inside_an_aggregate() {
-    let source = "(#struct Holder ((value (#pin-ref #u64))))
+    let source = "(#struct Holder () ((value (#pin-ref #u64))))
       (#fn make-holder () Holder
         (#let owner #u64 7u64)
         (#let pinned (#pin-ref #u64) (#pin-borrow owner))
@@ -603,8 +603,8 @@ fn a_stack_pin_cannot_escape_inside_an_aggregate() {
 
 #[test]
 fn a_pinned_owner_cannot_be_destroyed_until_its_pin_is_dropped() {
-    let source = "(#struct Resource ((value #u64)))
-      (#linear Resource)
+    let source = "(#struct Resource (#linear) ((value #u64)))
+
       (#fn main () #u64
         (#let owner Resource (#struct-literal Resource ((value 7u64))))
         (#let pinned (#pin-ref Resource) (#pin-borrow owner))
@@ -620,8 +620,8 @@ fn a_pinned_owner_cannot_be_destroyed_until_its_pin_is_dropped() {
 
 #[test]
 fn dropping_a_pin_allows_its_linear_owner_to_be_destroyed() {
-    let source = "(#struct Resource ((value #u64)))
-      (#linear Resource)
+    let source = "(#struct Resource (#linear) ((value #u64)))
+
       (#fn main () #u64
         (#let owner Resource (#struct-literal Resource ((value 7u64))))
         (#let pinned (#pin-ref Resource) (#pin-borrow owner))
@@ -749,7 +749,7 @@ fn a_pin_stays_effective_across_a_reference_returning_function() {
 
 #[test]
 fn field_reborrows_preserve_the_pin() {
-    let source = "(#struct Pair ((left #u64) (right #u64)))
+    let source = "(#struct Pair () ((left #u64) (right #u64)))
       (#fn main () #u64
         (#let pair Pair (#struct-literal Pair ((left 7u64) (right 8u64))))
         (#let pinned (#pin-ref Pair) (#pin-borrow pair))
@@ -787,7 +787,7 @@ fn a_pinned_reference_runs_through_the_native_backend() {
 
 #[test]
 fn a_callee_can_update_disjoint_storage_with_an_internal_owner_reference() {
-    let source = "(#struct Link (: value #u64 : state #u32 : view (#pin-ref #u64)))
+    let source = "(#struct Link () (: value #u64 : state #u32 : view (#pin-ref #u64)))
       (#fn install (: target (#pin-ref-mut Link)) (#pin-ref-mut Link)
         (#let view (#pin-ref #u64) (#pin-borrow (#get target value)))
         (#pin-set-field target view view) (#return target))
@@ -859,7 +859,7 @@ fn ordinary_calls_reject_overwriting_an_internally_borrowed_owner() {
 
 #[test]
 fn a_pinned_field_reborrow_runs_through_the_native_backend() {
-    let source = "(#struct Pair ((left #u64) (right #u64)))
+    let source = "(#struct Pair () ((left #u64) (right #u64)))
       (#fn main () #u64
         (#let pair Pair (#struct-literal Pair ((left 40u64) (right 2u64))))
         (#let pinned (#pin-ref Pair) (#pin-borrow pair))

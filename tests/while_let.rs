@@ -25,7 +25,7 @@ fn run(source: &str) {
 
 #[test]
 fn scrutinee_effects_and_payload_are_not_repeated() {
-    run("(#enum Choice ((Chosen #u64) Empty))
+    run("(#enum Choice () ((Chosen #u64) Empty))
       (#fn take (: counter (#ref-mut #u64)) Choice
         (#let before #u64 (#deref counter))
         (#deref-set counter (#u64.+.wrap before 1u64))
@@ -42,7 +42,7 @@ fn scrutinee_effects_and_payload_are_not_repeated() {
 fn loop_control_targets_the_single_evaluation_loop() {
     for control in ["(#continue)", "(#break)", "(#break-to iteration)"] {
         run(&format!(
-            "(#enum Choice ((Chosen #u64) Empty))
+            "(#enum Choice () ((Chosen #u64) Empty))
           (#fn main () #u64
             (#let-mut choice Choice (Chosen 42u64))
             (#let-mut result #u64 0u64)
@@ -55,7 +55,7 @@ fn loop_control_targets_the_single_evaluation_loop() {
 
 #[test]
 fn single_evaluation_does_not_release_payload_borrows_early() {
-    let source = "(#enum Choice ((Chosen (#ref #u64)) Empty))
+    let source = "(#enum Choice () ((Chosen (#ref #u64)) Empty))
       (#fn main () #u64
         (#let-mut owner #u64 42u64)
         (#let-mut choice Choice (Chosen (#borrow owner)))

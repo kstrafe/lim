@@ -62,8 +62,8 @@ Collections store an immutable reference to that value:
 ```lisp library
 (#import "../library/cell.lim")
 (@#cell #usize CellUsize CellUsize-create CellUsize-get CellUsize-set)
-(#struct AllocatorU64 ((cursor CellUsize)))
-(#struct VecU64 ((allocator (#ref AllocatorU64))
+(#struct AllocatorU64 () ((cursor CellUsize)))
+(#struct VecU64 () ((allocator (#ref AllocatorU64))
                  (pointer (#ptr-mut #u64))
                  (length #usize)
                  (capacity #usize)))
@@ -136,7 +136,7 @@ collection generator requests them. They are ordinary free-standing functions
 whose names are supplied as literal generator arguments:
 
 ```lisp syntax
-(#enum AllocError (OutOfMemory))
+(#enum AllocError () (OutOfMemory))
 (@#result (: ok (#ptr-mut #u8) : error AllocError : name AllocResult))
 
 (#fn allocator-alloc
